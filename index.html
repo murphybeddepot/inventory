@@ -20,14 +20,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .panel{display:none;padding:12px}
 .panel.active{display:block}
 
-/* MODE */
 .mode-row{display:flex;gap:6px;margin-bottom:12px}
 .mode-chip{flex:1;padding:10px 4px;font-size:13px;font-weight:600;border-radius:8px;border:2px solid var(--border);background:#fff;color:var(--gray);cursor:pointer;text-align:center}
 .mode-chip.active-count{border-color:#1a73e8;background:#e8f0fe;color:#1a73e8}
 .mode-chip.active-received{border-color:#1e8e3e;background:#e6f4ea;color:#1e8e3e}
 .mode-chip.active-removed{border-color:#d93025;background:#fce8e6;color:#d93025}
 
-/* SEARCH + CAM ROW */
 .input-row{display:flex;gap:8px;margin-bottom:10px;align-items:center}
 .search-wrap{position:relative;flex:1}
 .search-wrap input{width:100%;padding:12px 36px 12px 14px;font-size:16px;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;-webkit-appearance:none}
@@ -36,7 +34,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .cam-btn{width:50px;height:50px;border-radius:10px;border:2px solid var(--border);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#5f6368}
 .cam-btn.active{border-color:var(--blue);background:#e8f0fe;color:var(--blue)}
 
-/* LIVE CAMERA OVERLAY */
+/* CAMERA */
 .cam-overlay{display:none;position:fixed;inset:0;background:#000;z-index:200;flex-direction:column}
 .cam-overlay.open{display:flex}
 .cam-top{background:rgba(0,0,0,.7);padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
@@ -44,31 +42,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .cam-close-btn{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:8px 18px;font-size:14px;cursor:pointer}
 .cam-body{flex:1;position:relative;overflow:hidden}
 #camVideo{width:100%;height:100%;object-fit:cover;display:block}
-/* Aim box overlay */
 .cam-aim{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .cam-aim-box{position:relative;width:75vw;max-width:340px;height:140px}
 .cam-aim-box::before{content:'';position:absolute;inset:0;border:2px solid rgba(255,255,255,.3);border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.45)}
-/* Animated scan line */
 .cam-scan-line{position:absolute;left:4px;right:4px;height:2px;background:linear-gradient(90deg,transparent,#1a73e8,transparent);animation:scanline 1.8s ease-in-out infinite}
 @keyframes scanline{0%{top:8px;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:calc(100% - 10px);opacity:0}}
-/* Corner brackets */
-.cam-aim-box::after{content:'';position:absolute;inset:0;border-radius:10px;
-  background:
-    linear-gradient(var(--blue),var(--blue)) top left / 20px 3px no-repeat,
-    linear-gradient(var(--blue),var(--blue)) top left / 3px 20px no-repeat,
-    linear-gradient(var(--blue),var(--blue)) top right / 20px 3px no-repeat,
-    linear-gradient(var(--blue),var(--blue)) top right / 3px 20px no-repeat,
-    linear-gradient(var(--blue),var(--blue)) bottom left / 20px 3px no-repeat,
-    linear-gradient(var(--blue),var(--blue)) bottom left / 3px 20px no-repeat,
-    linear-gradient(var(--blue),var(--blue)) bottom right / 20px 3px no-repeat,
-    linear-gradient(var(--blue),var(--blue)) bottom right / 3px 20px no-repeat}
+.cam-aim-box::after{content:'';position:absolute;inset:0;border-radius:10px;background:linear-gradient(var(--blue),var(--blue)) top left/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) top left/3px 20px no-repeat,linear-gradient(var(--blue),var(--blue)) top right/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) top right/3px 20px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom left/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom left/3px 20px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom right/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom right/3px 20px no-repeat}
 .cam-foot{background:rgba(0,0,0,.75);color:rgba(255,255,255,.8);text-align:center;padding:14px 16px;font-size:13px;min-height:52px;display:flex;align-items:center;justify-content:center;gap:8px}
 .cam-foot.found{background:#1e8e3e;color:#fff;font-weight:600}
 .cam-foot.error{background:#b31412;color:#fff}
 .scan-dot{width:8px;height:8px;border-radius:50%;background:#fff;opacity:.5;animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 
-/* SUGGESTIONS */
 .suggestions{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:10px;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:240px;overflow-y:auto}
 .sug-item{padding:13px 14px;border-bottom:1px solid #f1f3f4;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .sug-item:last-child{border-bottom:none}
@@ -79,18 +64,41 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 
 /* ITEM CARD */
 .item-card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.1);margin-bottom:10px}
-.item-name{font-size:17px;font-weight:700;margin-bottom:4px;line-height:1.3}
+.item-name{font-size:17px;font-weight:700;margin-bottom:2px;line-height:1.3}
 .item-vendor{font-size:13px;color:var(--gray);margin-bottom:12px}
 .stock-row{display:flex;gap:8px;margin-bottom:14px}
 .stock-box{flex:1;background:#f8f9fa;border-radius:8px;padding:8px;text-align:center}
 .stock-box .lbl{font-size:11px;color:var(--gray);font-weight:500;margin-bottom:2px}
 .stock-box .val{font-size:18px;font-weight:700}
+
+/* LOCATION ENTRIES — the new multi-location UI */
+.loc-entries{margin-bottom:14px}
+.loc-entry{display:flex;gap:8px;align-items:center;margin-bottom:8px;background:#f8f9fa;border-radius:10px;padding:10px 12px}
+.loc-entry-num{font-size:12px;font-weight:700;color:var(--gray);min-width:20px}
+.loc-entry-qty{width:72px;padding:8px 10px;font-size:18px;font-weight:700;text-align:center;border:2px solid var(--border);border-radius:8px;background:#fff;outline:none;-webkit-appearance:none;-moz-appearance:textfield;flex-shrink:0}
+.loc-entry-qty::-webkit-outer-spin-button,.loc-entry-qty::-webkit-inner-spin-button{-webkit-appearance:none}
+.loc-entry-qty:focus{border-color:var(--blue)}
+.loc-entry-loc{flex:1;padding:8px 10px;font-size:14px;border:2px solid var(--border);border-radius:8px;background:#fff;outline:none;-webkit-appearance:none}
+.loc-entry-loc:focus{border-color:var(--blue)}
+.loc-entry-del{background:none;border:none;color:#ccc;font-size:20px;cursor:pointer;padding:0 2px;line-height:1;flex-shrink:0}
+.loc-entry-del:active{color:var(--red)}
+
+.loc-total-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#e8f0fe;border-radius:10px;margin-bottom:14px}
+.loc-total-label{font-size:13px;font-weight:600;color:#174ea6}
+.loc-total-val{font-size:22px;font-weight:700;color:#1a73e8}
+
+.add-loc-btn{width:100%;padding:11px;font-size:14px;font-weight:600;border:2px dashed var(--border);border-radius:10px;background:#fff;color:var(--gray);cursor:pointer;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:6px}
+.add-loc-btn:active{background:#f8f9fa}
+
+/* received/removed mode — single qty field */
+.single-qty-wrap{margin-bottom:14px}
 .field-label{font-size:13px;font-weight:600;color:var(--gray);margin-bottom:6px}
-.big-input{width:100%;padding:14px;font-size:22px;font-weight:700;text-align:center;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;margin-bottom:12px;-webkit-appearance:none;-moz-appearance:textfield}
+.big-input{width:100%;padding:14px;font-size:22px;font-weight:700;text-align:center;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;margin-bottom:0;-webkit-appearance:none;-moz-appearance:textfield}
 .big-input::-webkit-outer-spin-button,.big-input::-webkit-inner-spin-button{-webkit-appearance:none}
 .big-input:focus{border-color:var(--blue)}
-.loc-input{width:100%;padding:12px 14px;font-size:16px;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;margin-bottom:14px;-webkit-appearance:none}
+.loc-input{width:100%;padding:12px 14px;font-size:16px;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;-webkit-appearance:none}
 .loc-input:focus{border-color:var(--blue)}
+
 .apply-btn{width:100%;padding:15px;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer}
 .apply-btn.count{background:#1a73e8;color:#fff}
 .apply-btn.received{background:#1e8e3e;color:#fff}
@@ -115,15 +123,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .clr-btn{font-size:13px;color:var(--red);background:none;border:1px solid var(--red);border-radius:6px;padding:5px 10px;cursor:pointer}
 .empty{text-align:center;padding:40px 20px;color:var(--gray);font-size:14px}
 .log-item{background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-.log-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+.log-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
 .log-name{font-size:14px;font-weight:600;flex:1;margin-right:8px;line-height:1.3}
 .log-badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap}
 .b-count{background:#e8f0fe;color:#1a73e8}
 .b-received{background:#e6f4ea;color:#1e8e3e}
 .b-removed{background:#fce8e6;color:#d93025}
-.log-meta{display:flex;gap:10px;font-size:12px;color:var(--gray);flex-wrap:wrap}
+.log-meta{display:flex;gap:10px;font-size:12px;color:var(--gray);flex-wrap:wrap;margin-bottom:4px}
 .d-pos{color:var(--green);font-weight:600}
 .d-neg{color:var(--red);font-weight:600}
+.log-locs{font-size:12px;color:var(--gray)}
+.log-loc-item{display:inline-block;background:#f1f3f4;border-radius:4px;padding:2px 7px;margin:2px 2px 0 0}
 
 /* EXPORT */
 .ex-card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.1);margin-bottom:12px}
@@ -133,20 +143,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .stat-box{flex:1;background:#f8f9fa;border-radius:8px;padding:10px;text-align:center}
 .s-val{font-size:22px;font-weight:700;display:block}
 .s-lbl{font-size:11px;color:var(--gray);font-weight:500}
-.ch-list{max-height:280px;overflow-y:auto}
-.ch-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f3f4;font-size:13px}
+.ch-list{max-height:320px;overflow-y:auto}
+.ch-item{padding:10px 0;border-bottom:1px solid #f1f3f4;font-size:13px}
 .ch-item:last-child{border-bottom:none}
-.ch-name{flex:1;margin-right:8px;line-height:1.3}
-.ch-vals{text-align:right}
-.ch-vals strong{display:block}
-.ch-vals span{font-size:12px;color:var(--gray)}
-.dl-btn{width:100%;padding:15px;font-size:16px;font-weight:700;background:#1a73e8;color:#fff;border:none;border-radius:10px;cursor:pointer;margin-bottom:10px}
+.ch-name{font-weight:600;margin-bottom:4px}
+.ch-locs{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.ch-loc-tag{background:#f1f3f4;border-radius:4px;padding:2px 8px;font-size:12px;color:var(--gray)}
+.ch-total{font-size:14px;font-weight:700;color:#1a73e8;float:right}
+.dl-btn{width:100%;padding:15px;font-size:16px;font-weight:700;background:#1a73e8;color:#fff;border:none;border-radius:10px;cursor:pointer}
 .dl-btn:active{opacity:.85}
 
-/* INFO BANNER */
 .info-banner{background:#e8f0fe;border:1px solid #c5d8f6;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#174ea6;line-height:1.5}
 .info-banner strong{display:block;margin-bottom:2px}
-
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:500;z-index:999;opacity:0;transition:.3s;pointer-events:none;max-width:88vw;text-align:center}
 .toast.show{opacity:1}
 </style>
@@ -164,20 +172,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')">Export</button>
 </div>
 
-<!-- SCAN PANEL -->
 <div id="tab-scan" class="panel active">
   <div class="info-banner" id="safariWarning" style="display:none">
     <strong>Open in Safari for camera scanning</strong>
-    Camera access is blocked inside apps. Save this file and open it in Safari, then tap the scan button.
+    Camera access is blocked inside apps. Open this page in Safari for live barcode scanning.
   </div>
   <div class="mode-row">
-    <button class="mode-chip active-count" id="mc-count" onclick="setMode('count')">New Count</button>
+    <button class="mode-chip active-count" id="mc-count" onclick="setMode('count')">Count</button>
     <button class="mode-chip" id="mc-received" onclick="setMode('received')">Received +</button>
     <button class="mode-chip" id="mc-removed" onclick="setMode('removed')">Removed −</button>
   </div>
   <div class="input-row">
     <div class="search-wrap">
-      <input type="search" id="searchInput" placeholder="Search or type barcode…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="onSearch()" onkeydown="onSearchKey(event)">
+      <input type="search" id="searchInput" placeholder="Search or scan barcode…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="onSearch()" onkeydown="onSearchKey(event)">
       <button class="x-btn" onclick="clearSearch()">×</button>
     </div>
     <button class="cam-btn" id="camBtn" onclick="toggleCamera()">
@@ -191,18 +198,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div id="itemCard"></div>
 </div>
 
-<!-- BARCODES PANEL -->
 <div id="tab-barcodes" class="panel">
   <div class="barcode-hint">
     <strong>Map barcodes to elements</strong>
-    Barcode mappings are saved on this device. After scanning an unknown barcode, tap "Map this barcode" or add a row manually.
+    Mappings are saved on this device. Scan an unknown barcode then tap "Map this barcode", or add manually below.
   </div>
   <div id="mapRows"></div>
   <button class="add-map-btn" onclick="addMapRow()">+ Add barcode mapping</button>
   <datalist id="elementsList"></datalist>
 </div>
 
-<!-- LOG PANEL -->
 <div id="tab-log" class="panel">
   <div class="log-header">
     <span class="log-title" id="logTitle">Activity Log</span>
@@ -211,7 +216,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div id="logList"><div class="empty">No scans yet.</div></div>
 </div>
 
-<!-- EXPORT PANEL -->
 <div id="tab-export" class="panel">
   <div class="ex-card">
     <h2>Session Summary</h2>
@@ -225,12 +229,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   </div>
   <div class="ex-card">
     <h2>Export to Excel</h2>
-    <p>Writes updates into <strong>New Count</strong>, <strong>REMOVED</strong>, <strong>RECEIVED</strong>, and <strong>LOCATION</strong> columns of the INVENTORY (ELEMENTS) tab, plus a Scan Log sheet.</p>
+    <p>Writes the total count plus a breakdown by location into <strong>New Count</strong> and <strong>LOCATION</strong> columns, plus a full Scan Log sheet.</p>
     <button class="dl-btn" onclick="exportXLSX()">Download Updated .xlsx</button>
   </div>
 </div>
 
-<!-- LIVE CAMERA OVERLAY -->
+<!-- CAMERA OVERLAY -->
 <div class="cam-overlay" id="camOverlay">
   <div class="cam-top">
     <span>Scan barcode</span>
@@ -238,11 +242,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   </div>
   <div class="cam-body">
     <video id="camVideo" playsinline muted autoplay></video>
-    <div class="cam-aim">
-      <div class="cam-aim-box">
-        <div class="cam-scan-line"></div>
-      </div>
-    </div>
+    <div class="cam-aim"><div class="cam-aim-box"><div class="cam-scan-line"></div></div></div>
   </div>
   <div class="cam-foot" id="camFoot">
     <div class="scan-dot"></div>
@@ -257,8 +257,12 @@ const ELEMENTS = [{"row":2,"name":"0.75 SCREW8 (010.72.965)","vendor":"HAFELE","
 
 // ── STATE ─────────────────────────────────────────
 let inv = ELEMENTS.map(e => Object.assign({}, e, {
-  _newCount: e.newCount, _removed: e.removed,
-  _received: e.received, _location: e.location, _changed: false
+  // locations: array of {qty, loc} entries for Count mode
+  // _received/_removed: simple cumulative numbers
+  _locations: [],      // [{qty:10, loc:'Shelf A'}, {qty:24, loc:'Bin 3'}, ...]
+  _received: e.received,
+  _removed: e.removed,
+  _changed: false
 }));
 let invByRow = {};
 inv.forEach(i => { invByRow[i.row] = i; });
@@ -267,14 +271,13 @@ let mode = 'count';
 let selRow = null;
 let pendingBarcode = null;
 
-// Barcode map — persisted in localStorage so it survives sessions
 let barcodeMap = {};
 try { barcodeMap = JSON.parse(localStorage.getItem('mbd_barcode_map') || '{}'); } catch(e) {}
 function saveBarcodeMap() {
   try { localStorage.setItem('mbd_barcode_map', JSON.stringify(barcodeMap)); } catch(e) {}
 }
 
-// ZXing reader + hints — set up once with TRY_HARDER + all useful formats
+// ZXing setup with TRY_HARDER
 let zxingReader = null;
 function getReader() {
   if (zxingReader) return zxingReader;
@@ -282,14 +285,10 @@ function getReader() {
   const hints = new Map();
   hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
   hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-    ZXing.BarcodeFormat.QR_CODE,
-    ZXing.BarcodeFormat.CODE_128,
-    ZXing.BarcodeFormat.CODE_39,
-    ZXing.BarcodeFormat.CODE_93,
-    ZXing.BarcodeFormat.EAN_13,
-    ZXing.BarcodeFormat.EAN_8,
-    ZXing.BarcodeFormat.UPC_A,
-    ZXing.BarcodeFormat.DATA_MATRIX,
+    ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.CODE_93,
+    ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.DATA_MATRIX,
     ZXing.BarcodeFormat.PDF_417,
   ]);
   const r = new ZXing.MultiFormatReader();
@@ -298,135 +297,84 @@ function getReader() {
   return r;
 }
 
-// Detect if we're inside a webview (Claude app, etc.)
 function isWebView() {
   const ua = navigator.userAgent;
-  // iOS webview: has iPhone/iPad but NOT Safari in UA
   if (/iPhone|iPad|iPod/.test(ua) && !/Safari/.test(ua)) return true;
-  // Android webview
   if (/Android/.test(ua) && /wv/.test(ua)) return true;
   return false;
 }
-if (isWebView()) {
-  document.getElementById('safariWarning').style.display = 'block';
-}
+if (isWebView()) document.getElementById('safariWarning').style.display = 'block';
 
-// ── LIVE CAMERA ───────────────────────────────────
-let camStream = null;
-let camAnimFrame = null;
-let camActive = false;
-let camLastCode = null;
-let camScanCanvas = null;
-let camScanCtx = null;
+// ── CAMERA ────────────────────────────────────────
+let camStream = null, camAnimFrame = null, camActive = false, camLastCode = null;
+let camScanCanvas = null, camScanCtx = null;
 
 async function toggleCamera() {
   if (camActive) { stopCamera(); return; }
   await startCamera();
 }
-
 async function startCamera() {
   const overlay = document.getElementById('camOverlay');
   const foot = document.getElementById('camFoot');
   const footText = document.getElementById('camFootText');
   const btn = document.getElementById('camBtn');
-
   overlay.classList.add('open');
   btn.classList.add('active');
   foot.className = 'cam-foot';
   footText.textContent = 'Starting camera…';
-
   try {
-    // Request rear camera
     let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
-    } catch(e) {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    }
-    camStream = stream;
-    camActive = true;
-
+    try { stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}}); }
+    catch(e) { stream = await navigator.mediaDevices.getUserMedia({video:true}); }
+    camStream = stream; camActive = true;
     const video = document.getElementById('camVideo');
     video.srcObject = stream;
     await new Promise(res => { video.onloadedmetadata = res; });
     video.play();
-
-    // Off-screen canvas for frame capture — use native video resolution
     camScanCanvas = document.createElement('canvas');
-    camScanCtx = camScanCanvas.getContext('2d', { willReadFrequently: true });
-
+    camScanCtx = camScanCanvas.getContext('2d', {willReadFrequently:true});
     footText.textContent = 'Hold barcode in the frame';
     camLastCode = null;
-
-    // Start continuous decode loop
     scanFrame();
-
   } catch(e) {
-    const msg = e.name === 'NotAllowedError'
-      ? 'Camera permission denied. Open this file in Safari (not inside an app).'
-      : e.name === 'NotFoundError' ? 'No camera found.'
-      : 'Camera error: ' + e.message;
+    const msg = e.name==='NotAllowedError' ? 'Camera permission denied. Open this page in Safari.'
+              : e.name==='NotFoundError' ? 'No camera found.'
+              : 'Camera error: ' + e.message;
     foot.className = 'cam-foot error';
     footText.textContent = msg;
-    camActive = false;
-    btn.classList.remove('active');
+    camActive = false; btn.classList.remove('active');
     setTimeout(() => overlay.classList.remove('open'), 4000);
   }
 }
-
 function scanFrame() {
   if (!camActive) return;
   const video = document.getElementById('camVideo');
-
   if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-    // Resize to 800px wide for fast decoding — confirmed working size
     const scale = Math.min(1, 800 / video.videoWidth);
     camScanCanvas.width  = Math.round(video.videoWidth  * scale);
     camScanCanvas.height = Math.round(video.videoHeight * scale);
-
-    // Draw grayscale + boosted contrast — the key fix confirmed by pyzbar testing
     camScanCtx.filter = 'grayscale(1) contrast(1.5)';
     camScanCtx.drawImage(video, 0, 0, camScanCanvas.width, camScanCanvas.height);
-
     const code = tryDecode(camScanCanvas);
-    if (code && code !== camLastCode) {
-      camLastCode = code;
-      onBarcodeFound(code);
-      return; // stop loop — will restart after user dismisses
-    }
+    if (code && code !== camLastCode) { camLastCode = code; onBarcodeFound(code); return; }
   }
-
-  // ~15fps decode loop (66ms) — fast enough without draining battery
   camAnimFrame = setTimeout(scanFrame, 66);
 }
-
 function tryDecode(canvas) {
   const reader = getReader();
   if (!reader) return null;
   try {
-    const lum     = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-    const binarizer = new ZXing.HybridBinarizer(lum);
-    const bitmap  = new ZXing.BinaryBitmap(binarizer);
+    const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
     return reader.decodeWithState(bitmap).getText();
-  } catch(e) {
-    return null; // NotFoundException is normal — no barcode in frame yet
-  }
+  } catch(e) { return null; }
 }
-
 function onBarcodeFound(code) {
   const foot = document.getElementById('camFoot');
-  const footText = document.getElementById('camFootText');
+  document.getElementById('camFootText').textContent = 'Found: ' + code;
   foot.className = 'cam-foot found';
-  footText.textContent = 'Found: ' + code;
-
-  setTimeout(() => {
-    stopCamera();
-    handleBarcode(code);
-  }, 500);
+  setTimeout(() => { stopCamera(); handleBarcode(code); }, 500);
 }
-
 function stopCamera() {
   camActive = false;
   if (camAnimFrame) { clearTimeout(camAnimFrame); camAnimFrame = null; }
@@ -436,22 +384,17 @@ function stopCamera() {
   document.getElementById('camOverlay').classList.remove('open');
   document.getElementById('camBtn').classList.remove('active');
 }
-
 function handleBarcode(code) {
-  // 1. Check explicit barcode map
   const mapped = barcodeMap[code] || barcodeMap[code.toUpperCase()];
   if (mapped) { pickByName(mapped); showToast('Scanned: ' + mapped); return; }
-  // 2. Direct name match (your boxes encode the element name directly)
   const nameMatch = inv.find(i =>
     i.name === code ||
     i.name.replace(/\s+/g,'').toUpperCase() === code.replace(/\s+/g,'').toUpperCase() ||
     i.name.toUpperCase().replace(/[^A-Z0-9]/g,'') === code.toUpperCase().replace(/[^A-Z0-9]/g,'')
   );
   if (nameMatch) { pickByRow(nameMatch.row); showToast('Scanned: ' + nameMatch.name); return; }
-  // 3. Unknown — show mapping prompt
   showUnmappedBarcode(code);
 }
-
 function showUnmappedBarcode(code) {
   document.getElementById('searchInput').value = code;
   document.getElementById('suggestions').innerHTML = '';
@@ -459,14 +402,10 @@ function showUnmappedBarcode(code) {
   const div = document.createElement('div');
   div.className = 'not-found-card';
   div.innerHTML = '<div style="font-weight:700;font-size:15px">Unknown barcode</div>'
-    + '<p>Barcode <code style="background:#f1f3f4;padding:2px 6px;border-radius:4px">' + esc(code) + '</code> is not mapped to any element yet. You can map it now or search manually above.</p>'
+    + '<p>Barcode <code style="background:#f1f3f4;padding:2px 6px;border-radius:4px">'+esc(code)+'</code> is not mapped to any element yet.</p>'
     + '<button class="map-it-btn" id="mapItBtn">Map this barcode \u2192</button>';
-  el.innerHTML = '';
-  el.appendChild(div);
-  document.getElementById('mapItBtn').addEventListener('click', () => {
-    pendingBarcode = code;
-    switchTab('barcodes');
-  });
+  el.innerHTML = ''; el.appendChild(div);
+  document.getElementById('mapItBtn').addEventListener('click', () => { pendingBarcode = code; switchTab('barcodes'); });
 }
 
 // ── TABS ──────────────────────────────────────────
@@ -502,9 +441,11 @@ function onSearch() {
   if (!hits.length) { sugEl.innerHTML=''; return; }
   sugEl.innerHTML = hits.map(i => {
     const sc = stockClass(i);
+    const total = locTotal(i);
+    const display = i._changed ? fmt(total) + ' \u2713' : fmt(i.onHand);
     return '<div class="sug-item" data-row="'+i.row+'">'
-      + '<span class="sug-name">'+esc(i.name)+(i._changed?' \u2713':'')+'</span>'
-      + '<span class="sug-stock '+sc+'">'+fmt(i.onHand)+'</span></div>';
+      +'<span class="sug-name">'+esc(i.name)+'</span>'
+      +'<span class="sug-stock '+sc+'">'+display+'</span></div>';
   }).join('');
   sugEl.querySelectorAll('.sug-item').forEach(el => {
     el.addEventListener('click', () => pickByRow(parseInt(el.dataset.row)));
@@ -530,55 +471,210 @@ function pickByRow(row) {
   document.getElementById('searchInput').value = item.name;
   document.getElementById('suggestions').innerHTML = '';
   renderCard(item);
-  setTimeout(()=>{ const el=document.getElementById('qtyInput'); if(el){el.focus();el.select();} },150);
+  // Focus first qty input
+  setTimeout(()=>{
+    const el = document.querySelector('.loc-entry-qty, .big-input');
+    if (el) { el.focus(); el.select(); }
+  }, 150);
 }
 function pickByName(name) {
   const item = inv.find(i=>i.name===name);
   if (item) pickByRow(item.row);
 }
 
+// ── HELPERS ───────────────────────────────────────
+function locTotal(item) {
+  return item._locations.reduce((s, e) => s + (parseFloat(e.qty) || 0), 0);
+}
+function stockClass(i) {
+  if (i.onHand<0) return 's-neg';
+  if (i.threshold>0 && i.onHand<i.threshold*.5) return 's-low';
+  return 's-ok';
+}
+function fmt(n) {
+  if (n===null||n===undefined) return '\u2014';
+  const v=parseFloat(n);
+  return isNaN(v)?'\u2014':(Number.isInteger(v)?v.toLocaleString():v.toFixed(2));
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function updateBadge() {
+  const n=inv.filter(i=>i._changed).length;
+  document.getElementById('changedBadge').textContent=n+' change'+(n!==1?'s':'');
+}
+function showToast(msg) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._tid);
+  t._tid=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
 // ── ITEM CARD ─────────────────────────────────────
 function renderCard(item) {
   const sc = stockClass(item);
-  const mLabel = mode==='count'?'New Count':mode==='received'?'Qty Received':'Qty Removed';
-  const bLabel = mode==='count'?'Set New Count':mode==='received'?'Add to Stock':'Remove from Stock';
-  const curVal = mode==='count'?(item._newCount!==null?item._newCount:'')
-               : mode==='received'?(item._received||''):(item._removed||'');
-  document.getElementById('itemCard').innerHTML =
-    '<div class="item-card">'
-    +'<div class="item-name">'+esc(item.name)+'</div>'
+  const el = document.getElementById('itemCard');
+
+  if (mode === 'count') {
+    // Ensure at least one location entry exists
+    if (item._locations.length === 0) item._locations.push({qty:'', loc:''});
+    renderCountCard(item, el, sc);
+  } else {
+    renderSimpleCard(item, el, sc);
+  }
+}
+
+function renderCountCard(item, el, sc) {
+  const total = locTotal(item);
+  const div = document.createElement('div');
+  div.className = 'item-card';
+  div.innerHTML =
+    '<div class="item-name">'+esc(item.name)+'</div>'
+    +'<div class="item-vendor">'+esc(item.vendor)+'</div>'
+    +'<div class="stock-row">'
+    +'<div class="stock-box"><div class="lbl">Last Count</div><div class="val">'+fmt(item.lastCount)+'</div></div>'
+    +'<div class="stock-box"><div class="lbl">On Hand</div><div class="val '+sc+'">'+fmt(item.onHand)+'</div></div>'
+    +'<div class="stock-box"><div class="lbl">Threshold</div><div class="val">'+fmt(item.threshold)+'</div></div>'
+    +'</div>'
+    +'<div id="locEntries" class="loc-entries"></div>'
+    +'<div class="loc-total-row"><span class="loc-total-label">Total new count</span><span class="loc-total-val" id="locTotal">'+fmt(total)+'</span></div>'
+    +'<button class="add-loc-btn" id="addLocBtn">+ Add another location</button>'
+    +'<button class="apply-btn count" id="applyBtn">Set New Count</button>';
+  el.innerHTML = '';
+  el.appendChild(div);
+
+  // Render existing location rows
+  item._locations.forEach((entry, i) => renderLocRow(item, i));
+
+  document.getElementById('addLocBtn').addEventListener('click', () => {
+    item._locations.push({qty:'', loc:''});
+    renderLocRow(item, item._locations.length - 1);
+    updateTotal(item);
+    // Focus new row qty
+    setTimeout(() => {
+      const inputs = document.querySelectorAll('.loc-entry-qty');
+      if (inputs.length) inputs[inputs.length-1].focus();
+    }, 50);
+  });
+
+  document.getElementById('applyBtn').addEventListener('click', () => applyCount(item.row));
+}
+
+function renderLocRow(item, idx) {
+  const container = document.getElementById('locEntries');
+  const entry = item._locations[idx];
+  const row = document.createElement('div');
+  row.className = 'loc-entry';
+  row.dataset.idx = idx;
+
+  const num = document.createElement('span');
+  num.className = 'loc-entry-num';
+  num.textContent = (idx+1) + '.';
+
+  const qtyIn = document.createElement('input');
+  qtyIn.className = 'loc-entry-qty';
+  qtyIn.type = 'number';
+  qtyIn.inputMode = 'numeric';
+  qtyIn.placeholder = '0';
+  qtyIn.value = entry.qty !== '' ? entry.qty : '';
+  qtyIn.addEventListener('input', () => {
+    item._locations[idx].qty = qtyIn.value === '' ? '' : parseFloat(qtyIn.value) || 0;
+    updateTotal(item);
+  });
+
+  const locIn = document.createElement('input');
+  locIn.className = 'loc-entry-loc';
+  locIn.type = 'text';
+  locIn.placeholder = 'Location (e.g. Shelf A3)';
+  locIn.value = entry.loc || '';
+  locIn.addEventListener('input', () => { item._locations[idx].loc = locIn.value; });
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'loc-entry-del';
+  delBtn.innerHTML = '&times;';
+  delBtn.addEventListener('click', () => {
+    item._locations.splice(idx, 1);
+    if (item._locations.length === 0) item._locations.push({qty:'', loc:''});
+    renderCard(item); // re-render whole card to reset indices
+  });
+
+  row.appendChild(num); row.appendChild(qtyIn); row.appendChild(locIn); row.appendChild(delBtn);
+  container.appendChild(row);
+}
+
+function updateTotal(item) {
+  const t = locTotal(item);
+  const el = document.getElementById('locTotal');
+  if (el) el.textContent = fmt(t);
+}
+
+function applyCount(row) {
+  const item = invByRow[row];
+  // Validate at least one qty entered
+  const validEntries = item._locations.filter(e => e.qty !== '' && !isNaN(parseFloat(e.qty)));
+  if (!validEntries.length) { showToast('Enter at least one quantity'); return; }
+  const total = validEntries.reduce((s,e) => s + parseFloat(e.qty), 0);
+  const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  const delta = total - item.onHand;
+  item.onHand = total;
+  item._changed = true;
+  // Build location summary string for the spreadsheet
+  const locSummary = validEntries.map(e => e.loc ? e.qty + ' @ ' + e.loc : String(e.qty)).join(', ');
+  scanLog.unshift({
+    time, name: item.name, mode: 'count',
+    qty: total, delta, onHand: total,
+    loc: locSummary,
+    entries: validEntries.map(e => ({qty: parseFloat(e.qty), loc: e.loc || ''}))
+  });
+  updateBadge();
+  renderCard(item);
+  showToast('Count set: ' + fmt(total) + ' (' + validEntries.length + ' location' + (validEntries.length>1?'s':'') + ')');
+}
+
+function renderSimpleCard(item, el, sc) {
+  const isRecv = mode === 'received';
+  const mLabel = isRecv ? 'Qty Received' : 'Qty Removed';
+  const bLabel = isRecv ? 'Add to Stock' : 'Remove from Stock';
+  const curVal = isRecv ? (item._received||'') : (item._removed||'');
+  const div = document.createElement('div');
+  div.className = 'item-card';
+  div.innerHTML =
+    '<div class="item-name">'+esc(item.name)+'</div>'
     +'<div class="item-vendor">'+esc(item.vendor)+'</div>'
     +'<div class="stock-row">'
     +'<div class="stock-box"><div class="lbl">On Hand</div><div class="val '+sc+'">'+fmt(item.onHand)+'</div></div>'
     +'<div class="stock-box"><div class="lbl">Last Count</div><div class="val">'+fmt(item.lastCount)+'</div></div>'
     +'<div class="stock-box"><div class="lbl">Threshold</div><div class="val">'+fmt(item.threshold)+'</div></div>'
     +'</div>'
+    +'<div class="single-qty-wrap">'
     +'<div class="field-label">'+mLabel+'</div>'
     +'<input class="big-input" type="number" id="qtyInput" inputmode="numeric" placeholder="0" value="'+curVal+'">'
-    +'<div class="field-label">Location (optional)</div>'
-    +'<input class="loc-input" type="text" id="locInput" placeholder="e.g. Shelf A3, Bin 12" value="'+esc(item._location||'')+'">'
-    +'<button class="apply-btn '+mode+'" id="applyBtn">'+bLabel+'</button>'
-    +'</div>';
-  document.getElementById('applyBtn').addEventListener('click', ()=>applyEntry(item.row));
+    +'</div>'
+    +'<div class="field-label" style="margin-bottom:6px">Location (optional)</div>'
+    +'<input class="loc-input" type="text" id="locInput" placeholder="e.g. Shelf A3, Bin 12" value="'+esc(item._location||'')+'" style="margin-bottom:14px">'
+    +'<button class="apply-btn '+mode+'" id="applyBtn">'+bLabel+'</button>';
+  el.innerHTML = ''; el.appendChild(div);
+  document.getElementById('applyBtn').addEventListener('click', () => applySimple(item.row));
+  setTimeout(()=>{ const i=document.getElementById('qtyInput'); if(i){i.focus();i.select();} },150);
 }
-function applyEntry(row) {
+
+function applySimple(row) {
   const item = invByRow[row];
   const qEl = document.getElementById('qtyInput');
   const lEl = document.getElementById('locInput');
   const qty = parseFloat(qEl.value);
   if (isNaN(qty)||qEl.value==='') { showToast('Enter a quantity first'); return; }
-  const loc = lEl?lEl.value.trim():'';
+  const loc = lEl ? lEl.value.trim() : '';
   const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-  let delta=0;
-  if (mode==='count')         { item._newCount=qty; delta=qty-item.onHand; item.onHand=qty; }
-  else if (mode==='received') { item._received=(item._received||0)+qty; delta=qty; item.onHand+=qty; }
-  else                        { item._removed=(item._removed||0)+qty; delta=-qty; item.onHand-=qty; }
-  if (loc) item._location=loc;
-  item._changed=true;
-  scanLog.unshift({time,name:item.name,mode,qty,delta,onHand:item.onHand,loc:item._location});
+  let delta = 0;
+  if (mode==='received') { item._received=(item._received||0)+qty; delta=qty; item.onHand+=qty; }
+  else                   { item._removed=(item._removed||0)+qty; delta=-qty; item.onHand-=qty; }
+  if (loc) item._location = loc;
+  item._changed = true;
+  scanLog.unshift({time, name:item.name, mode, qty, delta, onHand:item.onHand, loc, entries:[]});
   updateBadge();
   renderCard(item);
-  showToast(mode==='count'?'Count set: '+qty:mode==='received'?'+'+qty+' received':'\u2212'+qty+' removed');
+  showToast(mode==='received'?'+'+qty+' received':'\u2212'+qty+' removed');
 }
 
 // ── BARCODE MAP ───────────────────────────────────
@@ -622,9 +718,12 @@ function renderLog() {
   el.innerHTML=scanLog.map(e=>{
     const ml=e.mode==='count'?'Count':e.mode==='received'?'Received':'Removed';
     const dc=e.delta>=0?'d-pos':'d-neg'; const ds=e.delta>0?'+':'';
+    const locHtml = e.entries && e.entries.length > 1
+      ? '<div class="log-locs">'+ e.entries.map(en=>'<span class="log-loc-item">'+fmt(en.qty)+(en.loc?' @ '+esc(en.loc):'')+'</span>').join('')+'</div>'
+      : (e.loc ? '<div class="log-locs"><span class="log-loc-item">\uD83D\uDCCD '+esc(e.loc)+'</span></div>' : '');
     return '<div class="log-item"><div class="log-top"><span class="log-name">'+esc(e.name)+'</span><span class="log-badge b-'+e.mode+'">'+ml+'</span></div>'
-      +'<div class="log-meta"><span class="'+dc+'">'+ds+fmt(e.delta)+'</span><span>\u2192 '+fmt(e.onHand)+'</span>'
-      +(e.loc?'<span>\uD83D\uDCCD '+esc(e.loc)+'</span>':'')+'<span>'+e.time+'</span></div></div>';
+      +'<div class="log-meta"><span class="'+dc+'">'+ds+fmt(e.delta)+'</span><span>\u2192 '+fmt(e.onHand)+' total</span><span>'+e.time+'</span></div>'
+      +locHtml+'</div>';
   }).join('');
 }
 
@@ -637,9 +736,18 @@ function renderExport() {
   document.getElementById('ex-rem').textContent=scanLog.filter(e=>e.mode==='removed').length;
   const listEl=document.getElementById('changedItems');
   if(!changed.length){listEl.innerHTML='<div class="empty" style="padding:16px">No changes yet.</div>';return;}
-  listEl.innerHTML=changed.map(i=>'<div class="ch-item"><span class="ch-name">'+esc(i.name)+'</span>'
-    +'<span class="ch-vals"><strong>'+fmt(i.onHand)+'</strong><span>'+esc(i._location||'no location')+'</span></span></div>').join('');
+  listEl.innerHTML=changed.map(i=>{
+    const total = i._locations.length ? locTotal(i) : i.onHand;
+    const locTags = i._locations.filter(e=>e.qty!=='').map(e=>
+      '<span class="ch-loc-tag">'+fmt(e.qty)+(e.loc?' @ '+esc(e.loc):'')+'</span>'
+    ).join('');
+    return '<div class="ch-item">'
+      +'<div><span class="ch-name">'+esc(i.name)+'</span><span class="ch-total">'+fmt(total)+'</span></div>'
+      +(locTags?'<div class="ch-locs">'+locTags+'</div>':'')
+      +'</div>';
+  }).join('');
 }
+
 function exportXLSX() {
   try {
     const wb=XLSX.utils.book_new();
@@ -647,17 +755,35 @@ function exportXLSX() {
     const today=new Date().toISOString().slice(0,19).replace('T',' ');
     const rows=[hdrs].concat(inv.map(item=>{
       const r=new Array(31).fill('');
-      r[0]=item._changed?today:''; r[1]=item._newCount!==null?item._newCount:'';
-      r[2]=item._removed!==null?item._removed:''; r[3]=item._received!==null?item._received:'';
+      const hasLocs = item._locations.some(e=>e.qty!=='');
+      const total = hasLocs ? locTotal(item) : null;
+      r[0]=item._changed?today:'';
+      r[1]=total!==null?total:(item._newCount!==null?item._newCount:'');
+      r[2]=item._removed!==null?item._removed:'';
+      r[3]=item._received!==null?item._received:'';
       r[7]=item.vendor; r[8]=item.name; r[10]=item.lastCount; r[12]=item.onHand;
-      r[16]=item.threshold; r[30]=item._location||''; return r;
+      r[16]=item.threshold;
+      // Location: "10 @ Shelf A, 24 @ Bin 3, 24 @ Bin 4" or plain location
+      const locStr = hasLocs
+        ? item._locations.filter(e=>e.qty!=='').map(e=>e.qty+(e.loc?' @ '+e.loc:'')).join(', ')
+        : (item._location||'');
+      r[30]=locStr;
+      return r;
     }));
     const ws=XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols']=[{wch:22},{wch:11},{wch:10},{wch:10},{wch:16},{wch:14},{wch:12},{wch:16},{wch:40},{wch:10},{wch:12},{wch:12},{wch:10},{wch:24},{wch:26},{wch:16},{wch:12},{wch:14},{wch:12},{wch:6},{wch:32},{wch:30},{wch:8},{wch:14},{wch:11},{wch:28},{wch:10},{wch:10},{wch:10},{wch:10},{wch:20}];
+    ws['!cols']=[{wch:22},{wch:11},{wch:10},{wch:10},{wch:16},{wch:14},{wch:12},{wch:16},{wch:40},{wch:10},{wch:12},{wch:12},{wch:10},{wch:24},{wch:26},{wch:16},{wch:12},{wch:14},{wch:12},{wch:6},{wch:32},{wch:30},{wch:8},{wch:14},{wch:11},{wch:28},{wch:10},{wch:10},{wch:10},{wch:10},{wch:40}];
     XLSX.utils.book_append_sheet(wb,ws,'INVENTORY (ELEMENTS)');
-    const lws=XLSX.utils.aoa_to_sheet([['Time','Element','Mode','Qty Change','New On Hand','Location']].concat(scanLog.map(e=>[e.time,e.name,e.mode,e.delta,e.onHand,e.loc||''])));
-    lws['!cols']=[{wch:10},{wch:40},{wch:12},{wch:12},{wch:14},{wch:20}];
+
+    // Scan log with location breakdown
+    const logHdrs=['Time','Element','Mode','Qty Change','New On Hand','Location Detail'];
+    const logRows=[logHdrs].concat(scanLog.map(e=>[
+      e.time, e.name, e.mode, e.delta, e.onHand,
+      e.entries&&e.entries.length ? e.entries.map(en=>en.qty+(en.loc?' @ '+en.loc:'')).join(', ') : (e.loc||'')
+    ]));
+    const lws=XLSX.utils.aoa_to_sheet(logRows);
+    lws['!cols']=[{wch:10},{wch:40},{wch:12},{wch:12},{wch:14},{wch:40}];
     XLSX.utils.book_append_sheet(wb,lws,'Scan Log');
+
     const bEntries=Object.entries(barcodeMap);
     if(bEntries.length){
       const bws=XLSX.utils.aoa_to_sheet([['Barcode','Element Name']].concat(bEntries));
@@ -668,13 +794,6 @@ function exportXLSX() {
     showToast('Downloaded!');
   } catch(e){ showToast('Export error: '+e.message); }
 }
-
-// ── HELPERS ───────────────────────────────────────
-function stockClass(i){ return i.onHand<0?'s-neg':(i.threshold>0&&i.onHand<i.threshold*.5?'s-low':'s-ok'); }
-function fmt(n){ if(n===null||n===undefined)return '\u2014'; const v=parseFloat(n); return isNaN(v)?'\u2014':(Number.isInteger(v)?v.toLocaleString():v.toFixed(2)); }
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function updateBadge(){ const n=inv.filter(i=>i._changed).length; document.getElementById('changedBadge').textContent=n+' change'+(n!==1?'s':''); }
-function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._tid); t._tid=setTimeout(()=>t.classList.remove('show'),2200); }
 </script>
 </body>
 </html>
