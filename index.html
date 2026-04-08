@@ -123,6 +123,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .save-map-btn:active{opacity:.85}
 .save-map-btn.saved{background:#1e8e3e}
 .add-map-btn{width:100%;padding:11px;font-size:14px;font-weight:600;border:2px dashed var(--border);border-radius:8px;background:#fff;color:var(--gray);cursor:pointer;margin-top:4px}
+.map-io-btn{flex:1;padding:11px;font-size:14px;font-weight:600;border-radius:8px;border:none;cursor:pointer;text-align:center;display:block}
+.map-io-btn.export{background:#e8f0fe;color:#1a73e8}
+.map-io-btn.import{background:#e6f4ea;color:#1e8e3e}
+.map-io-btn:active{opacity:.8}
 
 /* LOG */
 .log-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
@@ -220,6 +224,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div class="barcode-hint">
     <strong>Map barcodes to elements</strong>
     Mappings are saved on this device. Scan an unknown barcode then tap "Map this barcode", or add manually below.
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="map-io-btn export" onclick="exportBarcodeMap()">&#8595; Export map</button>
+    <label class="map-io-btn import">&#8593; Import map<input type="file" accept=".json,.xlsx" id="importMapInput" style="display:none"></label>
   </div>
   <div id="mapRows"></div>
   <button class="add-map-btn" onclick="addMapRow()">+ Add barcode mapping</button>
@@ -928,6 +936,54 @@ function addMapRow() {
   if(!dl.children.length){ inv.forEach(i=>{const o=document.createElement('option');o.value=i.name;dl.appendChild(o);}); }
   document.getElementById('mapRows').appendChild(makeMapRow('','',true));
 }
+
+function exportBarcodeMap() {
+  const entries = Object.entries(barcodeMap);
+  if (!entries.length) { showToast('No mappings to export'); return; }
+  // Export as a simple JSON file — easy to re-import
+  const blob = new Blob([JSON.stringify(barcodeMap, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'MBD_Barcode_Map_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Exported ' + entries.length + ' mapping' + (entries.length!==1?'s':''));
+}
+
+// Wire up file input for import
+document.getElementById('importMapInput').addEventListener('change', async function() {
+  const file = this.files[0];
+  if (!file) return;
+  this.value = '';
+  try {
+    let imported = {};
+    if (file.name.endsWith('.json')) {
+      const text = await file.text();
+      imported = JSON.parse(text);
+    } else if (file.name.endsWith('.xlsx')) {
+      // Read the Barcode Map sheet from an exported xlsx
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array'});
+      const ws = wb.Sheets['Barcode Map'];
+      if (!ws) { showToast('No "Barcode Map" sheet found in file'); return; }
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+      // Skip header row, rows are [barcode, elementName]
+      rows.slice(1).forEach(r => { if (r[0] && r[1]) imported[String(r[0])] = String(r[1]); });
+    } else {
+      showToast('Use a .json or .xlsx file'); return;
+    }
+    const count = Object.keys(imported).length;
+    if (!count) { showToast('No mappings found in file'); return; }
+    // Merge with existing (imported values win on conflict)
+    Object.assign(barcodeMap, imported);
+    saveBarcodeMap();
+    renderBarcodeMap();
+    showToast('Imported ' + count + ' mapping' + (count!==1?'s':''));
+  } catch(e) {
+    showToast('Import failed: ' + e.message);
+  }
+});
 
 // ── LOG ───────────────────────────────────────────
 function clearLog() {
