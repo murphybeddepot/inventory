@@ -119,6 +119,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .map-row input{flex:1;padding:10px 12px;font-size:14px;border:2px solid var(--border);border-radius:8px;background:#fff;outline:none;-webkit-appearance:none;min-width:0}
 .map-row input:focus{border-color:var(--blue)}
 .del-btn{background:none;border:1px solid #fcd0cd;border-radius:8px;color:var(--red);padding:9px 12px;font-size:16px;cursor:pointer;flex-shrink:0}
+.save-map-btn{background:#1a73e8;border:none;border-radius:8px;color:#fff;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0}
+.save-map-btn:active{opacity:.85}
+.save-map-btn.saved{background:#1e8e3e}
 .add-map-btn{width:100%;padding:11px;font-size:14px;font-weight:600;border:2px dashed var(--border);border-radius:8px;background:#fff;color:var(--gray);cursor:pointer;margin-top:4px}
 
 /* LOG */
@@ -855,16 +858,69 @@ function renderBarcodeMap() {
   if (pendingBarcode) { el.appendChild(makeMapRow(pendingBarcode,'',true)); pendingBarcode=null; }
 }
 function makeMapRow(bc, name, focus) {
-  const div=document.createElement('div'); div.className='map-row';
-  const bcIn=document.createElement('input'); bcIn.type='text'; bcIn.placeholder='Barcode value'; bcIn.value=bc;
-  const nmIn=document.createElement('input'); nmIn.type='text'; nmIn.placeholder='Element name'; nmIn.value=name;
-  nmIn.setAttribute('list','elementsList');
-  const del=document.createElement('button'); del.className='del-btn'; del.textContent='×';
-  const save=()=>{ const b=bcIn.value.trim(),n=nmIn.value.trim(); if(b&&n){barcodeMap[b]=n; saveBarcodeMap(); showToast('Saved');} };
-  bcIn.addEventListener('change',save); nmIn.addEventListener('change',save);
-  del.addEventListener('click',()=>{ delete barcodeMap[bcIn.value.trim()]; saveBarcodeMap(); div.remove(); });
-  div.appendChild(bcIn); div.appendChild(nmIn); div.appendChild(del);
-  if(focus) setTimeout(()=>nmIn.focus(),80);
+  const div = document.createElement('div');
+  div.className = 'map-row';
+  div.style.cssText = 'flex-wrap:wrap;gap:8px;align-items:center;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px';
+
+  // Barcode input + scan button
+  const bcWrap = document.createElement('div');
+  bcWrap.style.cssText = 'display:flex;gap:6px;flex:1;min-width:140px;align-items:center';
+  const bcIn = document.createElement('input');
+  bcIn.type = 'text'; bcIn.placeholder = 'Barcode value'; bcIn.value = bc;
+  bcIn.style.cssText = 'flex:1;padding:9px 11px;font-size:14px;border:2px solid var(--border);border-radius:8px;background:#f8f9fa;outline:none;min-width:0';
+  bcIn.addEventListener('focus', () => bcIn.style.borderColor = 'var(--blue)');
+  bcIn.addEventListener('blur',  () => bcIn.style.borderColor = 'var(--border)');
+
+  const bcScanBtn = document.createElement('button');
+  bcScanBtn.className = 'loc-scan-btn';
+  bcScanBtn.title = 'Scan barcode';
+  bcScanBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="15" x2="17" y2="15"/></svg>';
+  bcScanBtn.addEventListener('click', () => {
+    startLocationScan(code => { bcIn.value = code; });
+  });
+  bcWrap.appendChild(bcIn); bcWrap.appendChild(bcScanBtn);
+
+  // Element name input
+  const nmIn = document.createElement('input');
+  nmIn.type = 'text'; nmIn.placeholder = 'Element name'; nmIn.value = name;
+  nmIn.setAttribute('list', 'elementsList');
+  nmIn.style.cssText = 'flex:1;min-width:140px;padding:9px 11px;font-size:14px;border:2px solid var(--border);border-radius:8px;background:#f8f9fa;outline:none';
+  nmIn.addEventListener('focus', () => nmIn.style.borderColor = 'var(--blue)');
+  nmIn.addEventListener('blur',  () => nmIn.style.borderColor = 'var(--border)');
+
+  // Buttons row
+  const btnWrap = document.createElement('div');
+  btnWrap.style.cssText = 'display:flex;gap:6px;width:100%;margin-top:2px';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'save-map-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.style.flex = '1';
+  saveBtn.addEventListener('click', () => {
+    const b = bcIn.value.trim(), n = nmIn.value.trim();
+    if (!b) { showToast('Enter a barcode value'); bcIn.focus(); return; }
+    if (!n) { showToast('Enter an element name'); nmIn.focus(); return; }
+    barcodeMap[b] = n;
+    saveBarcodeMap();
+    saveBtn.textContent = '✓ Saved';
+    saveBtn.classList.add('saved');
+    setTimeout(() => { saveBtn.textContent = 'Save'; saveBtn.classList.remove('saved'); }, 2000);
+  });
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'del-btn';
+  delBtn.textContent = 'Delete';
+  delBtn.style.cssText = 'padding:9px 14px;font-size:13px';
+  delBtn.addEventListener('click', () => {
+    const b = bcIn.value.trim();
+    if (b) { delete barcodeMap[b]; saveBarcodeMap(); }
+    div.remove();
+    showToast('Mapping deleted');
+  });
+
+  btnWrap.appendChild(saveBtn); btnWrap.appendChild(delBtn);
+  div.appendChild(bcWrap); div.appendChild(nmIn); div.appendChild(btnWrap);
+  if (focus) setTimeout(() => nmIn.focus(), 80);
   return div;
 }
 function addMapRow() {
