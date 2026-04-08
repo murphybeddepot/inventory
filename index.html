@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>MBD Inventory Scanner</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f2f5;min-height:100vh;color:#1a1a1a}
+:root{--blue:#1a73e8;--green:#1e8e3e;--red:#d93025;--orange:#f29900;--gray:#5f6368;--border:#dadce0}
+
+.header{background:#1a73e8;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.header h1{font-size:18px;font-weight:600}
+.header-badge{background:rgba(255,255,255,.25);border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600}
+.tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:52px;z-index:99}
+.tab-btn{flex:1;padding:12px 4px;font-size:13px;font-weight:500;color:var(--gray);background:none;border:none;border-bottom:3px solid transparent;cursor:pointer}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+.panel{display:none;padding:12px}
+.panel.active{display:block}
+
+/* MODE */
+.mode-row{display:flex;gap:6px;margin-bottom:12px}
+.mode-chip{flex:1;padding:10px 4px;font-size:13px;font-weight:600;border-radius:8px;border:2px solid var(--border);background:#fff;color:var(--gray);cursor:pointer;text-align:center}
+.mode-chip.active-count{border-color:#1a73e8;background:#e8f0fe;color:#1a73e8}
+.mode-chip.active-received{border-color:#1e8e3e;background:#e6f4ea;color:#1e8e3e}
+.mode-chip.active-removed{border-color:#d93025;background:#fce8e6;color:#d93025}
+
+/* SEARCH + CAM ROW */
+.input-row{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+.search-wrap{position:relative;flex:1}
+.search-wrap input{width:100%;padding:12px 36px 12px 14px;font-size:16px;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;-webkit-appearance:none}
+.search-wrap input:focus{border-color:var(--blue)}
+.search-wrap .x-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:20px;color:var(--gray);cursor:pointer;padding:2px 4px;line-height:1}
+.cam-btn{width:50px;height:50px;border-radius:10px;border:2px solid var(--border);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#5f6368}
+.cam-btn.active{border-color:var(--blue);background:#e8f0fe;color:var(--blue)}
+
+/* LIVE CAMERA OVERLAY */
+.cam-overlay{display:none;position:fixed;inset:0;background:#000;z-index:200;flex-direction:column}
+.cam-overlay.open{display:flex}
+.cam-top{background:rgba(0,0,0,.7);padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
+.cam-top span{color:#fff;font-size:16px;font-weight:600}
+.cam-close-btn{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:8px 18px;font-size:14px;cursor:pointer}
+.cam-body{flex:1;position:relative;overflow:hidden}
+#camVideo{width:100%;height:100%;object-fit:cover;display:block}
+/* Aim box overlay */
+.cam-aim{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.cam-aim-box{position:relative;width:75vw;max-width:340px;height:140px}
+.cam-aim-box::before{content:'';position:absolute;inset:0;border:2px solid rgba(255,255,255,.3);border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.45)}
+/* Animated scan line */
+.cam-scan-line{position:absolute;left:4px;right:4px;height:2px;background:linear-gradient(90deg,transparent,#1a73e8,transparent);animation:scanline 1.8s ease-in-out infinite}
+@keyframes scanline{0%{top:8px;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:calc(100% - 10px);opacity:0}}
+/* Corner brackets */
+.cam-aim-box::after{content:'';position:absolute;inset:0;border-radius:10px;
+  background:
+    linear-gradient(var(--blue),var(--blue)) top left / 20px 3px no-repeat,
+    linear-gradient(var(--blue),var(--blue)) top left / 3px 20px no-repeat,
+    linear-gradient(var(--blue),var(--blue)) top right / 20px 3px no-repeat,
+    linear-gradient(var(--blue),var(--blue)) top right / 3px 20px no-repeat,
+    linear-gradient(var(--blue),var(--blue)) bottom left / 20px 3px no-repeat,
+    linear-gradient(var(--blue),var(--blue)) bottom left / 3px 20px no-repeat,
+    linear-gradient(var(--blue),var(--blue)) bottom right / 20px 3px no-repeat,
+    linear-gradient(var(--blue),var(--blue)) bottom right / 3px 20px no-repeat}
+.cam-foot{background:rgba(0,0,0,.75);color:rgba(255,255,255,.8);text-align:center;padding:14px 16px;font-size:13px;min-height:52px;display:flex;align-items:center;justify-content:center;gap:8px}
+.cam-foot.found{background:#1e8e3e;color:#fff;font-weight:600}
+.cam-foot.error{background:#b31412;color:#fff}
+.scan-dot{width:8px;height:8px;border-radius:50%;background:#fff;opacity:.5;animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+
+/* SUGGESTIONS */
+.suggestions{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:10px;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:240px;overflow-y:auto}
+.sug-item{padding:13px 14px;border-bottom:1px solid #f1f3f4;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sug-item:last-child{border-bottom:none}
+.sug-item:active{background:#f1f3f4}
+.sug-name{flex:1;line-height:1.3}
+.sug-stock{font-size:13px;font-weight:700;flex-shrink:0}
+.s-neg{color:var(--red)}.s-low{color:var(--orange)}.s-ok{color:var(--green)}
+
+/* ITEM CARD */
+.item-card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.1);margin-bottom:10px}
+.item-name{font-size:17px;font-weight:700;margin-bottom:4px;line-height:1.3}
+.item-vendor{font-size:13px;color:var(--gray);margin-bottom:12px}
+.stock-row{display:flex;gap:8px;margin-bottom:14px}
+.stock-box{flex:1;background:#f8f9fa;border-radius:8px;padding:8px;text-align:center}
+.stock-box .lbl{font-size:11px;color:var(--gray);font-weight:500;margin-bottom:2px}
+.stock-box .val{font-size:18px;font-weight:700}
+.field-label{font-size:13px;font-weight:600;color:var(--gray);margin-bottom:6px}
+.big-input{width:100%;padding:14px;font-size:22px;font-weight:700;text-align:center;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;margin-bottom:12px;-webkit-appearance:none;-moz-appearance:textfield}
+.big-input::-webkit-outer-spin-button,.big-input::-webkit-inner-spin-button{-webkit-appearance:none}
+.big-input:focus{border-color:var(--blue)}
+.loc-input{width:100%;padding:12px 14px;font-size:16px;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;margin-bottom:14px;-webkit-appearance:none}
+.loc-input:focus{border-color:var(--blue)}
+.apply-btn{width:100%;padding:15px;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer}
+.apply-btn.count{background:#1a73e8;color:#fff}
+.apply-btn.received{background:#1e8e3e;color:#fff}
+.apply-btn.removed{background:#d93025;color:#fff}
+.apply-btn:active{opacity:.85}
+.not-found-card{background:#fff;border-radius:12px;padding:16px;border:2px dashed var(--border);margin-bottom:10px}
+.not-found-card p{font-size:14px;color:var(--gray);margin:6px 0 12px;line-height:1.5}
+.map-it-btn{width:100%;padding:11px;font-size:14px;font-weight:600;border:none;border-radius:8px;background:#1a73e8;color:#fff;cursor:pointer}
+
+/* BARCODES */
+.barcode-hint{background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;border:1px solid var(--border);font-size:13px;color:var(--gray);line-height:1.5}
+.barcode-hint strong{color:#1a1a1a;display:block;margin-bottom:4px;font-size:14px}
+.map-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.map-row input{flex:1;padding:10px 12px;font-size:14px;border:2px solid var(--border);border-radius:8px;background:#fff;outline:none;-webkit-appearance:none;min-width:0}
+.map-row input:focus{border-color:var(--blue)}
+.del-btn{background:none;border:1px solid #fcd0cd;border-radius:8px;color:var(--red);padding:9px 12px;font-size:16px;cursor:pointer;flex-shrink:0}
+.add-map-btn{width:100%;padding:11px;font-size:14px;font-weight:600;border:2px dashed var(--border);border-radius:8px;background:#fff;color:var(--gray);cursor:pointer;margin-top:4px}
+
+/* LOG */
+.log-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.log-title{font-size:16px;font-weight:700}
+.clr-btn{font-size:13px;color:var(--red);background:none;border:1px solid var(--red);border-radius:6px;padding:5px 10px;cursor:pointer}
+.empty{text-align:center;padding:40px 20px;color:var(--gray);font-size:14px}
+.log-item{background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.log-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+.log-name{font-size:14px;font-weight:600;flex:1;margin-right:8px;line-height:1.3}
+.log-badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap}
+.b-count{background:#e8f0fe;color:#1a73e8}
+.b-received{background:#e6f4ea;color:#1e8e3e}
+.b-removed{background:#fce8e6;color:#d93025}
+.log-meta{display:flex;gap:10px;font-size:12px;color:var(--gray);flex-wrap:wrap}
+.d-pos{color:var(--green);font-weight:600}
+.d-neg{color:var(--red);font-weight:600}
+
+/* EXPORT */
+.ex-card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.1);margin-bottom:12px}
+.ex-card h2{font-size:16px;font-weight:700;margin-bottom:10px}
+.ex-card p{font-size:14px;color:var(--gray);line-height:1.5;margin-bottom:16px}
+.stat-row{display:flex;gap:8px;margin-bottom:14px}
+.stat-box{flex:1;background:#f8f9fa;border-radius:8px;padding:10px;text-align:center}
+.s-val{font-size:22px;font-weight:700;display:block}
+.s-lbl{font-size:11px;color:var(--gray);font-weight:500}
+.ch-list{max-height:280px;overflow-y:auto}
+.ch-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f3f4;font-size:13px}
+.ch-item:last-child{border-bottom:none}
+.ch-name{flex:1;margin-right:8px;line-height:1.3}
+.ch-vals{text-align:right}
+.ch-vals strong{display:block}
+.ch-vals span{font-size:12px;color:var(--gray)}
+.dl-btn{width:100%;padding:15px;font-size:16px;font-weight:700;background:#1a73e8;color:#fff;border:none;border-radius:10px;cursor:pointer;margin-bottom:10px}
+.dl-btn:active{opacity:.85}
+
+/* INFO BANNER */
+.info-banner{background:#e8f0fe;border:1px solid #c5d8f6;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#174ea6;line-height:1.5}
+.info-banner strong{display:block;margin-bottom:2px}
+
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:500;z-index:999;opacity:0;transition:.3s;pointer-events:none;max-width:88vw;text-align:center}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>MBD Inventory</h1>
+  <span class="header-badge" id="changedBadge">0 changes</span>
+</div>
+<div class="tabs">
+  <button class="tab-btn active" id="tab-scan-btn" onclick="switchTab('scan')">Scan</button>
+  <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')">Barcodes</button>
+  <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')">Log</button>
+  <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')">Export</button>
+</div>
+
+<!-- SCAN PANEL -->
+<div id="tab-scan" class="panel active">
+  <div class="info-banner" id="safariWarning" style="display:none">
+    <strong>Open in Safari for camera scanning</strong>
+    Camera access is blocked inside apps. Save this file and open it in Safari, then tap the scan button.
+  </div>
+  <div class="mode-row">
+    <button class="mode-chip active-count" id="mc-count" onclick="setMode('count')">New Count</button>
+    <button class="mode-chip" id="mc-received" onclick="setMode('received')">Received +</button>
+    <button class="mode-chip" id="mc-removed" onclick="setMode('removed')">Removed −</button>
+  </div>
+  <div class="input-row">
+    <div class="search-wrap">
+      <input type="search" id="searchInput" placeholder="Search or type barcode…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="onSearch()" onkeydown="onSearchKey(event)">
+      <button class="x-btn" onclick="clearSearch()">×</button>
+    </div>
+    <button class="cam-btn" id="camBtn" onclick="toggleCamera()">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+        <line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="15" x2="17" y2="15"/>
+      </svg>
+    </button>
+  </div>
+  <div id="suggestions"></div>
+  <div id="itemCard"></div>
+</div>
+
+<!-- BARCODES PANEL -->
+<div id="tab-barcodes" class="panel">
+  <div class="barcode-hint">
+    <strong>Map barcodes to elements</strong>
+    Barcode mappings are saved on this device. After scanning an unknown barcode, tap "Map this barcode" or add a row manually.
+  </div>
+  <div id="mapRows"></div>
+  <button class="add-map-btn" onclick="addMapRow()">+ Add barcode mapping</button>
+  <datalist id="elementsList"></datalist>
+</div>
+
+<!-- LOG PANEL -->
+<div id="tab-log" class="panel">
+  <div class="log-header">
+    <span class="log-title" id="logTitle">Activity Log</span>
+    <button class="clr-btn" onclick="clearLog()">Clear</button>
+  </div>
+  <div id="logList"><div class="empty">No scans yet.</div></div>
+</div>
+
+<!-- EXPORT PANEL -->
+<div id="tab-export" class="panel">
+  <div class="ex-card">
+    <h2>Session Summary</h2>
+    <div class="stat-row">
+      <div class="stat-box"><span class="s-val" id="ex-total">0</span><span class="s-lbl">Changed</span></div>
+      <div class="stat-box"><span class="s-val" id="ex-counts" style="color:#1a73e8">0</span><span class="s-lbl">Counts</span></div>
+      <div class="stat-box"><span class="s-val" id="ex-recv" style="color:#1e8e3e">0</span><span class="s-lbl">Received</span></div>
+      <div class="stat-box"><span class="s-val" id="ex-rem" style="color:#d93025">0</span><span class="s-lbl">Removed</span></div>
+    </div>
+    <div id="changedItems" class="ch-list"></div>
+  </div>
+  <div class="ex-card">
+    <h2>Export to Excel</h2>
+    <p>Writes updates into <strong>New Count</strong>, <strong>REMOVED</strong>, <strong>RECEIVED</strong>, and <strong>LOCATION</strong> columns of the INVENTORY (ELEMENTS) tab, plus a Scan Log sheet.</p>
+    <button class="dl-btn" onclick="exportXLSX()">Download Updated .xlsx</button>
+  </div>
+</div>
+
+<!-- LIVE CAMERA OVERLAY -->
+<div class="cam-overlay" id="camOverlay">
+  <div class="cam-top">
+    <span>Scan barcode</span>
+    <button class="cam-close-btn" onclick="stopCamera()">Close</button>
+  </div>
+  <div class="cam-body">
+    <video id="camVideo" playsinline muted autoplay></video>
+    <div class="cam-aim">
+      <div class="cam-aim-box">
+        <div class="cam-scan-line"></div>
+      </div>
+    </div>
+  </div>
+  <div class="cam-foot" id="camFoot">
+    <div class="scan-dot"></div>
+    <span id="camFootText">Hold barcode in the frame</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const ELEMENTS = [{"row":2,"name":"0.75 SCREW8 (010.72.965)","vendor":"HAFELE","lastCount":5191.0,"onHand":2947.0,"threshold":5169.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":3,"name":"1.25 BOLT","vendor":"GRAINGER","lastCount":12.0,"onHand":12.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":4,"name":"1.25 SCREW (010.72.948)","vendor":"HAFELE","lastCount":6903.0,"onHand":5825.0,"threshold":2870.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":5,"name":"1.75 SCREW (010.23.122)","vendor":"HAFELE","lastCount":6500.0,"onHand":5608.0,"threshold":2389.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":6,"name":"128MM TT SILVER HANDLE (155.99.016)","vendor":"HAFELE","lastCount":164.0,"onHand":99.0,"threshold":155.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":7,"name":"3-INCH SMALL HEAD SCREW","vendor":"HAFELE","lastCount":7562.0,"onHand":7554.0,"threshold":22.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":8,"name":"ADJ SHELF PIN (282.04.711 or ROK)","vendor":"HAFELE","lastCount":3056.0,"onHand":2500.0,"threshold":1180.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":9,"name":"ALLEN BIT","vendor":"AMAZON","lastCount":108.0,"onHand":-76.0,"threshold":78.66666667,"newCount":null,"removed":null,"received":null,"location":""},{"row":10,"name":"ANGLE BRACKET","vendor":"ROK","lastCount":542.0,"onHand":48.0,"threshold":2308.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":11,"name":"BC1","vendor":"KRY/wbs-india","lastCount":184.0,"onHand":38.0,"threshold":357.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":12,"name":"BC2-D","vendor":"KRY/wbs-india","lastCount":143.0,"onHand":91.0,"threshold":100.3333333,"newCount":null,"removed":null,"received":null,"location":""},{"row":13,"name":"BC2-Q","vendor":"KRY/wbs-india","lastCount":445.0,"onHand":192.0,"threshold":385.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":14,"name":"BOAZ-V2 HARDWARE PACK (450.81.593)","vendor":"HAFELE","lastCount":222.0,"onHand":155.0,"threshold":204.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":15,"name":"BUMPER BOARD-3.5in","vendor":"ARCHITECTURAL","lastCount":1500.0,"onHand":-177.0,"threshold":264.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":16,"name":"BUMPER BOARD-7in","vendor":"ARCHITECTURAL","lastCount":800.0,"onHand":-1204.0,"threshold":731.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":17,"name":"BUTT HINGE","vendor":"ALIBABA","lastCount":2666.0,"onHand":2666.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":18,"name":"CAM  (262.26.535)","vendor":"HAFELE","lastCount":7166.0,"onHand":5420.0,"threshold":3734.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":19,"name":"CURRENT SPRING","vendor":"KRY/wbs-india","lastCount":1212.0,"onHand":1084.0,"threshold":564.6666667,"newCount":null,"removed":null,"received":null,"location":""},{"row":20,"name":"DIY-KIT","vendor":"KRY/wbs-india","lastCount":200.0,"onHand":158.0,"threshold":56.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":21,"name":"EURO SCREW (013.51.715)","vendor":"HAFELE","lastCount":2808.0,"onHand":2328.0,"threshold":1200.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":22,"name":"Fast Caps - Black","vendor":"fastcap.com","lastCount":100.0,"onHand":-3212.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":23,"name":"Fast Caps - White","vendor":"fastcap.com","lastCount":100.0,"onHand":-2504.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":24,"name":"FLIPUP BOLT (264.76.735)","vendor":"HAFELE","lastCount":196.0,"onHand":124.0,"threshold":156.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":25,"name":"FLIPUP LATCH (245.74.200)","vendor":"HAFELE","lastCount":99.0,"onHand":63.0,"threshold":78.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":26,"name":"FLIPUP LEG (635.64.307)","vendor":"HAFELE","lastCount":106.0,"onHand":60.0,"threshold":78.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":27,"name":"FLIPUP LEG SCREWS","vendor":"HAFELE","lastCount":1504.0,"onHand":-64.0,"threshold":624.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":28,"name":"FLIPUP NUT (267.10.616)","vendor":"HAFELE","lastCount":184.0,"onHand":112.0,"threshold":156.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":29,"name":"FLIPUP SCREW (015.55.639)","vendor":"HAFELE","lastCount":1235.0,"onHand":599.0,"threshold":234.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":30,"name":"HLR-77","vendor":"KRY/wbs-india","lastCount":20.0,"onHand":14.0,"threshold":5.833333333,"newCount":null,"removed":null,"received":null,"location":""},{"row":31,"name":"HLR-82","vendor":"KRY/wbs-india","lastCount":39.0,"onHand":26.0,"threshold":19.25,"newCount":null,"removed":null,"received":null,"location":""},{"row":32,"name":"INSET HINGE (329.31.513)","vendor":"HAFELE","lastCount":76.0,"onHand":4.0,"threshold":156.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":33,"name":"INSET HINGE PLATE (329.71.516)","vendor":"HAFELE","lastCount":74.0,"onHand":2.0,"threshold":156.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":34,"name":"KEPS NUT","vendor":"GRAINGER","lastCount":243.0,"onHand":179.0,"threshold":9.333333333,"newCount":null,"removed":null,"received":null,"location":""},{"row":35,"name":"L BRACKET (260.28.905 or ROK)","vendor":"HAFELE","lastCount":80.0,"onHand":-3761.0,"threshold":2269.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":36,"name":"LB-4 HINGE PACK (450.81.223)","vendor":"HAFELE","lastCount":78.0,"onHand":75.0,"threshold":16.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":37,"name":"LB-8 HINGE PACK (450.81.224)","vendor":"HAFELE","lastCount":160.0,"onHand":76.0,"threshold":248.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":38,"name":"LB-8 PUSH LATCH","vendor":"HAFELE","lastCount":380.0,"onHand":-136.0,"threshold":792.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":39,"name":"LB-V2 HARDWARE PACK (450.81.594)","vendor":"HAFELE","lastCount":182.0,"onHand":91.0,"threshold":282.6666667,"newCount":null,"removed":null,"received":null,"location":""},{"row":40,"name":"LEGACY SPRING","vendor":"KRY/wbs-india","lastCount":580.0,"onHand":532.0,"threshold":588.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":41,"name":"LIGHTSBLK","vendor":"ALIBABA","lastCount":288.0,"onHand":-8.0,"threshold":206.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":42,"name":"LIGHTSSLV","vendor":"ALIBABA","lastCount":277.0,"onHand":32.0,"threshold":176.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":43,"name":"MAGNETS-BZ (ALIBABA)","vendor":"ALIBABA","lastCount":317.0,"onHand":42.0,"threshold":188.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":44,"name":"MB-ANGLES-DOUBLE","vendor":"KRY OLD","lastCount":61.0,"onHand":59.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":45,"name":"MB-ANGLES-QUEEN","vendor":"KRY/wbs-india","lastCount":240.0,"onHand":163.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":46,"name":"MB-ANGLES-SINGLE","vendor":"KRY OLD","lastCount":54.0,"onHand":52.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":47,"name":"MB-HDWE-DOUBLE","vendor":"KRY OLD","lastCount":65.0,"onHand":63.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":48,"name":"MB-HDWE-QUEEN","vendor":"KRY/wbs-india","lastCount":250.0,"onHand":173.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":49,"name":"MB-HDWE-SINGLE","vendor":"KRY OLD","lastCount":50.0,"onHand":48.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":50,"name":"MB-MATTSUPP-DOUBLE","vendor":"MANUFACTURED","lastCount":284.0,"onHand":284.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":51,"name":"MB-MATTSUPP-QUEEN","vendor":"MANUFACTURED","lastCount":300.0,"onHand":300.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":52,"name":"MB-MATTSUPP-QUEEN6","vendor":"MANUFACTURED","lastCount":80.0,"onHand":80.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":53,"name":"MB-MATTSUPP-SINGLE","vendor":"MANUFACTURED","lastCount":45.0,"onHand":45.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":54,"name":"MB-UNIVERSAL","vendor":"KRY/wbs-india","lastCount":303.0,"onHand":211.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":55,"name":"MB-WMB","vendor":"MWBS","lastCount":185.0,"onHand":-83.0,"threshold":3.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":56,"name":"MENDING PLATE","vendor":"KRY/wbs-india","lastCount":100.0,"onHand":-3980.9,"threshold":6191.5,"newCount":null,"removed":null,"received":null,"location":""},{"row":57,"name":"MS BOX","vendor":"INMARK","lastCount":158.0,"onHand":158.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":58,"name":"MS SHEET","vendor":"INMARK","lastCount":63.0,"onHand":63.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":59,"name":"NEXTBED-ENDS-SINGLE","vendor":"KRY OLD","lastCount":3.0,"onHand":-13.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":60,"name":"NEXTBED-RAILS-SINGLE","vendor":"KRY OLD","lastCount":8.0,"onHand":-8.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":61,"name":"OVERLAY HINGE (329.17.552)","vendor":"HAFELE","lastCount":29.0,"onHand":-43.0,"threshold":87.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":62,"name":"OVERLAY HINGE PLATE (329.71.510)","vendor":"HAFELE","lastCount":87.0,"onHand":-5.0,"threshold":123.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":63,"name":"PALLET CARDBOARD SHEET","vendor":"INMARK","lastCount":180.0,"onHand":80.0,"threshold":168.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":64,"name":"PALLET CARDBOARD SHEET V2","vendor":"INMARK","lastCount":1079.0,"onHand":841.0,"threshold":690.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":65,"name":"PB ASSEMBLY PACK (450.81.225)","vendor":"HAFELE","lastCount":113.0,"onHand":50.0,"threshold":112.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":66,"name":"PHILLIPS BIT","vendor":"AMAZON","lastCount":121.0,"onHand":18.0,"threshold":104.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":67,"name":"PIANO HINGE (351.09.633)","vendor":"HAFELE","lastCount":255.0,"onHand":-411.0,"threshold":376.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":68,"name":"PIN  (262.28.624)","vendor":"HAFELE","lastCount":7651.0,"onHand":5905.0,"threshold":1932.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":69,"name":"Plastic Scrapers","vendor":"Amazon","lastCount":100.0,"onHand":-514.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":70,"name":"Polyester Strapping Metal Seals - Gripper, 5/8\" (S-2158)","vendor":"ULINE","lastCount":5000.0,"onHand":-221.15,"threshold":3012.9,"newCount":null,"removed":null,"received":null,"location":""},{"row":71,"name":"SBF-D","vendor":"KRY/wbs-india","lastCount":103.0,"onHand":16.0,"threshold":93.33333333,"newCount":null,"removed":null,"received":null,"location":""},{"row":72,"name":"SBF-K","vendor":"KRY/wbs-india","lastCount":97.0,"onHand":48.0,"threshold":56.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":73,"name":"SBF-Q","vendor":"KRY/wbs-india","lastCount":633.0,"onHand":-62.0,"threshold":721.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":74,"name":"SBF-S","vendor":"KRY/wbs-india","lastCount":103.0,"onHand":75.0,"threshold":30.91666667,"newCount":null,"removed":null,"received":null,"location":""},{"row":75,"name":"SBF-SXL","vendor":"KRY/wbs-india","lastCount":70.0,"onHand":50.0,"threshold":18.08333333,"newCount":null,"removed":null,"received":null,"location":""},{"row":76,"name":"SBLM","vendor":"KRY/wbs-india","lastCount":868.0,"onHand":-11.0,"threshold":903.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":77,"name":"SCREW - ZINC #6 X 5/8IN","vendor":"ROK","lastCount":12000.0,"onHand":-8237.0,"threshold":12201.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":78,"name":"SLAT-2-DE","vendor":"KRY/wbs-india","lastCount":240.0,"onHand":98.0,"threshold":140.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":79,"name":"SLAT-2-DE-CLRNC","vendor":"","lastCount":0.0,"onHand":-9.0,"threshold":6.75,"newCount":null,"removed":null,"received":null,"location":""},{"row":80,"name":"SLAT-2-DR","vendor":"KRY/wbs-india","lastCount":242.0,"onHand":91.0,"threshold":182.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":81,"name":"SLAT-2-QE","vendor":"KRY/wbs-india","lastCount":586.0,"onHand":-172.0,"threshold":802.6666667,"newCount":null,"removed":null,"received":null,"location":""},{"row":82,"name":"SLAT-2-QR","vendor":"KRY/wbs-india","lastCount":592.0,"onHand":-187.0,"threshold":840.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":83,"name":"SLAT-2-SE","vendor":"KRY/wbs-india","lastCount":16.0,"onHand":-11.0,"threshold":28.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":84,"name":"SLAT-2-SR","vendor":"KRY/wbs-india","lastCount":18.0,"onHand":-9.0,"threshold":28.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":85,"name":"SLAT-DE","vendor":"KRY OLD","lastCount":242.0,"onHand":30.0,"threshold":160.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":86,"name":"SLAT-DE-CLRNC","vendor":"RETURNS","lastCount":1.0,"onHand":-8.0,"threshold":13.5,"newCount":null,"removed":null,"received":null,"location":""},{"row":87,"name":"SLAT-DR","vendor":"KRY OLD","lastCount":272.0,"onHand":45.0,"threshold":208.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":88,"name":"SLAT-QE","vendor":"KRY OLD","lastCount":483.0,"onHand":-562.0,"threshold":840.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":89,"name":"SLAT-QE-CLRNC","vendor":"RETURNS","lastCount":6.0,"onHand":-15.0,"threshold":31.5,"newCount":null,"removed":null,"received":null,"location":""},{"row":90,"name":"SLAT-QR","vendor":"KRY OLD","lastCount":532.0,"onHand":-543.0,"threshold":904.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":91,"name":"SOFT CLOSE HINGE (329.17.117)","vendor":"HAFELE","lastCount":44.0,"onHand":24.0,"threshold":36.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":92,"name":"SQUARE BIT","vendor":"AMAZON","lastCount":188.0,"onHand":84.0,"threshold":104.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":93,"name":"STAPLES T50","vendor":"HOME DEPOT","lastCount":6.0,"onHand":-1.216,"threshold":3.567,"newCount":null,"removed":null,"received":null,"location":""},{"row":94,"name":"STRAPPING PROTECTORS 223 - ULINE S-2032","vendor":"ULINE","lastCount":2600.0,"onHand":-11208.0,"threshold":7968.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":95,"name":"STRAPPING PROTECTORS 333 - S-2520 ULINE","vendor":"ULINE","lastCount":700.0,"onHand":-222.5,"threshold":487.9,"newCount":null,"removed":null,"received":null,"location":""},{"row":96,"name":"STRAPPING PROTECTORS 336 - S-2458 ULINE","vendor":"ULINE","lastCount":820.0,"onHand":-1795.8,"threshold":1553.9,"newCount":null,"removed":null,"received":null,"location":""},{"row":97,"name":"STUDIO-BLACK","vendor":"KRY/wbs-india","lastCount":37.0,"onHand":5.0,"threshold":21.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":98,"name":"STUDIO-WHITE","vendor":"KRY/wbs-india","lastCount":0.0,"onHand":-8.0,"threshold":9.333333333,"newCount":null,"removed":null,"received":null,"location":""},{"row":99,"name":"U-MA","vendor":"MWBS","lastCount":188.0,"onHand":188.0,"threshold":0.0,"newCount":null,"removed":null,"received":null,"location":""},{"row":100,"name":"Uline Polyester Strapping - 5/8\" x .035\" x 4,200', Green (S-3250)","vendor":"ULINE","lastCount":27.0,"onHand":16.7303,"threshold":5.9262,"newCount":null,"removed":null,"received":null,"location":""},{"row":101,"name":"Uline Stretch Wrap - Blown, 120 gauge, 18\" x 1,000' (S-5606)","vendor":"ULINE","lastCount":188.0,"onHand":38.701,"threshold":86.154,"newCount":null,"removed":null,"received":null,"location":""},{"row":102,"name":"Wax - Black","vendor":"fastcap.com","lastCount":100.0,"onHand":52.48,"threshold":34.65,"newCount":null,"removed":null,"received":null,"location":""},{"row":103,"name":"Wax - White","vendor":"fastcap.com","lastCount":100.0,"onHand":46.21,"threshold":43.23,"newCount":null,"removed":null,"received":null,"location":""},{"row":104,"name":"YELLOW TILE SPACERS","vendor":"AMAZON","lastCount":42.0,"onHand":-408.0,"threshold":756.0,"newCount":null,"removed":null,"received":null,"location":""}];
+
+// ── STATE ─────────────────────────────────────────
+let inv = ELEMENTS.map(e => Object.assign({}, e, {
+  _newCount: e.newCount, _removed: e.removed,
+  _received: e.received, _location: e.location, _changed: false
+}));
+let invByRow = {};
+inv.forEach(i => { invByRow[i.row] = i; });
+let scanLog = [];
+let mode = 'count';
+let selRow = null;
+let pendingBarcode = null;
+
+// Barcode map — persisted in localStorage so it survives sessions
+let barcodeMap = {};
+try { barcodeMap = JSON.parse(localStorage.getItem('mbd_barcode_map') || '{}'); } catch(e) {}
+function saveBarcodeMap() {
+  try { localStorage.setItem('mbd_barcode_map', JSON.stringify(barcodeMap)); } catch(e) {}
+}
+
+// ZXing reader + hints — set up once with TRY_HARDER + all useful formats
+let zxingReader = null;
+function getReader() {
+  if (zxingReader) return zxingReader;
+  if (typeof ZXing === 'undefined') return null;
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+    ZXing.BarcodeFormat.QR_CODE,
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.CODE_93,
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A,
+    ZXing.BarcodeFormat.DATA_MATRIX,
+    ZXing.BarcodeFormat.PDF_417,
+  ]);
+  const r = new ZXing.MultiFormatReader();
+  r.setHints(hints);
+  zxingReader = r;
+  return r;
+}
+
+// Detect if we're inside a webview (Claude app, etc.)
+function isWebView() {
+  const ua = navigator.userAgent;
+  // iOS webview: has iPhone/iPad but NOT Safari in UA
+  if (/iPhone|iPad|iPod/.test(ua) && !/Safari/.test(ua)) return true;
+  // Android webview
+  if (/Android/.test(ua) && /wv/.test(ua)) return true;
+  return false;
+}
+if (isWebView()) {
+  document.getElementById('safariWarning').style.display = 'block';
+}
+
+// ── LIVE CAMERA ───────────────────────────────────
+let camStream = null;
+let camAnimFrame = null;
+let camActive = false;
+let camLastCode = null;
+let camScanCanvas = null;
+let camScanCtx = null;
+
+async function toggleCamera() {
+  if (camActive) { stopCamera(); return; }
+  await startCamera();
+}
+
+async function startCamera() {
+  const overlay = document.getElementById('camOverlay');
+  const foot = document.getElementById('camFoot');
+  const footText = document.getElementById('camFootText');
+  const btn = document.getElementById('camBtn');
+
+  overlay.classList.add('open');
+  btn.classList.add('active');
+  foot.className = 'cam-foot';
+  footText.textContent = 'Starting camera…';
+
+  try {
+    // Request rear camera
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+    } catch(e) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    }
+    camStream = stream;
+    camActive = true;
+
+    const video = document.getElementById('camVideo');
+    video.srcObject = stream;
+    await new Promise(res => { video.onloadedmetadata = res; });
+    video.play();
+
+    // Off-screen canvas for frame capture — use native video resolution
+    camScanCanvas = document.createElement('canvas');
+    camScanCtx = camScanCanvas.getContext('2d', { willReadFrequently: true });
+
+    footText.textContent = 'Hold barcode in the frame';
+    camLastCode = null;
+
+    // Start continuous decode loop
+    scanFrame();
+
+  } catch(e) {
+    const msg = e.name === 'NotAllowedError'
+      ? 'Camera permission denied. Open this file in Safari (not inside an app).'
+      : e.name === 'NotFoundError' ? 'No camera found.'
+      : 'Camera error: ' + e.message;
+    foot.className = 'cam-foot error';
+    footText.textContent = msg;
+    camActive = false;
+    btn.classList.remove('active');
+    setTimeout(() => overlay.classList.remove('open'), 4000);
+  }
+}
+
+function scanFrame() {
+  if (!camActive) return;
+  const video = document.getElementById('camVideo');
+
+  if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+    // Resize to 800px wide for fast decoding — confirmed working size
+    const scale = Math.min(1, 800 / video.videoWidth);
+    camScanCanvas.width  = Math.round(video.videoWidth  * scale);
+    camScanCanvas.height = Math.round(video.videoHeight * scale);
+
+    // Draw grayscale + boosted contrast — the key fix confirmed by pyzbar testing
+    camScanCtx.filter = 'grayscale(1) contrast(1.5)';
+    camScanCtx.drawImage(video, 0, 0, camScanCanvas.width, camScanCanvas.height);
+
+    const code = tryDecode(camScanCanvas);
+    if (code && code !== camLastCode) {
+      camLastCode = code;
+      onBarcodeFound(code);
+      return; // stop loop — will restart after user dismisses
+    }
+  }
+
+  // ~15fps decode loop (66ms) — fast enough without draining battery
+  camAnimFrame = setTimeout(scanFrame, 66);
+}
+
+function tryDecode(canvas) {
+  const reader = getReader();
+  if (!reader) return null;
+  try {
+    const lum     = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+    const binarizer = new ZXing.HybridBinarizer(lum);
+    const bitmap  = new ZXing.BinaryBitmap(binarizer);
+    return reader.decodeWithState(bitmap).getText();
+  } catch(e) {
+    return null; // NotFoundException is normal — no barcode in frame yet
+  }
+}
+
+function onBarcodeFound(code) {
+  const foot = document.getElementById('camFoot');
+  const footText = document.getElementById('camFootText');
+  foot.className = 'cam-foot found';
+  footText.textContent = 'Found: ' + code;
+
+  setTimeout(() => {
+    stopCamera();
+    handleBarcode(code);
+  }, 500);
+}
+
+function stopCamera() {
+  camActive = false;
+  if (camAnimFrame) { clearTimeout(camAnimFrame); camAnimFrame = null; }
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  const video = document.getElementById('camVideo');
+  video.srcObject = null;
+  document.getElementById('camOverlay').classList.remove('open');
+  document.getElementById('camBtn').classList.remove('active');
+}
+
+function handleBarcode(code) {
+  // 1. Check explicit barcode map
+  const mapped = barcodeMap[code] || barcodeMap[code.toUpperCase()];
+  if (mapped) { pickByName(mapped); showToast('Scanned: ' + mapped); return; }
+  // 2. Direct name match (your boxes encode the element name directly)
+  const nameMatch = inv.find(i =>
+    i.name === code ||
+    i.name.replace(/\s+/g,'').toUpperCase() === code.replace(/\s+/g,'').toUpperCase() ||
+    i.name.toUpperCase().replace(/[^A-Z0-9]/g,'') === code.toUpperCase().replace(/[^A-Z0-9]/g,'')
+  );
+  if (nameMatch) { pickByRow(nameMatch.row); showToast('Scanned: ' + nameMatch.name); return; }
+  // 3. Unknown — show mapping prompt
+  showUnmappedBarcode(code);
+}
+
+function showUnmappedBarcode(code) {
+  document.getElementById('searchInput').value = code;
+  document.getElementById('suggestions').innerHTML = '';
+  const el = document.getElementById('itemCard');
+  const div = document.createElement('div');
+  div.className = 'not-found-card';
+  div.innerHTML = '<div style="font-weight:700;font-size:15px">Unknown barcode</div>'
+    + '<p>Barcode <code style="background:#f1f3f4;padding:2px 6px;border-radius:4px">' + esc(code) + '</code> is not mapped to any element yet. You can map it now or search manually above.</p>'
+    + '<button class="map-it-btn" id="mapItBtn">Map this barcode \u2192</button>';
+  el.innerHTML = '';
+  el.appendChild(div);
+  document.getElementById('mapItBtn').addEventListener('click', () => {
+    pendingBarcode = code;
+    switchTab('barcodes');
+  });
+}
+
+// ── TABS ──────────────────────────────────────────
+function switchTab(name) {
+  ['scan','barcodes','log','export'].forEach(t => {
+    document.getElementById('tab-'+t).classList.toggle('active', t===name);
+    document.getElementById('tab-'+t+'-btn').classList.toggle('active', t===name);
+  });
+  if (name==='export') renderExport();
+  if (name==='log') renderLog();
+  if (name==='barcodes') renderBarcodeMap();
+  if (name!=='scan' && camActive) stopCamera();
+}
+
+// ── MODE ──────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  ['count','received','removed'].forEach(x => {
+    document.getElementById('mc-'+x).className = 'mode-chip' + (x===m ? ' active-'+x : '');
+  });
+  if (selRow !== null) renderCard(invByRow[selRow]);
+}
+
+// ── SEARCH ────────────────────────────────────────
+function onSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  const sugEl = document.getElementById('suggestions');
+  if (!q) { sugEl.innerHTML=''; return; }
+  const mapped = barcodeMap[q] || barcodeMap[q.toUpperCase()];
+  if (mapped) { pickByName(mapped); return; }
+  const ql = q.toLowerCase();
+  const hits = inv.filter(i => i.name.toLowerCase().includes(ql)).slice(0,12);
+  if (!hits.length) { sugEl.innerHTML=''; return; }
+  sugEl.innerHTML = hits.map(i => {
+    const sc = stockClass(i);
+    return '<div class="sug-item" data-row="'+i.row+'">'
+      + '<span class="sug-name">'+esc(i.name)+(i._changed?' \u2713':'')+'</span>'
+      + '<span class="sug-stock '+sc+'">'+fmt(i.onHand)+'</span></div>';
+  }).join('');
+  sugEl.querySelectorAll('.sug-item').forEach(el => {
+    el.addEventListener('click', () => pickByRow(parseInt(el.dataset.row)));
+  });
+}
+function onSearchKey(e) {
+  if (e.key!=='Enter') return;
+  const q = document.getElementById('searchInput').value.trim();
+  const mapped = barcodeMap[q] || barcodeMap[q.toUpperCase()];
+  if (mapped) { pickByName(mapped); return; }
+  const hit = inv.find(i => i.name.toLowerCase()===q.toLowerCase());
+  if (hit) pickByRow(hit.row);
+}
+function clearSearch() {
+  document.getElementById('searchInput').value='';
+  document.getElementById('suggestions').innerHTML='';
+  document.getElementById('itemCard').innerHTML='';
+  selRow=null;
+}
+function pickByRow(row) {
+  selRow = row;
+  const item = invByRow[row];
+  document.getElementById('searchInput').value = item.name;
+  document.getElementById('suggestions').innerHTML = '';
+  renderCard(item);
+  setTimeout(()=>{ const el=document.getElementById('qtyInput'); if(el){el.focus();el.select();} },150);
+}
+function pickByName(name) {
+  const item = inv.find(i=>i.name===name);
+  if (item) pickByRow(item.row);
+}
+
+// ── ITEM CARD ─────────────────────────────────────
+function renderCard(item) {
+  const sc = stockClass(item);
+  const mLabel = mode==='count'?'New Count':mode==='received'?'Qty Received':'Qty Removed';
+  const bLabel = mode==='count'?'Set New Count':mode==='received'?'Add to Stock':'Remove from Stock';
+  const curVal = mode==='count'?(item._newCount!==null?item._newCount:'')
+               : mode==='received'?(item._received||''):(item._removed||'');
+  document.getElementById('itemCard').innerHTML =
+    '<div class="item-card">'
+    +'<div class="item-name">'+esc(item.name)+'</div>'
+    +'<div class="item-vendor">'+esc(item.vendor)+'</div>'
+    +'<div class="stock-row">'
+    +'<div class="stock-box"><div class="lbl">On Hand</div><div class="val '+sc+'">'+fmt(item.onHand)+'</div></div>'
+    +'<div class="stock-box"><div class="lbl">Last Count</div><div class="val">'+fmt(item.lastCount)+'</div></div>'
+    +'<div class="stock-box"><div class="lbl">Threshold</div><div class="val">'+fmt(item.threshold)+'</div></div>'
+    +'</div>'
+    +'<div class="field-label">'+mLabel+'</div>'
+    +'<input class="big-input" type="number" id="qtyInput" inputmode="numeric" placeholder="0" value="'+curVal+'">'
+    +'<div class="field-label">Location (optional)</div>'
+    +'<input class="loc-input" type="text" id="locInput" placeholder="e.g. Shelf A3, Bin 12" value="'+esc(item._location||'')+'">'
+    +'<button class="apply-btn '+mode+'" id="applyBtn">'+bLabel+'</button>'
+    +'</div>';
+  document.getElementById('applyBtn').addEventListener('click', ()=>applyEntry(item.row));
+}
+function applyEntry(row) {
+  const item = invByRow[row];
+  const qEl = document.getElementById('qtyInput');
+  const lEl = document.getElementById('locInput');
+  const qty = parseFloat(qEl.value);
+  if (isNaN(qty)||qEl.value==='') { showToast('Enter a quantity first'); return; }
+  const loc = lEl?lEl.value.trim():'';
+  const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  let delta=0;
+  if (mode==='count')         { item._newCount=qty; delta=qty-item.onHand; item.onHand=qty; }
+  else if (mode==='received') { item._received=(item._received||0)+qty; delta=qty; item.onHand+=qty; }
+  else                        { item._removed=(item._removed||0)+qty; delta=-qty; item.onHand-=qty; }
+  if (loc) item._location=loc;
+  item._changed=true;
+  scanLog.unshift({time,name:item.name,mode,qty,delta,onHand:item.onHand,loc:item._location});
+  updateBadge();
+  renderCard(item);
+  showToast(mode==='count'?'Count set: '+qty:mode==='received'?'+'+qty+' received':'\u2212'+qty+' removed');
+}
+
+// ── BARCODE MAP ───────────────────────────────────
+function renderBarcodeMap() {
+  const dl = document.getElementById('elementsList');
+  if (!dl.children.length) {
+    inv.forEach(i=>{const o=document.createElement('option');o.value=i.name;dl.appendChild(o);});
+  }
+  const el = document.getElementById('mapRows');
+  el.innerHTML='';
+  Object.entries(barcodeMap).forEach(([bc,name])=>el.appendChild(makeMapRow(bc,name)));
+  if (pendingBarcode) { el.appendChild(makeMapRow(pendingBarcode,'',true)); pendingBarcode=null; }
+}
+function makeMapRow(bc, name, focus) {
+  const div=document.createElement('div'); div.className='map-row';
+  const bcIn=document.createElement('input'); bcIn.type='text'; bcIn.placeholder='Barcode value'; bcIn.value=bc;
+  const nmIn=document.createElement('input'); nmIn.type='text'; nmIn.placeholder='Element name'; nmIn.value=name;
+  nmIn.setAttribute('list','elementsList');
+  const del=document.createElement('button'); del.className='del-btn'; del.textContent='×';
+  const save=()=>{ const b=bcIn.value.trim(),n=nmIn.value.trim(); if(b&&n){barcodeMap[b]=n; saveBarcodeMap(); showToast('Saved');} };
+  bcIn.addEventListener('change',save); nmIn.addEventListener('change',save);
+  del.addEventListener('click',()=>{ delete barcodeMap[bcIn.value.trim()]; saveBarcodeMap(); div.remove(); });
+  div.appendChild(bcIn); div.appendChild(nmIn); div.appendChild(del);
+  if(focus) setTimeout(()=>nmIn.focus(),80);
+  return div;
+}
+function addMapRow() {
+  const dl=document.getElementById('elementsList');
+  if(!dl.children.length){ inv.forEach(i=>{const o=document.createElement('option');o.value=i.name;dl.appendChild(o);}); }
+  document.getElementById('mapRows').appendChild(makeMapRow('','',true));
+}
+
+// ── LOG ───────────────────────────────────────────
+function clearLog() {
+  if(confirm('Clear activity log?')){ scanLog=[]; renderLog(); }
+}
+function renderLog() {
+  document.getElementById('logTitle').textContent='Activity Log ('+scanLog.length+')';
+  const el=document.getElementById('logList');
+  if(!scanLog.length){ el.innerHTML='<div class="empty">No scans yet.</div>'; return; }
+  el.innerHTML=scanLog.map(e=>{
+    const ml=e.mode==='count'?'Count':e.mode==='received'?'Received':'Removed';
+    const dc=e.delta>=0?'d-pos':'d-neg'; const ds=e.delta>0?'+':'';
+    return '<div class="log-item"><div class="log-top"><span class="log-name">'+esc(e.name)+'</span><span class="log-badge b-'+e.mode+'">'+ml+'</span></div>'
+      +'<div class="log-meta"><span class="'+dc+'">'+ds+fmt(e.delta)+'</span><span>\u2192 '+fmt(e.onHand)+'</span>'
+      +(e.loc?'<span>\uD83D\uDCCD '+esc(e.loc)+'</span>':'')+'<span>'+e.time+'</span></div></div>';
+  }).join('');
+}
+
+// ── EXPORT ────────────────────────────────────────
+function renderExport() {
+  const changed=inv.filter(i=>i._changed);
+  document.getElementById('ex-total').textContent=changed.length;
+  document.getElementById('ex-counts').textContent=scanLog.filter(e=>e.mode==='count').length;
+  document.getElementById('ex-recv').textContent=scanLog.filter(e=>e.mode==='received').length;
+  document.getElementById('ex-rem').textContent=scanLog.filter(e=>e.mode==='removed').length;
+  const listEl=document.getElementById('changedItems');
+  if(!changed.length){listEl.innerHTML='<div class="empty" style="padding:16px">No changes yet.</div>';return;}
+  listEl.innerHTML=changed.map(i=>'<div class="ch-item"><span class="ch-name">'+esc(i.name)+'</span>'
+    +'<span class="ch-vals"><strong>'+fmt(i.onHand)+'</strong><span>'+esc(i._location||'no location')+'</span></span></div>').join('');
+}
+function exportXLSX() {
+  try {
+    const wb=XLSX.utils.book_new();
+    const hdrs=['Last Count Date','New Count','REMOVED','RECEIVED','ORDERED Quantity','ORDERED DATE','ORDER ETA','VENDOR','ELEMENTS','Comitted','LAST COUNT','Available','ON HAND','Fulfilled since last count','Fulfilled before last count','FULFILLED (Raw)','THRESHOLD','Months on hand','Slack Notif','180','Months on Hand (with Order Count)','To order for months X Multiplier','Months','LEAD TIME (Days)','Multiplier','Average Sales (based on Target)','ORDER 1','ORDER 2','Order 3','Order 4','LOCATION'];
+    const today=new Date().toISOString().slice(0,19).replace('T',' ');
+    const rows=[hdrs].concat(inv.map(item=>{
+      const r=new Array(31).fill('');
+      r[0]=item._changed?today:''; r[1]=item._newCount!==null?item._newCount:'';
+      r[2]=item._removed!==null?item._removed:''; r[3]=item._received!==null?item._received:'';
+      r[7]=item.vendor; r[8]=item.name; r[10]=item.lastCount; r[12]=item.onHand;
+      r[16]=item.threshold; r[30]=item._location||''; return r;
+    }));
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:22},{wch:11},{wch:10},{wch:10},{wch:16},{wch:14},{wch:12},{wch:16},{wch:40},{wch:10},{wch:12},{wch:12},{wch:10},{wch:24},{wch:26},{wch:16},{wch:12},{wch:14},{wch:12},{wch:6},{wch:32},{wch:30},{wch:8},{wch:14},{wch:11},{wch:28},{wch:10},{wch:10},{wch:10},{wch:10},{wch:20}];
+    XLSX.utils.book_append_sheet(wb,ws,'INVENTORY (ELEMENTS)');
+    const lws=XLSX.utils.aoa_to_sheet([['Time','Element','Mode','Qty Change','New On Hand','Location']].concat(scanLog.map(e=>[e.time,e.name,e.mode,e.delta,e.onHand,e.loc||''])));
+    lws['!cols']=[{wch:10},{wch:40},{wch:12},{wch:12},{wch:14},{wch:20}];
+    XLSX.utils.book_append_sheet(wb,lws,'Scan Log');
+    const bEntries=Object.entries(barcodeMap);
+    if(bEntries.length){
+      const bws=XLSX.utils.aoa_to_sheet([['Barcode','Element Name']].concat(bEntries));
+      bws['!cols']=[{wch:24},{wch:40}];
+      XLSX.utils.book_append_sheet(wb,bws,'Barcode Map');
+    }
+    XLSX.writeFile(wb,'MBD_Inventory_'+new Date().toISOString().slice(0,10)+'.xlsx');
+    showToast('Downloaded!');
+  } catch(e){ showToast('Export error: '+e.message); }
+}
+
+// ── HELPERS ───────────────────────────────────────
+function stockClass(i){ return i.onHand<0?'s-neg':(i.threshold>0&&i.onHand<i.threshold*.5?'s-low':'s-ok'); }
+function fmt(n){ if(n===null||n===undefined)return '\u2014'; const v=parseFloat(n); return isNaN(v)?'\u2014':(Number.isInteger(v)?v.toLocaleString():v.toFixed(2)); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function updateBadge(){ const n=inv.filter(i=>i._changed).length; document.getElementById('changedBadge').textContent=n+' change'+(n!==1?'s':''); }
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._tid); t._tid=setTimeout(()=>t.classList.remove('show'),2200); }
+</script>
+</body>
+</html>
