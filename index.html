@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v16</title>
+<title>MBD Inventory Scanner v17</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
 <style>
@@ -185,7 +185,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v16</span></h1>
+  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v17</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -324,6 +324,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
         <button onclick="manageCabTeam()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">👥 Manage Team</button>
         <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearCabinets()">✕ Clear All</button>
       </div>
+
+      <!-- DANGER ZONE — hard wipe the cloud sheet entirely -->
+      <details style="margin-top:14px;padding:8px;background:#FFF3F0;border:1.5px solid #8B0000;border-radius:8px">
+        <summary style="font-size:12px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:1px;cursor:pointer;padding:4px">⚠ Danger Zone</summary>
+        <div style="margin-top:8px;font-size:12px;color:#444;line-height:1.5">
+          <strong>Wipe Sheet</strong> permanently empties the Google Sheet of ALL cabinet records — both active and deleted tombstones — and clears them from this device. Use only when starting fresh after testing. Other connected devices will need to sync once to also clear.
+        </div>
+        <button onclick="wipeCabinetSheet()" style="width:100%;margin-top:10px;padding:11px;background:#8B0000;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🗑 Wipe Cloud Sheet + Local Data</button>
+      </details>
 
     </div>
   </div>
@@ -2081,7 +2090,12 @@ async function syncCabinetsNow(silent) {
       throw new Error(data && data.error ? data.error : 'Server returned an error');
     }
 
-    // Replace local store with the merged set from server
+    // Server returns only LIVE (non-deleted) records.
+    // Replacing our local store with this set is correct: any tombstones we
+    // had pushed up are now committed on the server, so we drop them locally.
+    // Any record on another device that the server has marked deleted will
+    // be removed from THIS device's local copy on next sync (because the
+    // server won't include it in the live set).
     if (Array.isArray(data.cabinets)) {
       cabinets = data.cabinets;
       saveCabinets();
@@ -2091,7 +2105,7 @@ async function syncCabinetsNow(silent) {
     try { localStorage.setItem('mbd_last_sync', cabLastSyncAt); } catch(e) {}
 
     if (!silent) {
-      const total = (data.cabinets || []).filter(c => !c.deleted).length;
+      const total = (data.cabinets || []).length;
       showToast('✓ Synced — ' + total + ' cabinet' + (total!==1?'s':''));
     }
     renderCabinets();
@@ -2118,6 +2132,45 @@ function startAutoSync() {
       syncCabinetsNow(true);
     }
   }, 60 * 1000); // every 60 seconds
+}
+
+// Hard wipe — server-side erase plus local clear. Use to reset after testing.
+async function wipeCabinetSheet() {
+  if (!cabSyncUrl) {
+    showToast('⚠ No sync URL configured');
+    return;
+  }
+  const msg = 'Permanently wipe ALL cabinet records from the Google Sheet AND this device?\n\n'
+    + '· Other devices will lose their cabinet data on their next sync\n'
+    + '· This cannot be undone\n\nType-confirm by tapping OK.';
+  if (!confirm(msg)) return;
+
+  setSyncStatus('Wiping...', '#8B0000');
+  try {
+    const resp = await fetch(cabSyncUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ type: 'cabinetWipe' }),
+    });
+    let data;
+    try { data = await resp.json(); }
+    catch(e) { throw new Error('Could not parse server response'); }
+    if (!data || !data.ok) throw new Error(data && data.error ? data.error : 'Server returned an error');
+
+    // Wipe local data too
+    cabinets = [];
+    saveCabinets();
+    cabLastSyncAt = nowStamp();
+    try { localStorage.setItem('mbd_last_sync', cabLastSyncAt); } catch(e) {}
+    refreshSyncStatus();
+    renderCabinets();
+    document.getElementById('cabSearchInput').value = '';
+    document.getElementById('cabResult').innerHTML = '';
+    showToast('✓ Sheet wiped — fresh start');
+  } catch(err) {
+    setSyncStatus('Wipe failed: ' + err.message.slice(0,30), '#8B0000');
+    showToast('⚠ Wipe failed: ' + err.message);
+  }
 }
 
 function openSyncSettings() {
