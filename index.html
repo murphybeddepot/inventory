@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v13</title>
+<title>MBD Inventory Scanner v16</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
 <style>
@@ -48,6 +48,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .cam-aim-box::before{content:'';position:absolute;inset:0;border:2px solid rgba(255,255,255,.3);border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.45)}
 .cam-scan-line{position:absolute;left:4px;right:4px;height:2px;background:linear-gradient(90deg,transparent,#1a73e8,transparent);animation:scanline 1.8s ease-in-out infinite}
 @keyframes scanline{0%{top:8px;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:calc(100% - 10px);opacity:0}}
+@keyframes fadeInUp{from{opacity:0;transform:translate(-50%,20px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes streakPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
 .cam-aim-box::after{content:'';position:absolute;inset:0;border-radius:10px;background:linear-gradient(var(--blue),var(--blue)) top left/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) top left/3px 20px no-repeat,linear-gradient(var(--blue),var(--blue)) top right/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) top right/3px 20px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom left/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom left/3px 20px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom right/20px 3px no-repeat,linear-gradient(var(--blue),var(--blue)) bottom right/3px 20px no-repeat}
 .cam-foot{background:rgba(0,0,0,.75);color:rgba(255,255,255,.8);text-align:center;padding:14px 16px;font-size:13px;min-height:52px;display:flex;align-items:center;justify-content:center;gap:8px}
 .cam-foot.found{background:#1e8e3e;color:#fff;font-weight:600}
@@ -183,7 +185,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v13</span></h1>
+  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v16</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -198,6 +200,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div class="info-banner" id="safariWarning" style="display:none">
     <strong>Open in Safari for camera scanning</strong>
     Camera access is blocked inside apps. Open this page in Safari for live barcode scanning.
+  </div>
+
+  <!-- DAILY PROGRESS CHIP — shows after first scan/count of the day -->
+  <div id="progressChip" style="display:none;align-items:center;gap:8px;background:#fff;border:1.5px solid #003087;border-radius:999px;padding:7px 14px;margin-bottom:10px;width:fit-content;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+    <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#003087" class="progress-count">0 today</span>
+    <span style="font-size:13px;font-weight:700;color:#FF6B00;display:none;animation:streakPulse 1.5s ease-in-out infinite" class="progress-streak">🔥 0</span>
   </div>
 
   <!-- HANDS-FREE STATUS BAR — shows current state when hands-free mode is on -->
@@ -260,51 +268,89 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <!-- RESULT AREA -->
   <div id="cabResult"></div>
 
-  <!-- IMPORT / EMPTY STATE -->
+  <!-- PRIMARY ACTION — Add Cabinet (big and prominent) -->
+  <button onclick="openAddCabinet()" style="width:100%;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25);margin-bottom:14px">
+    + Add Cabinet(s)
+  </button>
+
+  <!-- EMPTY STATE -->
   <div id="cabEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
     <strong>📦 No cabinet locations loaded yet</strong>
-    Tap <strong>+ Add Cabinet(s)</strong> below to add cabinets one or many at a time, or upload a spreadsheet with two columns: <strong>Cabinet #</strong> and <strong>Location</strong>. The first row should be the column headers.
+    Tap <strong>+ Add Cabinet(s)</strong> above to add cabinets one or many at a time, or use Upload Spreadsheet (admin tools below).
   </div>
 
-  <!-- SYNC CARD -->
-  <div id="cabSyncCard" style="background:#fff;border:2px solid #003087;border-radius:12px;padding:14px;margin-bottom:12px">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
-      <div style="font-size:13px;font-weight:800;color:#003087;text-transform:uppercase;letter-spacing:1px">☁ Sync</div>
-      <div id="cabSyncStatus" style="font-size:11px;color:#666;font-weight:600"></div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button onclick="syncCabinetsNow()" id="cabSyncBtn" style="flex:1;min-width:120px;background:#003087;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">⟳ Sync Now</button>
-      <button onclick="openSyncSettings()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:12px 14px;font-size:13px;font-weight:700;cursor:pointer">⚙ Settings</button>
-    </div>
-  </div>
-
-  <!-- IMPORT / EXPORT BUTTONS -->
-  <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-    <button onclick="openAddCabinet()" style="flex:1;min-width:140px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">+ Add Cabinet</button>
-    <label class="map-io-btn import" style="flex:1;min-width:140px">
-      ⬆ Upload Spreadsheet
-      <input type="file" accept=".xlsx,.xls,.csv" id="cabImportInput" style="display:none">
-    </label>
-    <button class="map-io-btn export" style="flex:1;min-width:140px" onclick="exportCabinets()">⬇ Export Current</button>
-    <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearCabinets()">✕ Clear All</button>
-  </div>
-
-  <!-- TOGGLES -->
-  <div style="display:flex;gap:8px;margin-top:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+  <!-- SHOW PULLED TOGGLE -->
+  <div style="margin-top:0;margin-bottom:14px">
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;cursor:pointer">
       <input type="checkbox" id="showPulledToggle" onchange="togglePulled(this.checked)" style="width:18px;height:18px;cursor:pointer">
       Show pulled cabinets in search
     </label>
-    <button onclick="manageCabTeam()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">👥 Manage Team</button>
   </div>
 
   <!-- COUNT / LIST PREVIEW -->
-  <div id="cabCount" style="margin-top:14px;font-size:13px;color:#666;text-align:center;font-weight:600"></div>
-  <div id="cabRecent" style="margin-top:8px"></div>
+  <div id="cabCount" style="font-size:13px;color:#666;text-align:center;font-weight:600"></div>
+  <div id="cabRecentSearches" style="display:none"></div>
+  <div id="cabRecent" style="margin-top:8px;margin-bottom:18px"></div>
+
+  <!-- ── ADMIN TOOLS ─────────────────────────────────────────────── -->
+  <div style="border-top:2px solid #e0e0e0;padding-top:14px;margin-top:18px">
+    <button onclick="toggleAdminTools()" id="adminToolsToggle" style="width:100%;background:none;border:none;color:#666;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center;gap:6px">
+      <span id="adminToolsCaret">▶</span> Admin Tools
+    </button>
+
+    <div id="adminToolsBody" style="display:none;margin-top:8px">
+
+      <!-- SYNC CARD -->
+      <div style="background:#fff;border:2px solid #003087;border-radius:12px;padding:14px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:800;color:#003087;text-transform:uppercase;letter-spacing:1px">☁ Sync</div>
+          <div id="cabSyncStatus" style="font-size:11px;color:#666;font-weight:600"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button onclick="syncCabinetsNow()" id="cabSyncBtn" style="flex:1;min-width:120px;background:#003087;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">⟳ Sync Now</button>
+          <button onclick="openSyncSettings()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:12px 14px;font-size:13px;font-weight:700;cursor:pointer">⚙ Settings</button>
+        </div>
+      </div>
+
+      <!-- IMPORT / EXPORT / CLEAR / TEAM -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <label class="map-io-btn import" style="flex:1;min-width:140px">
+          ⬆ Upload Spreadsheet
+          <input type="file" accept=".xlsx,.xls,.csv" id="cabImportInput" style="display:none">
+        </label>
+        <button class="map-io-btn export" style="flex:1;min-width:140px" onclick="exportCabinets()">⬇ Export Current</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="manageCabTeam()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">👥 Manage Team</button>
+        <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearCabinets()">✕ Clear All</button>
+      </div>
+
+    </div>
+  </div>
 
 </div>
 
 <div id="tab-barcodes" class="panel">
+  <!-- FEEDBACK SETTINGS — toggle haptics, sounds, visuals -->
+  <div class="barcode-hint" style="background:#fff;border-color:#003087">
+    <strong>🎛 Feedback Settings</strong>
+    <div style="display:grid;gap:8px;margin-top:10px">
+      <label style="display:flex;align-items:center;gap:10px;padding:8px;background:#f5f5f5;border-radius:8px;cursor:pointer">
+        <input type="checkbox" id="fbHaptics" onchange="toggleFeedback('haptics', this.checked)" style="width:18px;height:18px;cursor:pointer">
+        <div><div style="font-size:13px;font-weight:700;color:#1a1a1a">📳 Haptic vibration</div><div style="font-size:11px;color:#666;margin-top:1px">Subtle buzz on scan/save (mobile only)</div></div>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;padding:8px;background:#f5f5f5;border-radius:8px;cursor:pointer">
+        <input type="checkbox" id="fbSounds" onchange="toggleFeedback('sounds', this.checked)" style="width:18px;height:18px;cursor:pointer">
+        <div><div style="font-size:13px;font-weight:700;color:#1a1a1a">🔊 Sounds</div><div style="font-size:11px;color:#666;margin-top:1px">Synthesized scan tick + success ding + error buzz</div></div>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;padding:8px;background:#f5f5f5;border-radius:8px;cursor:pointer">
+        <input type="checkbox" id="fbVisuals" onchange="toggleFeedback('visuals', this.checked)" style="width:18px;height:18px;cursor:pointer">
+        <div><div style="font-size:13px;font-weight:700;color:#1a1a1a">✨ Score pops &amp; banners</div><div style="font-size:11px;color:#666;margin-top:1px">+1 pop on success, "add more" prompt, milestone celebrations</div></div>
+      </label>
+    </div>
+    <button onclick="testFeedback()" style="margin-top:10px;width:100%;background:#003087;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">🎉 Test feedback</button>
+  </div>
+
   <!-- HANDS-FREE COMMAND CARD — print this and laminate it for the wall -->
   <div class="barcode-hint" style="background:#003087;color:#fff;border-color:#003087">
     <strong style="color:#fff">📡 Hands-Free Scanning</strong>
@@ -538,6 +584,7 @@ function onBarcodeFound(code) {
   const foot = document.getElementById('camFoot');
   document.getElementById('camFootText').textContent = 'Found: ' + code;
   foot.className = 'cam-foot found';
+  FB.scan();
   setTimeout(() => {
     stopCamera();
     if (camCallback) {
@@ -686,9 +733,9 @@ function handleHandsFreeCommand(code) {
 }
 
 function applyHandsFree() {
-  if (!hfActiveItem) { showToast('⚠ Scan an item first'); return; }
+  if (!hfActiveItem) { FB.error(); showToast('⚠ Scan an item first'); return; }
   const qty = parseFloat(hfQty);
-  if (isNaN(qty) || hfQty === '') { showToast('⚠ Scan digits then APPLY'); return; }
+  if (isNaN(qty) || hfQty === '') { FB.error(); showToast('⚠ Scan digits then APPLY'); return; }
 
   const item = hfActiveItem;
   const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
@@ -742,6 +789,9 @@ function applyHandsFree() {
 
   updateBadge();
   if (selRow === item.row) renderCard(item);
+  FB.success();
+  PROGRESS.bump();
+  spawnScorePop('+' + fmt(qty), '#1A5C1A');
   // Keep item + location active so packer can keep counting/receiving without re-scanning;
   // only reset the qty
   hfQty = '';
@@ -769,8 +819,9 @@ function switchTab(name) {
   });
   if (name==='export') renderExport();
   if (name==='log') renderLog();
-  if (name==='barcodes') renderBarcodeMap();
+  if (name==='barcodes') { renderBarcodeMap(); syncFeedbackToggles(); }
   if (name==='cabinets') renderCabinets();
+  if (name==='scan') PROGRESS.refresh();
   if (name!=='scan' && camActive) stopCamera();
 }
 
@@ -880,6 +931,230 @@ function updateBadge() {
   const ts = document.getElementById('syncTime');
   if(ts && n > 0){ ts.textContent = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
 }
+// ── FEEDBACK ENGINE ───────────────────────────────────────────────────────────
+// Haptic vibration + Web Audio sounds + visual flourishes (+1 pop, streak,
+// daily progress). Each piece can be toggled independently in settings.
+//
+// Settings keys (all booleans, default true):
+//   mbd_fb_haptics — vibrate on success/error (mobile only)
+//   mbd_fb_sounds  — play synthesized sounds
+//   mbd_fb_visuals — show +1 pops, streak banner, milestone toasts
+
+const FB = {
+  haptics: true,
+  sounds:  true,
+  visuals: true,
+  audioCtx: null,
+
+  load() {
+    try {
+      const h = localStorage.getItem('mbd_fb_haptics');
+      const s = localStorage.getItem('mbd_fb_sounds');
+      const v = localStorage.getItem('mbd_fb_visuals');
+      if (h !== null) this.haptics = h === 'true';
+      if (s !== null) this.sounds  = s === 'true';
+      if (v !== null) this.visuals = v === 'true';
+    } catch(e) {}
+  },
+  save() {
+    try {
+      localStorage.setItem('mbd_fb_haptics', this.haptics);
+      localStorage.setItem('mbd_fb_sounds',  this.sounds);
+      localStorage.setItem('mbd_fb_visuals', this.visuals);
+    } catch(e) {}
+  },
+  ensureAudio() {
+    if (this.audioCtx) return this.audioCtx;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) this.audioCtx = new Ctx();
+    } catch(e) {}
+    return this.audioCtx;
+  },
+  beep(freq, dur, type) {
+    if (!this.sounds) return;
+    const ctx = this.ensureAudio();
+    if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.value = freq;
+      // Quick attack + decay envelope
+      const t = ctx.currentTime;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + dur + 0.02);
+    } catch(e) {}
+  },
+  vibrate(pattern) {
+    if (!this.haptics) return;
+    if (navigator.vibrate) {
+      try { navigator.vibrate(pattern); } catch(e) {}
+    }
+  },
+
+  // High-level helpers — call these from the workflow code:
+  success() {
+    this.vibrate(35);
+    // Two-tone success: A5 → E6
+    this.beep(880, 0.06, 'sine');
+    setTimeout(() => this.beep(1318, 0.10, 'sine'), 70);
+  },
+  scan() {
+    this.vibrate(20);
+    this.beep(1200, 0.04, 'square');
+  },
+  error() {
+    this.vibrate([60, 40, 60]);
+    this.beep(220, 0.18, 'sawtooth');
+  },
+  milestone() {
+    this.vibrate([30, 30, 30, 30, 60]);
+    // Triumphant arpeggio: C5 → E5 → G5 → C6
+    [523, 659, 784, 1047].forEach((f, i) =>
+      setTimeout(() => this.beep(f, 0.10, 'triangle'), i * 80)
+    );
+  },
+};
+FB.load();
+
+// Spawn a "+N" pop near the bottom-center of the screen
+function spawnScorePop(text, color) {
+  if (!FB.visuals) return;
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.style.cssText = 'position:fixed;left:50%;bottom:90px;transform:translateX(-50%);'
+    + 'font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:38px;font-weight:900;'
+    + 'color:'+(color || '#1A5C1A')+';pointer-events:none;z-index:9998;'
+    + 'text-shadow:0 2px 6px rgba(0,0,0,.25);'
+    + 'transition:transform .8s cubic-bezier(.2,.8,.3,1),opacity .8s ease-out;'
+    + 'opacity:1';
+  document.body.appendChild(el);
+  // Trigger animation on next frame
+  requestAnimationFrame(() => {
+    el.style.transform = 'translateX(-50%) translateY(-60px)';
+    el.style.opacity = '0';
+  });
+  setTimeout(() => el.remove(), 900);
+}
+
+// ── DAILY PROGRESS + STREAK ───────────────────────────────────────────────────
+// Tracks how many counts/adds the user did today. Resets at midnight.
+const PROGRESS = {
+  todayKey: '',
+  count: 0,
+  streak: 0,        // consecutive successes without an error
+  shownMilestones: {}, // { 25:true, 50:true, 100:true }
+
+  todayString() {
+    return new Date().toISOString().slice(0, 10);
+  },
+  load() {
+    this.todayKey = this.todayString();
+    try {
+      const saved = JSON.parse(localStorage.getItem('mbd_progress') || '{}');
+      if (saved.day === this.todayKey) {
+        this.count = saved.count || 0;
+        this.shownMilestones = saved.shown || {};
+      } else {
+        this.count = 0;
+        this.shownMilestones = {};
+        this.save();
+      }
+    } catch(e) {}
+  },
+  save() {
+    try {
+      localStorage.setItem('mbd_progress', JSON.stringify({
+        day: this.todayKey, count: this.count, shown: this.shownMilestones
+      }));
+    } catch(e) {}
+  },
+  bump() {
+    // Roll over if day changed
+    if (this.todayString() !== this.todayKey) {
+      this.todayKey = this.todayString();
+      this.count = 0;
+      this.streak = 0;
+      this.shownMilestones = {};
+    }
+    this.count++;
+    this.streak++;
+    this.save();
+    this.checkMilestones();
+    this.refresh();
+  },
+  resetStreak() {
+    this.streak = 0;
+    this.refresh();
+  },
+  checkMilestones() {
+    const marks = [25, 50, 100, 200, 500];
+    for (const m of marks) {
+      if (this.count === m && !this.shownMilestones[m]) {
+        this.shownMilestones[m] = true;
+        this.save();
+        FB.milestone();
+        spawnScorePop('🎉 ' + m + ' today!', '#003087');
+        setTimeout(() => showToast(m + ' items today — keep it going'), 200);
+        break;
+      }
+    }
+  },
+  refresh() {
+    const chip = document.getElementById('progressChip');
+    if (!chip) return;
+    if (this.count <= 0) { chip.style.display = 'none'; return; }
+    chip.style.display = 'flex';
+    const c = chip.querySelector('.progress-count');
+    const s = chip.querySelector('.progress-streak');
+    if (c) c.textContent = this.count + ' today';
+    if (s) {
+      if (this.streak >= 3) {
+        s.style.display = 'inline';
+        s.textContent = '🔥 ' + this.streak;
+      } else {
+        s.style.display = 'none';
+      }
+    }
+  },
+};
+PROGRESS.load();
+
+function toggleFeedback(which, on) {
+  if (which === 'haptics') FB.haptics = on;
+  if (which === 'sounds')  FB.sounds  = on;
+  if (which === 'visuals') FB.visuals = on;
+  FB.save();
+  // Quick demo of the toggled feature
+  if (which === 'haptics' && on) FB.vibrate(35);
+  if (which === 'sounds'  && on) FB.beep(880, 0.08, 'sine');
+  if (which === 'visuals' && on) spawnScorePop('✓', '#003087');
+}
+
+function syncFeedbackToggles() {
+  const h = document.getElementById('fbHaptics');
+  const s = document.getElementById('fbSounds');
+  const v = document.getElementById('fbVisuals');
+  if (h) h.checked = FB.haptics;
+  if (s) s.checked = FB.sounds;
+  if (v) v.checked = FB.visuals;
+}
+
+function testFeedback() {
+  FB.scan();
+  setTimeout(() => FB.success(), 200);
+  spawnScorePop('+1', '#1A5C1A');
+  setTimeout(() => {
+    FB.milestone();
+    spawnScorePop('🎉 Nice!', '#003087');
+  }, 700);
+}
+
 function showToast(msg) {
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('show');
@@ -1002,7 +1277,7 @@ function applyCount(row) {
   const item = invByRow[row];
   // Validate at least one qty entered
   const validEntries = item._locations.filter(e => e.qty !== '' && !isNaN(parseFloat(e.qty)));
-  if (!validEntries.length) { showToast('Enter at least one quantity'); return; }
+  if (!validEntries.length) { FB.error(); showToast('Enter at least one quantity'); return; }
   const total = validEntries.reduce((s,e) => s + parseFloat(e.qty), 0);
   const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
   const delta = total - item.onHand;
@@ -1018,6 +1293,9 @@ function applyCount(row) {
   });
   updateBadge();
   renderCard(item);
+  FB.success();
+  PROGRESS.bump();
+  spawnScorePop('+1', '#1A5C1A');
   showToast('Count set: ' + fmt(total) + ' (' + validEntries.length + ' location' + (validEntries.length>1?'s':'') + ')');
 }
 
@@ -1374,9 +1652,59 @@ function findCabById(id) {
   return cabinets.find(c => cabId(c) === id);
 }
 
+// Recent searches — last 5 cabinet lookups, today only.
+// Stored by uuid so they survive moves/pulls.
+let recentSearches = [];
+try {
+  const saved = JSON.parse(localStorage.getItem('mbd_recent_cab_searches') || '{}');
+  if (saved.day === new Date().toISOString().slice(0,10)) {
+    recentSearches = saved.list || [];
+  }
+} catch(e) {}
+
+function saveRecentSearches() {
+  try {
+    localStorage.setItem('mbd_recent_cab_searches', JSON.stringify({
+      day: new Date().toISOString().slice(0,10),
+      list: recentSearches
+    }));
+  } catch(e) {}
+}
+
+function recordRecentSearch(c) {
+  if (!c || !c.uuid) return;
+  // Remove any existing entry for this uuid, then add to front
+  recentSearches = recentSearches.filter(u => u !== c.uuid);
+  recentSearches.unshift(c.uuid);
+  // Keep last 5
+  if (recentSearches.length > 5) recentSearches = recentSearches.slice(0, 5);
+  saveRecentSearches();
+}
+
+function renderRecentSearches() {
+  const el = document.getElementById('cabRecentSearches');
+  if (!el) return;
+  // Resolve uuids back to current cabinet records (skipping deleted/missing)
+  const items = recentSearches
+    .map(uuid => cabinets.find(c => c.uuid === uuid && !c.deleted))
+    .filter(Boolean);
+  if (!items.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666;margin:14px 0 6px">Your Recent Lookups</div>'
+    + items.map(c => {
+        const cab = esc(c.cabinet || '?');
+        const isPulled = !!c.pulledAt;
+        return '<div onclick="document.getElementById(\'cabSearchInput\').value=\''+cab+'\';renderCabResult(\''+cab+'\')" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:9px 12px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer'+(isPulled?';opacity:.55':'')+'">'
+        + '<div style="font-size:13px;font-weight:700;color:#1a1a1a">'+cab+(isPulled?' <span style="font-size:10px;color:#8B0000">(pulled)</span>':'')+'</div>'
+        + '<div style="font-family:monospace;font-size:12px;font-weight:700;color:#003087;background:#EAF0FB;padding:3px 9px;border-radius:5px'+(isPulled?';text-decoration:line-through':'')+'">📍 '+esc(c.location||'?')+'</div>'
+        + '</div>';
+      }).join('');
+}
+
 function renderCabinets() {
   syncShowPulledToggle();
   refreshSyncStatus();
+  renderRecentSearches();
   const empty = document.getElementById('cabEmpty');
   const count = document.getElementById('cabCount');
   const recent = document.getElementById('cabRecent');
@@ -1414,6 +1742,8 @@ function renderCabResult(query) {
     return;
   }
   const hits = findCabinets(query);
+  // Track this search if it had a single match (the most useful kind to remember)
+  if (hits.length === 1) recordRecentSearch(hits[0]);
   if (!hits.length) {
     // Maybe it's a pulled cabinet hidden from view
     const wasPulled = !showPulled && cabinets.some(c => c.pulledAt &&
@@ -1869,19 +2199,133 @@ function confirmAddCabinet() {
     .filter(Boolean);
   if (!numbers.length) { showToast('⚠ Could not parse cabinet numbers'); return; }
 
-  // Detect duplicates against existing active cabinets
-  const dupeNumbers = numbers.filter(n =>
-    cabinets.some(c => !c.pulledAt && normCab(c.cabinet) === normCab(n))
-  );
-  if (dupeNumbers.length) {
-    const msg = dupeNumbers.length === 1
-      ? 'Cabinet "' + dupeNumbers[0] + '" already exists in storage. Add anyway as a duplicate?'
-      : dupeNumbers.length + ' cabinets already exist in storage:\n' + dupeNumbers.slice(0,8).join(', ') + (dupeNumbers.length>8?'...':'') + '\n\nAdd anyway as duplicates?';
-    if (!confirm(msg)) return;
+  // De-dupe within the input itself (in case user enters "30882, 30882")
+  const seen = {};
+  const cleanNumbers = numbers.filter(n => {
+    const k = normCab(n);
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  });
+
+  // Find existing matches (active + pulled, but not soft-deleted)
+  const conflicts = []; // [{ newNum, existing }]
+  const newOnly = [];
+  cleanNumbers.forEach(n => {
+    const existing = cabinets.find(c =>
+      !c.deleted && normCab(c.cabinet) === normCab(n)
+    );
+    if (existing) conflicts.push({ newNum: n, existing });
+    else newOnly.push(n);
+  });
+
+  if (!conflicts.length) {
+    // No conflicts — add directly
+    doAddCabinets(cleanNumbers, location, person);
+    return;
   }
 
+  // Show conflict resolution modal
+  openAddConflictModal(conflicts, newOnly, location, person);
+}
+
+// Show the user the duplicates and let them choose how to resolve
+function openAddConflictModal(conflicts, newOnly, location, person) {
+  const conflictRows = conflicts.map(({ newNum, existing }) => {
+    const status = existing.pulledAt
+      ? '<span style="color:#8B0000;font-weight:700">PULLED</span>'
+      : '<span style="color:#1A5C1A;font-weight:700">In Storage</span>';
+    return '<div style="background:#fff;border:1px solid #FFC107;border-radius:8px;padding:10px 12px;margin-bottom:6px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">'
+      +   '<div style="font-size:14px;font-weight:800;color:#1a1a1a">'+esc(newNum)+'</div>'
+      +   '<div style="font-size:11px">'+status+'</div>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#666;margin-top:3px">Currently at <strong style="color:#003087">📍 '+esc(existing.location||'?')+'</strong>'
+      + (existing.addedBy ? ' · added by '+esc(existing.addedBy) : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+
+  const newCount = newOnly.length;
+  const dupCount = conflicts.length;
+
+  const body =
+    '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#8B4000;line-height:1.5">'
+    + '<strong>⚠ '+dupCount+' cabinet'+(dupCount!==1?'s':'')+' already exist'+(dupCount===1?'s':'')+'</strong>'
+    + (newCount ? '<div style="margin-top:4px;color:#444">'+newCount+' new cabinet'+(newCount!==1?'s':'')+' will be added regardless of your choice below.</div>' : '')
+    + '</div>'
+
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Conflicts</div>'
+    + '<div style="max-height:240px;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px">'
+    + conflictRows
+    + '</div>'
+
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">What to do?</div>'
+
+    + '<button onclick="resolveConflicts(\'replace\')" style="width:100%;padding:14px;margin-bottom:6px;background:#FF9100;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;text-align:left">'
+    +   '<div>↪ Replace existing record'+(dupCount!==1?'s':'')+'</div>'
+    +   '<div style="font-size:11px;font-weight:600;opacity:.9;margin-top:2px;text-transform:none;letter-spacing:0">Move them to the new location. Old location saved in history.</div>'
+    + '</button>'
+
+    + (newCount > 0 ? '<button onclick="resolveConflicts(\'skip\')" style="width:100%;padding:14px;margin-bottom:6px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;text-align:left">'
+    +   '<div>⊘ Skip the duplicates</div>'
+    +   '<div style="font-size:11px;font-weight:600;opacity:.9;margin-top:2px;text-transform:none;letter-spacing:0">Only add the '+newCount+' new cabinet'+(newCount!==1?'s':'')+'. Leave existing ones alone.</div>'
+    + '</button>' : '')
+
+    + '<button onclick="closeCabModal()" style="width:100%;padding:12px;background:#fff;color:#666;border:1.5px solid #ccc;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel — change nothing</button>';
+
+  // Stash the pending data on the window so resolveConflicts() can read it
+  window._pendingAddCabConflicts = { conflicts, newOnly, location, person };
+  openCabModal('Cabinet Number Already In Use', body);
+}
+
+function resolveConflicts(choice) {
+  const data = window._pendingAddCabConflicts;
+  if (!data) return;
+  const { conflicts, newOnly, location, person } = data;
+
+  if (choice === 'replace') {
+    // For each conflict: update the existing record in-place to the new location.
+    // Records the move (prevLoc, movedAt, movedBy) so history is preserved.
+    // If it was pulled, clear the pulled flags (cabinet is back).
+    const ts = nowStamp();
+    conflicts.forEach(({ existing }) => {
+      existing.prevLoc  = existing.location || '';
+      existing.location = location;
+      existing.movedAt  = ts;
+      existing.movedBy  = person || '';
+      existing.updatedAt = ts;
+      // If it was pulled, clear the pull (the cabinet is back in storage)
+      if (existing.pulledAt) {
+        delete existing.pulledAt;
+        delete existing.pulledBy;
+      }
+    });
+    // Also add the new-only ones
+    newOnly.forEach(n => {
+      cabinets.push({
+        uuid: makeUuid(), cabinet: n, location,
+        addedAt: ts, addedBy: person || '', updatedAt: ts,
+      });
+    });
+    saveCabinets();
+    closeCabModal();
+    const total = conflicts.length + newOnly.length;
+    showToast('✓ ' + conflicts.length + ' replaced, ' + newOnly.length + ' added at ' + location);
+    document.getElementById('cabSearchInput').value = total === 1 ? (conflicts[0]?.newNum || newOnly[0]) : location;
+    renderCabResult(document.getElementById('cabSearchInput').value);
+    renderCabinets();
+  }
+  else if (choice === 'skip') {
+    // Just add the new-only ones, leave conflicts as-is
+    doAddCabinets(newOnly, location, person);
+  }
+  delete window._pendingAddCabConflicts;
+}
+
+// Helper: actually add a list of new cabinets (no conflict checking)
+function doAddCabinets(numbers, location, person) {
   const ts = nowStamp();
-  let added = 0;
   numbers.forEach(n => {
     cabinets.push({
       uuid: makeUuid(),
@@ -1891,16 +2335,59 @@ function confirmAddCabinet() {
       addedBy: person || '',
       updatedAt: ts,
     });
-    added++;
   });
   saveCabinets();
   closeCabModal();
-  showToast('✓ Added ' + added + ' cabinet' + (added!==1?'s':'') + ' at ' + location);
-  // Show the location filter (or first cabinet if just one)
+  FB.success();
+  PROGRESS.bump();
+  spawnScorePop('+' + numbers.length, '#1A5C1A');
+  showToast('✓ Added ' + numbers.length + ' cabinet' + (numbers.length!==1?'s':'') + ' at ' + location);
+  // Offer continuation banner
+  showAddMoreBanner(person);
   const firstNum = numbers[0];
-  document.getElementById('cabSearchInput').value = added === 1 ? firstNum : location;
-  renderCabResult(added === 1 ? firstNum : location);
+  document.getElementById('cabSearchInput').value = numbers.length === 1 ? firstNum : location;
+  renderCabResult(document.getElementById('cabSearchInput').value);
   renderCabinets();
+}
+
+// After a successful add, offer to add more at a different location.
+// Banner appears for 8 seconds — tap to immediately reopen the Add modal
+// with the same person pre-filled.
+function showAddMoreBanner(person) {
+  // Remove any existing banner first
+  const old = document.getElementById('addMoreBanner');
+  if (old) old.remove();
+  if (!FB.visuals) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'addMoreBanner';
+  banner.style.cssText = 'position:fixed;left:50%;bottom:20px;transform:translateX(-50%);'
+    + 'background:#1A5C1A;color:#fff;border-radius:14px;padding:14px 22px;'
+    + 'font-size:15px;font-weight:700;cursor:pointer;z-index:9997;'
+    + 'box-shadow:0 6px 20px rgba(0,0,0,.25);'
+    + 'display:flex;align-items:center;gap:14px;'
+    + 'animation:fadeInUp .25s ease-out;'
+    + 'max-width:90vw';
+  banner.innerHTML = '<span>+ Add more at a different location?</span>'
+    + '<span style="font-size:12px;opacity:.85;font-weight:500">tap or wait</span>';
+  banner.onclick = () => {
+    banner.remove();
+    openAddCabinet();
+    // Pre-fill the person field if available
+    setTimeout(() => {
+      const pBtns = document.querySelectorAll('#cabModalBody button[data-name]');
+      if (person) {
+        pBtns.forEach(b => {
+          if (b.dataset.name === person) b.click();
+        });
+      }
+    }, 120);
+  };
+  document.body.appendChild(banner);
+  setTimeout(() => {
+    if (banner.parentNode) banner.style.opacity = '0';
+    setTimeout(() => banner.remove(), 300);
+  }, 8000);
 }
 
 function openMoveCabinet(id) {
@@ -1986,6 +2473,14 @@ function togglePulled(on) {
   showPulled = on;
   try { localStorage.setItem('mbd_show_pulled', on ? 'true' : 'false'); } catch(e) {}
   renderCabResult(document.getElementById('cabSearchInput').value);
+}
+
+function toggleAdminTools() {
+  const body = document.getElementById('adminToolsBody');
+  const caret = document.getElementById('adminToolsCaret');
+  const open = body.style.display === 'block';
+  body.style.display = open ? 'none' : 'block';
+  if (caret) caret.textContent = open ? '▶' : '▼';
 }
 
 function manageCabTeam() {
@@ -2335,6 +2830,9 @@ function exportXLSX() {
 
 // Initialize hands-free status bar — shows if HF was previously enabled
 updateHfStatus();
+
+// Refresh daily progress chip on load (shows if user already counted today)
+PROGRESS.refresh();
 
 // Start auto-sync if configured
 startAutoSync();
