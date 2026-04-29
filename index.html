@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner</title>
+<title>MBD Inventory Scanner v12</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
 <style>
@@ -183,11 +183,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 <body>
 
 <div class="header">
-  <h1>MBD Inventory</h1>
-  <span class="header-badge" id="changedBadge">0 changes</span>
+  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v12</span></h1>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
   <button class="tab-btn active" id="tab-scan-btn" onclick="switchTab('scan')">Scan</button>
+  <button class="tab-btn" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')">Barcodes</button>
   <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')">Log</button>
   <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')">Export</button>
@@ -198,6 +199,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
     <strong>Open in Safari for camera scanning</strong>
     Camera access is blocked inside apps. Open this page in Safari for live barcode scanning.
   </div>
+
+  <!-- HANDS-FREE STATUS BAR — shows current state when hands-free mode is on -->
+  <div id="hfStatusBar" style="display:none;background:#003087;color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,.15)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">📡 Hands-Free Mode</div>
+      <div class="hf-mode" style="font-size:12px;font-weight:700;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:999px"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div style="background:rgba(255,255,255,.1);border-radius:6px;padding:8px 10px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;opacity:.7">Item</div>
+        <div class="hf-item" style="font-size:14px;font-weight:700;line-height:1.2;margin-top:2px;word-break:break-word">— scan an item —</div>
+      </div>
+      <div style="background:rgba(255,255,255,.1);border-radius:6px;padding:8px 10px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;opacity:.7">Qty</div>
+        <div class="hf-qty" style="font-size:22px;font-weight:900;line-height:1.2;margin-top:2px;font-family:monospace">—</div>
+      </div>
+      <div style="background:rgba(255,255,255,.1);border-radius:6px;padding:8px 10px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;opacity:.7">Location</div>
+        <div class="hf-loc" style="font-size:14px;font-weight:700;line-height:1.2;margin-top:2px;word-break:break-word">—</div>
+      </div>
+    </div>
+  </div>
+
   <div class="mode-row">
     <button class="mode-chip active-count" id="mc-count" onclick="setMode('count')">Count</button>
     <button class="mode-chip" id="mc-addloc" onclick="setMode('addloc')">Add to Loc</button>
@@ -220,7 +244,62 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div id="itemCard"></div>
 </div>
 
+<div id="tab-cabinets" class="panel">
+
+  <!-- BIG SEARCH BAR -->
+  <div style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+    <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Find a Cabinet</label>
+    <input type="text" id="cabSearchInput" placeholder="Type or scan cabinet #…"
+      style="width:100%;padding:14px 16px;font-size:18px;font-weight:600;border:2px solid #ccc;border-radius:10px;outline:none;font-family:inherit;-webkit-appearance:none"
+      autocomplete="off" autocorrect="off" autocapitalize="characters">
+    <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.5">
+      Tip: scan the cabinet's barcode label, or type the cabinet # (order # for made-to-order, lot # for stock). You can also search by location to see what's there.
+    </div>
+  </div>
+
+  <!-- RESULT AREA -->
+  <div id="cabResult"></div>
+
+  <!-- IMPORT / EMPTY STATE -->
+  <div id="cabEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
+    <strong>📦 No cabinet locations loaded yet</strong>
+    Tap <strong>+ Add Cabinet(s)</strong> below to add cabinets one or many at a time, or upload a spreadsheet with two columns: <strong>Cabinet #</strong> and <strong>Location</strong>. The first row should be the column headers.
+  </div>
+
+  <!-- IMPORT / EXPORT BUTTONS -->
+  <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+    <button onclick="openAddCabinet()" style="flex:1;min-width:140px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">+ Add Cabinet</button>
+    <label class="map-io-btn import" style="flex:1;min-width:140px">
+      ⬆ Upload Spreadsheet
+      <input type="file" accept=".xlsx,.xls,.csv" id="cabImportInput" style="display:none">
+    </label>
+    <button class="map-io-btn export" style="flex:1;min-width:140px" onclick="exportCabinets()">⬇ Export Current</button>
+    <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearCabinets()">✕ Clear All</button>
+  </div>
+
+  <!-- TOGGLES -->
+  <div style="display:flex;gap:8px;margin-top:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;cursor:pointer">
+      <input type="checkbox" id="showPulledToggle" onchange="togglePulled(this.checked)" style="width:18px;height:18px;cursor:pointer">
+      Show pulled cabinets in search
+    </label>
+    <button onclick="manageCabTeam()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">👥 Manage Team</button>
+  </div>
+
+  <!-- COUNT / LIST PREVIEW -->
+  <div id="cabCount" style="margin-top:14px;font-size:13px;color:#666;text-align:center;font-weight:600"></div>
+  <div id="cabRecent" style="margin-top:8px"></div>
+
+</div>
+
 <div id="tab-barcodes" class="panel">
+  <!-- HANDS-FREE COMMAND CARD — print this and laminate it for the wall -->
+  <div class="barcode-hint" style="background:#003087;color:#fff;border-color:#003087">
+    <strong style="color:#fff">📡 Hands-Free Scanning</strong>
+    <span style="color:rgba(255,255,255,.85)">Print the Command Reference Card and stick it at your station. Scan barcodes to enter quantities, switch modes, and apply changes — without touching the screen.</span>
+  </div>
+  <button class="dl-btn" style="background:#003087;color:#fff;margin-bottom:12px" onclick="printCommandCard()">🖨 Print Hands-Free Command Card</button>
+
   <div class="barcode-hint">
     <strong>Map barcodes to elements</strong>
     Mappings are saved on this device. Scan an unknown barcode then tap "Map this barcode", or add manually below.
@@ -258,6 +337,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
     <p>Writes the total count plus a breakdown by location into <strong>New Count</strong> and <strong>LOCATION</strong> columns, plus a full Scan Log sheet.</p>
     <button class="dl-btn" onclick="exportXLSX()">Download Updated .xlsx</button>
   </div>
+  <div class="ex-card">
+    <h2>Sync to Fulfillment App</h2>
+    <p>Copies current inventory counts as JSON to the clipboard. Paste this into the Fulfillment app under Settings → Inventory Counts to sync low-stock alerts.</p>
+    <button class="dl-btn" style="background:#1e8e3e" onclick="copyCountsToClipboard()">Copy Counts to Clipboard</button>
+  </div>
 </div>
 
 <!-- CAMERA OVERLAY -->
@@ -273,6 +357,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div class="cam-foot" id="camFoot">
     <div class="scan-dot"></div>
     <span id="camFootText">Hold barcode in the frame</span>
+  </div>
+</div>
+
+<!-- CABINET ACTION MODAL — shared for Add / Move / Pull -->
+<div id="cabModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;-webkit-overflow-scrolling:touch">
+  <div id="cabModal" style="background:#fff;border-radius:14px;max-width:440px;width:100%;margin:auto;padding:22px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div id="cabModalTitle" style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#003087;text-transform:uppercase;letter-spacing:.5px"></div>
+      <button onclick="closeCabModal()" style="background:none;border:none;font-size:28px;color:#999;cursor:pointer;line-height:1;padding:0 4px">×</button>
+    </div>
+    <div id="cabModalBody"></div>
   </div>
 </div>
 
@@ -296,6 +391,37 @@ let scanLog = [];
 let mode = 'count';
 let selRow = null;
 let pendingBarcode = null;
+
+// ── HANDS-FREE STATE ──────────────────────────────────────────────────────────
+// Scanner-only workflow: every action is triggered by scanning a barcode.
+// Special command codes start with MBD- and are intercepted before normal lookup.
+let hfQty = '';        // accumulated digits being entered, e.g. "47"
+let hfLocation = '';   // location currently selected (from a location barcode scan)
+let hfActiveItem = null; // the current item being worked on (after scan)
+let hfMode = false;    // is hands-free mode active?
+try { hfMode = localStorage.getItem('mbd_hf_mode') === 'true'; } catch(e) {}
+
+function hfReset() {
+  hfQty = '';
+  hfLocation = '';
+  hfActiveItem = null;
+  updateHfStatus();
+}
+
+function updateHfStatus() {
+  const bar = document.getElementById('hfStatusBar');
+  if (!bar) return;
+  bar.style.display = hfMode ? 'block' : 'none';
+  if (!hfMode) return;
+  const modeName = {count:'Count',addloc:'Add to Location',received:'Received +',removed:'Removed −'}[mode];
+  const itemTxt = hfActiveItem ? hfActiveItem.name : '— scan an item —';
+  const qtyTxt  = hfQty || '—';
+  const locTxt  = hfLocation || '—';
+  const itemEl = bar.querySelector('.hf-item');  if(itemEl) itemEl.textContent = itemTxt;
+  const qtyEl  = bar.querySelector('.hf-qty');   if(qtyEl)  qtyEl.textContent  = qtyTxt;
+  const locEl  = bar.querySelector('.hf-loc');   if(locEl)  locEl.textContent  = locTxt;
+  const modeEl = bar.querySelector('.hf-mode');  if(modeEl) modeEl.textContent = modeName;
+}
 
 let barcodeMap = {};
 try { barcodeMap = JSON.parse(localStorage.getItem('mbd_barcode_map') || '{}'); } catch(e) {}
@@ -428,16 +554,188 @@ async function startLocationScan(onResult) {
   await startCamera();
 }
 function handleBarcode(code) {
+  // If on the Cabinets tab, scanned barcodes go straight to cabinet lookup
+  const cabPanel = document.getElementById('tab-cabinets');
+  if (cabPanel && cabPanel.classList.contains('active')) {
+    const inp = document.getElementById('cabSearchInput');
+    if (inp) { inp.value = code; renderCabResult(code); inp.select(); }
+    return;
+  }
+  // Hands-free commands take priority — even if hf mode is off, MBD-HF-ON works
+  if (code.startsWith('MBD-') || code.toUpperCase().startsWith('MBD-')) {
+    handleHandsFreeCommand(code);
+    return;
+  }
   const mapped = barcodeMap[code] || barcodeMap[code.toUpperCase()];
-  if (mapped) { pickByName(mapped); showToast('Scanned: ' + mapped); return; }
+  if (mapped) {
+    pickByName(mapped);
+    if (hfMode) {
+      hfActiveItem = inv.find(i => i.name === mapped);
+      hfQty = ''; // reset qty when new item scanned
+      updateHfStatus();
+    }
+    showToast('Scanned: ' + mapped);
+    return;
+  }
+  // Location barcode? Format: LOC-<anything>
+  if (hfMode && code.toUpperCase().startsWith('LOC-')) {
+    hfLocation = code.replace(/^loc-/i, '');
+    updateHfStatus();
+    showToast('📍 Location: ' + hfLocation);
+    return;
+  }
   const nameMatch = inv.find(i =>
     i.name === code ||
     i.name.replace(/\s+/g,'').toUpperCase() === code.replace(/\s+/g,'').toUpperCase() ||
     i.name.toUpperCase().replace(/[^A-Z0-9]/g,'') === code.toUpperCase().replace(/[^A-Z0-9]/g,'')
   );
-  if (nameMatch) { pickByRow(nameMatch.row); showToast('Scanned: ' + nameMatch.name); return; }
+  if (nameMatch) {
+    pickByRow(nameMatch.row);
+    if (hfMode) { hfActiveItem = nameMatch; hfQty = ''; updateHfStatus(); }
+    showToast('Scanned: ' + nameMatch.name);
+    return;
+  }
   showUnmappedBarcode(code);
 }
+
+// ── HANDS-FREE COMMAND HANDLER ────────────────────────────────────────────────
+function handleHandsFreeCommand(code) {
+  const cmd = code.toUpperCase();
+
+  // Mode switches
+  if (cmd === 'MBD-MODE-COUNT')    { setMode('count');    showToast('Mode: Count');         hfQty=''; updateHfStatus(); return; }
+  if (cmd === 'MBD-MODE-ADDLOC')   { setMode('addloc');   showToast('Mode: Add to Loc');    hfQty=''; updateHfStatus(); return; }
+  if (cmd === 'MBD-MODE-RECEIVED') { setMode('received'); showToast('Mode: Received +');    hfQty=''; updateHfStatus(); return; }
+  if (cmd === 'MBD-MODE-REMOVED')  { setMode('removed');  showToast('Mode: Removed −');     hfQty=''; updateHfStatus(); return; }
+
+  // Toggle hands-free on/off
+  if (cmd === 'MBD-HF-ON') {
+    hfMode = true;
+    try { localStorage.setItem('mbd_hf_mode','true'); } catch(e) {}
+    updateHfStatus();
+    showToast('✓ Hands-free mode ON');
+    return;
+  }
+  if (cmd === 'MBD-HF-OFF') {
+    hfMode = false;
+    try { localStorage.setItem('mbd_hf_mode','false'); } catch(e) {}
+    hfReset();
+    showToast('Hands-free mode OFF');
+    return;
+  }
+
+  // Digit accumulator (0-9)
+  const digitMatch = cmd.match(/^MBD-DIGIT-(\d)$/);
+  if (digitMatch) {
+    if (hfQty.length < 9) hfQty += digitMatch[1];
+    updateHfStatus();
+    showToast('Qty: ' + hfQty);
+    return;
+  }
+
+  // Decimal point
+  if (cmd === 'MBD-DOT') {
+    if (!hfQty.includes('.')) hfQty = (hfQty || '0') + '.';
+    updateHfStatus();
+    showToast('Qty: ' + hfQty);
+    return;
+  }
+
+  // Backspace / delete last digit
+  if (cmd === 'MBD-BACK') {
+    hfQty = hfQty.slice(0, -1);
+    updateHfStatus();
+    showToast(hfQty ? 'Qty: ' + hfQty : 'Qty cleared');
+    return;
+  }
+
+  // Clear current pending qty
+  if (cmd === 'MBD-CLEAR') {
+    hfQty = '';
+    updateHfStatus();
+    showToast('Qty cleared');
+    return;
+  }
+
+  // Cancel — clears everything (item, qty, location)
+  if (cmd === 'MBD-CANCEL') {
+    hfReset();
+    showToast('✕ Cancelled');
+    return;
+  }
+
+  // Apply action — depends on current mode
+  if (cmd === 'MBD-APPLY') {
+    applyHandsFree();
+    return;
+  }
+
+  showToast('⚠ Unknown command: ' + code);
+}
+
+function applyHandsFree() {
+  if (!hfActiveItem) { showToast('⚠ Scan an item first'); return; }
+  const qty = parseFloat(hfQty);
+  if (isNaN(qty) || hfQty === '') { showToast('⚠ Scan digits then APPLY'); return; }
+
+  const item = hfActiveItem;
+  const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+
+  if (mode === 'count') {
+    if (hfLocation) {
+      const existing = item._locations.find(e => e.loc === hfLocation);
+      if (existing) { existing.qty = qty; }
+      else { item._locations.push({ qty, loc: hfLocation }); }
+    } else {
+      item._locations = [{ qty, loc: '' }];
+    }
+    const total = locTotal(item);
+    const delta = total - item.onHand;
+    item.onHand = total;
+    item._changed = true;
+    scanLog.unshift({
+      time, name: item.name, mode: 'count',
+      qty: total, delta, onHand: total,
+      loc: hfLocation || '',
+      entries: item._locations.filter(e=>e.qty!=='').map(e=>({qty:parseFloat(e.qty),loc:e.loc||''}))
+    });
+    showToast('✓ Set ' + fmt(qty) + (hfLocation ? ' at ' + hfLocation : ''));
+  }
+  else if (mode === 'received') {
+    item._received = (item._received||0) + qty;
+    item.onHand += qty;
+    if (hfLocation) item._location = hfLocation;
+    item._changed = true;
+    scanLog.unshift({time, name:item.name, mode:'received', qty, delta:qty, onHand:item.onHand, loc:hfLocation, entries:[]});
+    showToast('✓ +' + fmt(qty) + ' received');
+  }
+  else if (mode === 'removed') {
+    item._removed = (item._removed||0) + qty;
+    item.onHand -= qty;
+    if (hfLocation) item._location = hfLocation;
+    item._changed = true;
+    scanLog.unshift({time, name:item.name, mode:'removed', qty, delta:-qty, onHand:item.onHand, loc:hfLocation, entries:[]});
+    showToast('✓ −' + fmt(qty) + ' removed');
+  }
+  else if (mode === 'addloc') {
+    if (!hfLocation) { showToast('⚠ Scan a location first'); return; }
+    const existing = item._locations.find(e => e.loc === hfLocation);
+    if (existing) { existing.qty = (parseFloat(existing.qty)||0) + qty; }
+    else { item._locations.push({ qty, loc: hfLocation }); }
+    item.onHand = locTotal(item);
+    item._changed = true;
+    scanLog.unshift({time, name:item.name, mode:'addloc', qty, delta:qty, onHand:item.onHand, loc:hfLocation+' (added)', entries:[]});
+    showToast('✓ +' + fmt(qty) + ' at ' + hfLocation);
+  }
+
+  updateBadge();
+  if (selRow === item.row) renderCard(item);
+  // Keep item + location active so packer can keep counting/receiving without re-scanning;
+  // only reset the qty
+  hfQty = '';
+  updateHfStatus();
+}
+
 function showUnmappedBarcode(code) {
   document.getElementById('searchInput').value = code;
   document.getElementById('suggestions').innerHTML = '';
@@ -453,13 +751,14 @@ function showUnmappedBarcode(code) {
 
 // ── TABS ──────────────────────────────────────────
 function switchTab(name) {
-  ['scan','barcodes','log','export'].forEach(t => {
+  ['scan','cabinets','barcodes','log','export'].forEach(t => {
     document.getElementById('tab-'+t).classList.toggle('active', t===name);
     document.getElementById('tab-'+t+'-btn').classList.toggle('active', t===name);
   });
   if (name==='export') renderExport();
   if (name==='log') renderLog();
   if (name==='barcodes') renderBarcodeMap();
+  if (name==='cabinets') renderCabinets();
   if (name!=='scan' && camActive) stopCamera();
 }
 
@@ -497,10 +796,31 @@ function onSearch() {
 function onSearchKey(e) {
   if (e.key!=='Enter') return;
   const q = document.getElementById('searchInput').value.trim();
+  if (!q) return;
+  // Route through handleBarcode so MBD- commands and LOC- locations work
+  // when scanned via wrist scanner (which sends text + Enter)
+  if (q.toUpperCase().startsWith('MBD-') || (hfMode && q.toUpperCase().startsWith('LOC-'))) {
+    handleBarcode(q);
+    document.getElementById('searchInput').value = '';
+    return;
+  }
   const mapped = barcodeMap[q] || barcodeMap[q.toUpperCase()];
-  if (mapped) { pickByName(mapped); return; }
+  if (mapped) {
+    pickByName(mapped);
+    if (hfMode) {
+      hfActiveItem = inv.find(i => i.name === mapped);
+      hfQty = '';
+      updateHfStatus();
+    }
+    document.getElementById('searchInput').value = '';
+    return;
+  }
   const hit = inv.find(i => i.name.toLowerCase()===q.toLowerCase());
-  if (hit) pickByRow(hit.row);
+  if (hit) {
+    pickByRow(hit.row);
+    if (hfMode) { hfActiveItem = hit; hfQty = ''; updateHfStatus(); }
+    document.getElementById('searchInput').value = '';
+  }
 }
 function clearSearch() {
   document.getElementById('searchInput').value='';
@@ -545,6 +865,8 @@ function esc(s) {
 function updateBadge() {
   const n=inv.filter(i=>i._changed).length;
   document.getElementById('changedBadge').textContent=n+' change'+(n!==1?'s':'');
+  const ts = document.getElementById('syncTime');
+  if(ts && n > 0){ ts.textContent = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
 }
 function showToast(msg) {
   const t=document.getElementById('toast');
@@ -937,6 +1259,722 @@ function addMapRow() {
   document.getElementById('mapRows').appendChild(makeMapRow('','',true));
 }
 
+// ── CABINET LOCATIONS ─────────────────────────────────────────────────────────
+// Simple lookup: workers type or scan a cabinet # and the warehouse location
+// appears immediately. Cabinet # is the order number for made-to-order, or
+// the lot number for stock cabinets.
+//
+// Fields per cabinet:
+//   cabinet, location           — primary identifiers
+//   addedAt, addedBy            — when first added
+//   movedAt, movedBy, prevLoc   — last move (optional)
+//   pulledAt, pulledBy          — set when pulled for fulfillment
+
+let cabinets = [];
+try {
+  const saved = localStorage.getItem('mbd_cabinets');
+  if (saved) cabinets = JSON.parse(saved);
+} catch(e) { cabinets = []; }
+
+// MIGRATE old {order, cabinet, location} records → {cabinet, location}
+// If both order and cabinet existed, combine as "order-cabinet" (e.g. "30882-C1").
+// If only one existed, use it as the cabinet.
+let _migrated = false;
+cabinets = cabinets.map(c => {
+  if (c.order !== undefined || (c.cabinet !== undefined && Object.keys(c).includes('order'))) {
+    _migrated = true;
+    let combined;
+    if (c.order && c.cabinet) combined = c.order + '-' + c.cabinet;
+    else combined = c.order || c.cabinet || '';
+    const out = { ...c, cabinet: combined };
+    delete out.order;
+    return out;
+  }
+  return c;
+});
+if (_migrated) {
+  try { localStorage.setItem('mbd_cabinets', JSON.stringify(cabinets)); } catch(e) {}
+}
+
+// Team list — shared with rest of MBD apps but stored separately here for now.
+let cabTeam = [];
+try {
+  const t = localStorage.getItem('mbd_cab_team');
+  if (t) cabTeam = JSON.parse(t);
+} catch(e) {}
+
+// Show pulled cabinets in search? Off by default — they're history.
+let showPulled = false;
+try { showPulled = localStorage.getItem('mbd_show_pulled') === 'true'; } catch(e) {}
+
+function saveCabinets() {
+  try { localStorage.setItem('mbd_cabinets', JSON.stringify(cabinets)); } catch(e) {}
+}
+function saveCabTeam() {
+  try { localStorage.setItem('mbd_cab_team', JSON.stringify(cabTeam)); } catch(e) {}
+}
+function nowStamp() {
+  const d = new Date();
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+
+// Normalize a search term: uppercase, strip non-alphanumeric except hyphen
+function normCab(s) {
+  return String(s||'').toUpperCase().replace(/[^A-Z0-9-]/g, '').trim();
+}
+
+function findCabinets(query) {
+  const q = normCab(query);
+  if (!q) return [];
+  const pool = showPulled ? cabinets : cabinets.filter(c => !c.pulledAt);
+  // Exact match on cabinet # first
+  const exact = pool.filter(c => normCab(c.cabinet) === q);
+  if (exact.length) return exact;
+  // Otherwise: substring match on cabinet # or location
+  return pool.filter(c =>
+    normCab(c.cabinet).includes(q) ||
+    normCab(c.location).includes(q)
+  ).slice(0, 20);
+}
+
+function cabId(c) {
+  // Legacy records may have order; fall back for safety
+  return normCab(c.cabinet || c.order || '') + '@' + normCab(c.addedAt || '');
+}
+
+function renderCabinets() {
+  syncShowPulledToggle();
+  const empty = document.getElementById('cabEmpty');
+  const count = document.getElementById('cabCount');
+  const recent = document.getElementById('cabRecent');
+  if (!cabinets.length) {
+    if(empty) empty.style.display = 'block';
+    if(count) count.textContent = '';
+    if(recent) recent.innerHTML = '';
+  } else {
+    if(empty) empty.style.display = 'none';
+    if(count) count.textContent = cabinets.length + ' cabinet' + (cabinets.length!==1?'s':'') + ' loaded';
+    // Show last 5 imported as a quick browse
+    if(recent) {
+      const tail = cabinets.slice(-5).reverse();
+      recent.innerHTML = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666;margin:14px 0 6px">Most Recently Added</div>'
+        + tail.map(c =>
+          '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+          + '<div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:700;color:#1a1a1a">'+esc(c.cabinet||'—')+'</div></div>'
+          + '<div style="font-family:monospace;font-size:13px;font-weight:700;color:#003087;background:#EAF0FB;padding:4px 10px;border-radius:6px;flex-shrink:0">📍 '+esc(c.location||'?')+'</div>'
+          + '</div>'
+        ).join('');
+    }
+  }
+  // Clear search/result
+  const inp = document.getElementById('cabSearchInput');
+  if(inp && inp.value) renderCabResult(inp.value);
+  else { const r=document.getElementById('cabResult'); if(r) r.innerHTML=''; }
+}
+
+function renderCabResult(query) {
+  const el = document.getElementById('cabResult');
+  if (!el) return;
+  if (!query.trim()) { el.innerHTML = ''; return; }
+  if (!cabinets.length) {
+    el.innerHTML = '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:10px;padding:14px;color:#8B4000;font-size:14px">⚠ Upload a cabinet spreadsheet first, or tap "+ Add Cabinet" below to add one.</div>';
+    return;
+  }
+  const hits = findCabinets(query);
+  if (!hits.length) {
+    // Maybe it's a pulled cabinet hidden from view
+    const wasPulled = !showPulled && cabinets.some(c => c.pulledAt &&
+      normCab(c.cabinet) === normCab(query)
+    );
+    el.innerHTML = '<div style="background:#FDECEA;border:2px solid #8B0000;border-radius:14px;padding:20px;text-align:center">'
+      + '<div style="font-size:36px;margin-bottom:6px">❌</div>'
+      + '<div style="font-size:18px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.5px">No match</div>'
+      + '<div style="font-size:13px;color:#666;margin-top:6px">Nothing found for "'+esc(query)+'".</div>'
+      + (wasPulled ? '<div style="font-size:12px;color:#8B4000;margin-top:10px;background:#FFF3CC;padding:8px 12px;border-radius:6px;display:inline-block">ℹ This cabinet exists but was already pulled. Toggle "Show pulled" to see it.</div>' : '')
+      + '</div>';
+    return;
+  }
+  if (hits.length === 1) {
+    const c = hits[0];
+    const id = cabId(c);
+    const isPulled = !!c.pulledAt;
+    const headerColor = isPulled ? 'linear-gradient(135deg,#555,#777)' : 'linear-gradient(135deg,#003087,#1a4ba0)';
+    const locColor = isPulled ? 'rgba(255,255,255,.7)' : '#fff';
+
+    let html = '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,48,135,.25)">'
+      + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">Cabinet</div>'
+      + '<div style="font-size:26px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">' + esc(c.cabinet||'—') + '</div>'
+      + (isPulled
+          ? '<div style="display:inline-block;background:#8B0000;color:#fff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:6px">✓ Pulled for Fulfillment</div>'
+          : '')
+      + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Location</div>'
+      + '<div style="font-size:48px;font-weight:900;line-height:1.1;margin:6px 0;letter-spacing:1px;font-family:\'Barlow Condensed\',Arial,sans-serif;color:'+locColor+(isPulled?';text-decoration:line-through':'')+'">📍 ' + esc(c.location||'?') + '</div>'
+      + (c.prevLoc ? '<div style="font-size:11px;opacity:.7;margin-top:4px">moved from '+esc(c.prevLoc)+'</div>' : '')
+      + '</div>';
+
+    // History block
+    if (c.addedAt || c.movedAt || c.pulledAt) {
+      html += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:12px 14px;margin-top:10px;font-size:12px;color:#444;line-height:1.7">'
+        + (c.addedAt  ? '<div>📥 <strong>Added:</strong> '+esc(c.addedAt)+(c.addedBy?' by '+esc(c.addedBy):'')+'</div>' : '')
+        + (c.movedAt  ? '<div>↪ <strong>Moved:</strong> '+esc(c.movedAt)+(c.movedBy?' by '+esc(c.movedBy):'')+(c.prevLoc?' (from '+esc(c.prevLoc)+')':'')+'</div>' : '')
+        + (c.pulledAt ? '<div style="color:#8B0000"><strong>📤 Pulled:</strong> '+esc(c.pulledAt)+(c.pulledBy?' by '+esc(c.pulledBy):'')+'</div>' : '')
+        + '</div>';
+    }
+
+    if (!isPulled) {
+      html += '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
+        + '<button onclick="openMoveCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#FF9100;color:#fff;border:none;border-radius:10px;cursor:pointer">↪ Move</button>'
+        + '<button onclick="openPullCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#8B0000;color:#fff;border:none;border-radius:10px;cursor:pointer">📤 Pull for Fulfillment</button>'
+        + '</div>';
+    } else {
+      html += '<button onclick="undoPullCabinet(\''+id+'\')" style="width:100%;margin-top:10px;padding:12px;font-size:13px;font-weight:700;background:#fff;color:#003087;border:2px solid #003087;border-radius:10px;cursor:pointer">↩ Undo Pull (return to storage)</button>';
+    }
+    el.innerHTML = html;
+  } else {
+    // Multiple matches — list them
+    el.innerHTML = '<div style="font-size:13px;font-weight:600;color:#666;margin-bottom:8px">'+hits.length+' matches:</div>'
+      + hits.map(c => {
+          const isPulled = !!c.pulledAt;
+          return '<div style="background:#fff;border:2px solid '+(isPulled?'#999':'#003087')+';border-radius:10px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;'+(isPulled?'opacity:.6':'')+'" onclick="document.getElementById(\'cabSearchInput\').value=\''+esc(c.cabinet||'')+'\';renderCabResult(\''+esc(c.cabinet||'')+'\')">'
+          + '<div style="min-width:0;flex:1">'
+          +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666">Cabinet'+(isPulled?' · PULLED':'')+'</div>'
+          +   '<div style="font-size:18px;font-weight:800;color:#1a1a1a;margin-top:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+esc(c.cabinet||'—')+'</div>'
+          + '</div>'
+          + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:'+(isPulled?'#777':'#003087')+';background:'+(isPulled?'#eee':'#EAF0FB')+';padding:6px 14px;border-radius:8px;flex-shrink:0'+(isPulled?';text-decoration:line-through':'')+'">📍 '+esc(c.location||'?')+'</div>'
+          + '</div>';
+        }).join('');
+  }
+}
+
+// ── IMPORT FROM SPREADSHEET ──────────────────────────────────────────────────
+async function importCabinetsFile(file) {
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    let rows;
+    if (file.name.toLowerCase().endsWith('.csv')) {
+      const text = new TextDecoder().decode(buf);
+      rows = parseCsv(text);
+    } else {
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    }
+    if (!rows || !rows.length) { showToast('Spreadsheet is empty'); return; }
+
+    // Find header columns — case-insensitive partial matches.
+    // Cabinet # field accepts: "cabinet", "cab", "order", "lot" (any of these
+    // count as the cabinet identifier). Location accepts loc/bay/rack/zone.
+    const header = rows[0].map(h => String(h||'').toLowerCase().trim());
+    const cabinetIdx = header.findIndex(h =>
+      h.includes('cabinet') || h === 'cab' || h.includes('cab #') ||
+      h.includes('order') || h.includes('lot')
+    );
+    const locationIdx = header.findIndex(h => h.includes('loc') || h.includes('bay') || h.includes('rack') || h.includes('zone'));
+
+    if (cabinetIdx === -1) {
+      showToast('Could not find Cabinet/Order/Lot column in header row');
+      return;
+    }
+    if (locationIdx === -1) {
+      showToast('Could not find Location column in header row');
+      return;
+    }
+
+    // Old 3-column files have BOTH order and cabinet columns — combine them.
+    const orderIdx = header.findIndex(h => h.includes('order'));
+    const altCabIdx = header.findIndex(h => h.includes('cabinet') || h === 'cab' || h.includes('cab #'));
+    const useTwoCols = orderIdx !== -1 && altCabIdx !== -1 && orderIdx !== altCabIdx;
+
+    const newCabs = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.length) continue;
+      let cabinet;
+      if (useTwoCols) {
+        const ord = String(r[orderIdx]||'').trim();
+        const cab = String(r[altCabIdx]||'').trim();
+        if (ord && cab) cabinet = ord + '-' + cab;
+        else cabinet = ord || cab;
+      } else {
+        cabinet = String(r[cabinetIdx]||'').trim();
+      }
+      const location = String(r[locationIdx]||'').trim();
+      if (!cabinet || !location) continue;
+      newCabs.push({ cabinet, location });
+    }
+
+    if (!newCabs.length) {
+      showToast('No valid cabinet rows found');
+      return;
+    }
+
+    // Replace existing data
+    cabinets = newCabs;
+    saveCabinets();
+    renderCabinets();
+    showToast('✓ Loaded ' + newCabs.length + ' cabinet' + (newCabs.length!==1?'s':''));
+  } catch(err) {
+    showToast('Import failed: ' + err.message);
+    console.error(err);
+  }
+}
+
+// Simple CSV parser — handles quoted fields with commas inside
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else cell += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (c === '\r') { /* skip */ }
+      else cell += c;
+    }
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(v => String(v).trim() !== ''));
+}
+
+function exportCabinets() {
+  if (!cabinets.length) { showToast('No cabinets to export'); return; }
+  try {
+    const wb = XLSX.utils.book_new();
+    const data = [['Cabinet #','Location','Status','Added','Added By','Last Moved','Moved By','Previous Location','Pulled','Pulled By']]
+      .concat(cabinets.map(c => [
+        c.cabinet||'', c.location||'',
+        c.pulledAt ? 'PULLED' : 'In Storage',
+        c.addedAt||'', c.addedBy||'',
+        c.movedAt||'', c.movedBy||'', c.prevLoc||'',
+        c.pulledAt||'', c.pulledBy||''
+      ]));
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{wch:18},{wch:18},{wch:12},{wch:18},{wch:14},{wch:18},{wch:14},{wch:16},{wch:18},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Cabinet Locations');
+    XLSX.writeFile(wb, 'MBD_Cabinet_Locations_' + new Date().toISOString().slice(0,10) + '.xlsx');
+    showToast('Downloaded!');
+  } catch(e) { showToast('Export error: '+e.message); }
+}
+
+function clearCabinets() {
+  if (!cabinets.length) { showToast('Already empty'); return; }
+  if (!confirm('Clear all '+cabinets.length+' cabinet locations? This cannot be undone (re-upload to restore).')) return;
+  cabinets = [];
+  saveCabinets();
+  renderCabinets();
+  showToast('Cleared');
+}
+
+// Wire up the search input — live results as you type, debounced
+let cabSearchTimer = null;
+document.addEventListener('DOMContentLoaded', wireCabinetUI);
+// In case the script runs after DOM is ready:
+if (document.readyState !== 'loading') wireCabinetUI();
+
+function wireCabinetUI() {
+  const inp = document.getElementById('cabSearchInput');
+  if (inp && !inp._wired) {
+    inp._wired = true;
+    inp.addEventListener('input', () => {
+      clearTimeout(cabSearchTimer);
+      cabSearchTimer = setTimeout(() => renderCabResult(inp.value), 80);
+    });
+    // Wrist scanner sends Enter — show big result and select all so next scan replaces
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        renderCabResult(inp.value);
+        setTimeout(() => inp.select(), 50);
+      }
+    });
+  }
+  const fileInp = document.getElementById('cabImportInput');
+  if (fileInp && !fileInp._wired) {
+    fileInp._wired = true;
+    fileInp.addEventListener('change', function() {
+      if (this.files[0]) importCabinetsFile(this.files[0]);
+      this.value = '';
+    });
+  }
+}
+
+
+// Generates a printable laminate-able reference card with all command barcodes.
+// Uses the free barcodeapi.org Code128 service to render barcodes inline.
+// ── CABINET ACTIONS — Add / Move / Pull / Undo Pull ─────────────────────────
+
+function openCabModal(title, body) {
+  document.getElementById('cabModalTitle').textContent = title;
+  document.getElementById('cabModalBody').innerHTML = body;
+  document.getElementById('cabModalOverlay').style.display = 'flex';
+}
+function closeCabModal() {
+  document.getElementById('cabModalOverlay').style.display = 'none';
+}
+
+function findCabById(id) {
+  return cabinets.find(c => cabId(c) === id);
+}
+
+function personPickerHtml(inputId) {
+  if (!cabTeam.length) {
+    return '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px;font-size:12px;color:#8B4000;line-height:1.5">'
+      + '⚠ No team members yet. Type a name below or tap "Manage Team" to add some.'
+      + '</div>'
+      + '<input type="text" id="'+inputId+'" placeholder="Type your name…" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:8px;-webkit-appearance:none">';
+  }
+  return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
+    + cabTeam.map(p =>
+        '<button type="button" data-name="'+esc(p)+'" onclick="cabPickPerson(this,\''+inputId+'\')" style="background:#fff;border:1.5px solid #ccc;border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;color:#1a1a1a">'+esc(p)+'</button>'
+      ).join('')
+    + '</div>'
+    + '<input type="text" id="'+inputId+'" placeholder="Or type another name…" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">';
+}
+function cabPickPerson(btn, targetId) {
+  const wrap = btn.parentNode;
+  wrap.querySelectorAll('button').forEach(b => {
+    b.style.background = '#fff'; b.style.color = '#1a1a1a'; b.style.borderColor = '#ccc';
+  });
+  btn.style.background = '#003087'; btn.style.color = '#fff'; btn.style.borderColor = '#003087';
+  document.getElementById(targetId).value = btn.dataset.name;
+}
+
+function openAddCabinet() {
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">Enter <strong>one or more cabinet numbers</strong> (separated by comma, space, or new line) and a single location. All cabinets will be added at the same location.</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Cabinet # *</label>'
+    + '<textarea id="addCabCabinet" placeholder="e.g. 30882 or 30882, 30883, 30884" rows="3" autocomplete="off" autocorrect="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:4px;-webkit-appearance:none;font-family:inherit;resize:vertical"></textarea>'
+    + '<div style="font-size:11px;color:#888;margin-bottom:12px">Tip: For made-to-order use the order number. For stock cabinets use the lot number. Separators allowed: comma, space, or one per line.</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Location *</label>'
+    + '<input type="text" id="addCabLocation" placeholder="Type or scan a location label" autocomplete="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Added by</label>'
+    + personPickerHtml('addCabPerson')
+
+    + '<button onclick="confirmAddCabinet()" style="width:100%;margin-top:16px;padding:14px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">+ Save Cabinet(s)</button>';
+  openCabModal('+ Add Cabinet(s)', body);
+  setTimeout(() => document.getElementById('addCabCabinet')?.focus(), 100);
+}
+
+function confirmAddCabinet() {
+  const raw      = document.getElementById('addCabCabinet').value.trim();
+  const location = document.getElementById('addCabLocation').value.trim();
+  const person   = document.getElementById('addCabPerson').value.trim();
+
+  if (!raw)      { showToast('⚠ Enter at least one cabinet #'); return; }
+  if (!location) { showToast('⚠ Enter a location'); return; }
+
+  // Split on commas, semicolons, newlines, or whitespace runs
+  const numbers = raw.split(/[,;\n\r\t]+|\s{2,}/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (!numbers.length) { showToast('⚠ Could not parse cabinet numbers'); return; }
+
+  // Detect duplicates against existing active cabinets
+  const dupeNumbers = numbers.filter(n =>
+    cabinets.some(c => !c.pulledAt && normCab(c.cabinet) === normCab(n))
+  );
+  if (dupeNumbers.length) {
+    const msg = dupeNumbers.length === 1
+      ? 'Cabinet "' + dupeNumbers[0] + '" already exists in storage. Add anyway as a duplicate?'
+      : dupeNumbers.length + ' cabinets already exist in storage:\n' + dupeNumbers.slice(0,8).join(', ') + (dupeNumbers.length>8?'...':'') + '\n\nAdd anyway as duplicates?';
+    if (!confirm(msg)) return;
+  }
+
+  const ts = nowStamp();
+  let added = 0;
+  numbers.forEach(n => {
+    cabinets.push({
+      cabinet: n,
+      location,
+      addedAt: ts,
+      addedBy: person || '',
+    });
+    added++;
+  });
+  saveCabinets();
+  closeCabModal();
+  showToast('✓ Added ' + added + ' cabinet' + (added!==1?'s':'') + ' at ' + location);
+  // Show the location filter (or first cabinet if just one)
+  const firstNum = numbers[0];
+  document.getElementById('cabSearchInput').value = added === 1 ? firstNum : location;
+  renderCabResult(added === 1 ? firstNum : location);
+  renderCabinets();
+}
+
+function openMoveCabinet(id) {
+  const c = findCabById(id);
+  if (!c) { showToast('Cabinet not found'); return; }
+  const body =
+    '<div style="background:#EAF0FB;border:1px solid #003087;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#1a1a1a;line-height:1.5">'
+    +   '<div style="font-weight:800;font-size:15px">'+esc(c.cabinet||'—')+'</div>'
+    +   '<div style="margin-top:4px">Currently at: <strong>📍 '+esc(c.location||'?')+'</strong></div>'
+    + '</div>'
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">New Location *</label>'
+    + '<input type="text" id="moveCabLocation" placeholder="Type or scan new location" autocomplete="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Moved by</label>'
+    + personPickerHtml('moveCabPerson')
+    + '<button onclick="confirmMoveCabinet(\''+id+'\')" style="width:100%;margin-top:16px;padding:14px;background:#FF9100;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">↪ Move Cabinet</button>';
+  openCabModal('↪ Move Cabinet', body);
+  setTimeout(() => document.getElementById('moveCabLocation')?.focus(), 100);
+}
+
+function confirmMoveCabinet(id) {
+  const c = findCabById(id);
+  if (!c) { showToast('Cabinet not found'); return; }
+  const newLoc = document.getElementById('moveCabLocation').value.trim();
+  const person = document.getElementById('moveCabPerson').value.trim();
+  if (!newLoc) { showToast('⚠ Enter a new location'); return; }
+  if (normCab(newLoc) === normCab(c.location)) { showToast('Already at that location'); return; }
+  c.prevLoc  = c.location;
+  c.location = newLoc;
+  c.movedAt  = nowStamp();
+  c.movedBy  = person || '';
+  saveCabinets();
+  closeCabModal();
+  showToast('✓ Moved to ' + newLoc);
+  renderCabResult(document.getElementById('cabSearchInput').value);
+  renderCabinets();
+}
+
+function openPullCabinet(id) {
+  const c = findCabById(id);
+  if (!c) { showToast('Cabinet not found'); return; }
+  const body =
+    '<div style="background:#FDECEA;border:1px solid #8B0000;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#1a1a1a;line-height:1.5">'
+    +   '<div style="font-weight:800;font-size:15px;color:#8B0000">📤 Pulling for fulfillment</div>'
+    +   '<div style="margin-top:4px"><strong>'+esc(c.cabinet||'—')+'</strong> at 📍 '+esc(c.location||'?')+'</div>'
+    +   '<div style="margin-top:6px;font-size:12px;color:#666">This will mark the cabinet as removed from storage. It stays in history but won\'t appear in regular searches anymore.</div>'
+    + '</div>'
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Pulled by *</label>'
+    + personPickerHtml('pullCabPerson')
+    + '<button onclick="confirmPullCabinet(\''+id+'\')" style="width:100%;margin-top:16px;padding:14px;background:#8B0000;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">📤 Confirm Pull</button>';
+  openCabModal('📤 Pull for Fulfillment', body);
+}
+
+function confirmPullCabinet(id) {
+  const c = findCabById(id);
+  if (!c) { showToast('Cabinet not found'); return; }
+  const person = document.getElementById('pullCabPerson').value.trim();
+  if (!person) { showToast('⚠ Pick or type your name'); return; }
+  c.pulledAt = nowStamp();
+  c.pulledBy = person;
+  saveCabinets();
+  closeCabModal();
+  showToast('✓ Pulled by ' + person);
+  renderCabResult(document.getElementById('cabSearchInput').value);
+  renderCabinets();
+}
+
+function undoPullCabinet(id) {
+  const c = findCabById(id);
+  if (!c) { showToast('Cabinet not found'); return; }
+  if (!confirm('Undo pull and return this cabinet to storage at "'+(c.location||'?')+'"?')) return;
+  delete c.pulledAt;
+  delete c.pulledBy;
+  saveCabinets();
+  showToast('✓ Returned to storage');
+  renderCabResult(document.getElementById('cabSearchInput').value);
+  renderCabinets();
+}
+
+function togglePulled(on) {
+  showPulled = on;
+  try { localStorage.setItem('mbd_show_pulled', on ? 'true' : 'false'); } catch(e) {}
+  renderCabResult(document.getElementById('cabSearchInput').value);
+}
+
+function manageCabTeam() {
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">Add the names of people who will add, move, and pull cabinets. Names are saved on this device.</div>'
+    + '<div id="cabTeamList" style="margin-bottom:12px"></div>'
+    + '<div style="display:flex;gap:6px">'
+    +   '<input type="text" id="cabNewMember" placeholder="New member name" autocomplete="off" style="flex:1;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '<button onclick="cabAddMember()" style="background:#1A5C1A;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer">+ Add</button>'
+    + '</div>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:16px;padding:12px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Done</button>';
+  openCabModal('👥 Manage Team', body);
+  renderCabTeamList();
+  setTimeout(() => document.getElementById('cabNewMember')?.focus(), 100);
+}
+
+function renderCabTeamList() {
+  const el = document.getElementById('cabTeamList');
+  if (!el) return;
+  if (!cabTeam.length) {
+    el.innerHTML = '<div style="background:#f5f5f5;border-radius:8px;padding:12px;font-size:13px;color:#666;text-align:center">No team members yet.</div>';
+    return;
+  }
+  el.innerHTML = cabTeam.map((p, i) =>
+    '<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:6px">'
+    + '<div style="font-size:14px;font-weight:600;color:#1a1a1a">'+esc(p)+'</div>'
+    + '<button onclick="cabRemoveMember('+i+')" style="background:none;border:none;color:#8B0000;font-size:18px;cursor:pointer;padding:0 6px">×</button>'
+    + '</div>'
+  ).join('');
+}
+
+function cabAddMember() {
+  const inp = document.getElementById('cabNewMember');
+  const name = inp.value.trim();
+  if (!name) return;
+  if (cabTeam.includes(name)) { showToast('Already in team'); return; }
+  cabTeam.push(name);
+  saveCabTeam();
+  inp.value = '';
+  inp.focus();
+  renderCabTeamList();
+}
+
+function cabRemoveMember(i) {
+  cabTeam.splice(i, 1);
+  saveCabTeam();
+  renderCabTeamList();
+}
+
+function syncShowPulledToggle() {
+  const t = document.getElementById('showPulledToggle');
+  if (t) t.checked = showPulled;
+}
+
+function printCommandCard() {
+  const bc = (val, label, sub='') => {
+    const url = 'https://barcodeapi.org/api/128/' + encodeURIComponent(val);
+    return '<div class="cmd-cell">'
+      + '<div class="cmd-label">' + label + '</div>'
+      + (sub ? '<div class="cmd-sub">' + sub + '</div>' : '')
+      + '<img src="' + url + '" alt="' + val + '">'
+      + '<div class="cmd-code">' + val + '</div>'
+      + '</div>';
+  };
+  const html = '<!DOCTYPE html><html><head><title>MBD Inventory — Hands-Free Command Card</title>'
+    + '<style>'
+    + '@page{size:letter;margin:.4in}'
+    + 'body{font-family:Arial,sans-serif;color:#000;background:#fff;margin:0;padding:0}'
+    + '.page{max-width:7.7in;margin:0 auto;padding:.2in 0}'
+    + 'h1{font-size:22px;font-weight:900;color:#003087;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}'
+    + 'h2{font-size:14px;font-weight:900;color:#003087;margin:18px 0 8px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #003087;padding-bottom:2px}'
+    + '.intro{font-size:12px;color:#444;margin-bottom:14px;line-height:1.5}'
+    + '.intro b{color:#000}'
+    + '.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}'
+    + '.grid.three{grid-template-columns:repeat(3,1fr)}'
+    + '.grid.four{grid-template-columns:repeat(4,1fr)}'
+    + '.cmd-cell{border:2px solid #000;border-radius:6px;padding:8px;text-align:center;background:#fff;page-break-inside:avoid}'
+    + '.cmd-label{font-size:14px;font-weight:900;color:#000;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}'
+    + '.cmd-sub{font-size:9px;color:#666;font-style:italic;margin-bottom:4px}'
+    + '.cmd-cell img{max-width:100%;height:auto;display:block;margin:4px auto}'
+    + '.cmd-code{font-family:monospace;font-size:8px;color:#666;margin-top:2px;word-break:break-all}'
+    + '.cmd-cell.toggle{background:#003087;color:#fff}'
+    + '.cmd-cell.toggle .cmd-label,.cmd-cell.toggle .cmd-sub{color:#fff}'
+    + '.cmd-cell.toggle .cmd-code{color:#bcc7da}'
+    + '.cmd-cell.toggle img{background:#fff;border-radius:3px;padding:2px}'
+    + '.cmd-cell.apply{background:#1A5C1A;color:#fff}'
+    + '.cmd-cell.apply .cmd-label,.cmd-cell.apply .cmd-sub{color:#fff}'
+    + '.cmd-cell.apply .cmd-code{color:#c8d8c8}'
+    + '.cmd-cell.apply img{background:#fff;border-radius:3px;padding:2px}'
+    + '.cmd-cell.cancel{background:#8B0000;color:#fff}'
+    + '.cmd-cell.cancel .cmd-label,.cmd-cell.cancel .cmd-sub{color:#fff}'
+    + '.cmd-cell.cancel .cmd-code{color:#e0c0c0}'
+    + '.cmd-cell.cancel img{background:#fff;border-radius:3px;padding:2px}'
+    + '.workflow{border:2px solid #003087;background:#EAF0FB;padding:12px 14px;margin-top:18px;border-radius:6px;font-size:12px;line-height:1.6}'
+    + '.workflow h3{font-size:13px;color:#003087;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}'
+    + '.workflow ol{margin-left:20px}.workflow li{margin-bottom:3px}'
+    + '@media print{.no-print{display:none}}'
+    + '</style></head><body><div class="page">'
+    + '<h1>MBD Inventory — Hands-Free Command Card</h1>'
+    + '<div class="intro"><b>How to use:</b> Scan an item barcode → scan digits to enter a quantity → optionally scan a location barcode → scan APPLY. The action depends on the current mode. Hands-free mode must be ON (scan the toggle below to enable).</div>'
+
+    + '<h2>1. Toggle Hands-Free Mode</h2>'
+    + '<div class="grid" style="grid-template-columns:1fr 1fr">'
+    +   '<div class="cmd-cell toggle">'
+    +     '<div class="cmd-label">▶ Turn ON</div>'
+    +     '<div class="cmd-sub">enables hands-free</div>'
+    +     '<img src="https://barcodeapi.org/api/128/MBD-HF-ON" alt="MBD-HF-ON">'
+    +     '<div class="cmd-code">MBD-HF-ON</div>'
+    +   '</div>'
+    +   '<div class="cmd-cell toggle">'
+    +     '<div class="cmd-label">⏹ Turn OFF</div>'
+    +     '<div class="cmd-sub">back to manual</div>'
+    +     '<img src="https://barcodeapi.org/api/128/MBD-HF-OFF" alt="MBD-HF-OFF">'
+    +     '<div class="cmd-code">MBD-HF-OFF</div>'
+    +   '</div>'
+    + '</div>'
+
+    + '<h2>2. Pick a Mode</h2>'
+    + '<div class="grid four">'
+    +   bc('MBD-MODE-COUNT',    'Count',     'set total at location')
+    +   bc('MBD-MODE-ADDLOC',   'Add Loc',   '+qty at location')
+    +   bc('MBD-MODE-RECEIVED', 'Received',  '+stock arrived')
+    +   bc('MBD-MODE-REMOVED',  'Removed',   '−stock pulled')
+    + '</div>'
+
+    + '<h2>3. Enter Digits</h2>'
+    + '<div class="grid">'
+    +   bc('MBD-DIGIT-0','0') + bc('MBD-DIGIT-1','1') + bc('MBD-DIGIT-2','2') + bc('MBD-DIGIT-3','3') + bc('MBD-DIGIT-4','4')
+    + '</div>'
+    + '<div class="grid" style="margin-top:8px">'
+    +   bc('MBD-DIGIT-5','5') + bc('MBD-DIGIT-6','6') + bc('MBD-DIGIT-7','7') + bc('MBD-DIGIT-8','8') + bc('MBD-DIGIT-9','9')
+    + '</div>'
+    + '<div class="grid three" style="margin-top:8px">'
+    +   bc('MBD-DOT',   '.',    'decimal')
+    +   bc('MBD-BACK',  '← Back', 'erase last digit')
+    +   bc('MBD-CLEAR', '✕ Clear', 'erase all digits')
+    + '</div>'
+
+    + '<h2>4. Apply or Cancel</h2>'
+    + '<div class="grid" style="grid-template-columns:1fr 1fr">'
+    +   '<div class="cmd-cell apply">'
+    +     '<div class="cmd-label">✓ APPLY</div>'
+    +     '<div class="cmd-sub">commit the action</div>'
+    +     '<img src="https://barcodeapi.org/api/128/MBD-APPLY" alt="MBD-APPLY">'
+    +     '<div class="cmd-code">MBD-APPLY</div>'
+    +   '</div>'
+    +   '<div class="cmd-cell cancel">'
+    +     '<div class="cmd-label">✕ CANCEL</div>'
+    +     '<div class="cmd-sub">clear everything</div>'
+    +     '<img src="https://barcodeapi.org/api/128/MBD-CANCEL" alt="MBD-CANCEL">'
+    +     '<div class="cmd-code">MBD-CANCEL</div>'
+    +   '</div>'
+    + '</div>'
+
+    + '<div class="workflow">'
+    + '<h3>Example: Counting 47 widgets at bin A3</h3>'
+    + '<ol>'
+    + '<li>Scan widget barcode (or LB sticker)</li>'
+    + '<li>Scan <b>4</b> then <b>7</b> — status shows Qty: 47</li>'
+    + '<li>Scan the bin location label <b>LOC-A3</b> on the shelf</li>'
+    + '<li>Scan <b>APPLY</b> — count of 47 saved at A3</li>'
+    + '<li>Repeat from step 1 for the next item</li>'
+    + '</ol>'
+    + '<h3 style="margin-top:10px">Mode quick guide</h3>'
+    + '<ol>'
+    + '<li><b>Count:</b> set the total quantity at a location (replaces what was there)</li>'
+    + '<li><b>Add Loc:</b> add quantity to an existing location (increments)</li>'
+    + '<li><b>Received +:</b> stock arrived from a vendor — adds to total on hand</li>'
+    + '<li><b>Removed −:</b> stock pulled out (damaged, returned, etc.) — subtracts</li>'
+    + '</ol>'
+    + '</div>'
+
+    + '<div style="margin-top:18px;padding-top:10px;border-top:1px solid #aaa;font-size:10px;color:#666;text-align:center">'
+    + 'Murphy Bed Depot · Inventory Hands-Free Reference Card · Print on letter paper, laminate, mount near scanning station'
+    + '</div>'
+
+    + '<div class="no-print" style="margin-top:24px;text-align:center"><button onclick="window.print()" style="padding:14px 28px;font-size:16px;font-weight:700;background:#003087;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 Print This Card</button></div>'
+    + '</div>'
+    + '<script>window.onload=()=>setTimeout(()=>window.print(),1200)<\/script>'
+    + '</body></html>';
+
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+  else showToast('Allow popups to print the command card');
+}
+
 function exportBarcodeMap() {
   const entries = Object.entries(barcodeMap);
   if (!entries.length) { showToast('No mappings to export'); return; }
@@ -1026,6 +2064,31 @@ function renderExport() {
   }).join('');
 }
 
+function copyCountsToClipboard() {
+  const counts = {};
+  inv.forEach(item => {
+    const total = item._locations.some(e=>e.qty!=='')
+      ? item._locations.filter(e=>e.qty!=='').reduce((s,e)=>s+parseFloat(e.qty),0)
+      : item.onHand;
+    if (item.name) counts[item.name] = total;
+  });
+  const json = JSON.stringify(counts, null, 2);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(json)
+      .then(() => showToast('Counts copied! Paste in Fulfillment app Settings.'))
+      .catch(() => fallbackCopy(json));
+  } else { fallbackCopy(json); }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  showToast('Counts copied! Paste in Fulfillment app Settings.');
+}
+
 function exportXLSX() {
   try {
     const wb=XLSX.utils.book_new();
@@ -1072,6 +2135,9 @@ function exportXLSX() {
     showToast('Downloaded!');
   } catch(e){ showToast('Export error: '+e.message); }
 }
+
+// Initialize hands-free status bar — shows if HF was previously enabled
+updateHfStatus();
 </script>
 </body>
 </html>
