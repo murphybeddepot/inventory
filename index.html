@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v12</title>
+<title>MBD Inventory Scanner v13</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
 <style>
@@ -183,7 +183,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v12</span></h1>
+  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v13</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -264,6 +264,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div id="cabEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
     <strong>📦 No cabinet locations loaded yet</strong>
     Tap <strong>+ Add Cabinet(s)</strong> below to add cabinets one or many at a time, or upload a spreadsheet with two columns: <strong>Cabinet #</strong> and <strong>Location</strong>. The first row should be the column headers.
+  </div>
+
+  <!-- SYNC CARD -->
+  <div id="cabSyncCard" style="background:#fff;border:2px solid #003087;border-radius:12px;padding:14px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:800;color:#003087;text-transform:uppercase;letter-spacing:1px">☁ Sync</div>
+      <div id="cabSyncStatus" style="font-size:11px;color:#666;font-weight:600"></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button onclick="syncCabinetsNow()" id="cabSyncBtn" style="flex:1;min-width:120px;background:#003087;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">⟳ Sync Now</button>
+      <button onclick="openSyncSettings()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:12px 14px;font-size:13px;font-weight:700;cursor:pointer">⚙ Settings</button>
+    </div>
   </div>
 
   <!-- IMPORT / EXPORT BUTTONS -->
@@ -1281,19 +1293,34 @@ try {
 // If only one existed, use it as the cabinet.
 let _migrated = false;
 cabinets = cabinets.map(c => {
+  let out = c;
   if (c.order !== undefined || (c.cabinet !== undefined && Object.keys(c).includes('order'))) {
     _migrated = true;
     let combined;
     if (c.order && c.cabinet) combined = c.order + '-' + c.cabinet;
     else combined = c.order || c.cabinet || '';
-    const out = { ...c, cabinet: combined };
+    out = { ...c, cabinet: combined };
     delete out.order;
-    return out;
   }
-  return c;
+  // Ensure every cabinet has a stable UUID for sync
+  if (!out.uuid) {
+    _migrated = true;
+    out = { ...out, uuid: makeUuid() };
+  }
+  // Ensure every cabinet has an updatedAt for sync conflict resolution
+  if (!out.updatedAt) {
+    _migrated = true;
+    out = { ...out, updatedAt: out.pulledAt || out.movedAt || out.addedAt || nowStamp() };
+  }
+  return out;
 });
 if (_migrated) {
   try { localStorage.setItem('mbd_cabinets', JSON.stringify(cabinets)); } catch(e) {}
+}
+
+// Generate a short stable ID. Not a real UUID — just unique enough for our scale.
+function makeUuid() {
+  return 'c' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 }
 
 // Team list — shared with rest of MBD apps but stored separately here for now.
@@ -1326,7 +1353,9 @@ function normCab(s) {
 function findCabinets(query) {
   const q = normCab(query);
   if (!q) return [];
-  const pool = showPulled ? cabinets : cabinets.filter(c => !c.pulledAt);
+  // Always exclude soft-deleted records
+  let pool = cabinets.filter(c => !c.deleted);
+  if (!showPulled) pool = pool.filter(c => !c.pulledAt);
   // Exact match on cabinet # first
   const exact = pool.filter(c => normCab(c.cabinet) === q);
   if (exact.length) return exact;
@@ -1338,12 +1367,16 @@ function findCabinets(query) {
 }
 
 function cabId(c) {
-  // Legacy records may have order; fall back for safety
-  return normCab(c.cabinet || c.order || '') + '@' + normCab(c.addedAt || '');
+  return c.uuid || (normCab(c.cabinet || '') + '@' + normCab(c.addedAt || ''));
+}
+
+function findCabById(id) {
+  return cabinets.find(c => cabId(c) === id);
 }
 
 function renderCabinets() {
   syncShowPulledToggle();
+  refreshSyncStatus();
   const empty = document.getElementById('cabEmpty');
   const count = document.getElementById('cabCount');
   const recent = document.getElementById('cabRecent');
@@ -1501,7 +1534,7 @@ async function importCabinetsFile(file) {
       }
       const location = String(r[locationIdx]||'').trim();
       if (!cabinet || !location) continue;
-      newCabs.push({ cabinet, location });
+      newCabs.push({ uuid: makeUuid(), cabinet, location, addedAt: nowStamp(), updatedAt: nowStamp() });
     }
 
     if (!newCabs.length) {
@@ -1563,9 +1596,13 @@ function exportCabinets() {
 }
 
 function clearCabinets() {
-  if (!cabinets.length) { showToast('Already empty'); return; }
-  if (!confirm('Clear all '+cabinets.length+' cabinet locations? This cannot be undone (re-upload to restore).')) return;
-  cabinets = [];
+  const active = cabinets.filter(c => !c.deleted);
+  if (!active.length) { showToast('Already empty'); return; }
+  if (!confirm('Clear all '+active.length+' cabinet locations from this device?\n\nIf sync is enabled, the records will be marked deleted on the server too on the next sync. Permanent removal happens after 30 days.')) return;
+  const ts = nowStamp();
+  cabinets.forEach(c => {
+    if (!c.deleted) { c.deleted = true; c.updatedAt = ts; }
+  });
   saveCabinets();
   renderCabinets();
   showToast('Cleared');
@@ -1617,10 +1654,6 @@ function closeCabModal() {
   document.getElementById('cabModalOverlay').style.display = 'none';
 }
 
-function findCabById(id) {
-  return cabinets.find(c => cabId(c) === id);
-}
-
 function personPickerHtml(inputId) {
   if (!cabTeam.length) {
     return '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px;font-size:12px;color:#8B4000;line-height:1.5">'
@@ -1643,6 +1676,165 @@ function cabPickPerson(btn, targetId) {
   btn.style.background = '#003087'; btn.style.color = '#fff'; btn.style.borderColor = '#003087';
   document.getElementById(targetId).value = btn.dataset.name;
 }
+
+// ── CLOUD SYNC (Google Apps Script) ──────────────────────────────────────────
+// Two-way sync with the shared Google Sheet via the same Apps Script URL used
+// for fulfillment notifications.
+//
+// Sync flow:
+//   1. POST our local cabinets to Apps Script
+//   2. Apps Script merges with the sheet (last-write-wins by updatedAt)
+//   3. Apps Script returns the merged set
+//   4. We replace our local store with the merged set
+
+let cabSyncUrl = '';
+try { cabSyncUrl = localStorage.getItem('mbd_sync_url') || ''; } catch(e) {}
+let cabAutoSync = false;
+try { cabAutoSync = localStorage.getItem('mbd_auto_sync') === 'true'; } catch(e) {}
+let cabLastSyncAt = '';
+try { cabLastSyncAt = localStorage.getItem('mbd_last_sync') || ''; } catch(e) {}
+let cabSyncTimer = null;
+let cabSyncing = false;
+
+function setSyncStatus(text, color) {
+  const el = document.getElementById('cabSyncStatus');
+  if (el) {
+    el.textContent = text;
+    el.style.color = color || '#666';
+  }
+}
+
+function refreshSyncStatus() {
+  if (!cabSyncUrl) {
+    setSyncStatus('Not configured', '#8B4000');
+    return;
+  }
+  if (cabLastSyncAt) {
+    setSyncStatus('Last sync: ' + cabLastSyncAt, '#1A5C1A');
+  } else {
+    setSyncStatus('Ready to sync', '#003087');
+  }
+}
+
+async function syncCabinetsNow(silent) {
+  if (!cabSyncUrl) {
+    if (!silent) showToast('⚠ Configure sync URL first (tap ⚙ Settings)');
+    return false;
+  }
+  if (cabSyncing) {
+    if (!silent) showToast('Already syncing...');
+    return false;
+  }
+  cabSyncing = true;
+  const btn = document.getElementById('cabSyncBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
+  setSyncStatus('Syncing...', '#003087');
+
+  try {
+    // POST our cabinets — the script returns the merged set
+    const url = cabSyncUrl;
+    const resp = await fetch(url, {
+      method: 'POST',
+      // Apps Script web apps need text/plain to avoid CORS preflight
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        type: 'cabinetSync',
+        cabinets: cabinets,
+      }),
+    });
+
+    let data;
+    try { data = await resp.json(); }
+    catch(e) { throw new Error('Could not parse server response'); }
+
+    if (!data || !data.ok) {
+      throw new Error(data && data.error ? data.error : 'Server returned an error');
+    }
+
+    // Replace local store with the merged set from server
+    if (Array.isArray(data.cabinets)) {
+      cabinets = data.cabinets;
+      saveCabinets();
+    }
+
+    cabLastSyncAt = nowStamp();
+    try { localStorage.setItem('mbd_last_sync', cabLastSyncAt); } catch(e) {}
+
+    if (!silent) {
+      const total = (data.cabinets || []).filter(c => !c.deleted).length;
+      showToast('✓ Synced — ' + total + ' cabinet' + (total!==1?'s':''));
+    }
+    renderCabinets();
+    return true;
+  } catch(err) {
+    setSyncStatus('Error: ' + err.message.slice(0,40), '#8B0000');
+    if (!silent) showToast('⚠ Sync failed: ' + err.message);
+    console.error('Sync error:', err);
+    return false;
+  } finally {
+    cabSyncing = false;
+    if (btn) { btn.disabled = false; btn.textContent = '⟳ Sync Now'; }
+    refreshSyncStatus();
+  }
+}
+
+function startAutoSync() {
+  if (cabSyncTimer) clearInterval(cabSyncTimer);
+  if (!cabAutoSync || !cabSyncUrl) return;
+  cabSyncTimer = setInterval(() => {
+    // Only sync if Cabinets tab is active
+    const cabPanel = document.getElementById('tab-cabinets');
+    if (cabPanel && cabPanel.classList.contains('active')) {
+      syncCabinetsNow(true);
+    }
+  }, 60 * 1000); // every 60 seconds
+}
+
+function openSyncSettings() {
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">Connect to your Google Apps Script to sync cabinet data across all devices. The same script URL is used for fulfillment notifications.</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Apps Script Web App URL</label>'
+    + '<input type="url" id="syncUrlInput" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" autocorrect="off" style="width:100%;padding:12px;font-size:13px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none;font-family:monospace">'
+
+    + '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#8B4000;line-height:1.6">'
+    + '<strong>To get this URL:</strong><br>'
+    + '1. Open Google Apps Script (script.google.com)<br>'
+    + '2. Open your existing MBD project (or create one and paste the v3 script)<br>'
+    + '3. Click <strong>Deploy → Manage deployments</strong> (or "New deployment" if first time)<br>'
+    + '4. Type: <strong>Web app</strong>, Execute as: <strong>Me</strong>, Access: <strong>Anyone</strong><br>'
+    + '5. Copy the <strong>Web app URL</strong> shown after deploying — paste it above'
+    + '</div>'
+
+    + '<label style="display:flex;align-items:center;gap:10px;padding:10px;background:#f5f5f5;border-radius:8px;cursor:pointer;margin-bottom:14px">'
+    +   '<input type="checkbox" id="autoSyncToggle" style="width:18px;height:18px;cursor:pointer">'
+    +   '<div><div style="font-size:14px;font-weight:600;color:#1a1a1a">Auto-sync every 60 seconds</div>'
+    +   '<div style="font-size:11px;color:#666;margin-top:2px">Only when the Cabinets tab is open</div></div>'
+    + '</label>'
+
+    + '<button onclick="saveSyncSettings()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">Save Settings</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+
+  openCabModal('☁ Sync Settings', body);
+  setTimeout(() => {
+    document.getElementById('syncUrlInput').value = cabSyncUrl;
+    document.getElementById('autoSyncToggle').checked = cabAutoSync;
+  }, 50);
+}
+
+function saveSyncSettings() {
+  cabSyncUrl = document.getElementById('syncUrlInput').value.trim();
+  cabAutoSync = document.getElementById('autoSyncToggle').checked;
+  try {
+    localStorage.setItem('mbd_sync_url', cabSyncUrl);
+    localStorage.setItem('mbd_auto_sync', cabAutoSync ? 'true' : 'false');
+  } catch(e) {}
+  closeCabModal();
+  showToast('Settings saved');
+  refreshSyncStatus();
+  startAutoSync();
+}
+
 
 function openAddCabinet() {
   const body =
@@ -1692,10 +1884,12 @@ function confirmAddCabinet() {
   let added = 0;
   numbers.forEach(n => {
     cabinets.push({
+      uuid: makeUuid(),
       cabinet: n,
       location,
       addedAt: ts,
       addedBy: person || '',
+      updatedAt: ts,
     });
     added++;
   });
@@ -1737,6 +1931,7 @@ function confirmMoveCabinet(id) {
   c.location = newLoc;
   c.movedAt  = nowStamp();
   c.movedBy  = person || '';
+  c.updatedAt = c.movedAt;
   saveCabinets();
   closeCabModal();
   showToast('✓ Moved to ' + newLoc);
@@ -1766,6 +1961,7 @@ function confirmPullCabinet(id) {
   if (!person) { showToast('⚠ Pick or type your name'); return; }
   c.pulledAt = nowStamp();
   c.pulledBy = person;
+  c.updatedAt = c.pulledAt;
   saveCabinets();
   closeCabModal();
   showToast('✓ Pulled by ' + person);
@@ -1779,6 +1975,7 @@ function undoPullCabinet(id) {
   if (!confirm('Undo pull and return this cabinet to storage at "'+(c.location||'?')+'"?')) return;
   delete c.pulledAt;
   delete c.pulledBy;
+  c.updatedAt = nowStamp();
   saveCabinets();
   showToast('✓ Returned to storage');
   renderCabResult(document.getElementById('cabSearchInput').value);
@@ -2138,6 +2335,9 @@ function exportXLSX() {
 
 // Initialize hands-free status bar — shows if HF was previously enabled
 updateHfStatus();
+
+// Start auto-sync if configured
+startAutoSync();
 </script>
 </body>
 </html>
