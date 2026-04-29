@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v17</title>
+<title>MBD Inventory Scanner v18</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
 <style>
@@ -185,7 +185,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v17</span></h1>
+  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v18</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -1828,9 +1828,12 @@ async function importCabinetsFile(file) {
       const text = new TextDecoder().decode(buf);
       rows = parseCsv(text);
     } else {
-      const wb = XLSX.read(buf, { type: 'array' });
+      const wb = XLSX.read(buf, { type: 'array', cellText: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      // raw: false returns the formatted display string instead of the raw
+      // numeric value. This preserves leading zeros (e.g. "006.005" stays
+      // as "006.005" instead of becoming the number 6.005).
+      rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
     }
     if (!rows || !rows.length) { showToast('Spreadsheet is empty'); return; }
 
@@ -1885,6 +1888,26 @@ async function importCabinetsFile(file) {
     cabinets = newCabs;
     saveCabinets();
     renderCabinets();
+
+    // Warn if any locations look like they may have lost leading zeros
+    // (e.g. "6.005" when the user meant "006.005"). This happens when the
+    // source spreadsheet stored the cell as a number rather than text.
+    const suspect = newCabs.filter(c => {
+      const loc = c.location || '';
+      // Pure number with a single decimal — most likely had leading zeros stripped
+      return /^\d+(\.\d+)?$/.test(loc) && !/^0/.test(loc);
+    });
+    if (suspect.length) {
+      const sample = suspect.slice(0, 3).map(c => c.location).join(', ');
+      setTimeout(() => {
+        alert('⚠ Heads up: ' + suspect.length + ' location' + (suspect.length!==1?'s':'')
+          + ' look like ' + sample + (suspect.length>3?'...':'')
+          + '\n\nIf your locations should have leading zeros (like "006.005" instead of "6.005"), '
+          + 'they may have been stripped by Excel when the file was saved.\n\n'
+          + 'To fix: in your source spreadsheet, format the Location column as TEXT before typing values, '
+          + 'or prefix each value with an apostrophe (e.g. \'006.005). Then re-export and re-import.');
+      }, 500);
+    }
     showToast('✓ Loaded ' + newCabs.length + ' cabinet' + (newCabs.length!==1?'s':''));
   } catch(err) {
     showToast('Import failed: ' + err.message);
@@ -1927,6 +1950,21 @@ function exportCabinets() {
         c.pulledAt||'', c.pulledBy||''
       ]));
     const ws = XLSX.utils.aoa_to_sheet(data);
+    // Force Cabinet # (col A) and Location (col B) to be text-typed cells
+    // so values like "006.005" don't get auto-converted to numbers when the
+    // file is opened in Excel or re-imported. Loop through every data cell
+    // in those two columns and explicitly set type='s' (string).
+    for (let r = 2; r <= data.length; r++) {
+      ['A','B','H'].forEach(col => {
+        const ref = col + r;
+        if (ws[ref]) {
+          ws[ref].t = 's';
+          ws[ref].v = String(ws[ref].v);
+          // Set the cell format to text ('@') so Excel honors it
+          ws[ref].z = '@';
+        }
+      });
+    }
     ws['!cols'] = [{wch:18},{wch:18},{wch:12},{wch:18},{wch:14},{wch:18},{wch:14},{wch:16},{wch:18},{wch:14}];
     XLSX.utils.book_append_sheet(wb, ws, 'Cabinet Locations');
     XLSX.writeFile(wb, 'MBD_Cabinet_Locations_' + new Date().toISOString().slice(0,10) + '.xlsx');
