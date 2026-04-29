@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v20</title>
+<title>MBD Inventory Scanner v22</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -200,7 +200,7 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v20</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v22</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -337,6 +337,7 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button onclick="manageCabTeam()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">👥 Manage Team</button>
+        <button onclick="editWarehouseLayout()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">🗺 Edit Map</button>
         <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearCabinets()">✕ Clear All</button>
       </div>
 
@@ -1769,6 +1770,228 @@ function renderCabinets() {
   else { const r=document.getElementById('cabResult'); if(r) r.innerHTML=''; }
 }
 
+// ── WAREHOUSE LAYOUT MAP ─────────────────────────────────────────────────────
+// Renders a small SVG floor-plan of MBD's warehouse with the current cabinet's
+// bay highlighted. Layout is proportional to actual dimensions:
+// 150' wide × 167' deep with an office cutout.
+//
+// Aisle definitions: each aisle has a position (x, in feet from left wall),
+// a depth (how wide the rack is in feet), bay range (which bay numbers are
+// in this aisle, from front of building moving back), and length anchor
+// (where the bays start vertically).
+
+// Building dimensions
+const BUILDING_W = 150; // feet wide (left to right)
+const BUILDING_D = 167; // feet deep (front to back)
+
+// Office dimensions
+const OFFICE_X = 50;    // 50' from left wall
+const OFFICE_W = 25;    // 25' wide
+const OFFICE_D = 90;    // 90' deep into building (from front wall)
+
+const DEFAULT_LAYOUT = {
+  // Each aisle: { id, x, depth, bayCount, bayStart, fullDepth }
+  // x        = position in feet from left wall (left edge of rack)
+  // depth    = rack depth in feet (how thick it is on the map)
+  // bayCount = number of bays in this aisle
+  // bayStart = the LOWEST bay number in this aisle (usually 1, but for
+  //            short rear aisles it's higher e.g. 10 means bays 10-14)
+  // fullDepth = if true, runs full 167' building depth; otherwise the
+  //             aisle is short, anchored 12' off back wall
+  aisles: [
+    { id: '001', x: 0,     depth: 6, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '002', x: 14,    depth: 6, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '003', x: 20,    depth: 6, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '004', x: 44,    depth: 6, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '005', x: 56,    depth: 6, bayCount: 5,  bayStart: 10, fullDepth: false },
+    { id: '006', x: 69,    depth: 4, bayCount: 5,  bayStart: 10, fullDepth: false },
+    { id: '007', x: 79,    depth: 4, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '008', x: 89,    depth: 4, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '009', x: 100,   depth: 4, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '010', x: 112,   depth: 4, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '011', x: 124,   depth: 4, bayCount: 14, bayStart: 1,  fullDepth: true  },
+    { id: '012', x: 138,   depth: 4, bayCount: 14, bayStart: 1,  fullDepth: true  },
+  ]
+};
+
+let warehouseLayout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
+try {
+  const saved = localStorage.getItem('mbd_warehouse_layout');
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    if (parsed.aisles && parsed.aisles.length) warehouseLayout = parsed;
+  }
+} catch(e) {}
+
+// Parse a location like "007.005" or "7.5" into { aisle, bay } strings.
+function parseLocation(loc) {
+  if (!loc) return null;
+  const s = String(loc).trim();
+  const m = s.match(/^(\d{1,3})[.\-_/](\d{1,3})/);
+  if (!m) return null;
+  const aisle = m[1].padStart(3, '0');
+  const bay   = m[2].padStart(3, '0');
+  return { aisle, bay };
+}
+
+// Render the warehouse floor plan SVG with one bay highlighted.
+function renderWarehouseMap(location, opts) {
+  opts = opts || {};
+  const parsed = parseLocation(location);
+  // We always render the floor plan even if location is unparseable —
+  // workers can still see the warehouse layout for reference. Highlight
+  // is just skipped.
+  const aisles = warehouseLayout.aisles || [];
+  if (!aisles.length) return '';
+
+  // Map dimensions — keep it small for inline display
+  const SCALE = 1.6;     // px per foot
+  const PAD = 14;        // px padding around the building
+  const LABEL_TOP = 16;
+  const LABEL_BOTTOM = 16;
+  const innerW = BUILDING_W * SCALE;
+  const innerD = BUILDING_D * SCALE;
+  const totalW = innerW + PAD * 2;
+  const totalH = innerD + PAD * 2 + LABEL_TOP + LABEL_BOTTOM;
+
+  // Highlight color
+  const hi = opts.pulled ? '#E53935' : '#00C853';
+  const hiBorder = opts.pulled ? '#8B0000' : '#1A5C1A';
+
+  // Helper to convert feet → SVG coords
+  // Building origin: top-left of inner area is back-left corner of warehouse
+  // (since "back" is at top of map)
+  const fx = (ftFromLeft) => PAD + ftFromLeft * SCALE;
+  // Bay axis: bay 001 is at FRONT (bottom of map). High bays at TOP.
+  // So SVG y = top + (BUILDING_D - position_from_front) * SCALE
+  const fyFromFront = (ftFromFront) => PAD + LABEL_TOP + (BUILDING_D - ftFromFront) * SCALE;
+
+  // Find the aisle and bay we're highlighting
+  let hiAisle = null, hiBay = null;
+  if (parsed) {
+    hiAisle = aisles.find(a => a.id === parsed.aisle);
+    hiBay = parseInt(parsed.bay, 10);
+  }
+
+  // Compute how long each aisle is (in feet) and how each bay fits in it.
+  // For full-depth aisles: 167' total, divided into bayCount sections.
+  // For short aisles: 12' off back wall, then (BUILDING_D - 12) / bayCount? No —
+  // they go from 12' off back wall, COMING FORWARD. So the rear-most bay (highest
+  // number) is at 12' from back, then forward in equal sections.
+  function bayBoundsFt(aisle, bayNum) {
+    // Returns { frontFt, backFt } — distance from front of building, in feet.
+    // For full-depth aisles: bay 1 is at the front (0'), bay N is at the back.
+    // For short aisles (5 & 6): they start 12' off the back wall and come forward.
+    //   bay 14 is at the back (rear of aisle), bay 10 is the front-most.
+    if (aisle.fullDepth) {
+      const len = BUILDING_D;
+      const seg = len / aisle.bayCount;
+      const idxFromStart = bayNum - aisle.bayStart; // 0-indexed from front
+      return {
+        frontFt: idxFromStart * seg,
+        backFt: (idxFromStart + 1) * seg
+      };
+    } else {
+      // Short aisle: starts 12' off back, comes forward.
+      // Bay 14 (highest = bayStart + bayCount - 1) is at the back end of the aisle
+      // (which is 12' from the building's back wall).
+      // Bay 10 (bayStart) is forward of that.
+      const aisleLen = (aisle.bayCount * 6); // each bay ~6' along the aisle, rough estimate
+      const aisleBackEdge = BUILDING_D - 12; // distance from front to where aisle ends at back
+      const aisleFrontEdge = aisleBackEdge - aisleLen;
+      const seg = aisleLen / aisle.bayCount;
+      const idxFromFront = bayNum - aisle.bayStart;
+      return {
+        frontFt: aisleFrontEdge + idxFromFront * seg,
+        backFt: aisleFrontEdge + (idxFromFront + 1) * seg
+      };
+    }
+  }
+
+  // Build SVG elements
+  let walls = '';
+  let aisleShapes = '';
+  let labels = '';
+  let highlight = '';
+
+  // Building outline
+  walls += '<rect x="'+fx(0)+'" y="'+fyFromFront(BUILDING_D)+'" '
+    + 'width="'+(BUILDING_W*SCALE)+'" height="'+(BUILDING_D*SCALE)+'" '
+    + 'fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>';
+
+  // Office rectangle
+  const officeY = fyFromFront(OFFICE_D); // top of office (since office is at front)
+  const officeBottom = fyFromFront(0);   // front wall
+  walls += '<rect x="'+fx(OFFICE_X)+'" y="'+officeY+'" '
+    + 'width="'+(OFFICE_W*SCALE)+'" height="'+(officeBottom-officeY)+'" '
+    + 'fill="rgba(255,255,255,.18)" stroke="rgba(255,255,255,.5)" stroke-width="1" stroke-dasharray="3 2"/>';
+  // Office label
+  labels += '<text x="'+fx(OFFICE_X + OFFICE_W/2)+'" y="'+(officeY + (officeBottom-officeY)/2 + 3)+'" '
+    + 'text-anchor="middle" font-family="Barlow Condensed,Arial,sans-serif" '
+    + 'font-size="9" font-weight="800" fill="rgba(255,255,255,.7)" letter-spacing="1.5">OFFICE</text>';
+
+  // Each aisle
+  aisles.forEach(a => {
+    // Aisle's start/end along the depth axis
+    let startFt, endFt;
+    if (a.fullDepth) {
+      startFt = 0;
+      endFt = BUILDING_D;
+    } else {
+      const aisleLen = a.bayCount * 6;
+      endFt = BUILDING_D - 12;
+      startFt = endFt - aisleLen;
+    }
+    const x = fx(a.x);
+    const y = fyFromFront(endFt);  // top
+    const w = a.depth * SCALE;
+    const h = (endFt - startFt) * SCALE;
+    const isCurrentAisle = (hiAisle && hiAisle.id === a.id);
+
+    aisleShapes += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" '
+      + 'fill="'+(isCurrentAisle ? 'rgba(0,200,83,.15)' : 'rgba(255,255,255,.10)')+'" '
+      + 'stroke="'+(isCurrentAisle ? hi : 'rgba(255,255,255,.35)')+'" '
+      + 'stroke-width="'+(isCurrentAisle ? 1.5 : .8)+'" rx="2"/>';
+
+    // Aisle label — number floating to the side or above
+    const labelX = x + w/2;
+    const labelY = fyFromFront(endFt) - 3; // just above the aisle
+    labels += '<text x="'+labelX+'" y="'+labelY+'" text-anchor="middle" '
+      + 'font-family="Barlow Condensed,Arial,sans-serif" font-size="8" font-weight="800" '
+      + 'fill="'+(isCurrentAisle ? hi : 'rgba(255,255,255,.65)')+'">'+a.id+'</text>';
+
+    // If this is the matched aisle, draw the highlighted bay
+    if (isCurrentAisle && hiBay !== null && hiBay >= a.bayStart && hiBay < a.bayStart + a.bayCount) {
+      const bounds = bayBoundsFt(a, hiBay);
+      const bayY = fyFromFront(bounds.backFt);
+      const bayH = (bounds.backFt - bounds.frontFt) * SCALE;
+      highlight = '<rect x="'+(x-1)+'" y="'+(bayY-1)+'" width="'+(w+2)+'" height="'+(bayH+2)+'" '
+        + 'fill="'+hi+'" stroke="'+hiBorder+'" stroke-width="1.5" rx="2"/>'
+        + '<rect x="'+(x-3)+'" y="'+(bayY-3)+'" width="'+(w+6)+'" height="'+(bayH+6)+'" '
+        + 'fill="none" stroke="'+hi+'" stroke-width="1.5" opacity=".4" rx="3"/>';
+    }
+  });
+
+  // BACK / FRONT labels
+  const backLabel = '<text x="'+(totalW/2)+'" y="11" text-anchor="middle" '
+    + 'font-family="Barlow Condensed,Arial,sans-serif" font-size="9" font-weight="700" '
+    + 'fill="rgba(255,255,255,.55)" letter-spacing="2">↑ BACK</text>';
+  const frontLabel = '<text x="'+(totalW/2)+'" y="'+(totalH - 4)+'" text-anchor="middle" '
+    + 'font-family="Barlow Condensed,Arial,sans-serif" font-size="9" font-weight="700" '
+    + 'fill="rgba(255,255,255,.55)" letter-spacing="2">FRONT ↓</text>';
+
+  return '<svg viewBox="0 0 '+totalW+' '+totalH+'" '
+    + 'style="width:100%;max-width:340px;height:auto;display:block;margin:10px auto 4px" '
+    + 'xmlns="http://www.w3.org/2000/svg">'
+    + backLabel
+    + walls
+    + aisleShapes
+    + highlight
+    + labels
+    + frontLabel
+    + '</svg>';
+}
+
 function renderCabResult(query) {
   const el = document.getElementById('cabResult');
   if (!el) return;
@@ -1808,6 +2031,7 @@ function renderCabResult(query) {
           : '')
       + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Location</div>'
       + '<div style="font-size:48px;font-weight:900;line-height:1.1;margin:6px 0;letter-spacing:1px;font-family:\'Barlow Condensed\',Arial,sans-serif;color:'+locColor+(isPulled?';text-decoration:line-through':'')+'">📍 ' + esc(c.location||'?') + '</div>'
+      + renderWarehouseMap(c.location, { pulled: isPulled })
       + (c.prevLoc ? '<div style="font-size:11px;opacity:.7;margin-top:4px">moved from '+esc(c.prevLoc)+'</div>' : '')
       + '</div>';
 
@@ -2629,6 +2853,88 @@ function toggleAdminTools() {
   const open = body.style.display === 'block';
   body.style.display = open ? 'none' : 'block';
   if (caret) caret.textContent = open ? '▶' : '▼';
+}
+
+// ── EDIT WAREHOUSE MAP LAYOUT ────────────────────────────────────────────────
+function editWarehouseLayout() {
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">The warehouse map shows on every cabinet result. Each aisle has its own position, depth, and bay range.</div>'
+
+    + '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#8B4000;line-height:1.5">'
+    + '<strong>Default layout:</strong> Building 150\' wide × 167\' deep. Aisles 001-004 on left (6\' deep racks for frame boxes). Office at 50\'-75\'. Aisles 005-006 are short (5 bays each), 007-012 run full depth (4\' deep racks for cabinets).'
+    + '</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Layout JSON</label>'
+    + '<textarea id="layoutJson" rows="10" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:11px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:6px;-webkit-appearance:none;font-family:monospace;line-height:1.5"></textarea>'
+    + '<div style="font-size:10px;color:#888;margin-bottom:14px;line-height:1.5">Each aisle: <code>id</code> (number string, padded to 3 digits), <code>x</code> (feet from left wall), <code>depth</code> (rack depth in feet), <code>bayCount</code>, <code>bayStart</code> (lowest bay #), <code>fullDepth</code> (true/false — short aisles run only along the back).</div>'
+
+    + '<div id="layoutPreview" style="background:#003087;border-radius:10px;padding:10px;margin-bottom:14px"></div>'
+
+    + '<button onclick="saveWarehouseLayout()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">Save Layout</button>'
+    + '<button onclick="resetWarehouseLayout()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">↺ Reset to Default Layout</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+
+  openCabModal('🗺 Warehouse Map Layout', body);
+
+  setTimeout(() => {
+    const ta = document.getElementById('layoutJson');
+    ta.value = JSON.stringify(warehouseLayout.aisles, null, 2);
+    const update = () => {
+      const preview = document.getElementById('layoutPreview');
+      if (!preview) return;
+      let parsed;
+      try { parsed = JSON.parse(ta.value); }
+      catch(e) {
+        preview.innerHTML = '<div style="color:#FFB74D;font-size:11px;text-align:center;padding:14px">⚠ Invalid JSON: ' + esc(e.message) + '</div>';
+        return;
+      }
+      if (!Array.isArray(parsed)) {
+        preview.innerHTML = '<div style="color:#FFB74D;font-size:11px;text-align:center;padding:14px">⚠ Must be an array of aisles</div>';
+        return;
+      }
+      const oldLayout = warehouseLayout;
+      warehouseLayout = { aisles: parsed };
+      preview.innerHTML = '<div style="text-align:center;color:rgba(255,255,255,.7);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Preview · sample at 007.005</div>'
+        + renderWarehouseMap('007.005', { pulled: false });
+      warehouseLayout = oldLayout;
+    };
+    ta.addEventListener('input', update);
+    update();
+  }, 50);
+}
+
+function saveWarehouseLayout() {
+  const ta = document.getElementById('layoutJson');
+  let parsed;
+  try { parsed = JSON.parse(ta.value); }
+  catch(e) { showToast('⚠ Invalid JSON: ' + e.message); return; }
+  if (!Array.isArray(parsed) || !parsed.length) {
+    showToast('⚠ Layout must be a non-empty array');
+    return;
+  }
+  // Validate each aisle has required fields
+  for (const a of parsed) {
+    if (!a.id || a.x === undefined || !a.depth || !a.bayCount) {
+      showToast('⚠ Each aisle needs id, x, depth, bayCount');
+      return;
+    }
+  }
+  warehouseLayout = { aisles: parsed };
+  try { localStorage.setItem('mbd_warehouse_layout', JSON.stringify(warehouseLayout)); } catch(e) {}
+  closeCabModal();
+  showToast('✓ Map layout saved');
+  renderCabResult(document.getElementById('cabSearchInput').value);
+  renderCabinets();
+}
+
+function resetWarehouseLayout() {
+  warehouseLayout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
+  try { localStorage.removeItem('mbd_warehouse_layout'); } catch(e) {}
+  const ta = document.getElementById('layoutJson');
+  if (ta) {
+    ta.value = JSON.stringify(warehouseLayout.aisles, null, 2);
+    ta.dispatchEvent(new Event('input'));
+  }
 }
 
 function manageCabTeam() {
