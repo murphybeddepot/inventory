@@ -3,29 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v18</title>
+<title>MBD Inventory Scanner v20</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f2f5;min-height:100vh;color:#1a1a1a}
-:root{--blue:#1a73e8;--green:#1e8e3e;--red:#d93025;--orange:#f29900;--gray:#5f6368;--border:#dadce0}
+body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#F0F4F8;min-height:100vh;color:#1a1a1a}
+:root{
+  --blue:#003087;          /* deep navy primary */
+  --blue-bright:#1A5BE0;   /* accent blue */
+  --green:#1A5C1A;         /* dark green for "do" */
+  --green-bright:#00C853;  /* electric green like fulfillment app */
+  --red:#8B0000;           /* dark red for warnings */
+  --red-bright:#E53935;
+  --orange:#FF6B00;        /* energetic orange */
+  --purple:#6A1B9A;
+  --gray:#5f6368;
+  --border:#dadce0;
+}
 
-.header{background:#1a73e8;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 2px 6px rgba(0,0,0,.2)}
-.header h1{font-size:18px;font-weight:600}
-.header-badge{background:rgba(255,255,255,.25);border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600}
-.tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:52px;z-index:99}
-.tab-btn{flex:1;padding:12px 4px;font-size:13px;font-weight:500;color:var(--gray);background:none;border:none;border-bottom:3px solid transparent;cursor:pointer}
+.header{background:linear-gradient(135deg,#003087 0%,#1A5BE0 100%);color:#fff;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 4px 14px rgba(0,48,135,.25)}
+.header h1{font-family:'Barlow Condensed','Barlow',sans-serif;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:.5px}
+.header-badge{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+.tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.tab-btn{flex:1;padding:14px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:14px;font-weight:800;color:var(--gray);background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;transition:color .15s ease}
+.tab-btn:hover{color:var(--blue-bright)}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
-.panel{display:none;padding:12px}
+.panel{display:none;padding:14px}
 .panel.active{display:block}
 
 .mode-row{display:flex;gap:6px;margin-bottom:12px}
-.mode-chip{flex:1;padding:10px 4px;font-size:13px;font-weight:600;border-radius:8px;border:2px solid var(--border);background:#fff;color:var(--gray);cursor:pointer;text-align:center}
-.mode-chip.active-count{border-color:#1a73e8;background:#e8f0fe;color:#1a73e8}
-.mode-chip.active-addloc{border-color:#7b1fa2;background:#f3e5f5;color:#7b1fa2}
-.mode-chip.active-received{border-color:#1e8e3e;background:#e6f4ea;color:#1e8e3e}
-.mode-chip.active-removed{border-color:#d93025;background:#fce8e6;color:#d93025}
+.mode-chip{flex:1;padding:11px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);cursor:pointer;text-align:center;transition:all .12s ease}
+.mode-chip.active-count{border-color:var(--blue);background:#E8EFFB;color:var(--blue)}
+.mode-chip.active-addloc{border-color:var(--purple);background:#F3E5F5;color:var(--purple)}
+.mode-chip.active-received{border-color:var(--green-bright);background:#E6F4EA;color:var(--green)}
+.mode-chip.active-removed{border-color:var(--red-bright);background:#FCE8E6;color:var(--red)}
 
 .input-row{display:flex;gap:8px;margin-bottom:10px;align-items:center}
 .search-wrap{position:relative;flex:1}
@@ -185,18 +200,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:13px;font-weight:400;opacity:.7">v18</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v20</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
-  <button class="tab-btn active" id="tab-scan-btn" onclick="switchTab('scan')">Scan</button>
-  <button class="tab-btn" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
+  <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
+  <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')">Inventory</button>
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')">Barcodes</button>
   <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')">Log</button>
   <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')">Export</button>
 </div>
 
-<div id="tab-scan" class="panel active">
+<div id="tab-scan" class="panel">
   <div class="info-banner" id="safariWarning" style="display:none">
     <strong>Open in Safari for camera scanning</strong>
     Camera access is blocked inside apps. Open this page in Safari for live barcode scanning.
@@ -252,7 +267,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <div id="itemCard"></div>
 </div>
 
-<div id="tab-cabinets" class="panel">
+<div id="tab-cabinets" class="panel active">
 
   <!-- BIG SEARCH BAR -->
   <div style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
@@ -1643,14 +1658,26 @@ function findCabinets(query) {
   // Always exclude soft-deleted records
   let pool = cabinets.filter(c => !c.deleted);
   if (!showPulled) pool = pool.filter(c => !c.pulledAt);
-  // Exact match on cabinet # first
+
+  // 1. Exact match on cabinet # — return only that, it's almost certainly what they want
   const exact = pool.filter(c => normCab(c.cabinet) === q);
   if (exact.length) return exact;
-  // Otherwise: substring match on cabinet # or location
-  return pool.filter(c =>
-    normCab(c.cabinet).includes(q) ||
-    normCab(c.location).includes(q)
-  ).slice(0, 20);
+
+  // 2. Cabinet # starts with the query (e.g. "STK014" matches "STK014-QSOFAW")
+  const startsWith = pool.filter(c => normCab(c.cabinet).startsWith(q));
+
+  // 3. Cabinet # contains the query somewhere
+  const contains = pool.filter(c =>
+    !normCab(c.cabinet).startsWith(q) && normCab(c.cabinet).includes(q)
+  );
+
+  // 4. Location matches (lowest priority — "B-04" type lookups)
+  const locMatch = pool.filter(c =>
+    !normCab(c.cabinet).includes(q) && normCab(c.location).includes(q)
+  );
+
+  // Combine in order, cap at 20 results
+  return [...startsWith, ...contains, ...locMatch].slice(0, 20);
 }
 
 function cabId(c) {
@@ -2064,10 +2091,22 @@ function cabPickPerson(btn, targetId) {
 //   3. Apps Script returns the merged set
 //   4. We replace our local store with the merged set
 
-let cabSyncUrl = '';
-try { cabSyncUrl = localStorage.getItem('mbd_sync_url') || ''; } catch(e) {}
-let cabAutoSync = false;
-try { cabAutoSync = localStorage.getItem('mbd_auto_sync') === 'true'; } catch(e) {}
+// Default Apps Script web app URL — hard-wired so devices sync without setup.
+// Can still be overridden via Settings (saved override wins over this default).
+const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbw3fT2XeFyTkgo2AT0UoXNEs1jwrFCBit7D7Uubmp7H-NlReV8vwa-Bn9oMjC8soH6n/exec';
+
+let cabSyncUrl = DEFAULT_SYNC_URL;
+try {
+  const saved = localStorage.getItem('mbd_sync_url');
+  if (saved) cabSyncUrl = saved;
+} catch(e) {}
+// Auto-sync is on by default (so a fresh device starts syncing immediately
+// without requiring a trip to Settings). Users can disable in Settings.
+let cabAutoSync = true;
+try {
+  const saved = localStorage.getItem('mbd_auto_sync');
+  if (saved !== null) cabAutoSync = saved === 'true';
+} catch(e) {}
 let cabLastSyncAt = '';
 try { cabLastSyncAt = localStorage.getItem('mbd_last_sync') || ''; } catch(e) {}
 let cabSyncTimer = null;
@@ -2213,19 +2252,11 @@ async function wipeCabinetSheet() {
 
 function openSyncSettings() {
   const body =
-    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">Connect to your Google Apps Script to sync cabinet data across all devices. The same script URL is used for fulfillment notifications.</div>'
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">Sync is pre-configured for Murphy Bed Depot. You can override the URL below if you ever switch to a different Apps Script.</div>'
 
     + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Apps Script Web App URL</label>'
-    + '<input type="url" id="syncUrlInput" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" autocorrect="off" style="width:100%;padding:12px;font-size:13px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none;font-family:monospace">'
-
-    + '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#8B4000;line-height:1.6">'
-    + '<strong>To get this URL:</strong><br>'
-    + '1. Open Google Apps Script (script.google.com)<br>'
-    + '2. Open your existing MBD project (or create one and paste the v3 script)<br>'
-    + '3. Click <strong>Deploy → Manage deployments</strong> (or "New deployment" if first time)<br>'
-    + '4. Type: <strong>Web app</strong>, Execute as: <strong>Me</strong>, Access: <strong>Anyone</strong><br>'
-    + '5. Copy the <strong>Web app URL</strong> shown after deploying — paste it above'
-    + '</div>'
+    + '<input type="url" id="syncUrlInput" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" autocorrect="off" style="width:100%;padding:12px;font-size:11px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:6px;-webkit-appearance:none;font-family:monospace">'
+    + '<div id="syncUrlNote" style="font-size:11px;color:#1A5C1A;margin-bottom:14px;font-weight:600">✓ Using built-in default</div>'
 
     + '<label style="display:flex;align-items:center;gap:10px;padding:10px;background:#f5f5f5;border-radius:8px;cursor:pointer;margin-bottom:14px">'
     +   '<input type="checkbox" id="autoSyncToggle" style="width:18px;height:18px;cursor:pointer">'
@@ -2234,13 +2265,39 @@ function openSyncSettings() {
     + '</label>'
 
     + '<button onclick="saveSyncSettings()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">Save Settings</button>'
+    + '<button onclick="resetSyncUrl()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">↺ Reset to Default URL</button>'
     + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
 
   openCabModal('☁ Sync Settings', body);
   setTimeout(() => {
-    document.getElementById('syncUrlInput').value = cabSyncUrl;
+    const inp = document.getElementById('syncUrlInput');
+    const note = document.getElementById('syncUrlNote');
+    inp.value = cabSyncUrl;
+    inp.addEventListener('input', () => {
+      if (note) {
+        note.textContent = inp.value === DEFAULT_SYNC_URL
+          ? '✓ Using built-in default'
+          : '⚠ Using a custom URL (overrides default)';
+        note.style.color = inp.value === DEFAULT_SYNC_URL ? '#1A5C1A' : '#8B4000';
+      }
+    });
+    if (note) {
+      note.textContent = cabSyncUrl === DEFAULT_SYNC_URL
+        ? '✓ Using built-in default'
+        : '⚠ Using a custom URL (overrides default)';
+      note.style.color = cabSyncUrl === DEFAULT_SYNC_URL ? '#1A5C1A' : '#8B4000';
+    }
     document.getElementById('autoSyncToggle').checked = cabAutoSync;
   }, 50);
+}
+
+function resetSyncUrl() {
+  document.getElementById('syncUrlInput').value = DEFAULT_SYNC_URL;
+  const note = document.getElementById('syncUrlNote');
+  if (note) {
+    note.textContent = '✓ Using built-in default';
+    note.style.color = '#1A5C1A';
+  }
 }
 
 function saveSyncSettings() {
@@ -2924,6 +2981,9 @@ updateHfStatus();
 
 // Refresh daily progress chip on load (shows if user already counted today)
 PROGRESS.refresh();
+
+// Render Cabinets tab on initial load (it's now the default active tab)
+renderCabinets();
 
 // Start auto-sync if configured
 startAutoSync();
