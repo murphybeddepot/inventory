@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v26</title>
+<title>MBD Inventory Scanner v27</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -203,7 +203,7 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v26</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v27</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -3814,13 +3814,18 @@ function showReceiveSetup() {
     + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Shipment Name *</label>'
     + '<input type="text" id="receiveShipmentName" value="'+esc(defaultShipmentName())+'" placeholder="e.g. Apr 30" autocomplete="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:15px;font-weight:700;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
 
-    + (apiKey ? '' :
-        '<div style="background:#FFF8E1;border:1.5px solid #FFC107;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#8B4000;line-height:1.5">'
-        + '<strong>⚠ Photo parsing needs a Claude API key</strong>'
-        + '<div style="margin-top:6px">Photo extraction uses the Anthropic Claude Vision API. You can paste a key below (one-time setup, saved on this device) or skip and use Paste Text instead.</div>'
-        + '<input type="password" id="receiveApiKey" placeholder="sk-ant-..." autocomplete="off" style="width:100%;margin-top:8px;padding:10px;font-size:12px;border:1.5px solid #ccc;border-radius:6px;outline:none;-webkit-appearance:none;font-family:monospace">'
-        + '<button onclick="saveReceiveApiKey()" style="width:100%;margin-top:6px;padding:9px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Save API Key</button>'
-        + '</div>')
+    + (apiKey
+        ? '<div style="background:#E6F4EA;border:1.5px solid #1A5C1A;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#1A5C1A;line-height:1.5;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+          + '<div><strong>✓ API key saved on this device</strong>'
+          +   '<div style="font-size:11px;color:#444;margin-top:1px">Last 4: ••••'+esc(apiKey.slice(-4))+'</div></div>'
+          + '<button onclick="showReplaceApiKey()" style="background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">Replace</button>'
+          + '</div>'
+        : '<div id="apiKeyBlock" style="background:#FFF8E1;border:1.5px solid #FFC107;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#8B4000;line-height:1.5">'
+          + '<strong>⚠ Photo parsing needs a Claude API key</strong>'
+          + '<div style="margin-top:6px">Photo extraction uses the Anthropic Claude Vision API. You can paste a key below (one-time setup, saved on this device) or skip and use Paste Text instead.</div>'
+          + '<input type="password" id="receiveApiKey" placeholder="sk-ant-..." autocomplete="off" style="width:100%;margin-top:8px;padding:10px;font-size:12px;border:1.5px solid #ccc;border-radius:6px;outline:none;-webkit-appearance:none;font-family:monospace">'
+          + '<button onclick="saveReceiveApiKey()" style="width:100%;margin-top:6px;padding:9px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Save API Key</button>'
+          + '</div>')
 
     + '<div style="display:grid;gap:8px;margin-bottom:14px">'
     +   '<label class="map-io-btn import" style="text-align:center">'
@@ -3854,8 +3859,17 @@ function saveReceiveApiKey() {
   }
   try { localStorage.setItem('mbd_anthropic_key', key); } catch(e) {}
   showToast('✓ API key saved');
-  // Reopen to refresh UI
-  openReceiveShipment();
+  // Reopen the setup form so the green confirmation banner appears
+  showReceiveSetup();
+}
+
+// Replace an existing API key — swaps the green "saved" banner back to
+// the input field so the user can paste a new key.
+function showReplaceApiKey() {
+  // Remove the saved key entirely so showReceiveSetup re-renders the input
+  try { localStorage.removeItem('mbd_anthropic_key'); } catch(e) {}
+  showReceiveSetup();
+  showToast('Paste your new key below');
 }
 
 function openReceivePasteText() {
