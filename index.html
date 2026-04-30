@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v27</title>
+<title>MBD Inventory Scanner v29</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -203,7 +203,7 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v27</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v29</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -523,13 +523,13 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 </div>
 
 <!-- CABINET ACTION MODAL — shared for Add / Move / Pull -->
-<div id="cabModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;-webkit-overflow-scrolling:touch">
-  <div id="cabModal" style="background:#fff;border-radius:14px;max-width:440px;width:100%;margin:auto;padding:22px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+<div id="cabModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:stretch;justify-content:center;padding:0">
+  <div id="cabModal" style="background:#fff;width:100%;max-width:560px;margin:auto;display:flex;flex-direction:column;max-height:100vh;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:18px 22px 14px;border-bottom:1.5px solid #e0e0e0;flex-shrink:0">
       <div id="cabModalTitle" style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#003087;text-transform:uppercase;letter-spacing:.5px"></div>
-      <button onclick="closeCabModal()" style="background:none;border:none;font-size:28px;color:#999;cursor:pointer;line-height:1;padding:0 4px">×</button>
+      <button onclick="closeCabModal()" style="background:#f5f5f5;border:none;color:#222;font-size:22px;font-weight:700;cursor:pointer;width:36px;height:36px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
     </div>
-    <div id="cabModalBody"></div>
+    <div id="cabModalBody" style="flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:18px 22px 22px;min-height:0"></div>
   </div>
 </div>
 
@@ -4106,66 +4106,92 @@ function renderReceiveSession() {
     const alreadyExists = !!existing;
     return '<div onclick="toggleReceiveCabinet(' + idx + ')" '
       + 'style="background:'+(isDone?'#1A5C1A':'#fff')+';color:'+(isDone?'#fff':'#1a1a1a')+';'
-      + 'border:2px solid '+(isDone?'#1A5C1A':alreadyExists?'#FFC107':'#e0e0e0')+';'
-      + 'border-radius:10px;padding:14px;margin-bottom:6px;cursor:pointer;'
-      + 'display:flex;justify-content:space-between;align-items:center;gap:10px;'
+      + 'border:2px solid '+(isDone?'#1A5C1A':alreadyExists?'#FFC107':'#bbb')+';'
+      + 'border-radius:10px;padding:16px 18px;margin-bottom:8px;cursor:pointer;'
+      + 'display:flex;justify-content:space-between;align-items:center;gap:12px;'
       + 'transition:all .15s ease">'
       + '<div style="min-width:0;flex:1">'
-      +   '<div style="display:flex;align-items:center;gap:10px">'
-      +     '<div style="width:28px;height:28px;border-radius:6px;border:2.5px solid '+(isDone?'#fff':'#003087')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(isDone?'#fff':'transparent')+'">'
-      +       (isDone?'<span style="color:#1A5C1A;font-size:20px;font-weight:900;line-height:1">✓</span>':'')
+      +   '<div style="display:flex;align-items:center;gap:14px">'
+      +     '<div style="width:34px;height:34px;border-radius:8px;border:3px solid '+(isDone?'#fff':'#003087')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(isDone?'#fff':'transparent')+'">'
+      +       (isDone?'<span style="color:#1A5C1A;font-size:24px;font-weight:900;line-height:1">✓</span>':'')
       +     '</div>'
-      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:.5px">' + esc(c.num) + '</div>'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px">' + esc(c.num) + '</div>'
       +   '</div>'
       +   (isDone && c.location
-          ? '<div style="font-size:12px;font-weight:700;margin-top:4px;margin-left:38px;opacity:.85">📍 ' + esc(c.location) + '</div>'
-          : (alreadyExists ? '<div style="font-size:11px;color:#8B4000;margin-top:4px;margin-left:38px;font-weight:700">⚠ Already in system at '+esc(existing.location||'?')+'</div>' : ''))
+          ? '<div style="font-size:15px;font-weight:700;margin-top:5px;margin-left:48px">'
+              + (c.alreadyInPlace ? '✓ Already at 📍 ' : '📍 ')
+              + esc(c.location) + '</div>'
+          : (alreadyExists ? '<div style="font-size:13px;color:#8B4000;margin-top:5px;margin-left:48px;font-weight:700">⚠ Already at '+esc(existing.location||'?')+' · tap to mark in place</div>' : ''))
       + '</div>'
       + (isDone
-          ? '<button onclick="event.stopPropagation();editReceiveCabinetLocation('+idx+')" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">Edit Loc</button>'
+          ? '<button onclick="event.stopPropagation();editReceiveCabinetLocation('+idx+')" style="background:#fff;color:#1A5C1A;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0">Edit Loc</button>'
           : '')
       + '</div>';
   }).join('');
 
   const body =
-    // Progress + shipment name header
-    '<div style="background:linear-gradient(135deg,#003087,#1A5BE0);color:#fff;border-radius:12px;padding:14px;margin-bottom:14px">'
-    +   '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">'
+    // Compact header — shipment name + progress in one row
+    '<div style="background:linear-gradient(135deg,#003087,#1A5BE0);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    +   '<div style="min-width:0;flex:1">'
     +     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Shipment</div>'
-    +     '<div style="font-size:13px;font-weight:800">' + done + ' / ' + total + '</div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.1;margin-top:1px">'+esc(session.name)+'</div>'
     +   '</div>'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;margin-bottom:8px">'+esc(session.name)+'</div>'
-    +   '<div style="background:rgba(255,255,255,.18);border-radius:6px;height:8px;overflow:hidden">'
-    +     '<div style="background:#00C853;height:100%;width:'+pct+'%;transition:width .25s ease"></div>'
+    +   '<div style="text-align:right;flex-shrink:0">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;line-height:1">'+done+' / '+total+'</div>'
+    +     '<div style="font-size:11px;font-weight:700;opacity:.85;margin-top:2px">'+pct+'% done</div>'
     +   '</div>'
     + '</div>'
-
-    + '<div style="background:#fff;border:1.5px solid #003087;border-radius:10px;padding:12px;margin-bottom:14px">'
-    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Default Location (where most go)</div>'
-    +   zoneChipsHtml('receiveDefaultLoc')
-    +   '<input type="text" id="receiveDefaultLoc" value="'+esc(session.defaultLoc)+'" placeholder="e.g. RECEIVING" autocomplete="off" autocapitalize="characters" style="width:100%;padding:10px;font-size:14px;font-weight:700;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:8px;-webkit-appearance:none">'
-    +   '<div style="font-size:11px;color:#666;margin-bottom:6px">Tap a row to mark received at this location. Tap "Edit Loc" on a received row to override.</div>'
-    +   '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px;margin-top:8px">Received By</label>'
-    +   personPickerHtml('receivePerson')
+    + '<div style="background:rgba(0,48,135,.12);border-radius:4px;height:5px;overflow:hidden;margin-bottom:12px">'
+    +   '<div style="background:#00C853;height:100%;width:'+pct+'%;transition:width .25s ease"></div>'
     + '</div>'
 
-    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Cabinets to receive ('+total+')</div>'
-    + '<div style="max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px">'
+    // Compact controls — collapsible if you want to see more list
+    + '<details id="receiveControls" '+(session.defaultLoc?'':'open')+' style="background:#fff;border:1.5px solid #003087;border-radius:10px;padding:10px 12px;margin-bottom:10px">'
+    +   '<summary style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:800;color:#003087;text-transform:uppercase;letter-spacing:1px;list-style:none">'
+    +     '<span>📍 Default: <strong style="color:#1a1a1a">'+esc(session.defaultLoc||'(not set)')+'</strong>'+(session.person?' · 👤 '+esc(session.person):'')+'</span>'
+    +     '<span style="font-size:14px;color:#666">⚙</span>'
+    +   '</summary>'
+    +   '<div style="margin-top:10px">'
+    +     '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">Default Location (where most go)</div>'
+    +     zoneChipsHtml('receiveDefaultLoc')
+    +     '<input type="text" id="receiveDefaultLoc" value="'+esc(session.defaultLoc)+'" placeholder="e.g. RECEIVING" autocomplete="off" autocapitalize="characters" style="width:100%;padding:11px;font-size:15px;font-weight:700;border:1.5px solid #999;border-radius:8px;outline:none;margin-bottom:10px;-webkit-appearance:none;color:#1a1a1a">'
+    +     '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">Received By</div>'
+    +     personPickerHtml('receivePerson')
+    +   '</div>'
+    + '</details>'
+
+    // Quick action: mark all already-existing as in place
+    + (() => {
+        const inPlaceCandidates = session.cabinets.filter((c) => {
+          if (c.received) return false;
+          const ex = cabinets.find(cb => !cb.deleted && !cb.pulledAt && normCab(cb.cabinet) === normCab(c.num));
+          return !!ex;
+        });
+        if (!inPlaceCandidates.length) return '';
+        return '<button onclick="markAllInPlace()" style="width:100%;padding:12px 14px;background:#FFF8E1;color:#8B4000;border:1.5px solid #FFC107;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;margin-bottom:10px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+          + '<span>⚡ ' + inPlaceCandidates.length + ' already in system — tap to confirm in place</span>'
+          + '<span style="font-size:18px">›</span>'
+          + '</button>';
+      })()
+
+    // The list — no nested scroll, just renders all rows. The modal body itself scrolls.
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
+    +   '<span>Cabinets ('+total+')</span>'
+    +   (done > 0 ? '<span style="color:#1A5C1A">'+done+' received</span>' : '')
+    + '</div>'
     + rows
-    + '</div>'
-
-    + '<button onclick="addUnexpectedCabinet()" style="width:100%;padding:12px;background:#fff;color:#FF6B00;border:1.5px dashed #FF6B00;border-radius:10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-bottom:8px">+ Add Unexpected Cabinet (notifies manager)</button>'
+    + '<button onclick="addUnexpectedCabinet()" style="width:100%;padding:12px;background:#fff;color:#FF6B00;border:1.5px dashed #FF6B00;border-radius:10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-top:8px;margin-bottom:14px">+ Add Unexpected Cabinet (notifies manager)</button>'
 
     + (done > 0
         ? '<button onclick="commitReceiveSession()" style="width:100%;padding:16px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-bottom:8px">✓ Save Progress ('+done+' received)</button>'
-        : '<div style="padding:14px;background:#f5f5f5;border-radius:10px;text-align:center;color:#888;font-size:12px;margin-bottom:8px">Tap a cabinet row above to mark it received.</div>')
+        : '<div style="padding:14px;background:#f5f5f5;border-radius:10px;text-align:center;color:#444;font-size:13px;font-weight:600;margin-bottom:8px">Tap a cabinet row above to mark it received.</div>')
 
     + '<div style="display:flex;gap:8px;margin-bottom:8px">'
-    +   '<button onclick="closeCabModal()" style="flex:1;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Pause / Close</button>'
-    +   '<button onclick="completeReceiveSession()" style="flex:1;padding:10px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">✓ Complete Shipment</button>'
+    +   '<button onclick="closeCabModal()" style="flex:1;padding:12px;background:#fff;color:#444;border:1.5px solid #999;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Pause / Close</button>'
+    +   '<button onclick="completeReceiveSession()" style="flex:1;padding:12px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">✓ Complete</button>'
     + '</div>'
 
-    + '<button onclick="cancelReceiveSession()" style="width:100%;padding:8px;background:#fff;color:#8B0000;border:none;font-size:11px;font-weight:600;cursor:pointer;text-decoration:underline">✕ Cancel this shipment (lose unsaved progress)</button>';
+    + '<button onclick="cancelReceiveSession()" style="width:100%;padding:8px;background:#fff;color:#8B0000;border:none;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline">✕ Cancel this shipment</button>';
 
   openCabModal('📥 Receiving Shipment', body);
 
@@ -4188,6 +4214,36 @@ function renderReceiveSession() {
   }, 50);
 }
 
+// Bulk-confirm any cabinets in the session that are already in the system
+// at active status. Marks them received-in-place (no inventory change).
+// Useful at start of a session when several cabinets from this week's list
+// were already received in earlier truckloads before the session existed.
+function markAllInPlace() {
+  const session = getActiveSession();
+  if (!session) return;
+  const persInp = document.getElementById('receivePerson');
+  if (persInp) session.person = persInp.value.trim();
+  const ts = nowStamp();
+  let count = 0;
+  session.cabinets.forEach(rc => {
+    if (rc.received) return;
+    const existing = cabinets.find(cb => !cb.deleted && !cb.pulledAt && normCab(cb.cabinet) === normCab(rc.num));
+    if (!existing) return;
+    rc.received = true;
+    rc.location = existing.location || '';
+    rc.receivedAt = ts;
+    rc.receivedBy = session.person || '';
+    rc.alreadyInPlace = true;
+    count++;
+  });
+  if (!count) { showToast('Nothing to mark'); return; }
+  saveReceiveSessions();
+  FB.success();
+  if (FB.visuals) spawnScorePop('+' + count, '#003087');
+  showToast('✓ ' + count + ' confirmed in place');
+  renderReceiveSession();
+}
+
 function toggleReceiveCabinet(idx) {
   const session = getActiveSession();
   if (!session) return;
@@ -4196,10 +4252,6 @@ function toggleReceiveCabinet(idx) {
   // Capture latest default location from input
   const locInp = document.getElementById('receiveDefaultLoc');
   if (locInp) session.defaultLoc = locInp.value.trim();
-  if (!session.defaultLoc) {
-    showToast('⚠ Set a default location first');
-    return;
-  }
   const persInp = document.getElementById('receivePerson');
   if (persInp) session.person = persInp.value.trim();
 
@@ -4209,14 +4261,34 @@ function toggleReceiveCabinet(idx) {
     c.location = '';
     c.receivedAt = '';
     c.receivedBy = '';
+    c.alreadyInPlace = false;
     FB.error();
   } else {
-    c.received = true;
-    c.location = session.defaultLoc;
-    c.receivedAt = nowStamp();
-    c.receivedBy = session.person || '';
-    FB.success();
-    if (FB.visuals) spawnScorePop('+1', '#1A5C1A');
+    // If this cabinet is already in the system, mark it as "already in place"
+    // — keep its existing location, don't generate a move transaction.
+    const existing = cabinets.find(cb => !cb.deleted && normCab(cb.cabinet) === normCab(c.num));
+    if (existing && !existing.pulledAt) {
+      c.received = true;
+      c.location = existing.location || '';
+      c.receivedAt = nowStamp();
+      c.receivedBy = session.person || '';
+      c.alreadyInPlace = true;
+      FB.success();
+      if (FB.visuals) spawnScorePop('✓', '#003087');
+    } else {
+      // Normal new-receive path — needs a default location
+      if (!session.defaultLoc) {
+        showToast('⚠ Set a default location first');
+        return;
+      }
+      c.received = true;
+      c.location = session.defaultLoc;
+      c.receivedAt = nowStamp();
+      c.receivedBy = session.person || '';
+      c.alreadyInPlace = false;
+      FB.success();
+      if (FB.visuals) spawnScorePop('+1', '#1A5C1A');
+    }
   }
   saveReceiveSessions();
   renderReceiveSession();
@@ -4245,10 +4317,18 @@ function commitReceiveSession() {
   const persInp = document.getElementById('receivePerson');
   if (persInp) session.person = persInp.value.trim();
   const ts = nowStamp();
-  let movedCount = 0, addedCount = 0, alreadyCommitted = 0;
+  let movedCount = 0, addedCount = 0, alreadyCommitted = 0, inPlaceCount = 0;
   session.cabinets.forEach(rc => {
     if (!rc.received) return;
     if (rc.committedAt) { alreadyCommitted++; return; } // already saved earlier
+
+    // "Already in place" cabinets — just mark committed, no inventory change
+    if (rc.alreadyInPlace) {
+      rc.committedAt = ts;
+      inPlaceCount++;
+      return;
+    }
+
     const loc = rc.location || session.defaultLoc;
     const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === normCab(rc.num));
     if (existing) {
@@ -4280,14 +4360,17 @@ function commitReceiveSession() {
   saveCabinets();
   saveReceiveSessions();
   FB.success();
-  if (FB.visuals) spawnScorePop('+' + (movedCount + addedCount), '#1A5C1A');
+  if (FB.visuals && (movedCount + addedCount + inPlaceCount) > 0) {
+    spawnScorePop('+' + (movedCount + addedCount + inPlaceCount), '#1A5C1A');
+  }
   const parts = [];
-  if (addedCount) parts.push(addedCount + ' added');
-  if (movedCount) parts.push(movedCount + ' updated');
+  if (addedCount)  parts.push(addedCount + ' added');
+  if (movedCount)  parts.push(movedCount + ' updated');
+  if (inPlaceCount) parts.push(inPlaceCount + ' confirmed in place');
   if (parts.length === 0) {
     showToast('Nothing new to save');
   } else {
-    showToast('✓ ' + parts.join(', ') + ' to inventory');
+    showToast('✓ ' + parts.join(', '));
   }
   renderCabinets();
   renderReceiveSession(); // refresh the modal showing the new state
