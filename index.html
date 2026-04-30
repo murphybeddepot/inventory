@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v22</title>
+<title>MBD Inventory Scanner v26</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -43,6 +43,9 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .mode-chip.active-removed{border-color:var(--red-bright);background:#FCE8E6;color:var(--red)}
 
 .input-row{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+.cat-chip{padding:8px 14px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;border-radius:999px;border:1.5px solid var(--border);background:#fff;color:var(--gray);cursor:pointer;transition:all .12s ease}
+.cat-chip:hover{border-color:var(--blue);color:var(--blue)}
+.cat-chip.active{background:var(--blue);color:#fff;border-color:var(--blue)}
 .search-wrap{position:relative;flex:1}
 .search-wrap input{width:100%;padding:12px 36px 12px 14px;font-size:16px;border:2px solid var(--border);border-radius:10px;background:#fff;outline:none;-webkit-appearance:none}
 .search-wrap input:focus{border-color:var(--blue)}
@@ -200,11 +203,12 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v22</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v26</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
   <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
+  <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')">Items</button>
   <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')">Inventory</button>
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')">Barcodes</button>
   <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')">Log</button>
@@ -283,10 +287,21 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
   <!-- RESULT AREA -->
   <div id="cabResult"></div>
 
-  <!-- PRIMARY ACTION — Add Cabinet (big and prominent) -->
-  <button onclick="openAddCabinet()" style="width:100%;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25);margin-bottom:14px">
-    + Add Cabinet(s)
-  </button>
+  <!-- PRIMARY ACTIONS — Add Cabinet + Bulk Move + Receive -->
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button onclick="openAddCabinet()" style="flex:1;min-width:160px;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25)">
+      + Add Cabinet(s)
+    </button>
+    <button onclick="openBulkMove()" style="flex:1;min-width:160px;background:#FF9100;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(255,145,0,.25)">
+      ↪ Bulk Move
+    </button>
+  </div>
+  <!-- Receive shipment button (shows active session badge if applicable) -->
+  <div id="receiveButtonContainer">
+    <button onclick="openReceiveShipment()" style="width:100%;background:linear-gradient(135deg,#003087,#1A5BE0);color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(0,48,135,.25);margin-bottom:14px">
+      📥 Receive Shipment
+    </button>
+  </div>
 
   <!-- EMPTY STATE -->
   <div id="cabEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
@@ -350,6 +365,70 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
         <button onclick="wipeCabinetSheet()" style="width:100%;margin-top:10px;padding:11px;background:#8B0000;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🗑 Wipe Cloud Sheet + Local Data</button>
       </details>
 
+    </div>
+  </div>
+
+</div>
+
+<!-- ── ITEMS TAB ─────────────────────────────────────────────────────────────-->
+<div id="tab-items" class="panel">
+
+  <!-- BIG SEARCH BAR -->
+  <div style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+    <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Find an Item</label>
+    <input type="text" id="itemSearchInput" placeholder="Type or scan SKU…"
+      style="width:100%;padding:14px 16px;font-size:18px;font-weight:600;border:2px solid #ccc;border-radius:10px;outline:none;font-family:inherit;-webkit-appearance:none"
+      autocomplete="off" autocorrect="off" autocapitalize="characters">
+    <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.5">
+      Tip: scan a SKU barcode, or type any part of the SKU or product name. You can also search by category.
+    </div>
+  </div>
+
+  <!-- CATEGORY FILTER CHIPS -->
+  <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap" id="itemCategoryChips">
+    <button class="cat-chip active" data-cat="all" onclick="filterItemCategory('all')">All</button>
+    <button class="cat-chip" data-cat="Frame" onclick="filterItemCategory('Frame')">Frame</button>
+    <button class="cat-chip" data-cat="Hardware" onclick="filterItemCategory('Hardware')">Hardware</button>
+    <button class="cat-chip" data-cat="Packaging" onclick="filterItemCategory('Packaging')">Packaging</button>
+    <button class="cat-chip" data-cat="Other" onclick="filterItemCategory('Other')">Other</button>
+  </div>
+
+  <!-- RESULT AREA -->
+  <div id="itemResult"></div>
+
+  <!-- PRIMARY ACTION — Add Item -->
+  <button onclick="openAddItem()" style="width:100%;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25);margin-bottom:14px">
+    + Add Item
+  </button>
+
+  <!-- EMPTY STATE -->
+  <div id="itemEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
+    <strong>📦 No items yet</strong>
+    Tap <strong>+ Add Item</strong> to add SKUs one at a time, or use Upload Spreadsheet (admin tools below).
+  </div>
+
+  <!-- ITEM LIST -->
+  <div id="itemCount" style="font-size:13px;color:#666;text-align:center;font-weight:600;margin-top:8px"></div>
+  <div id="itemList" style="margin-top:8px;margin-bottom:18px"></div>
+
+  <!-- ── ADMIN TOOLS ─────────────────────────────────────────────── -->
+  <div style="border-top:2px solid #e0e0e0;padding-top:14px;margin-top:18px">
+    <button onclick="toggleItemAdmin()" id="itemAdminToggle" style="width:100%;background:none;border:none;color:#666;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center;gap:6px">
+      <span id="itemAdminCaret">▶</span> Admin Tools
+    </button>
+
+    <div id="itemAdminBody" style="display:none;margin-top:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <label class="map-io-btn import" style="flex:1;min-width:140px">
+          ⬆ Upload Spreadsheet
+          <input type="file" accept=".xlsx,.xls,.csv" id="itemImportInput" style="display:none">
+        </label>
+        <button class="map-io-btn export" style="flex:1;min-width:140px" onclick="exportItems()">⬇ Export Current</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="seedStarterItems()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">🌱 Seed Starter Items</button>
+        <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearItems()">✕ Clear All</button>
+      </div>
     </div>
   </div>
 
@@ -838,7 +917,7 @@ function showUnmappedBarcode(code) {
 
 // ── TABS ──────────────────────────────────────────
 function switchTab(name) {
-  ['scan','cabinets','barcodes','log','export'].forEach(t => {
+  ['scan','cabinets','items','barcodes','log','export'].forEach(t => {
     document.getElementById('tab-'+t).classList.toggle('active', t===name);
     document.getElementById('tab-'+t+'-btn').classList.toggle('active', t===name);
   });
@@ -846,6 +925,7 @@ function switchTab(name) {
   if (name==='log') renderLog();
   if (name==='barcodes') { renderBarcodeMap(); syncFeedbackToggles(); }
   if (name==='cabinets') renderCabinets();
+  if (name==='items') renderItems();
   if (name==='scan') PROGRESS.refresh();
   if (name!=='scan' && camActive) stopCamera();
 }
@@ -1585,6 +1665,100 @@ function addMapRow() {
 //   movedAt, movedBy, prevLoc   — last move (optional)
 //   pulledAt, pulledBy          — set when pulled for fulfillment
 
+// ── SAVED ZONES ──────────────────────────────────────────────────────────────
+// Named locations that workers can quickly tap as a destination instead of
+// typing every time. Common semi-permanent zones: BUMPER, RECEIVING, QC,
+// STAGING. Stored locally per-device but propagated through normal sync since
+// they live in cabinet location strings naturally.
+//
+// Each zone is just a string. Display order matches the array order so
+// frequently-used zones can be re-ordered.
+
+const DEFAULT_ZONES = ['BUMPER', 'RECEIVING', 'QC', 'STAGING'];
+
+let savedZones;
+try {
+  const saved = localStorage.getItem('mbd_zones');
+  savedZones = saved ? JSON.parse(saved) : DEFAULT_ZONES.slice();
+} catch(e) { savedZones = DEFAULT_ZONES.slice(); }
+
+function saveZones() {
+  try { localStorage.setItem('mbd_zones', JSON.stringify(savedZones)); } catch(e) {}
+}
+
+// Renders a row of zone chips that fill the given input element on tap.
+// Includes a small ⚙ button to open the manage-zones modal.
+function zoneChipsHtml(targetInputId) {
+  if (!savedZones.length) return '';
+  const chips = savedZones.map(z =>
+    '<button type="button" onclick="document.getElementById(\''+targetInputId+'\').value=\''+esc(z)+'\';document.getElementById(\''+targetInputId+'\').dispatchEvent(new Event(\'input\'));" '
+    + 'style="padding:7px 12px;background:#EAF0FB;color:#003087;border:1.5px solid #003087;border-radius:999px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    + esc(z) + '</button>'
+  ).join('');
+  const manage = '<button type="button" onclick="manageZones()" '
+    + 'style="padding:7px 10px;background:#fff;color:#666;border:1.5px solid #ccc;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer" title="Manage saved zones">⚙</button>';
+  return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">' + chips + manage + '</div>';
+}
+
+function manageZones() {
+  const list = savedZones.map((z, i) =>
+    '<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'
+    + '<input type="text" class="zone-input" data-idx="'+i+'" value="'+esc(z)+'" '
+    +   'autocomplete="off" autocapitalize="characters" '
+    +   'style="flex:1;padding:10px;font-size:14px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none;font-family:monospace">'
+    + '<button type="button" onclick="this.parentNode.remove()" '
+    +   'style="background:none;border:none;color:#8B0000;font-size:18px;cursor:pointer;padding:0 6px">×</button>'
+    + '</div>'
+  ).join('');
+
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">'
+    + 'Named zones appear as quick-pick chips above location fields throughout the app. Use them for semi-permanent areas like BUMPER, RECEIVING, QC, or STAGING.'
+    + '</div>'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Your zones</div>'
+    + '<div id="zoneList">' + list + '</div>'
+    + '<button type="button" onclick="addZoneRow()" '
+    +   'style="width:100%;padding:10px;background:#fff;color:#003087;border:1.5px dashed #003087;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:14px">+ Add zone</button>'
+    + '<button onclick="saveZonesFromModal()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">Save</button>'
+    + '<button onclick="resetZones()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer">↺ Reset to default zones</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+  openCabModal('⚙ Manage Saved Zones', body);
+}
+
+function addZoneRow() {
+  const wrap = document.getElementById('zoneList');
+  if (!wrap) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+  div.innerHTML = '<input type="text" class="zone-input" value="" placeholder="e.g. BUMPER" '
+    + 'autocomplete="off" autocapitalize="characters" '
+    + 'style="flex:1;padding:10px;font-size:14px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none;font-family:monospace">'
+    + '<button type="button" onclick="this.parentNode.remove()" '
+    + 'style="background:none;border:none;color:#8B0000;font-size:18px;cursor:pointer;padding:0 6px">×</button>';
+  wrap.appendChild(div);
+  div.querySelector('input').focus();
+}
+
+function saveZonesFromModal() {
+  const inputs = document.querySelectorAll('#zoneList .zone-input');
+  const newZones = [];
+  inputs.forEach(inp => {
+    const v = inp.value.trim();
+    if (v && !newZones.includes(v)) newZones.push(v);
+  });
+  savedZones = newZones;
+  saveZones();
+  closeCabModal();
+  showToast('✓ Zones saved');
+}
+
+function resetZones() {
+  savedZones = DEFAULT_ZONES.slice();
+  saveZones();
+  // Re-open the modal with reset values
+  manageZones();
+}
+
 let cabinets = [];
 try {
   const saved = localStorage.getItem('mbd_cabinets');
@@ -1742,6 +1916,7 @@ function renderCabinets() {
   syncShowPulledToggle();
   refreshSyncStatus();
   renderRecentSearches();
+  renderActiveSessionBadge();
   const empty = document.getElementById('cabEmpty');
   const count = document.getElementById('cabCount');
   const recent = document.getElementById('cabRecent');
@@ -1770,7 +1945,547 @@ function renderCabinets() {
   else { const r=document.getElementById('cabResult'); if(r) r.innerHTML=''; }
 }
 
-// ── WAREHOUSE LAYOUT MAP ─────────────────────────────────────────────────────
+// ── ITEM MASTER (WMS-lite Step 1) ────────────────────────────────────────────
+// SKU master list with stock-by-location. Each item has:
+//   sku        — unique code (e.g. "HW-HINGE-35MM")
+//   name       — display name (e.g. "Blum 35mm Hinge")
+//   category   — Frame / Hardware / Packaging / Other
+//   locations  — [{ code, qty }, ...] — stock by physical location
+//   reorderPoint, reorderQty — restock thresholds (optional)
+//   vendor     — supplier name (optional)
+//   notes      — free text (optional)
+//   uuid, addedAt, addedBy, updatedAt — audit/sync fields
+//
+// Total on-hand = sum of locations[i].qty
+// Stored in localStorage under 'mbd_items'. Cloud sync added in a later step.
+
+let items = [];
+try {
+  const saved = localStorage.getItem('mbd_items');
+  if (saved) items = JSON.parse(saved);
+} catch(e) { items = []; }
+
+let itemCategoryFilter = 'all';
+
+function saveItems() {
+  try { localStorage.setItem('mbd_items', JSON.stringify(items)); } catch(e) {}
+}
+
+function itemTotalQty(item) {
+  if (!item.locations || !item.locations.length) return 0;
+  return item.locations.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0);
+}
+
+function findItems(query, category) {
+  const q = String(query || '').toUpperCase().trim();
+  let pool = items.filter(i => !i.deleted);
+  if (category && category !== 'all') {
+    pool = pool.filter(i => (i.category || 'Other') === category);
+  }
+  if (!q) return pool.slice(0, 50);
+  // Exact SKU match first
+  const exact = pool.filter(i => String(i.sku||'').toUpperCase() === q);
+  if (exact.length) return exact;
+  // Starts-with on SKU
+  const startsWith = pool.filter(i => String(i.sku||'').toUpperCase().startsWith(q));
+  // Substring on SKU or name
+  const contains = pool.filter(i =>
+    !String(i.sku||'').toUpperCase().startsWith(q) && (
+      String(i.sku||'').toUpperCase().includes(q) ||
+      String(i.name||'').toUpperCase().includes(q)
+    )
+  );
+  return [...startsWith, ...contains].slice(0, 50);
+}
+
+function findItemByUuid(uuid) {
+  return items.find(i => i.uuid === uuid);
+}
+function findItemBySku(sku) {
+  return items.find(i => !i.deleted && String(i.sku||'').toUpperCase() === String(sku||'').toUpperCase());
+}
+
+function renderItems() {
+  const empty = document.getElementById('itemEmpty');
+  const count = document.getElementById('itemCount');
+  const list  = document.getElementById('itemList');
+  if (!list) return;
+
+  const activeItems = items.filter(i => !i.deleted);
+
+  if (!activeItems.length) {
+    if (empty) empty.style.display = 'block';
+    if (count) count.textContent = '';
+    if (list)  list.innerHTML = '';
+    renderItemResult('');
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  if (count) count.textContent = activeItems.length + ' item' + (activeItems.length!==1?'s':'') + ' tracked';
+
+  // Render the search result OR the full list (if no search query)
+  const inp = document.getElementById('itemSearchInput');
+  const q = inp ? inp.value : '';
+  if (q && q.trim()) {
+    renderItemResult(q);
+    list.innerHTML = '';
+  } else {
+    renderItemResult('');
+    // Show full list filtered by category
+    const filtered = findItems('', itemCategoryFilter);
+    list.innerHTML = filtered.length
+      ? filtered.map(itemRowHtml).join('')
+      : '<div style="text-align:center;color:#888;font-size:13px;padding:20px">No items in this category.</div>';
+  }
+}
+
+function itemRowHtml(item) {
+  const total = itemTotalQty(item);
+  const lowStock = item.reorderPoint && total <= item.reorderPoint;
+  const totalColor = lowStock ? '#8B0000' : '#003087';
+  const totalBg    = lowStock ? '#FDECEA' : '#EAF0FB';
+  const locCount = (item.locations || []).filter(l => parseFloat(l.qty) > 0).length;
+  return '<div onclick="openItemDetail(\''+item.uuid+'\')" '
+    + 'style="background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;padding:12px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer">'
+    + '<div style="min-width:0;flex:1">'
+    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666">'+esc(item.category||'Other')+(lowStock?' <span style="color:#8B0000">· LOW</span>':'')+'</div>'
+    +   '<div style="font-size:15px;font-weight:800;color:#1a1a1a;margin-top:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+esc(item.sku||'—')+'</div>'
+    +   (item.name ? '<div style="font-size:12px;color:#666;margin-top:1px">'+esc(item.name)+'</div>' : '')
+    +   '<div style="font-size:11px;color:#888;margin-top:2px">'+locCount+' location'+(locCount!==1?'s':'')+'</div>'
+    + '</div>'
+    + '<div style="text-align:right;flex-shrink:0">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:'+totalColor+';background:'+totalBg+';padding:4px 12px;border-radius:8px;line-height:1.1">'+fmt(total)+'</div>'
+    +   (item.reorderPoint ? '<div style="font-size:10px;color:#888;margin-top:2px">reorder @ '+fmt(item.reorderPoint)+'</div>' : '')
+    + '</div>'
+    + '</div>';
+}
+
+function renderItemResult(query) {
+  const el = document.getElementById('itemResult');
+  if (!el) return;
+  if (!query.trim()) { el.innerHTML = ''; return; }
+  if (!items.filter(i => !i.deleted).length) {
+    el.innerHTML = '';
+    return;
+  }
+  const hits = findItems(query, itemCategoryFilter);
+  if (!hits.length) {
+    el.innerHTML = '<div style="background:#FDECEA;border:2px solid #8B0000;border-radius:14px;padding:20px;text-align:center">'
+      + '<div style="font-size:36px;margin-bottom:6px">❌</div>'
+      + '<div style="font-size:18px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.5px">No match</div>'
+      + '<div style="font-size:13px;color:#666;margin-top:6px">Nothing found for "'+esc(query)+'".</div>'
+      + '<button onclick="openAddItem(\''+esc(query)+'\')" style="margin-top:12px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:800;text-transform:uppercase;cursor:pointer">+ Add as new item</button>'
+      + '</div>';
+    return;
+  }
+  if (hits.length === 1) {
+    el.innerHTML = itemDetailHtml(hits[0]);
+  } else {
+    el.innerHTML = '<div style="font-size:13px;font-weight:600;color:#666;margin-bottom:8px">'+hits.length+' matches:</div>'
+      + hits.map(itemRowHtml).join('');
+  }
+}
+
+function itemDetailHtml(item) {
+  const total = itemTotalQty(item);
+  const lowStock = item.reorderPoint && total <= item.reorderPoint;
+  const headerColor = lowStock
+    ? 'linear-gradient(135deg,#8B0000,#C42121)'
+    : 'linear-gradient(135deg,#003087,#1a4ba0)';
+  const locs = (item.locations || []);
+  const locsHtml = locs.length
+    ? locs.map(l =>
+        '<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:6px">'
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:700;color:#003087">📍 '+esc(l.code||'—')+'</div>'
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a">'+fmt(parseFloat(l.qty)||0)+'</div>'
+        + '</div>'
+      ).join('')
+    : '<div style="text-align:center;color:#888;font-size:12px;padding:14px;background:#f5f5f5;border-radius:8px">No locations yet.</div>';
+
+  return '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,48,135,.25);margin-bottom:10px">'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">'+esc(item.category||'Other')+'</div>'
+    + '<div style="font-size:24px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+esc(item.sku||'—')+'</div>'
+    + (item.name ? '<div style="font-size:14px;opacity:.9;margin-top:2px">'+esc(item.name)+'</div>' : '')
+    + (lowStock ? '<div style="display:inline-block;background:#fff;color:#8B0000;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:8px">⚠ Below reorder point</div>' : '')
+    + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Total On Hand</div>'
+    + '<div style="font-size:48px;font-weight:900;line-height:1.1;margin:6px 0;letter-spacing:1px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+fmt(total)+'</div>'
+    + (item.vendor ? '<div style="font-size:12px;opacity:.75;margin-top:6px">Vendor: '+esc(item.vendor)+'</div>' : '')
+    + '</div>'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin:14px 0 6px">Stock by Location</div>'
+    + locsHtml
+    + '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
+    + '<button onclick="openItemEdit(\''+item.uuid+'\')" style="flex:1;min-width:120px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#003087;color:#fff;border:none;border-radius:10px;cursor:pointer">✏ Edit</button>'
+    + '</div>';
+}
+
+function openItemDetail(uuid) {
+  const item = findItemByUuid(uuid);
+  if (!item) return;
+  const inp = document.getElementById('itemSearchInput');
+  if (inp) {
+    inp.value = item.sku;
+    renderItemResult(inp.value);
+    document.getElementById('itemList').innerHTML = '';
+  }
+}
+
+function filterItemCategory(cat) {
+  itemCategoryFilter = cat;
+  document.querySelectorAll('#itemCategoryChips .cat-chip').forEach(b => {
+    b.classList.toggle('active', b.dataset.cat === cat);
+  });
+  renderItems();
+}
+
+function toggleItemAdmin() {
+  const body = document.getElementById('itemAdminBody');
+  const caret = document.getElementById('itemAdminCaret');
+  const open = body.style.display === 'block';
+  body.style.display = open ? 'none' : 'block';
+  if (caret) caret.textContent = open ? '▶' : '▼';
+}
+
+// ── ADD / EDIT ITEM ──────────────────────────────────────────────────────────
+function openAddItem(prefilledSku) {
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">Add a new SKU to track. You can add stock locations now or later.</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">SKU *</label>'
+    + '<input type="text" id="addItemSku" placeholder="e.g. HW-HINGE-35MM" autocomplete="off" autocapitalize="characters" value="'+esc(prefilledSku||'')+'" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:12px;-webkit-appearance:none;font-family:monospace">'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Display Name</label>'
+    + '<input type="text" id="addItemName" placeholder="e.g. Blum 35mm Cabinet Hinge" autocomplete="off" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:12px;-webkit-appearance:none">'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Category</label>'
+    + '<select id="addItemCategory" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:12px;-webkit-appearance:none;background:#fff">'
+    +   '<option value="Frame">Frame</option>'
+    +   '<option value="Hardware">Hardware</option>'
+    +   '<option value="Packaging">Packaging</option>'
+    +   '<option value="Other" selected>Other</option>'
+    + '</select>'
+
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Reorder Point</label>'
+    +     '<input type="number" id="addItemReorderPoint" placeholder="e.g. 50" min="0" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '</div>'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Reorder Qty</label>'
+    +     '<input type="number" id="addItemReorderQty" placeholder="e.g. 200" min="0" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '</div>'
+    + '</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Vendor</label>'
+    + '<input type="text" id="addItemVendor" placeholder="e.g. Blum Hardware NA" autocomplete="off" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
+
+    + '<button onclick="confirmAddItem()" style="width:100%;padding:14px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">+ Save Item</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+  openCabModal('+ Add Item', body);
+  setTimeout(() => document.getElementById('addItemSku')?.focus(), 100);
+}
+
+function confirmAddItem() {
+  const sku  = document.getElementById('addItemSku').value.trim();
+  const name = document.getElementById('addItemName').value.trim();
+  const cat  = document.getElementById('addItemCategory').value;
+  const rp   = parseFloat(document.getElementById('addItemReorderPoint').value) || 0;
+  const rq   = parseFloat(document.getElementById('addItemReorderQty').value) || 0;
+  const vendor = document.getElementById('addItemVendor').value.trim();
+  if (!sku) { showToast('⚠ SKU required'); return; }
+  if (findItemBySku(sku)) {
+    showToast('⚠ SKU already exists');
+    return;
+  }
+  const ts = nowStamp();
+  items.push({
+    uuid: makeUuid(),
+    sku, name, category: cat,
+    reorderPoint: rp, reorderQty: rq,
+    vendor,
+    locations: [],
+    addedAt: ts, updatedAt: ts,
+  });
+  saveItems();
+  closeCabModal();
+  FB.success();
+  spawnScorePop('+1', '#1A5C1A');
+  showToast('✓ Item added');
+  const inp = document.getElementById('itemSearchInput');
+  if (inp) { inp.value = sku; renderItemResult(sku); }
+  renderItems();
+}
+
+function openItemEdit(uuid) {
+  const item = findItemByUuid(uuid);
+  if (!item) return;
+  const locsHtml = (item.locations || []).map((l, i) =>
+    '<div data-idx="'+i+'" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'
+    +   '<input type="text" class="loc-code" value="'+esc(l.code||'')+'" placeholder="Location code" style="flex:1.5;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '<input type="number" class="loc-qty" value="'+(l.qty||0)+'" placeholder="Qty" min="0" style="width:80px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '<button type="button" onclick="this.parentNode.remove()" style="background:none;border:none;color:#8B0000;font-size:18px;cursor:pointer;padding:0 6px">×</button>'
+    + '</div>'
+  ).join('');
+
+  const body =
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Editing</div>'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:#1a1a1a;margin-bottom:14px">'+esc(item.sku)+(item.name?' · '+esc(item.name):'')+'</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Display Name</label>'
+    + '<input type="text" id="editItemName" value="'+esc(item.name||'')+'" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:12px;-webkit-appearance:none">'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Category</label>'
+    + '<select id="editItemCategory" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:12px;-webkit-appearance:none;background:#fff">'
+    +   ['Frame','Hardware','Packaging','Other'].map(c =>
+        '<option value="'+c+'"'+(item.category===c?' selected':'')+'>'+c+'</option>').join('')
+    + '</select>'
+
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Reorder Point</label>'
+    +     '<input type="number" id="editItemReorderPoint" value="'+(item.reorderPoint||0)+'" min="0" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '</div>'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Reorder Qty</label>'
+    +     '<input type="number" id="editItemReorderQty" value="'+(item.reorderQty||0)+'" min="0" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '</div>'
+    + '</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Vendor</label>'
+    + '<input type="text" id="editItemVendor" value="'+esc(item.vendor||'')+'" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
+
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Stock by Location</div>'
+    + '<div id="editItemLocations">' + locsHtml + '</div>'
+    + '<button type="button" onclick="addLocationRow()" style="width:100%;padding:10px;background:#fff;color:#003087;border:1.5px dashed #003087;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:14px">+ Add location</button>'
+
+    + '<button onclick="confirmEditItem(\''+item.uuid+'\')" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">Save Changes</button>'
+    + '<button onclick="confirmDeleteItem(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#8B0000;border:1.5px solid #8B0000;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">🗑 Delete Item</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+  openCabModal('✏ Edit Item', body);
+}
+
+function addLocationRow() {
+  const wrap = document.getElementById('editItemLocations');
+  if (!wrap) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+  div.innerHTML = '<input type="text" class="loc-code" placeholder="Location code (e.g. 007.005 or PICK-A12)" style="flex:1.5;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    + '<input type="number" class="loc-qty" value="0" placeholder="Qty" min="0" style="width:80px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    + '<button type="button" onclick="this.parentNode.remove()" style="background:none;border:none;color:#8B0000;font-size:18px;cursor:pointer;padding:0 6px">×</button>';
+  wrap.appendChild(div);
+  div.querySelector('.loc-code').focus();
+}
+
+function confirmEditItem(uuid) {
+  const item = findItemByUuid(uuid);
+  if (!item) return;
+  item.name = document.getElementById('editItemName').value.trim();
+  item.category = document.getElementById('editItemCategory').value;
+  item.reorderPoint = parseFloat(document.getElementById('editItemReorderPoint').value) || 0;
+  item.reorderQty = parseFloat(document.getElementById('editItemReorderQty').value) || 0;
+  item.vendor = document.getElementById('editItemVendor').value.trim();
+  // Read locations from the dynamic rows
+  const rows = document.querySelectorAll('#editItemLocations > div');
+  const newLocations = [];
+  rows.forEach(r => {
+    const code = r.querySelector('.loc-code').value.trim();
+    const qty = parseFloat(r.querySelector('.loc-qty').value) || 0;
+    if (code) newLocations.push({ code, qty });
+  });
+  item.locations = newLocations;
+  item.updatedAt = nowStamp();
+  saveItems();
+  closeCabModal();
+  FB.success();
+  showToast('✓ Saved');
+  renderItems();
+  // Refresh search result
+  const inp = document.getElementById('itemSearchInput');
+  if (inp && inp.value) renderItemResult(inp.value);
+}
+
+function confirmDeleteItem(uuid) {
+  const item = findItemByUuid(uuid);
+  if (!item) return;
+  if (!confirm('Delete '+item.sku+' permanently? This cannot be undone.')) return;
+  item.deleted = true;
+  item.updatedAt = nowStamp();
+  saveItems();
+  closeCabModal();
+  showToast('✓ Deleted');
+  const inp = document.getElementById('itemSearchInput');
+  if (inp) inp.value = '';
+  renderItems();
+}
+
+// ── IMPORT / EXPORT / SEED / CLEAR ───────────────────────────────────────────
+async function importItemsFile(file) {
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    let rows;
+    if (file.name.toLowerCase().endsWith('.csv')) {
+      const text = new TextDecoder().decode(buf);
+      rows = parseCsv(text);
+    } else {
+      const wb = XLSX.read(buf, { type: 'array', cellText: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    }
+    if (!rows || !rows.length) { showToast('Spreadsheet is empty'); return; }
+    const header = rows[0].map(h => String(h||'').toLowerCase().trim());
+    const skuIdx      = header.findIndex(h => h.includes('sku') || h === 'code' || h === 'item');
+    const nameIdx     = header.findIndex(h => h.includes('name') || h.includes('description'));
+    const categoryIdx = header.findIndex(h => h.includes('cat'));
+    const locsIdx     = header.findIndex(h => h.includes('location') || h === 'loc');
+    const qtyIdx      = header.findIndex(h => h.includes('qty') || h.includes('quantity') || h.includes('on hand'));
+    const reorderIdx  = header.findIndex(h => h.includes('reorder point') || h.includes('reorder pt') || h === 'min');
+    const vendorIdx   = header.findIndex(h => h.includes('vendor') || h.includes('supplier'));
+    if (skuIdx === -1) { showToast('⚠ Need a SKU column'); return; }
+
+    const newItems = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.length) continue;
+      const sku = String(r[skuIdx]||'').trim();
+      if (!sku) continue;
+      const name = nameIdx >= 0 ? String(r[nameIdx]||'').trim() : '';
+      const cat = categoryIdx >= 0 ? String(r[categoryIdx]||'Other').trim() : 'Other';
+      const loc = locsIdx >= 0 ? String(r[locsIdx]||'').trim() : '';
+      const qty = qtyIdx >= 0 ? (parseFloat(r[qtyIdx]) || 0) : 0;
+      const reorder = reorderIdx >= 0 ? (parseFloat(r[reorderIdx]) || 0) : 0;
+      const vendor = vendorIdx >= 0 ? String(r[vendorIdx]||'').trim() : '';
+      const ts = nowStamp();
+      newItems.push({
+        uuid: makeUuid(),
+        sku, name, category: cat,
+        reorderPoint: reorder, reorderQty: 0,
+        vendor,
+        locations: loc ? [{ code: loc, qty }] : (qty ? [{ code: '', qty }] : []),
+        addedAt: ts, updatedAt: ts,
+      });
+    }
+    if (!newItems.length) { showToast('No valid rows'); return; }
+    items = newItems;
+    saveItems();
+    renderItems();
+    showToast('✓ Loaded ' + newItems.length + ' item' + (newItems.length!==1?'s':''));
+  } catch(err) {
+    showToast('Import failed: ' + err.message);
+    console.error(err);
+  }
+}
+
+function exportItems() {
+  const active = items.filter(i => !i.deleted);
+  if (!active.length) { showToast('No items to export'); return; }
+  try {
+    const wb = XLSX.utils.book_new();
+    const data = [['SKU','Name','Category','Total On Hand','Locations','Reorder Point','Reorder Qty','Vendor','Added','Updated']];
+    active.forEach(item => {
+      const total = itemTotalQty(item);
+      const locs = (item.locations || []).map(l => (l.code||'?')+':'+fmt(parseFloat(l.qty)||0)).join(' | ');
+      data.push([
+        item.sku||'', item.name||'', item.category||'',
+        total, locs,
+        item.reorderPoint||'', item.reorderQty||'',
+        item.vendor||'',
+        item.addedAt||'', item.updatedAt||''
+      ]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    // Force SKU column to text format
+    for (let r = 2; r <= data.length; r++) {
+      ['A','E'].forEach(col => {
+        const ref = col + r;
+        if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(ws[ref].v); ws[ref].z = '@'; }
+      });
+    }
+    ws['!cols'] = [{wch:22},{wch:30},{wch:12},{wch:14},{wch:36},{wch:14},{wch:12},{wch:20},{wch:18},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Items');
+    XLSX.writeFile(wb, 'MBD_Items_' + new Date().toISOString().slice(0,10) + '.xlsx');
+    showToast('Downloaded!');
+  } catch(e) { showToast('Export error: ' + e.message); }
+}
+
+function clearItems() {
+  const active = items.filter(i => !i.deleted);
+  if (!active.length) { showToast('Already empty'); return; }
+  if (!confirm('Clear all '+active.length+' items? This cannot be undone (no cloud sync yet).')) return;
+  items = [];
+  saveItems();
+  renderItems();
+  showToast('Cleared');
+}
+
+function seedStarterItems() {
+  if (items.filter(i => !i.deleted).length) {
+    if (!confirm('Adding starter items to your existing list. Duplicates by SKU will be skipped. Continue?')) return;
+  }
+  const ts = nowStamp();
+  const seeds = [
+    // Frame
+    { sku:'FRM-Q-BLUM',  name:'Queen Frame (Blum)',  category:'Frame' },
+    { sku:'FRM-K-BLUM',  name:'King Frame (Blum)',   category:'Frame' },
+    { sku:'FRM-T-BLUM',  name:'Twin Frame (Blum)',   category:'Frame' },
+    { sku:'CAB-Q-SIDE-L',name:'Queen Cabinet Side Left', category:'Frame' },
+    { sku:'CAB-Q-SIDE-R',name:'Queen Cabinet Side Right',category:'Frame' },
+    // Hardware
+    { sku:'HW-PACK-STD', name:'Standard Hardware Pack', category:'Hardware', vendor:'Blum Hardware NA' },
+    { sku:'HW-HINGE-35MM',name:'35mm Cabinet Hinge', category:'Hardware', vendor:'Blum Hardware NA' },
+    // Packaging
+    { sku:'PKG-BOX-Q', name:'Queen Shipping Box', category:'Packaging' },
+    { sku:'PKG-BOX-K', name:'King Shipping Box',  category:'Packaging' },
+    { sku:'PKG-FOAM-Q',name:'Queen Foam Insert',  category:'Packaging', vendor:'General Foam Plastics' },
+    // Documentation
+    { sku:'DOC-INSTL-Q',name:'Queen Installation Instructions', category:'Other' },
+  ];
+  let added = 0;
+  seeds.forEach(s => {
+    if (findItemBySku(s.sku)) return;
+    items.push({
+      uuid: makeUuid(),
+      sku: s.sku, name: s.name, category: s.category,
+      reorderPoint: 0, reorderQty: 0,
+      vendor: s.vendor || '',
+      locations: [],
+      addedAt: ts, updatedAt: ts,
+    });
+    added++;
+  });
+  saveItems();
+  renderItems();
+  showToast('✓ Added ' + added + ' starter item' + (added!==1?'s':''));
+}
+
+// Wire up search input + file input + initial render
+(function initItemsTab() {
+  const wire = () => {
+    const inp = document.getElementById('itemSearchInput');
+    if (inp && !inp._wired) {
+      inp._wired = true;
+      let timer = null;
+      inp.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => renderItems(), 80);
+      });
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { renderItems(); setTimeout(() => inp.select(), 50); }
+      });
+    }
+    const fileInp = document.getElementById('itemImportInput');
+    if (fileInp && !fileInp._wired) {
+      fileInp._wired = true;
+      fileInp.addEventListener('change', function() {
+        if (this.files[0]) importItemsFile(this.files[0]);
+        this.value = '';
+      });
+    }
+  };
+  if (document.readyState !== 'loading') wire();
+  else document.addEventListener('DOMContentLoaded', wire);
+})();
+
+
 // Renders a small SVG floor-plan of MBD's warehouse with the current cabinet's
 // bay highlighted. Layout is proportional to actual dimensions:
 // 150' wide × 167' deep with an office cutout.
@@ -2547,6 +3262,7 @@ function openAddCabinet() {
     + '<div style="font-size:11px;color:#888;margin-bottom:12px">Tip: For made-to-order use the order number. For stock cabinets use the lot number. Separators allowed: comma, space, or one per line.</div>'
 
     + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Location *</label>'
+    + zoneChipsHtml('addCabLocation')
     + '<input type="text" id="addCabLocation" placeholder="Type or scan a location label" autocomplete="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
 
     + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Added by</label>'
@@ -2771,6 +3487,7 @@ function openMoveCabinet(id) {
     +   '<div style="margin-top:4px">Currently at: <strong>📍 '+esc(c.location||'?')+'</strong></div>'
     + '</div>'
     + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">New Location *</label>'
+    + zoneChipsHtml('moveCabLocation')
     + '<input type="text" id="moveCabLocation" placeholder="Type or scan new location" autocomplete="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
     + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Moved by</label>'
     + personPickerHtml('moveCabPerson')
@@ -2796,6 +3513,863 @@ function confirmMoveCabinet(id) {
   showToast('✓ Moved to ' + newLoc);
   renderCabResult(document.getElementById('cabSearchInput').value);
   renderCabinets();
+}
+
+// ── BULK MOVE ────────────────────────────────────────────────────────────────
+// Scan or type multiple cabinet numbers into a "cart", then assign all of
+// them to a single new location at once. Use case: physically grabbing a
+// stack of cabinets and reassigning them (e.g. moving to a bumper/QC zone).
+
+let bulkMoveCart = []; // array of cabinet numbers (raw strings as scanned/typed)
+
+function openBulkMove() {
+  bulkMoveCart = [];
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">'
+    + 'Scan or type cabinet numbers to add them to your cart, then choose a destination location. All cabinets in the cart will be moved at once with the same person and timestamp.'
+    + '</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Add to Cart (scan or type) *</label>'
+    + '<input type="text" id="bulkMoveInput" placeholder="Scan cabinet barcode or type # + Enter" autocomplete="off" autocorrect="off" autocapitalize="characters" style="width:100%;padding:14px;font-size:16px;font-weight:600;border:2px solid #FF9100;border-radius:8px;outline:none;margin-bottom:6px;-webkit-appearance:none">'
+    + '<div style="font-size:11px;color:#888;margin-bottom:14px">Each entry adds one cabinet to the cart. Wrist scanner trigger works the same as Enter key.</div>'
+
+    + '<div id="bulkMoveCartHeader" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666">Cart</div>'
+    +   '<div id="bulkMoveCartCount" style="font-size:11px;font-weight:700;color:#003087"></div>'
+    + '</div>'
+    + '<div id="bulkMoveCartList" style="background:#f5f5f5;border-radius:8px;padding:6px;min-height:60px;max-height:240px;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px"></div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Destination Location *</label>'
+    + zoneChipsHtml('bulkMoveLocation')
+    + '<input type="text" id="bulkMoveLocation" placeholder="Type or scan destination" autocomplete="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Moved by</label>'
+    + personPickerHtml('bulkMovePerson')
+
+    + '<button id="bulkMoveSubmitBtn" onclick="confirmBulkMove()" style="width:100%;margin-top:16px;padding:14px;background:#FF9100;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">↪ Move All Cabinets</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+
+  openCabModal('↪ Bulk Move Cabinets', body);
+
+  setTimeout(() => {
+    const inp = document.getElementById('bulkMoveInput');
+    if (inp) {
+      inp.focus();
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addToBulkMoveCart(inp.value.trim());
+          inp.value = '';
+          inp.focus();
+        }
+      });
+    }
+    renderBulkMoveCart();
+  }, 100);
+}
+
+function addToBulkMoveCart(raw) {
+  if (!raw) return;
+  // Allow comma/space-separated entry as a fallback for typing multiple at once
+  const numbers = raw.split(/[,;\n\r\t]+|\s{2,}/).map(s => s.trim()).filter(Boolean);
+  let added = 0, skipped = 0;
+  numbers.forEach(num => {
+    // De-dupe within the cart
+    if (bulkMoveCart.some(n => normCab(n) === normCab(num))) {
+      skipped++;
+      return;
+    }
+    bulkMoveCart.push(num);
+    added++;
+  });
+  if (added) {
+    FB.scan();
+    if (FB.visuals) spawnScorePop('+' + added, '#FF9100');
+  }
+  if (skipped && !added) {
+    FB.error();
+    showToast('⚠ Already in cart');
+  }
+  renderBulkMoveCart();
+}
+
+function removeFromBulkMoveCart(idx) {
+  bulkMoveCart.splice(idx, 1);
+  renderBulkMoveCart();
+}
+
+function renderBulkMoveCart() {
+  const list = document.getElementById('bulkMoveCartList');
+  const count = document.getElementById('bulkMoveCartCount');
+  const submit = document.getElementById('bulkMoveSubmitBtn');
+  if (!list) return;
+
+  if (count) count.textContent = bulkMoveCart.length + ' cabinet' + (bulkMoveCart.length !== 1 ? 's' : '');
+
+  if (!bulkMoveCart.length) {
+    list.innerHTML = '<div style="text-align:center;color:#888;font-size:12px;padding:18px">Cart is empty. Scan or type a cabinet # to add.</div>';
+    if (submit) {
+      submit.disabled = true;
+      submit.style.opacity = '.5';
+      submit.style.cursor = 'not-allowed';
+    }
+    return;
+  }
+  if (submit) {
+    submit.disabled = false;
+    submit.style.opacity = '1';
+    submit.style.cursor = 'pointer';
+  }
+
+  // For each cabinet show its number + current location (if found in store)
+  list.innerHTML = bulkMoveCart.map((num, idx) => {
+    const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === normCab(num));
+    let info, infoColor;
+    if (!existing) {
+      info = '⚠ Not in system';
+      infoColor = '#8B0000';
+    } else if (existing.pulledAt) {
+      info = 'PULLED · was at ' + (existing.location || '?');
+      infoColor = '#8B0000';
+    } else {
+      info = '📍 ' + (existing.location || '?');
+      infoColor = '#003087';
+    }
+    return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:8px 10px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+      + '<div style="min-width:0;flex:1">'
+      +   '<div style="font-size:14px;font-weight:800;color:#1a1a1a;font-family:\'Barlow Condensed\',Arial,sans-serif">' + esc(num) + '</div>'
+      +   '<div style="font-size:11px;color:'+infoColor+';font-weight:600;margin-top:1px">' + info + '</div>'
+      + '</div>'
+      + '<button type="button" onclick="removeFromBulkMoveCart(' + idx + ')" '
+      +   'style="background:none;border:none;color:#8B0000;font-size:20px;cursor:pointer;padding:0 6px;flex-shrink:0">×</button>'
+      + '</div>';
+  }).join('');
+}
+
+function confirmBulkMove() {
+  if (!bulkMoveCart.length) { showToast('⚠ Cart is empty'); return; }
+  const newLoc = document.getElementById('bulkMoveLocation').value.trim();
+  const person = document.getElementById('bulkMovePerson').value.trim();
+  if (!newLoc) { showToast('⚠ Enter destination'); return; }
+
+  const ts = nowStamp();
+  let movedCount = 0, addedCount = 0, alreadyThere = 0;
+
+  bulkMoveCart.forEach(num => {
+    const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === normCab(num));
+    if (existing) {
+      // Already at destination? No-op
+      if (normCab(existing.location) === normCab(newLoc)) {
+        alreadyThere++;
+        return;
+      }
+      // Move the existing record
+      existing.prevLoc  = existing.location || '';
+      existing.location = newLoc;
+      existing.movedAt  = ts;
+      existing.movedBy  = person || '';
+      existing.updatedAt = ts;
+      // If pulled, clear the pull (cabinet is back in storage)
+      if (existing.pulledAt) {
+        delete existing.pulledAt;
+        delete existing.pulledBy;
+      }
+      movedCount++;
+    } else {
+      // Not in system — add as new at destination
+      cabinets.push({
+        uuid: makeUuid(),
+        cabinet: num,
+        location: newLoc,
+        addedAt: ts,
+        addedBy: person || '',
+        updatedAt: ts,
+      });
+      addedCount++;
+    }
+  });
+
+  saveCabinets();
+  closeCabModal();
+  FB.success();
+  if (FB.visuals) spawnScorePop('+' + (movedCount + addedCount), '#FF9100');
+
+  // Build a summary toast
+  const parts = [];
+  if (movedCount)    parts.push(movedCount + ' moved');
+  if (addedCount)    parts.push(addedCount + ' added');
+  if (alreadyThere)  parts.push(alreadyThere + ' already there');
+  showToast('✓ ' + parts.join(', ') + ' at ' + newLoc);
+
+  // Show the destination so user can verify
+  document.getElementById('cabSearchInput').value = newLoc;
+  renderCabResult(newLoc);
+  renderCabinets();
+  bulkMoveCart = [];
+}
+
+// ── RECEIVE SHIPMENT ─────────────────────────────────────────────────────────
+// Photograph (or upload) a list of cabinets coming off the truck.
+// Claude Vision API parses the list according to MBD's specific format:
+//   "DEPOT-31072 ALL QL0-X CA CC"        → "31072"  (made-to-order)
+//   "DEPOT-L 31090 HAT KPB L"            → "31090"
+//   "DEPOT-FPW4M D171"                   → "D171"   (stock)
+//   "DEPOT-QBZW00 C924 RMK 31219"        → "31219"  (remake)
+//   "DEPOT-Z-BUMPER BOARDS"              → skip
+// Then forklift driver receives each by tapping the row — defaults to
+// ── PERSISTENT RECEIVING SESSIONS ────────────────────────────────────────────
+// Sessions persist across truckloads: photo'd list creates a session, each
+// truckload checks off the cabinets that arrived. Session stays in
+// localStorage until manually completed or cancelled.
+//
+// Session shape:
+//   { id, name, createdAt, defaultLoc, person, cabinets: [{ num, received,
+//     location, receivedAt, receivedBy, addedManually }] }
+//
+// At most ONE active session at a time per device.
+
+let receiveSessions = [];
+try {
+  const saved = localStorage.getItem('mbd_receive_sessions');
+  if (saved) receiveSessions = JSON.parse(saved);
+} catch(e) { receiveSessions = []; }
+
+let activeSessionId = null;
+try { activeSessionId = localStorage.getItem('mbd_active_session') || null; } catch(e) {}
+
+function saveReceiveSessions() {
+  try { localStorage.setItem('mbd_receive_sessions', JSON.stringify(receiveSessions)); } catch(e) {}
+  try {
+    if (activeSessionId) localStorage.setItem('mbd_active_session', activeSessionId);
+    else localStorage.removeItem('mbd_active_session');
+  } catch(e) {}
+}
+
+function getActiveSession() {
+  if (!activeSessionId) return null;
+  return receiveSessions.find(s => s.id === activeSessionId) || null;
+}
+
+function sessionStats(session) {
+  const total = session.cabinets.length;
+  const done = session.cabinets.filter(c => c.received).length;
+  return { total, done, pct: total ? Math.round(done/total*100) : 0 };
+}
+
+function defaultShipmentName() {
+  const d = new Date();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()] + ' ' + d.getDate();
+}
+
+// Show a status banner above the Receive button if there's an active session.
+function renderActiveSessionBadge() {
+  const container = document.getElementById('receiveButtonContainer');
+  if (!container) return;
+  const session = getActiveSession();
+  // Find or create the badge element
+  let badge = document.getElementById('activeSessionBadge');
+  if (!session) {
+    if (badge) badge.remove();
+    return;
+  }
+  const stats = sessionStats(session);
+  const html = '<div style="background:linear-gradient(135deg,#FF9100,#FFA726);color:#fff;border-radius:10px;padding:10px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openReceiveShipment()">'
+    + '<div style="min-width:0;flex:1">'
+    +   '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.9">🚚 Active Shipment · tap to resume</div>'
+    +   '<div style="font-size:14px;font-weight:800;font-family:\'Barlow Condensed\',Arial,sans-serif;margin-top:2px">'+esc(session.name)+' · '+stats.done+' / '+stats.total+'</div>'
+    + '</div>'
+    + '<div style="font-size:18px">›</div>'
+    + '</div>';
+  if (badge) {
+    badge.outerHTML = html;
+    badge = document.getElementById('activeSessionBadge');
+  } else {
+    container.insertAdjacentHTML('afterbegin', html);
+  }
+  // Tag the new element so we can find it next time
+  const newBadge = container.firstElementChild;
+  if (newBadge) newBadge.id = 'activeSessionBadge';
+}
+
+function openReceiveShipment() {
+  // If there's already an active session, jump straight into it.
+  // User can cancel/complete from the session UI to start a new one.
+  const existing = getActiveSession();
+  if (existing) {
+    renderReceiveSession();
+    return;
+  }
+  showReceiveSetup();
+}
+
+function showReceiveSetup() {
+  const apiKey = localStorage.getItem('mbd_anthropic_key') || '';
+
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">'
+    + 'Pablo delivers a weekly shipment over multiple truckloads. Create a session for the week, then check off cabinets as each truck arrives.'
+    + '</div>'
+
+    + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Shipment Name *</label>'
+    + '<input type="text" id="receiveShipmentName" value="'+esc(defaultShipmentName())+'" placeholder="e.g. Apr 30" autocomplete="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:15px;font-weight:700;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none">'
+
+    + (apiKey ? '' :
+        '<div style="background:#FFF8E1;border:1.5px solid #FFC107;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#8B4000;line-height:1.5">'
+        + '<strong>⚠ Photo parsing needs a Claude API key</strong>'
+        + '<div style="margin-top:6px">Photo extraction uses the Anthropic Claude Vision API. You can paste a key below (one-time setup, saved on this device) or skip and use Paste Text instead.</div>'
+        + '<input type="password" id="receiveApiKey" placeholder="sk-ant-..." autocomplete="off" style="width:100%;margin-top:8px;padding:10px;font-size:12px;border:1.5px solid #ccc;border-radius:6px;outline:none;-webkit-appearance:none;font-family:monospace">'
+        + '<button onclick="saveReceiveApiKey()" style="width:100%;margin-top:6px;padding:9px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Save API Key</button>'
+        + '</div>')
+
+    + '<div style="display:grid;gap:8px;margin-bottom:14px">'
+    +   '<label class="map-io-btn import" style="text-align:center">'
+    +     '📷 Take or Upload Photo'
+    +     '<input type="file" accept="image/*" capture="environment" id="receivePhotoInput" style="display:none">'
+    +   '</label>'
+    +   '<button onclick="openReceivePasteText()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer">📝 Paste List Text Instead</button>'
+    + '</div>'
+
+    + '<button onclick="closeCabModal()" style="width:100%;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+
+  openCabModal('📥 Receive Shipment', body);
+
+  setTimeout(() => {
+    const fileInp = document.getElementById('receivePhotoInput');
+    if (fileInp) {
+      fileInp.addEventListener('change', function() {
+        if (this.files[0]) parseReceivePhoto(this.files[0]);
+      });
+    }
+  }, 50);
+}
+
+function saveReceiveApiKey() {
+  const inp = document.getElementById('receiveApiKey');
+  if (!inp) return;
+  const key = inp.value.trim();
+  if (!key.startsWith('sk-ant-')) {
+    showToast('⚠ Key should start with sk-ant-');
+    return;
+  }
+  try { localStorage.setItem('mbd_anthropic_key', key); } catch(e) {}
+  showToast('✓ API key saved');
+  // Reopen to refresh UI
+  openReceiveShipment();
+}
+
+function openReceivePasteText() {
+  const body =
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">'
+    + 'Paste the delivery list text below. The app will extract cabinet numbers using MBD\'s standard format.'
+    + '</div>'
+    + '<textarea id="receivePasteArea" rows="14" placeholder="DEPOT-31072 ALL QL0-X CA CC&#10;DEPOT-31076 SHAW QBZ-DRS-SDS-X VA CC&#10;DEPOT-FPW4M D171&#10;..." autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding:12px;font-size:12px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none;font-family:monospace;resize:vertical"></textarea>'
+    + '<button onclick="parseReceiveText()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">Parse List</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
+  openCabModal('📝 Paste Delivery List', body);
+  setTimeout(() => document.getElementById('receivePasteArea')?.focus(), 100);
+}
+
+function parseReceiveText() {
+  const text = document.getElementById('receivePasteArea').value;
+  if (!text.trim()) { showToast('⚠ Paste the list first'); return; }
+  const numbers = extractCabinetNumbersFromText(text);
+  if (!numbers.length) {
+    showToast('⚠ No cabinet numbers found. Check format?');
+    return;
+  }
+  startReceiveSession(numbers);
+}
+
+// Pure JS parser for Pablo's delivery list format. Used for paste-text path
+// and as a fallback if the photo OCR returns plain text.
+function extractCabinetNumbersFromText(text) {
+  const lines = text.split(/\r?\n/);
+  const found = [];
+  lines.forEach(rawLine => {
+    const line = rawLine.replace(/^\s*-\s*/, '').trim(); // strip leading dash
+    if (!line) return;
+    if (!/DEPOT/i.test(line)) return;             // must mention DEPOT
+    if (/BUMPER|BOARDS/i.test(line)) return;      // skip non-cabinet items
+
+    // Strip "DEPOT-" / "DEPOT " prefix(es)
+    let body = line.replace(/^.*?DEPOT[\s-]+/i, '');
+
+    // Special case: "L 31090 HAT KPB L" — pick the first all-digit token
+    // Special case: "QBZW00 C924 RMK 31219" — use the LAST numeric token (the remake number)
+    // Stock case:   "FPW4M D171"          — pick the D-prefixed token
+    // Standard:     "31072 ALL QL0-X..."  — first all-digit token
+
+    // Tokenize and look for the right one
+    const tokens = body.split(/\s+/).filter(Boolean);
+
+    // 1. RMK case — if "RMK" appears, take the next numeric token after it
+    const rmkIdx = tokens.findIndex(t => /^RMK$/i.test(t));
+    if (rmkIdx >= 0 && tokens[rmkIdx + 1] && /^\d+$/.test(tokens[rmkIdx + 1])) {
+      found.push(tokens[rmkIdx + 1]);
+      return;
+    }
+
+    // 2. D### / C### / digit-### token — find the most likely cabinet ID
+    // Priority: D### (stock prefix), then plain number 4+ digits, then C###
+    let id = null;
+    for (const t of tokens) {
+      if (/^D\d+$/i.test(t)) { id = t.toUpperCase(); break; }
+    }
+    if (!id) {
+      for (const t of tokens) {
+        if (/^\d{4,}$/.test(t)) { id = t; break; }
+      }
+    }
+    if (id) found.push(id);
+  });
+  // De-dupe while preserving order
+  const seen = {};
+  return found.filter(n => {
+    if (seen[n]) return false;
+    seen[n] = true;
+    return true;
+  });
+}
+
+async function parseReceivePhoto(file) {
+  const apiKey = localStorage.getItem('mbd_anthropic_key') || '';
+  if (!apiKey) {
+    showToast('⚠ Add Claude API key first, or use Paste Text');
+    return;
+  }
+  showToast('Reading list...');
+  closeCabModal();
+  // Show a parsing-in-progress modal
+  openCabModal('📥 Reading List...',
+    '<div style="text-align:center;padding:40px 20px">'
+    + '<div style="font-size:48px;margin-bottom:14px">🔍</div>'
+    + '<div style="font-size:15px;font-weight:700;color:#003087;margin-bottom:8px">Reading photo with Claude Vision...</div>'
+    + '<div style="font-size:12px;color:#666">This usually takes 5-10 seconds.</div>'
+    + '</div>');
+
+  try {
+    // Convert file to base64
+    const base64 = await fileToBase64(file);
+    const mediaType = file.type || 'image/jpeg';
+
+    const prompt = 'You are reading a delivery list of cabinets shipped to Murphy Bed Depot.\n\n'
+      + 'Each line follows this format:\n'
+      + '- "DEPOT-31072 ALL QL0-X CA CC"  → cabinet number is 31072 (made-to-order, the order number)\n'
+      + '- "DEPOT-L 31090 HAT KPB L"      → cabinet number is 31090\n'
+      + '- "DEPOT-FPW4M D171"             → cabinet number is D171 (stock)\n'
+      + '- "DEPOT-QBZW00 C924 RMK 31219"  → cabinet number is 31219 (remake)\n'
+      + '- "DEPOT-Z-BUMPER BOARDS"        → SKIP (not a cabinet)\n'
+      + '- Lines without DEPOT prefix or that look like headers/totals → SKIP\n\n'
+      + 'Rules:\n'
+      + '1. For lines with RMK, return the number AFTER "RMK" (it\'s the remake number).\n'
+      + '2. For lines with a D### or C### token (D171, D185, C924), return that token.\n'
+      + '3. Otherwise, return the first 4+ digit number after DEPOT-.\n'
+      + '4. Strip the "DEPOT-" prefix completely. NEVER include it.\n'
+      + '5. Skip BUMPER, BOARDS, or any non-cabinet lines.\n\n'
+      + 'Return ONLY a JSON array of cabinet numbers as strings, in the order they appear, no commentary. Example: ["31072","31076","31079","D171","D172"]';
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error('API error ' + resp.status + ': ' + errText.slice(0,200));
+    }
+    const data = await resp.json();
+    const text = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
+
+    // Extract the JSON array from the response
+    const jsonMatch = text.match(/\[[\s\S]*?\]/);
+    if (!jsonMatch) throw new Error('Could not find JSON array in response');
+    let numbers;
+    try { numbers = JSON.parse(jsonMatch[0]); }
+    catch(e) { throw new Error('Could not parse JSON: ' + e.message); }
+    if (!Array.isArray(numbers)) throw new Error('Response was not an array');
+
+    // Sanitize — strip "DEPOT-" if Claude included it accidentally
+    numbers = numbers
+      .map(n => String(n).trim().replace(/^DEPOT[\s-]+/i, ''))
+      .filter(Boolean);
+
+    if (!numbers.length) {
+      closeCabModal();
+      showToast('⚠ No cabinets detected in photo');
+      return;
+    }
+
+    startReceiveSession(numbers);
+  } catch(err) {
+    console.error(err);
+    closeCabModal();
+    showToast('⚠ ' + err.message);
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = String(reader.result || '');
+      const comma = data.indexOf(',');
+      resolve(comma >= 0 ? data.slice(comma + 1) : data);
+    };
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Sort cabinet numbers numerically when possible, alphanumerically otherwise.
+// "D171" sorts before "D172", "31072" sorts after "999".
+function sortCabinetNumbers(nums) {
+  return nums.slice().sort((a, b) => {
+    const an = parseInt(String(a).replace(/\D/g, ''), 10);
+    const bn = parseInt(String(b).replace(/\D/g, ''), 10);
+    const aPrefix = String(a).replace(/[\d]+/g, '');
+    const bPrefix = String(b).replace(/[\d]+/g, '');
+    if (aPrefix !== bPrefix) return aPrefix.localeCompare(bPrefix);
+    return an - bn;
+  });
+}
+
+function startReceiveSession(numbers) {
+  const sorted = sortCabinetNumbers(numbers);
+  // Pull the shipment name from the setup modal (if present)
+  const nameInp = document.getElementById('receiveShipmentName');
+  const name = (nameInp && nameInp.value.trim()) || defaultShipmentName();
+
+  const session = {
+    id: 'rs_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+    name,
+    createdAt: nowStamp(),
+    defaultLoc: 'RECEIVING',
+    person: '',
+    cabinets: sorted.map(n => ({
+      num: n,
+      received: false,
+      location: '',
+      receivedAt: '',
+      receivedBy: '',
+    })),
+  };
+  receiveSessions.push(session);
+  activeSessionId = session.id;
+  saveReceiveSessions();
+  renderReceiveSession();
+}
+
+function renderReceiveSession() {
+  const session = getActiveSession();
+  if (!session) {
+    showReceiveSetup();
+    return;
+  }
+  const total = session.cabinets.length;
+  const done = session.cabinets.filter(c => c.received).length;
+  const pct = total ? Math.round(done / total * 100) : 0;
+
+  const rows = session.cabinets.map((c, idx) => {
+    const isDone = c.received;
+    const existing = cabinets.find(cb => !cb.deleted && normCab(cb.cabinet) === normCab(c.num));
+    const alreadyExists = !!existing;
+    return '<div onclick="toggleReceiveCabinet(' + idx + ')" '
+      + 'style="background:'+(isDone?'#1A5C1A':'#fff')+';color:'+(isDone?'#fff':'#1a1a1a')+';'
+      + 'border:2px solid '+(isDone?'#1A5C1A':alreadyExists?'#FFC107':'#e0e0e0')+';'
+      + 'border-radius:10px;padding:14px;margin-bottom:6px;cursor:pointer;'
+      + 'display:flex;justify-content:space-between;align-items:center;gap:10px;'
+      + 'transition:all .15s ease">'
+      + '<div style="min-width:0;flex:1">'
+      +   '<div style="display:flex;align-items:center;gap:10px">'
+      +     '<div style="width:28px;height:28px;border-radius:6px;border:2.5px solid '+(isDone?'#fff':'#003087')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(isDone?'#fff':'transparent')+'">'
+      +       (isDone?'<span style="color:#1A5C1A;font-size:20px;font-weight:900;line-height:1">✓</span>':'')
+      +     '</div>'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:.5px">' + esc(c.num) + '</div>'
+      +   '</div>'
+      +   (isDone && c.location
+          ? '<div style="font-size:12px;font-weight:700;margin-top:4px;margin-left:38px;opacity:.85">📍 ' + esc(c.location) + '</div>'
+          : (alreadyExists ? '<div style="font-size:11px;color:#8B4000;margin-top:4px;margin-left:38px;font-weight:700">⚠ Already in system at '+esc(existing.location||'?')+'</div>' : ''))
+      + '</div>'
+      + (isDone
+          ? '<button onclick="event.stopPropagation();editReceiveCabinetLocation('+idx+')" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">Edit Loc</button>'
+          : '')
+      + '</div>';
+  }).join('');
+
+  const body =
+    // Progress + shipment name header
+    '<div style="background:linear-gradient(135deg,#003087,#1A5BE0);color:#fff;border-radius:12px;padding:14px;margin-bottom:14px">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">'
+    +     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Shipment</div>'
+    +     '<div style="font-size:13px;font-weight:800">' + done + ' / ' + total + '</div>'
+    +   '</div>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;margin-bottom:8px">'+esc(session.name)+'</div>'
+    +   '<div style="background:rgba(255,255,255,.18);border-radius:6px;height:8px;overflow:hidden">'
+    +     '<div style="background:#00C853;height:100%;width:'+pct+'%;transition:width .25s ease"></div>'
+    +   '</div>'
+    + '</div>'
+
+    + '<div style="background:#fff;border:1.5px solid #003087;border-radius:10px;padding:12px;margin-bottom:14px">'
+    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Default Location (where most go)</div>'
+    +   zoneChipsHtml('receiveDefaultLoc')
+    +   '<input type="text" id="receiveDefaultLoc" value="'+esc(session.defaultLoc)+'" placeholder="e.g. RECEIVING" autocomplete="off" autocapitalize="characters" style="width:100%;padding:10px;font-size:14px;font-weight:700;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:8px;-webkit-appearance:none">'
+    +   '<div style="font-size:11px;color:#666;margin-bottom:6px">Tap a row to mark received at this location. Tap "Edit Loc" on a received row to override.</div>'
+    +   '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px;margin-top:8px">Received By</label>'
+    +   personPickerHtml('receivePerson')
+    + '</div>'
+
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">Cabinets to receive ('+total+')</div>'
+    + '<div style="max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px">'
+    + rows
+    + '</div>'
+
+    + '<button onclick="addUnexpectedCabinet()" style="width:100%;padding:12px;background:#fff;color:#FF6B00;border:1.5px dashed #FF6B00;border-radius:10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-bottom:8px">+ Add Unexpected Cabinet (notifies manager)</button>'
+
+    + (done > 0
+        ? '<button onclick="commitReceiveSession()" style="width:100%;padding:16px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-bottom:8px">✓ Save Progress ('+done+' received)</button>'
+        : '<div style="padding:14px;background:#f5f5f5;border-radius:10px;text-align:center;color:#888;font-size:12px;margin-bottom:8px">Tap a cabinet row above to mark it received.</div>')
+
+    + '<div style="display:flex;gap:8px;margin-bottom:8px">'
+    +   '<button onclick="closeCabModal()" style="flex:1;padding:10px;background:#fff;color:#666;border:1px solid #ccc;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Pause / Close</button>'
+    +   '<button onclick="completeReceiveSession()" style="flex:1;padding:10px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">✓ Complete Shipment</button>'
+    + '</div>'
+
+    + '<button onclick="cancelReceiveSession()" style="width:100%;padding:8px;background:#fff;color:#8B0000;border:none;font-size:11px;font-weight:600;cursor:pointer;text-decoration:underline">✕ Cancel this shipment (lose unsaved progress)</button>';
+
+  openCabModal('📥 Receiving Shipment', body);
+
+  // Wire up default location + person to update session state on change
+  setTimeout(() => {
+    const locInp = document.getElementById('receiveDefaultLoc');
+    if (locInp) {
+      locInp.addEventListener('input', () => {
+        const s = getActiveSession();
+        if (s) { s.defaultLoc = locInp.value.trim(); saveReceiveSessions(); }
+      });
+    }
+    const persInp = document.getElementById('receivePerson');
+    if (persInp) {
+      persInp.addEventListener('change', () => {
+        const s = getActiveSession();
+        if (s) { s.person = persInp.value.trim(); saveReceiveSessions(); }
+      });
+    }
+  }, 50);
+}
+
+function toggleReceiveCabinet(idx) {
+  const session = getActiveSession();
+  if (!session) return;
+  const c = session.cabinets[idx];
+  if (!c) return;
+  // Capture latest default location from input
+  const locInp = document.getElementById('receiveDefaultLoc');
+  if (locInp) session.defaultLoc = locInp.value.trim();
+  if (!session.defaultLoc) {
+    showToast('⚠ Set a default location first');
+    return;
+  }
+  const persInp = document.getElementById('receivePerson');
+  if (persInp) session.person = persInp.value.trim();
+
+  if (c.received) {
+    // Untoggle (in case driver marked wrong row)
+    c.received = false;
+    c.location = '';
+    c.receivedAt = '';
+    c.receivedBy = '';
+    FB.error();
+  } else {
+    c.received = true;
+    c.location = session.defaultLoc;
+    c.receivedAt = nowStamp();
+    c.receivedBy = session.person || '';
+    FB.success();
+    if (FB.visuals) spawnScorePop('+1', '#1A5C1A');
+  }
+  saveReceiveSessions();
+  renderReceiveSession();
+}
+
+function editReceiveCabinetLocation(idx) {
+  const session = getActiveSession();
+  if (!session) return;
+  const c = session.cabinets[idx];
+  if (!c) return;
+  const newLoc = prompt('Where did ' + c.num + ' go?', c.location || session.defaultLoc);
+  if (newLoc === null) return; // cancelled
+  if (!newLoc.trim()) return;
+  c.location = newLoc.trim();
+  saveReceiveSessions();
+  renderReceiveSession();
+}
+
+// Save partial progress: commit all currently-received cabinets to inventory,
+// but DON'T destroy the session. The received rows stay marked as committed
+// so they don't get re-committed next time. Unreceived rows wait for future
+// truckloads.
+function commitReceiveSession() {
+  const session = getActiveSession();
+  if (!session) return;
+  const persInp = document.getElementById('receivePerson');
+  if (persInp) session.person = persInp.value.trim();
+  const ts = nowStamp();
+  let movedCount = 0, addedCount = 0, alreadyCommitted = 0;
+  session.cabinets.forEach(rc => {
+    if (!rc.received) return;
+    if (rc.committedAt) { alreadyCommitted++; return; } // already saved earlier
+    const loc = rc.location || session.defaultLoc;
+    const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === normCab(rc.num));
+    if (existing) {
+      if (normCab(existing.location) !== normCab(loc)) {
+        existing.prevLoc = existing.location || '';
+        existing.location = loc;
+        existing.movedAt  = ts;
+        existing.movedBy  = session.person || '';
+      }
+      if (existing.pulledAt) {
+        delete existing.pulledAt;
+        delete existing.pulledBy;
+      }
+      existing.updatedAt = ts;
+      movedCount++;
+    } else {
+      cabinets.push({
+        uuid: makeUuid(),
+        cabinet: rc.num,
+        location: loc,
+        addedAt: ts,
+        addedBy: session.person || '',
+        updatedAt: ts,
+      });
+      addedCount++;
+    }
+    rc.committedAt = ts;
+  });
+  saveCabinets();
+  saveReceiveSessions();
+  FB.success();
+  if (FB.visuals) spawnScorePop('+' + (movedCount + addedCount), '#1A5C1A');
+  const parts = [];
+  if (addedCount) parts.push(addedCount + ' added');
+  if (movedCount) parts.push(movedCount + ' updated');
+  if (parts.length === 0) {
+    showToast('Nothing new to save');
+  } else {
+    showToast('✓ ' + parts.join(', ') + ' to inventory');
+  }
+  renderCabinets();
+  renderReceiveSession(); // refresh the modal showing the new state
+}
+
+// Mark the session as complete and close it. Auto-saves any uncommitted
+// receives first.
+function completeReceiveSession() {
+  const session = getActiveSession();
+  if (!session) return;
+  const stats = sessionStats(session);
+  const remaining = stats.total - stats.done;
+  const msg = remaining > 0
+    ? remaining + ' cabinets are still unreceived. Complete shipment anyway? They will be discarded.'
+    : 'Complete this shipment? It will be removed from active sessions.';
+  if (!confirm(msg)) return;
+  // Commit any pending received cabinets
+  commitReceiveSession();
+  // Remove session
+  receiveSessions = receiveSessions.filter(s => s.id !== session.id);
+  activeSessionId = null;
+  saveReceiveSessions();
+  closeCabModal();
+  showToast('✓ Shipment complete');
+  renderCabinets();
+}
+
+// Cancel a session entirely without committing anything not already saved.
+// (Things already committed via Save Progress remain in inventory.)
+function cancelReceiveSession() {
+  const session = getActiveSession();
+  if (!session) return;
+  if (!confirm('Cancel this shipment session?\n\nAny progress already saved (via "Save Progress") stays in inventory. Unchecked cabinets will be lost.')) return;
+  receiveSessions = receiveSessions.filter(s => s.id !== session.id);
+  activeSessionId = null;
+  saveReceiveSessions();
+  closeCabModal();
+  showToast('✕ Shipment cancelled');
+  renderCabinets();
+}
+
+// Add a cabinet that arrived but wasn't on the photo'd list. Notifies manager.
+function addUnexpectedCabinet() {
+  const session = getActiveSession();
+  if (!session) return;
+  const num = prompt('Unexpected cabinet # (one only):');
+  if (!num || !num.trim()) return;
+  const cleanNum = num.trim().replace(/^DEPOT[\s-]+/i, '');
+  // Don't add if already in session
+  if (session.cabinets.some(c => normCab(c.num) === normCab(cleanNum))) {
+    showToast('⚠ Already in this shipment list');
+    return;
+  }
+  // Capture default loc + person
+  const locInp = document.getElementById('receiveDefaultLoc');
+  if (locInp) session.defaultLoc = locInp.value.trim();
+  const persInp = document.getElementById('receivePerson');
+  if (persInp) session.person = persInp.value.trim();
+  const loc = session.defaultLoc || 'RECEIVING';
+
+  // Add the cabinet to the session, marked as received + manually-added
+  session.cabinets.push({
+    num: cleanNum,
+    received: true,
+    location: loc,
+    receivedAt: nowStamp(),
+    receivedBy: session.person || '',
+    addedManually: true,
+  });
+  saveReceiveSessions();
+
+  // Send the manager notification (best-effort, fire and forget)
+  notifyUnexpectedCabinet(session.name, cleanNum, loc, session.person);
+
+  FB.success();
+  if (FB.visuals) spawnScorePop('+1', '#FF6B00');
+  showToast('✓ Added · Manager notified');
+  renderReceiveSession();
+}
+
+// Fire-and-forget POST to Apps Script for the email notification
+async function notifyUnexpectedCabinet(shipmentName, cabinet, location, person) {
+  if (!cabSyncUrl) return;
+  try {
+    await fetch(cabSyncUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        type: 'unexpectedCabinet',
+        shipmentName, cabinet, location, person,
+      }),
+    });
+  } catch(err) {
+    // Silent — email is best-effort
+    console.warn('Manager notify failed:', err);
+  }
 }
 
 function openPullCabinet(id) {
