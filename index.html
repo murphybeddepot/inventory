@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v29</title>
+<title>MBD Inventory Scanner v30</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -203,7 +203,7 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v29</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v30</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -2769,19 +2769,129 @@ function renderCabResult(query) {
     }
     el.innerHTML = html;
   } else {
-    // Multiple matches — list them
-    el.innerHTML = '<div style="font-size:13px;font-weight:600;color:#666;margin-bottom:8px">'+hits.length+' matches:</div>'
+    // Multiple matches — list them. If the user has duplicates of the same
+    // cabinet # (which shouldn't happen in normal use but can occur from
+    // sync conflicts or manual sheet edits), make each row tap to a specific
+    // record by uuid, not by re-searching the cabinet #.
+    const exactDupes = hits.filter(h => normCab(h.cabinet) === normCab(query));
+    const isDupeProblem = exactDupes.length > 1;
+    el.innerHTML =
+      (isDupeProblem
+        ? '<div style="background:#FDECEA;border:2px solid #8B0000;border-radius:10px;padding:12px 14px;margin-bottom:10px;color:#8B0000;font-size:13px;line-height:1.5">'
+          + '<strong>⚠ '+exactDupes.length+' duplicate records of "'+esc(query)+'"</strong>'
+          + '<div style="margin-top:4px;color:#444">This usually means a sync conflict or manual sheet edit. Tap a record below to view it. Use Edit/Delete to remove the wrong one. The system normally prevents duplicates — keep the most accurate record.</div>'
+          + '</div>'
+        : '<div style="font-size:13px;font-weight:600;color:#444;margin-bottom:8px">'+hits.length+' matches:</div>'
+      )
       + hits.map(c => {
           const isPulled = !!c.pulledAt;
-          return '<div style="background:#fff;border:2px solid '+(isPulled?'#999':'#003087')+';border-radius:10px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;'+(isPulled?'opacity:.6':'')+'" onclick="document.getElementById(\'cabSearchInput\').value=\''+esc(c.cabinet||'')+'\';renderCabResult(\''+esc(c.cabinet||'')+'\')">'
+          const id = cabId(c);
+          const dupeBadge = isDupeProblem
+            ? '<span style="display:inline-block;background:#8B0000;color:#fff;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;margin-left:6px;letter-spacing:.5px">DUPLICATE</span>'
+            : '';
+          return '<div style="background:#fff;border:2px solid '+(isPulled?'#999':isDupeProblem?'#8B0000':'#003087')+';border-radius:10px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;'+(isPulled?'opacity:.7':'')+'" onclick="renderSpecificCabinet(\''+id+'\')">'
           + '<div style="min-width:0;flex:1">'
-          +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666">Cabinet'+(isPulled?' · PULLED':'')+'</div>'
+          +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#444">Cabinet'+(isPulled?' · PULLED':'')+dupeBadge+'</div>'
           +   '<div style="font-size:18px;font-weight:800;color:#1a1a1a;margin-top:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+esc(c.cabinet||'—')+'</div>'
+          +   (isDupeProblem
+              ? '<div style="font-size:11px;color:#666;margin-top:3px">Added: '+esc(c.addedAt||'?')+(c.addedBy?' · '+esc(c.addedBy):'')+(c.movedAt?' · last moved '+esc(c.movedAt):'')+'</div>'
+              : '')
           + '</div>'
           + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:'+(isPulled?'#777':'#003087')+';background:'+(isPulled?'#eee':'#EAF0FB')+';padding:6px 14px;border-radius:8px;flex-shrink:0'+(isPulled?';text-decoration:line-through':'')+'">📍 '+esc(c.location||'?')+'</div>'
           + '</div>';
         }).join('');
   }
+}
+
+// Render a single specific cabinet by uuid (used to drill into a duplicate
+// from the multi-match list). Shows the same big detail card the
+// single-match path shows, plus a "Delete this record" button when the
+// user is dealing with duplicates.
+function renderSpecificCabinet(id) {
+  const el = document.getElementById('cabResult');
+  if (!el) return;
+  const c = findCabById(id);
+  if (!c || c.deleted) {
+    el.innerHTML = '<div style="background:#FDECEA;border:1px solid #8B0000;border-radius:10px;padding:14px;color:#8B0000">Record not found.</div>';
+    return;
+  }
+  // Determine if this record has duplicate siblings
+  const siblings = cabinets.filter(s =>
+    !s.deleted && s.uuid !== c.uuid && normCab(s.cabinet) === normCab(c.cabinet)
+  );
+  const hasDupes = siblings.length > 0;
+  const isPulled = !!c.pulledAt;
+  const headerColor = isPulled ? 'linear-gradient(135deg,#555,#777)' : 'linear-gradient(135deg,#003087,#1a4ba0)';
+  const locColor = isPulled ? 'rgba(255,255,255,.7)' : '#fff';
+
+  let html = '';
+  if (hasDupes) {
+    html += '<button onclick="document.getElementById(\'cabSearchInput\').value=\''+esc(c.cabinet)+'\';renderCabResult(\''+esc(c.cabinet)+'\')" style="margin-bottom:10px;padding:8px 14px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">‹ Back to '+(siblings.length+1)+' duplicate records</button>';
+  }
+
+  html += '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,48,135,.25)">'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">Cabinet</div>'
+    + '<div style="font-size:26px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">' + esc(c.cabinet||'—') + '</div>'
+    + (isPulled
+        ? '<div style="display:inline-block;background:#8B0000;color:#fff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:6px">✓ Pulled for Fulfillment</div>'
+        : '')
+    + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Location</div>'
+    + '<div style="font-size:48px;font-weight:900;line-height:1.1;margin:6px 0;letter-spacing:1px;font-family:\'Barlow Condensed\',Arial,sans-serif;color:'+locColor+(isPulled?';text-decoration:line-through':'')+'">📍 ' + esc(c.location||'?') + '</div>'
+    + renderWarehouseMap(c.location, { pulled: isPulled })
+    + (c.prevLoc ? '<div style="font-size:11px;opacity:.7;margin-top:4px">moved from '+esc(c.prevLoc)+'</div>' : '')
+    + '</div>';
+
+  if (c.addedAt || c.movedAt || c.pulledAt) {
+    html += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:12px 14px;margin-top:10px;font-size:12px;color:#444;line-height:1.7">'
+      + (c.addedAt  ? '<div>📥 <strong>Added:</strong> '+esc(c.addedAt)+(c.addedBy?' by '+esc(c.addedBy):'')+'</div>' : '')
+      + (c.movedAt  ? '<div>↪ <strong>Moved:</strong> '+esc(c.movedAt)+(c.movedBy?' by '+esc(c.movedBy):'')+(c.prevLoc?' (from '+esc(c.prevLoc)+')':'')+'</div>' : '')
+      + (c.pulledAt ? '<div style="color:#8B0000"><strong>📤 Pulled:</strong> '+esc(c.pulledAt)+(c.pulledBy?' by '+esc(c.pulledBy):'')+'</div>' : '')
+      + '</div>';
+  }
+
+  if (!isPulled) {
+    html += '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
+      + '<button onclick="openMoveCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#FF9100;color:#fff;border:none;border-radius:10px;cursor:pointer">↪ Move</button>'
+      + '<button onclick="openPullCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#8B0000;color:#fff;border:none;border-radius:10px;cursor:pointer">📤 Pull for Fulfillment</button>'
+      + '</div>';
+  } else {
+    html += '<button onclick="undoPullCabinet(\''+id+'\')" style="width:100%;margin-top:10px;padding:12px;font-size:13px;font-weight:700;background:#fff;color:#003087;border:2px solid #003087;border-radius:10px;cursor:pointer">↩ Undo Pull (return to storage)</button>';
+  }
+
+  // Delete this specific record — visible only when there are duplicates
+  // (deleting a unique cabinet is too risky to expose as a one-tap action;
+  //  the existing Move + Pull workflows handle that case).
+  if (hasDupes) {
+    html += '<button onclick="deleteSpecificCabinet(\''+id+'\')" style="width:100%;margin-top:10px;padding:12px;font-size:13px;font-weight:700;background:#fff;color:#8B0000;border:2px solid #8B0000;border-radius:10px;cursor:pointer">🗑 Delete this duplicate record</button>';
+  }
+
+  el.innerHTML = html;
+}
+
+// Soft-delete a specific cabinet record by uuid. Marks it deleted (so
+// sync propagates the removal) but doesn't touch siblings.
+function deleteSpecificCabinet(id) {
+  const c = findCabById(id);
+  if (!c) return;
+  const siblings = cabinets.filter(s =>
+    !s.deleted && s.uuid !== c.uuid && normCab(s.cabinet) === normCab(c.cabinet)
+  );
+  const msg = 'Delete this duplicate record?\n\n'
+    + 'Cabinet: ' + (c.cabinet || '?') + '\n'
+    + 'Location: ' + (c.location || '?') + '\n'
+    + 'Added: ' + (c.addedAt || '?') + '\n\n'
+    + (siblings.length === 1
+        ? siblings.length + ' other record will remain.'
+        : siblings.length + ' other records will remain.');
+  if (!confirm(msg)) return;
+  c.deleted = true;
+  c.updatedAt = nowStamp();
+  saveCabinets();
+  showToast('✓ Duplicate removed');
+  // Go back to the list of remaining records (or the single one)
+  const inp = document.getElementById('cabSearchInput');
+  if (inp && inp.value) renderCabResult(inp.value);
+  renderCabinets();
 }
 
 // ── IMPORT FROM SPREADSHEET ──────────────────────────────────────────────────
