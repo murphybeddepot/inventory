@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v30</title>
+<title>MBD Inventory Scanner v32</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -203,13 +203,13 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v30</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v32</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
   <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
   <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')">Items</button>
-  <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')">Inventory</button>
+  <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')" style="display:none">Inventory</button>
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')">Barcodes</button>
   <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')">Log</button>
   <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')">Export</button>
@@ -396,10 +396,15 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
   <!-- RESULT AREA -->
   <div id="itemResult"></div>
 
-  <!-- PRIMARY ACTION — Add Item -->
-  <button onclick="openAddItem()" style="width:100%;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25);margin-bottom:14px">
-    + Add Item
-  </button>
+  <!-- PRIMARY ACTIONS — Receive Stock + Add Item -->
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button onclick="openReceiveStock()" style="flex:2;min-width:180px;background:linear-gradient(135deg,#003087,#1A5BE0);color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(0,48,135,.25)">
+      📥 Receive Stock
+    </button>
+    <button onclick="openAddItem()" style="flex:1;min-width:140px;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25)">
+      + Add Item
+    </button>
+  </div>
 
   <!-- EMPTY STATE -->
   <div id="itemEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
@@ -425,9 +430,15 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
         </label>
         <button class="map-io-btn export" style="flex:1;min-width:140px" onclick="exportItems()">⬇ Export Current</button>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
         <button onclick="seedStarterItems()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">🌱 Seed Starter Items</button>
         <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearItems()">✕ Clear All</button>
+      </div>
+      <div id="migrateLegacyBtnWrap" style="display:none">
+        <button onclick="confirmMigrateLegacy()" style="width:100%;padding:13px;background:#FFF8E1;color:#8B4000;border:1.5px solid #FFC107;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span>🔄 Migrate Legacy Inventory data into Items</span>
+          <span style="font-size:18px">›</span>
+        </button>
       </div>
     </div>
   </div>
@@ -1971,9 +1982,41 @@ function saveItems() {
   try { localStorage.setItem('mbd_items', JSON.stringify(items)); } catch(e) {}
 }
 
+// Stock status values:
+//   OK       — usable, counts toward fulfillment
+//   PENDING  — needs inspection before use (e.g. India deliveries)
+//   DNU      — Do Not Use, defective, takes up space but not usable
+const STOCK_STATUSES = ['OK', 'PENDING', 'DNU'];
+const STOCK_STATUS_META = {
+  OK:      { label: 'OK',      color: '#1A5C1A', bg: '#E6F4EA', short: 'OK' },
+  PENDING: { label: 'Pending', color: '#8B4000', bg: '#FFF8E1', short: '⏳' },
+  DNU:     { label: 'DNU',     color: '#8B0000', bg: '#FDECEA', short: '🚫' },
+};
+
+function locStatus(l) {
+  return l.status || 'OK';
+}
+
+// Returns { ok, pending, dnu, total }
+function itemQtyBreakdown(item) {
+  const out = { ok: 0, pending: 0, dnu: 0, total: 0 };
+  if (!item.locations) return out;
+  item.locations.forEach(l => {
+    const q = parseFloat(l.qty) || 0;
+    out.total += q;
+    const s = locStatus(l);
+    if (s === 'OK') out.ok += q;
+    else if (s === 'PENDING') out.pending += q;
+    else if (s === 'DNU') out.dnu += q;
+  });
+  return out;
+}
+
 function itemTotalQty(item) {
-  if (!item.locations || !item.locations.length) return 0;
-  return item.locations.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0);
+  return itemQtyBreakdown(item).total;
+}
+function itemUsableQty(item) {
+  return itemQtyBreakdown(item).ok;
 }
 
 function findItems(query, category) {
@@ -2011,6 +2054,12 @@ function renderItems() {
   const list  = document.getElementById('itemList');
   if (!list) return;
 
+  // Show/hide the legacy migration button based on whether it's been run
+  const migrateWrap = document.getElementById('migrateLegacyBtnWrap');
+  if (migrateWrap) {
+    migrateWrap.style.display = legacyMigrationStatus() ? 'none' : 'block';
+  }
+
   const activeItems = items.filter(i => !i.deleted);
 
   if (!activeItems.length) {
@@ -2040,22 +2089,35 @@ function renderItems() {
 }
 
 function itemRowHtml(item) {
-  const total = itemTotalQty(item);
-  const lowStock = item.reorderPoint && total <= item.reorderPoint;
+  const bd = itemQtyBreakdown(item);
+  // Low-stock alert is based on USABLE quantity, not raw total
+  const lowStock = item.reorderPoint && bd.ok <= item.reorderPoint;
   const totalColor = lowStock ? '#8B0000' : '#003087';
   const totalBg    = lowStock ? '#FDECEA' : '#EAF0FB';
   const locCount = (item.locations || []).filter(l => parseFloat(l.qty) > 0).length;
+  const hasNonOk = bd.pending > 0 || bd.dnu > 0;
+  const isAuto = !!item.autoCreated;
   return '<div onclick="openItemDetail(\''+item.uuid+'\')" '
-    + 'style="background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;padding:12px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer">'
+    + 'style="background:#fff;border:1.5px solid '+(isAuto?'#FFC107':'#e0e0e0')+';border-radius:10px;padding:12px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer">'
     + '<div style="min-width:0;flex:1">'
-    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666">'+esc(item.category||'Other')+(lowStock?' <span style="color:#8B0000">· LOW</span>':'')+'</div>'
+    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#444">'
+    +     esc(item.category||'Other')
+    +     (lowStock?' <span style="color:#8B0000">· LOW</span>':'')
+    +     (isAuto?' <span style="color:#8B4000">· 🆕 NEEDS REVIEW</span>':'')
+    +   '</div>'
     +   '<div style="font-size:15px;font-weight:800;color:#1a1a1a;margin-top:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+esc(item.sku||'—')+'</div>'
-    +   (item.name ? '<div style="font-size:12px;color:#666;margin-top:1px">'+esc(item.name)+'</div>' : '')
-    +   '<div style="font-size:11px;color:#888;margin-top:2px">'+locCount+' location'+(locCount!==1?'s':'')+'</div>'
+    +   (item.name ? '<div style="font-size:12px;color:#444;margin-top:1px">'+esc(item.name)+'</div>' : '')
+    +   '<div style="font-size:11px;color:#666;margin-top:2px">'+locCount+' location'+(locCount!==1?'s':'')+'</div>'
     + '</div>'
     + '<div style="text-align:right;flex-shrink:0">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:'+totalColor+';background:'+totalBg+';padding:4px 12px;border-radius:8px;line-height:1.1">'+fmt(total)+'</div>'
-    +   (item.reorderPoint ? '<div style="font-size:10px;color:#888;margin-top:2px">reorder @ '+fmt(item.reorderPoint)+'</div>' : '')
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:'+totalColor+';background:'+totalBg+';padding:4px 12px;border-radius:8px;line-height:1.1">'+fmt(bd.ok)+'</div>'
+    +   (hasNonOk
+        ? '<div style="font-size:10px;color:#444;margin-top:3px;font-weight:600">'
+          + (bd.pending ? '<span style="color:#8B4000">⏳ '+fmt(bd.pending)+'</span> ' : '')
+          + (bd.dnu     ? '<span style="color:#8B0000">🚫 '+fmt(bd.dnu)+'</span> ' : '')
+          + '</div>'
+        : '')
+    +   (item.reorderPoint ? '<div style="font-size:10px;color:#666;margin-top:2px">reorder @ '+fmt(item.reorderPoint)+'</div>' : '')
     + '</div>'
     + '</div>';
 }
@@ -2087,35 +2149,48 @@ function renderItemResult(query) {
 }
 
 function itemDetailHtml(item) {
-  const total = itemTotalQty(item);
-  const lowStock = item.reorderPoint && total <= item.reorderPoint;
+  const bd = itemQtyBreakdown(item);
+  const lowStock = item.reorderPoint && bd.ok <= item.reorderPoint;
   const headerColor = lowStock
     ? 'linear-gradient(135deg,#8B0000,#C42121)'
     : 'linear-gradient(135deg,#003087,#1a4ba0)';
   const locs = (item.locations || []);
   const locsHtml = locs.length
-    ? locs.map(l =>
-        '<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:6px">'
-        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:700;color:#003087">📍 '+esc(l.code||'—')+'</div>'
-        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a">'+fmt(parseFloat(l.qty)||0)+'</div>'
+    ? locs.map(l => {
+        const status = locStatus(l);
+        const meta = STOCK_STATUS_META[status] || STOCK_STATUS_META.OK;
+        return '<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1.5px solid #ccc;border-radius:8px;padding:10px 12px;margin-bottom:6px;gap:10px">'
+        + '<div style="min-width:0;flex:1">'
+        +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:700;color:#003087">📍 '+esc(l.code||'—')+'</div>'
+        +   '<div style="display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:'+meta.color+';background:'+meta.bg+';padding:2px 8px;border-radius:4px;margin-top:3px">'+meta.label+'</div>'
         + '</div>'
-      ).join('')
-    : '<div style="text-align:center;color:#888;font-size:12px;padding:14px;background:#f5f5f5;border-radius:8px">No locations yet.</div>';
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a;flex-shrink:0">'+fmt(parseFloat(l.qty)||0)+'</div>'
+        + '</div>';
+      }).join('')
+    : '<div style="text-align:center;color:#444;font-size:13px;padding:14px;background:#f5f5f5;border-radius:8px">No locations yet. Tap <strong>📥 Receive Stock</strong> below to add some.</div>';
+
+  // Build the breakdown summary line (ok / pending / dnu)
+  const breakdownLine = (bd.pending > 0 || bd.dnu > 0)
+    ? '<div style="margin-top:8px;font-size:13px;font-weight:700;line-height:1.5">'
+      + (bd.pending > 0 ? '<span style="display:inline-block;background:#FFF8E1;color:#8B4000;padding:3px 10px;border-radius:4px;margin-right:4px">⏳ '+fmt(bd.pending)+' Pending</span>' : '')
+      + (bd.dnu     > 0 ? '<span style="display:inline-block;background:#FDECEA;color:#8B0000;padding:3px 10px;border-radius:4px">🚫 '+fmt(bd.dnu)+' DNU</span>' : '')
+      + '</div>'
+    : '';
 
   return '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,48,135,.25);margin-bottom:10px">'
-    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">'+esc(item.category||'Other')+'</div>'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">'+esc(item.category||'Other')+(item.autoCreated?' · 🆕 NEEDS REVIEW':'')+'</div>'
     + '<div style="font-size:24px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+esc(item.sku||'—')+'</div>'
     + (item.name ? '<div style="font-size:14px;opacity:.9;margin-top:2px">'+esc(item.name)+'</div>' : '')
     + (lowStock ? '<div style="display:inline-block;background:#fff;color:#8B0000;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:8px">⚠ Below reorder point</div>' : '')
-    + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Total On Hand</div>'
-    + '<div style="font-size:48px;font-weight:900;line-height:1.1;margin:6px 0;letter-spacing:1px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+fmt(total)+'</div>'
-    + (item.vendor ? '<div style="font-size:12px;opacity:.75;margin-top:6px">Vendor: '+esc(item.vendor)+'</div>' : '')
+    + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Usable On Hand</div>'
+    + '<div style="font-size:48px;font-weight:900;line-height:1.1;margin:6px 0;letter-spacing:1px;font-family:\'Barlow Condensed\',Arial,sans-serif">'+fmt(bd.ok)+'</div>'
+    + breakdownLine
+    + (item.vendor ? '<div style="font-size:12px;opacity:.85;margin-top:8px">Vendor: '+esc(item.vendor)+'</div>' : '')
     + '</div>'
-    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin:14px 0 6px">Stock by Location</div>'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin:14px 0 6px">Stock by Location</div>'
     + locsHtml
-    + '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
-    + '<button onclick="openItemEdit(\''+item.uuid+'\')" style="flex:1;min-width:120px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#003087;color:#fff;border:none;border-radius:10px;cursor:pointer">✏ Edit</button>'
-    + '</div>';
+    + '<button onclick="openReceiveStock(\''+item.uuid+'\')" style="width:100%;margin-top:10px;padding:14px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;cursor:pointer">📥 Receive Stock</button>'
+    + '<button onclick="openItemEdit(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;cursor:pointer">✏ Edit Item Details</button>';
 }
 
 function openItemDetail(uuid) {
@@ -2218,13 +2293,17 @@ function confirmAddItem() {
 function openItemEdit(uuid) {
   const item = findItemByUuid(uuid);
   if (!item) return;
-  const locsHtml = (item.locations || []).map((l, i) =>
-    '<div data-idx="'+i+'" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'
-    +   '<input type="text" class="loc-code" value="'+esc(l.code||'')+'" placeholder="Location code" style="flex:1.5;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
-    +   '<input type="number" class="loc-qty" value="'+(l.qty||0)+'" placeholder="Qty" min="0" style="width:80px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+  const locsHtml = (item.locations || []).map((l, i) => {
+    const status = locStatus(l);
+    return '<div data-idx="'+i+'" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">'
+    +   '<input type="text" class="loc-code" value="'+esc(l.code||'')+'" placeholder="Location" style="flex:2;min-width:130px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '<input type="number" class="loc-qty" value="'+(l.qty||0)+'" placeholder="Qty" min="0" style="width:75px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '<select class="loc-status" style="padding:10px;font-size:13px;font-weight:700;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none;background:#fff">'
+    +     STOCK_STATUSES.map(s => '<option value="'+s+'"'+(status===s?' selected':'')+'>'+STOCK_STATUS_META[s].label+'</option>').join('')
+    +   '</select>'
     +   '<button type="button" onclick="this.parentNode.remove()" style="background:none;border:none;color:#8B0000;font-size:18px;cursor:pointer;padding:0 6px">×</button>'
-    + '</div>'
-  ).join('');
+    + '</div>';
+  }).join('');
 
   const body =
     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Editing</div>'
@@ -2267,9 +2346,12 @@ function addLocationRow() {
   const wrap = document.getElementById('editItemLocations');
   if (!wrap) return;
   const div = document.createElement('div');
-  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
-  div.innerHTML = '<input type="text" class="loc-code" placeholder="Location code (e.g. 007.005 or PICK-A12)" style="flex:1.5;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
-    + '<input type="number" class="loc-qty" value="0" placeholder="Qty" min="0" style="width:80px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap';
+  div.innerHTML = '<input type="text" class="loc-code" placeholder="Location" style="flex:2;min-width:130px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    + '<input type="number" class="loc-qty" value="0" placeholder="Qty" min="0" style="width:75px;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">'
+    + '<select class="loc-status" style="padding:10px;font-size:13px;font-weight:700;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none;background:#fff">'
+    +   STOCK_STATUSES.map(s => '<option value="'+s+'">'+STOCK_STATUS_META[s].label+'</option>').join('')
+    + '</select>'
     + '<button type="button" onclick="this.parentNode.remove()" style="background:none;border:none;color:#8B0000;font-size:18px;cursor:pointer;padding:0 6px">×</button>';
   wrap.appendChild(div);
   div.querySelector('.loc-code').focus();
@@ -2283,13 +2365,17 @@ function confirmEditItem(uuid) {
   item.reorderPoint = parseFloat(document.getElementById('editItemReorderPoint').value) || 0;
   item.reorderQty = parseFloat(document.getElementById('editItemReorderQty').value) || 0;
   item.vendor = document.getElementById('editItemVendor').value.trim();
+  // Once edited, clear the auto-created flag (user has reviewed it)
+  if (item.autoCreated) item.autoCreated = false;
   // Read locations from the dynamic rows
   const rows = document.querySelectorAll('#editItemLocations > div');
   const newLocations = [];
   rows.forEach(r => {
     const code = r.querySelector('.loc-code').value.trim();
     const qty = parseFloat(r.querySelector('.loc-qty').value) || 0;
-    if (code) newLocations.push({ code, qty });
+    const statusEl = r.querySelector('.loc-status');
+    const status = statusEl ? statusEl.value : 'OK';
+    if (code) newLocations.push({ code, qty, status });
   });
   item.locations = newLocations;
   item.updatedAt = nowStamp();
@@ -2375,6 +2461,291 @@ async function importItemsFile(file) {
   }
 }
 
+// ── RECEIVE STOCK FLOW ───────────────────────────────────────────────────────
+// Scan a barcode (= SKU) → enter qty via on-screen keypad → pick location →
+// pick status → save. Repeat for the next item without leaving the modal.
+//
+// The Bluetooth scanner stays connected the whole time — keypad means the
+// soft keyboard doesn't need to come up. Wrist-scanner-friendly.
+
+const stockReceiveSession = {
+  currentSku: null,    // the SKU input was scanned/typed
+  qty: '',             // the qty being entered (string for keypad input)
+  location: '',        // location string
+  status: 'OK',        // OK / PENDING / DNU
+  note: '',            // optional per-receipt note
+  recentReceipts: [],  // [{sku, qty, location, status, ts}] — shown as a feed
+};
+
+// Open the receive flow. If preItemUuid is provided, skip the SKU scan step
+// and start with that item already selected (used from the Item Detail page).
+function openReceiveStock(preItemUuid) {
+  // Reset session each time the modal is opened
+  stockReceiveSession.currentSku = '';
+  stockReceiveSession.qty = '';
+  stockReceiveSession.location = '';
+  stockReceiveSession.status = 'OK';
+  stockReceiveSession.note = '';
+  stockReceiveSession.recentReceipts = [];
+
+  if (preItemUuid) {
+    const item = findItemByUuid(preItemUuid);
+    if (item) stockReceiveSession.currentSku = item.sku;
+  }
+
+  renderReceiveStock();
+}
+
+function renderReceiveStock() {
+  const sess = stockReceiveSession;
+  const item = sess.currentSku ? findItemBySku(sess.currentSku) : null;
+  const isUnknownSku = sess.currentSku && !item;
+
+  const body =
+    // Compact header
+    '<div style="background:linear-gradient(135deg,#003087,#1A5BE0);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:12px">'
+    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Receive Stock</div>'
+    +   '<div style="font-size:13px;opacity:.9;margin-top:3px">Scan a SKU barcode (or type), then enter quantity, location, and status.</div>'
+    + '</div>'
+
+    // SKU section — input box that the wrist scanner targets
+    + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">'
+    +   (item ? '✓ Scanned' : isUnknownSku ? '⚠ Unknown SKU' : 'Scan or Type SKU')
+    + '</label>'
+    + '<input type="text" id="stockReceiveSku" '
+    +     'value="'+esc(sess.currentSku||'')+'" '
+    +     'placeholder="Pull scanner trigger or type SKU" '
+    +     'autocomplete="off" autocorrect="off" autocapitalize="characters" '
+    +     'style="width:100%;padding:14px;font-size:18px;font-weight:800;border:2.5px solid '+(item?'#1A5C1A':isUnknownSku?'#FF9100':'#003087')+';border-radius:10px;outline:none;margin-bottom:8px;-webkit-appearance:none;font-family:monospace;color:#1a1a1a">'
+
+    + (item
+        ? '<div style="background:#E6F4EA;border:1.5px solid #1A5C1A;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#1A5C1A">'
+          + '<strong>'+esc(item.name||item.sku)+'</strong>'
+          + (item.vendor ? '<div style="font-size:11px;color:#444;margin-top:2px">Vendor: '+esc(item.vendor)+'</div>' : '')
+          + '<div style="font-size:11px;color:#444;margin-top:2px">Currently: '+fmt(itemUsableQty(item))+' usable, '+fmt(itemTotalQty(item))+' total</div>'
+        + '</div>'
+      : isUnknownSku
+        ? '<div style="background:#FFF8E1;border:1.5px solid #FF9100;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#8B4000;line-height:1.5">'
+          + '<strong>Unknown SKU "'+esc(sess.currentSku)+'"</strong>'
+          + '<div style="margin-top:4px">Continuing will auto-create a placeholder item flagged for review. You can fix the name and details later via Items tab.</div>'
+        + '</div>'
+        : '<div style="background:#f5f5f5;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#444">Scan a SKU barcode or type one and tap a number below.</div>')
+
+    // Qty section + on-screen keypad
+    + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">Quantity</label>'
+    + '<div id="stockReceiveQtyDisplay" style="background:#fff;border:2.5px solid #003087;border-radius:10px;padding:14px;margin-bottom:8px;text-align:center;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:42px;font-weight:900;color:#1a1a1a;letter-spacing:1px;min-height:74px;line-height:1">'
+    +   (sess.qty || '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>')
+    + '</div>'
+    + renderKeypad()
+
+    // Location chips + input
+    + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px;margin-top:14px">Location</label>'
+    + zoneChipsHtml('stockReceiveLoc')
+    + '<input type="text" id="stockReceiveLoc" value="'+esc(sess.location)+'" placeholder="Type or scan a bin code" autocomplete="off" autocorrect="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:15px;font-weight:700;border:1.5px solid #999;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none;color:#1a1a1a">'
+
+    // Status pills
+    + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">Status</label>'
+    + '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'
+    +   STOCK_STATUSES.map(s => {
+          const meta = STOCK_STATUS_META[s];
+          const active = sess.status === s;
+          return '<button onclick="setReceiveStockStatus(\''+s+'\')" style="flex:1;min-width:100px;padding:14px 8px;border:2px solid '+meta.color+';background:'+(active?meta.color:'#fff')+';color:'+(active?'#fff':meta.color)+';border-radius:10px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+            + (active?'● ':'')+meta.label
+            + '</button>';
+        }).join('')
+    + '</div>'
+
+    // Save button (disabled until valid)
+    + '<button id="stockReceiveSave" onclick="saveReceiveStock()" '
+    +   'style="width:100%;padding:18px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-bottom:8px">'
+    +   '✓ Save & Receive Next'
+    + '</button>'
+
+    + (sess.recentReceipts.length
+        ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin:14px 0 6px">This Session ('+sess.recentReceipts.length+')</div>'
+          + sess.recentReceipts.slice().reverse().map(r => {
+              const meta = STOCK_STATUS_META[r.status] || STOCK_STATUS_META.OK;
+              return '<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px 12px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px">'
+                + '<div style="min-width:0;flex:1"><strong>'+esc(r.sku)+'</strong> '
+                +   '<span style="background:'+meta.bg+';color:'+meta.color+';font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:1px 6px;border-radius:3px;margin-left:4px">'+meta.label+'</span>'
+                +   '<div style="font-size:11px;color:#444;margin-top:2px">📍 '+esc(r.location)+'</div>'
+                + '</div>'
+                + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#1A5C1A;flex-shrink:0">+'+fmt(r.qty)+'</div>'
+                + '</div>';
+            }).join('')
+        : '');
+
+  openCabModal('📥 Receive Stock', body);
+
+  // Wire up SKU input — handle Enter key (wrist scanner submits with Enter)
+  setTimeout(() => {
+    const skuInp = document.getElementById('stockReceiveSku');
+    if (skuInp) {
+      skuInp.addEventListener('input', () => {
+        sess.currentSku = skuInp.value.trim().toUpperCase();
+      });
+      skuInp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sess.currentSku = skuInp.value.trim().toUpperCase();
+          // Strip DEPOT- prefix if present (consistency with cabinets)
+          sess.currentSku = sess.currentSku.replace(/^DEPOT[\s-]+/i, '');
+          renderReceiveStock();
+          // Auto-focus the qty pad — but we don't have a real focus target, so
+          // just make sure the keypad is visible. The user will tap a number.
+          FB.scan();
+        }
+      });
+      // If we have a pre-loaded SKU (from item detail), focus the qty area visually
+      if (!sess.currentSku) {
+        skuInp.focus();
+        // Don't open soft keyboard if not needed — but if user wants to type, they tap and the BT scanner long-press still works
+      }
+    }
+    const locInp = document.getElementById('stockReceiveLoc');
+    if (locInp) {
+      locInp.addEventListener('input', () => { sess.location = locInp.value.trim(); });
+    }
+    refreshSaveButtonState();
+  }, 50);
+}
+
+function refreshSaveButtonState() {
+  const btn = document.getElementById('stockReceiveSave');
+  if (!btn) return;
+  const sess = stockReceiveSession;
+  const valid = sess.currentSku && sess.qty && parseFloat(sess.qty) > 0 && sess.location;
+  btn.disabled = !valid;
+  btn.style.opacity = valid ? '1' : '.5';
+  btn.style.cursor = valid ? 'pointer' : 'not-allowed';
+}
+
+// On-screen numeric keypad. Big tap targets, works without iOS soft keyboard.
+function renderKeypad() {
+  const keys = [
+    ['7','8','9'],
+    ['4','5','6'],
+    ['1','2','3'],
+    ['.','0','⌫'],
+  ];
+  let html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
+  keys.forEach(row => row.forEach(k => {
+    const isBack = k === '⌫';
+    html += '<button onclick="keypadTap(\''+k+'\')" '
+      + 'style="padding:18px 0;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;background:'+(isBack?'#FDECEA':'#fff')+';color:'+(isBack?'#8B0000':'#1a1a1a')+';border:2px solid '+(isBack?'#8B0000':'#999')+';border-radius:10px;cursor:pointer;-webkit-user-select:none;user-select:none">'+k+'</button>';
+  }));
+  html += '</div>';
+  // Clear button below
+  html += '<button onclick="keypadClear()" style="width:100%;margin-top:6px;padding:10px;background:#fff;color:#444;border:1.5px solid #999;border-radius:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">Clear Quantity</button>';
+  return html;
+}
+
+function keypadTap(k) {
+  const sess = stockReceiveSession;
+  if (k === '⌫') {
+    sess.qty = sess.qty.slice(0, -1);
+  } else if (k === '.') {
+    if (!sess.qty.includes('.')) sess.qty = (sess.qty || '0') + '.';
+  } else {
+    // Cap at 7 digits to prevent absurd values
+    if (sess.qty.replace('.', '').length >= 7) return;
+    sess.qty += k;
+  }
+  // Update only the qty display + save button — don't re-render everything
+  const disp = document.getElementById('stockReceiveQtyDisplay');
+  if (disp) {
+    disp.innerHTML = sess.qty || '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>';
+  }
+  refreshSaveButtonState();
+  FB.scan();
+}
+
+function keypadClear() {
+  stockReceiveSession.qty = '';
+  const disp = document.getElementById('stockReceiveQtyDisplay');
+  if (disp) disp.innerHTML = '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>';
+  refreshSaveButtonState();
+}
+
+function setReceiveStockStatus(s) {
+  stockReceiveSession.status = s;
+  renderReceiveStock();
+}
+
+function saveReceiveStock() {
+  const sess = stockReceiveSession;
+  // Pull latest values from inputs
+  const skuInp = document.getElementById('stockReceiveSku');
+  const locInp = document.getElementById('stockReceiveLoc');
+  if (skuInp) sess.currentSku = skuInp.value.trim().toUpperCase().replace(/^DEPOT[\s-]+/i, '');
+  if (locInp) sess.location = locInp.value.trim();
+
+  if (!sess.currentSku) { showToast('⚠ Scan or type a SKU'); FB.error(); return; }
+  const qty = parseFloat(sess.qty);
+  if (!qty || qty <= 0) { showToast('⚠ Enter a quantity'); FB.error(); return; }
+  if (!sess.location) { showToast('⚠ Enter a location'); FB.error(); return; }
+
+  let item = findItemBySku(sess.currentSku);
+  let autoCreated = false;
+  if (!item) {
+    // Auto-create placeholder
+    const ts = nowStamp();
+    item = {
+      uuid: makeUuid(),
+      sku: sess.currentSku,
+      name: '(scanned: ' + sess.currentSku + ')',
+      category: 'Other',
+      reorderPoint: 0, reorderQty: 0,
+      vendor: '',
+      locations: [],
+      autoCreated: true,
+      addedAt: ts, updatedAt: ts,
+    };
+    items.push(item);
+    autoCreated = true;
+  }
+
+  // Find existing stock entry at same location AND same status, or add new
+  if (!item.locations) item.locations = [];
+  const existing = item.locations.find(l =>
+    String(l.code||'').trim().toUpperCase() === sess.location.toUpperCase()
+    && locStatus(l) === sess.status
+  );
+  if (existing) {
+    existing.qty = (parseFloat(existing.qty) || 0) + qty;
+  } else {
+    item.locations.push({
+      code: sess.location,
+      qty,
+      status: sess.status,
+    });
+  }
+  item.updatedAt = nowStamp();
+  saveItems();
+
+  // Add to session feed
+  sess.recentReceipts.push({
+    sku: sess.currentSku,
+    qty,
+    location: sess.location,
+    status: sess.status,
+    ts: nowStamp(),
+  });
+
+  FB.success();
+  if (FB.visuals) spawnScorePop('+' + fmt(qty), '#1A5C1A');
+  showToast('✓ ' + fmt(qty) + ' ' + sess.currentSku
+    + (autoCreated ? ' (auto-created)' : '')
+    + ' at ' + sess.location);
+
+  // Reset only the qty + sku for the next scan; keep location and status
+  // for rapid-fire entry of multiple items going to the same place
+  sess.currentSku = '';
+  sess.qty = '';
+  renderReceiveStock();
+  renderItems();
+}
+
 function exportItems() {
   const active = items.filter(i => !i.deleted);
   if (!active.length) { showToast('No items to export'); return; }
@@ -2415,6 +2786,115 @@ function clearItems() {
   saveItems();
   renderItems();
   showToast('Cleared');
+}
+
+// ── ONE-TIME MIGRATION FROM OLD INVENTORY TAB ───────────────────────────────
+// Imports the legacy ELEMENTS array (the data source for the old Inventory
+// tab) into the new Items tab. Skips SKUs that already exist. Preserves
+// vendor, on-hand qty (as a single OK-status location), and reorder threshold.
+// The user runs this once via Admin Tools → "Migrate Old Inventory" button.
+
+// Infer a reasonable category from name + vendor patterns
+function inferItemCategory(name, vendor) {
+  const n = String(name||'').toUpperCase();
+  const v = String(vendor||'').toUpperCase();
+  // Frame parts: slats, mb-* (mattress board parts), bc* (bed components),
+  // sbf-* (slat-bed-frame variants), studio, current-spring etc.
+  if (/^(SLAT|MB-|BC\d|SBF-|HLR-|U-MA|MB-WMB|STUDIO|LEGACY|CURRENT SPRING|DIY-KIT|MB-UNIVERSAL|SBLM|NEXTBED)/.test(n)) return 'Frame';
+  // Packaging: pallets, boxes, sheets, strapping, wrap, foam, MS-related
+  if (/(PALLET|BOX|SHEET|STRAPPING|WRAP|FOAM|MS BOX|MS SHEET|TILE SPACER|FAST ?CAP|SCRAPER|WAX|STAPLES)/.test(n)) return 'Packaging';
+  // Everything else with hardware-y keywords → Hardware
+  if (/(SCREW|HINGE|BOLT|NUT|PIN|BIT|BRACKET|HANDLE|MAGNET|LIGHT|HARDWARE|PACK|LATCH|LEG|CAM|PLATE|ALLEN|SHELF|MENDING|EURO|FLIPUP|OVERLAY|PIANO|SOFT CLOSE|SQUARE|PHILLIPS|KEPS|BUMPER)/.test(n)) return 'Hardware';
+  return 'Other';
+}
+
+function migrateLegacyInventory() {
+  if (typeof ELEMENTS === 'undefined' || !ELEMENTS.length) {
+    showToast('⚠ No legacy inventory data found');
+    return;
+  }
+  const existingSkus = new Set(items.filter(i => !i.deleted).map(i => String(i.sku||'').toUpperCase()));
+  let added = 0, skipped = 0, zeroQty = 0;
+  const ts = nowStamp();
+  ELEMENTS.forEach(el => {
+    const sku = String(el.name||'').trim();
+    if (!sku) return;
+    if (existingSkus.has(sku.toUpperCase())) { skipped++; return; }
+    const onHand = parseFloat(el.onHand);
+    const safeOnHand = isFinite(onHand) ? onHand : 0;
+    const locations = [];
+    // Only create a location entry if onHand > 0 (don't seed negatives —
+    // those are legacy data quality issues that should be fixed via cycle counting)
+    if (safeOnHand > 0) {
+      locations.push({
+        code: el.location || 'UNASSIGNED',
+        qty: safeOnHand,
+        status: 'OK',
+      });
+    } else {
+      zeroQty++;
+    }
+    items.push({
+      uuid: makeUuid(),
+      sku,
+      name: sku, // Same as SKU since legacy data didn't separate them
+      category: inferItemCategory(el.name, el.vendor),
+      reorderPoint: parseFloat(el.threshold) || 0,
+      reorderQty: 0,
+      vendor: String(el.vendor||'').trim(),
+      locations,
+      addedAt: ts,
+      updatedAt: ts,
+      migratedFromLegacy: true,
+    });
+    added++;
+    existingSkus.add(sku.toUpperCase());
+  });
+  saveItems();
+  // Mark migration complete so we can hide the button afterwards
+  try { localStorage.setItem('mbd_legacy_migrated', 'true'); } catch(e) {}
+  closeCabModal();
+  FB.success();
+  if (FB.visuals) spawnScorePop('+' + added, '#1A5C1A');
+  let msg = '✓ Migrated ' + added + ' items';
+  if (skipped) msg += ', skipped ' + skipped + ' duplicates';
+  if (zeroQty) msg += ' (' + zeroQty + ' had no positive qty — added with no locations)';
+  showToast(msg);
+  renderItems();
+}
+
+function legacyMigrationStatus() {
+  try {
+    return localStorage.getItem('mbd_legacy_migrated') === 'true';
+  } catch(e) { return false; }
+}
+
+function confirmMigrateLegacy() {
+  if (typeof ELEMENTS === 'undefined') {
+    showToast('⚠ No legacy data');
+    return;
+  }
+  const count = ELEMENTS.length;
+  const existingCount = items.filter(i => !i.deleted).length;
+  const body =
+    '<div style="font-size:13px;color:#222;margin-bottom:14px;line-height:1.5">'
+    +   'This will copy the <strong>' + count + ' SKUs</strong> from the old Inventory tab into your new Items tab. '
+    +   'It runs once. Existing Items (' + existingCount + ') won\'t be duplicated — anything with a matching SKU is skipped.'
+    + '</div>'
+    + '<div style="background:#FFF8E1;border:1.5px solid #FFC107;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#8B4000;line-height:1.6">'
+    +   '<strong>What gets migrated:</strong>'
+    +   '<ul style="margin:6px 0 0 18px;padding:0;line-height:1.7">'
+    +     '<li>SKU + name (same value — the legacy system didn\'t separate them)</li>'
+    +     '<li>Vendor (HAFELE, ROK, etc.)</li>'
+    +     '<li>Reorder threshold</li>'
+    +     '<li>Current on-hand qty as a single location entry, status=OK</li>'
+    +     '<li>Inferred category (Frame / Hardware / Packaging / Other)</li>'
+    +   '</ul>'
+    +   '<div style="margin-top:6px"><strong>Items with negative or zero on-hand</strong> are migrated but with NO location entries — fix those via cycle counting after import.</div>'
+    + '</div>'
+    + '<button onclick="migrateLegacyInventory()" style="width:100%;padding:14px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">✓ Run Migration</button>'
+    + '<button onclick="closeCabModal()" style="width:100%;margin-top:8px;padding:10px;background:#fff;color:#444;border:1px solid #999;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>';
+  openCabModal('🔄 Migrate Legacy Inventory', body);
 }
 
 function seedStarterItems() {
