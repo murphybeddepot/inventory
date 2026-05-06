@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v47</title>
+<title>MBD Inventory Scanner v48</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -534,6 +534,21 @@ body::before {
   letter-spacing: 4px !important;
 }
 
+/* Collapsed mode — hide keypad grid + prefix + clear + help text,
+   show the tap-to-expand bar instead. Display stays visible so the user
+   can see what they searched for. */
+.search-rig.kp-collapsed #cabKeypadPrefix,
+.search-rig.kp-collapsed #cabKeypadGrid,
+.search-rig.kp-collapsed > button.kp-clear,
+.search-rig.kp-collapsed > .help-tip { display: none !important; }
+.search-rig.kp-collapsed #cabKeypadCollapsedBar { display: flex !important; }
+
+/* Disable iOS double-tap-to-zoom on keypad keys.
+   touch-action:manipulation tells the browser "this element handles its own
+   tap behavior — don't apply the 300ms double-tap-zoom delay". Critical for
+   numeric keypads where 22, 33, ⌫⌫ are all common patterns. */
+.kp, .kp-letter, .kp-prefix { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
 /* ── AMP-FACEPLATE BUTTONS ─────────────────────────────────────────────
    Big primary actions styled like guitar amp toggle switches:
    chrome edge bevel, brass corner screws, embossed lettering, glowing
@@ -788,7 +803,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v47</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v48</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -937,6 +952,13 @@ input::placeholder, textarea::placeholder {
       <button type="button" onclick="cabKeypadBackspace()" class="kp kp-back">⌫</button>
     </div>
     <button type="button" onclick="cabKeypadClear()" class="kp kp-clear" style="display:block;width:calc(100% - 28px);margin:6px 14px 0;padding:10px 0;font-size:13px">CLEAR</button>
+    <!-- Collapsed-mode bar — shown only when keypad is collapsed after a single result.
+         Tapping expands the keypad again so the user can refine the search. -->
+    <div id="cabKeypadCollapsedBar" onclick="expandCabKeypad()"
+      style="display:none;margin:0 14px 14px;padding:10px 14px;background:linear-gradient(180deg,#1B1410 0%,#0E0907 100%);border:1.5px solid var(--brass-dim);color:var(--tape-cream);cursor:pointer;align-items:center;justify-content:space-between;gap:10px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;box-shadow:inset 0 1px 0 rgba(201,169,97,.18),0 2px 4px rgba(0,0,0,.45)">
+      <span style="display:flex;align-items:center;gap:8px"><span class="brass-led"></span>Tap to search again</span>
+      <span style="color:var(--green-bright);font-family:'JetBrains Mono',monospace;letter-spacing:2px">▲</span>
+    </div>
     <div class="help-tip" style="font-size:12px;color:var(--tape-cream);opacity:.85;margin-top:12px;line-height:1.55;letter-spacing:.3px;padding:0 2px">
       Scan the barcode · tap prefix + digits · or ⌨ to type a location like <span style="color:var(--shellac);font-family:'JetBrains Mono',monospace;font-weight:700">001.005</span>
     </div>
@@ -4724,6 +4746,19 @@ function cabKeypadClear() {
   if (typeof FB !== 'undefined' && FB.error) FB.error();
 }
 
+// ── Cabinet keypad collapse / expand ─────────────────────────────────────
+// When a single cabinet is found the keypad auto-collapses so the result
+// (location + map) gets the screen real estate. Tapping the collapsed bar
+// or any digit/letter expands it again. Editing or clearing also expands.
+function collapseCabKeypad() {
+  const rig = document.querySelector('.search-rig');
+  if (rig) rig.classList.add('kp-collapsed');
+}
+function expandCabKeypad() {
+  const rig = document.querySelector('.search-rig');
+  if (rig) rig.classList.remove('kp-collapsed');
+}
+
 // Toggle between custom keypad and iOS keyboard
 function toggleCabKeypad() {
   const rig = document.querySelector('.search-rig');
@@ -5001,9 +5036,10 @@ document.addEventListener('DOMContentLoaded', () => {
 function renderCabResult(query) {
   const el = document.getElementById('cabResult');
   if (!el) return;
-  if (!query.trim()) { el.innerHTML = ''; return; }
+  if (!query.trim()) { el.innerHTML = ''; expandCabKeypad(); return; }
   if (!cabinets.length) {
     el.innerHTML = '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:10px;padding:14px;color:#8B4000;font-size:14px">⚠ Upload a cabinet spreadsheet first, or tap "+ Add Cabinet" below to add one.</div>';
+    expandCabKeypad();
     return;
   }
   const hits = findCabinets(query);
@@ -5020,7 +5056,15 @@ function renderCabResult(query) {
       + '<div style="font-size:13px;color:#666;margin-top:6px">Nothing found for "'+esc(query)+'".</div>'
       + (wasPulled ? '<div style="font-size:12px;color:#8B4000;margin-top:10px;background:#FFF3CC;padding:8px 12px;border-radius:6px;display:inline-block">ℹ This cabinet exists but was already pulled. Toggle "Show pulled" to see it.</div>' : '')
       + '</div>';
+    expandCabKeypad();
     return;
+  }
+  // Single hit → collapse the keypad so the result + map get screen room.
+  // Multiple hits → keep keypad open, user is still narrowing down.
+  if (hits.length === 1) {
+    collapseCabKeypad();
+  } else {
+    expandCabKeypad();
   }
   if (hits.length === 1) {
     const c = hits[0];
