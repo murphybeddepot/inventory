@@ -3,7 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v49</title>
+<title>MBD Inventory Scanner v53</title>
+<!-- Favicon (browser tab) — inline data URI so the single-file deploy works -->
+<link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,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">
+<!-- iOS home-screen icon — REQUIRES an apple-touch-icon.png file at the repo root.
+     Safari does not reliably support data URIs for the touch icon. -->
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<!-- Title shown when added to iOS home screen (no version number) -->
+<meta name="apple-mobile-web-app-title" content="MBD Inventory">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0F0B08">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -803,7 +813,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v49</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v53</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
