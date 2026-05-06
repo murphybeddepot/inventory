@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v48</title>
+<title>MBD Inventory Scanner v49</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -803,7 +803,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v48</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v49</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -3317,6 +3317,8 @@ function renderReceiveStock() {
     +   (sess.qty || '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>')
     + '</div>'
     + renderKeypad()
+    // Photo estimate button — sends a photo to Claude Vision, returns count + confidence
+    + '<button type="button" onclick="openPhotoEstimate(\'stockReceive\')" class="amp-btn info" style="width:100%;margin-top:10px;font-size:14px;padding:14px">📷 Estimate Quantity from Photo</button>'
 
     // Location chips + input + keypad
     + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px;margin-top:14px">Location</label>'
@@ -4167,6 +4169,7 @@ function renderCycleCountModal() {
             + '</div>'
           : '<div style="text-align:center;padding:8px 12px;background:#f5f5f5;color:#444;border-radius:8px;margin-bottom:8px;font-size:12px">System says: '+fmt(expectedQty)+'</div>')
       + renderCycleKeypad()
+      + '<button type="button" onclick="openPhotoEstimate(\'cycleCount\')" class="amp-btn info" style="width:100%;margin-top:10px;font-size:14px;padding:14px">📷 Estimate Quantity from Photo</button>'
       + '<button id="cycleCountSave" onclick="saveCycleCount()" style="width:100%;margin-top:14px;padding:18px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">✓ Save Count</button>';
   }
 
@@ -4914,6 +4917,243 @@ async function takeCabinetPhotoOcr() {
     if (ld) ld.remove();
   }
 }
+
+// ── PHOTO COUNT ESTIMATOR ─────────────────────────────────────────────
+// Used by Add Stock and Cycle Count to suggest a quantity from a photo
+// of a bin. The AI returns count + confidence + a brief description of
+// what it sees, plus an optional SKU guess if a label is in frame.
+//
+// Flow:
+//   1. User taps 📷 Estimate Quantity from Photo
+//   2. Native file picker opens (with capture=environment for rear cam)
+//   3. Photo is base64-encoded and sent to Claude Vision
+//   4. Loading modal shown while waiting (~3-5 sec)
+//   5. Result modal: count, confidence pill, description, [accept] / [enter different]
+//   6. Accept → fills the qty in the calling flow; Enter different → just closes
+//
+// flow argument: 'stockReceive' | 'cycleCount' — tells us which qty input
+// to fill on accept.
+
+let photoEstimateContext = null; // { flow }
+
+function openPhotoEstimate(flow) {
+  photoEstimateContext = { flow };
+  // Trigger a hidden file input with capture=environment (rear camera on mobile)
+  let inp = document.getElementById('photoEstimateFileInput');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.capture = 'environment';
+    inp.id = 'photoEstimateFileInput';
+    inp.style.display = 'none';
+    inp.onchange = handlePhotoEstimateFile;
+    document.body.appendChild(inp);
+  }
+  inp.value = ''; // reset so same file picks again
+  inp.click();
+}
+
+async function handlePhotoEstimateFile(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  // Read as base64
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result;
+    const base64 = dataUrl.split(',')[1];
+    const mediaType = (dataUrl.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
+    sendPhotoToClaudeVision(base64, mediaType);
+  };
+  reader.readAsDataURL(file);
+}
+
+function showPhotoEstimateLoading() {
+  const div = document.createElement('div');
+  div.id = 'photoEstimateLoading';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:10000;flex-direction:column;gap:14px;color:var(--green-bright);font-family:Barlow Condensed,sans-serif;text-align:center;padding:20px';
+  div.innerHTML = '<div style="font-size:48px">⌛</div>'
+    + '<div style="font-size:18px;font-weight:800;letter-spacing:2px;text-transform:uppercase">Counting…</div>'
+    + '<div style="font-size:12px;color:var(--text-dim);max-width:280px;line-height:1.5">Asking Claude Vision to count what\'s in the photo. This usually takes 3-5 seconds.</div>';
+  document.body.appendChild(div);
+}
+
+function hidePhotoEstimateLoading() {
+  const div = document.getElementById('photoEstimateLoading');
+  if (div) div.remove();
+}
+
+async function sendPhotoToClaudeVision(base64, mediaType) {
+  const apiKey = localStorage.getItem('mbd_anthropic_key') || '';
+  if (!apiKey) {
+    showToast('⚠ Anthropic API key missing — set in More → Barcodes/Settings');
+    return;
+  }
+  showPhotoEstimateLoading();
+
+  // Pull SKU context if known — helps the AI know what kind of items to expect
+  let skuContext = '';
+  if (photoEstimateContext.flow === 'stockReceive') {
+    const skuInp = document.getElementById('stockReceiveSku');
+    const sku = skuInp ? skuInp.value.trim() : '';
+    if (sku) {
+      const item = items.find(i => !i.deleted && (i.sku || '').toUpperCase() === sku.toUpperCase());
+      if (item) {
+        skuContext = '\nThe SKU being counted is "' + item.sku + '"' + (item.name ? ' — ' + item.name : '') + '. Items are typically packaged in ' + (item.category || 'unknown') + '-style packaging.';
+      } else {
+        skuContext = '\nThe SKU being counted is "' + sku + '".';
+      }
+    }
+  } else if (photoEstimateContext.flow === 'cycleCount') {
+    const sess = cycleCountSession;
+    const item = sess && sess.itemUuid ? findItemByUuid(sess.itemUuid) : null;
+    if (item) {
+      skuContext = '\nThe SKU being counted is "' + item.sku + '"' + (item.name ? ' — ' + item.name : '') + '. Items are typically packaged in ' + (item.category || 'unknown') + '-style packaging.';
+    }
+  }
+
+  const prompt = 'You are helping a warehouse worker count inventory in a bin or shelf area. '
+    + 'Look at this photo and count the items visible.' + skuContext + '\n\n'
+    + 'Return ONLY a JSON object (no markdown, no commentary, no code fences) with this exact shape:\n'
+    + '{\n'
+    + '  "count": <integer>,\n'
+    + '  "confidence": "high" | "medium" | "low",\n'
+    + '  "what_i_see": "<one short sentence describing what you counted, e.g. \'15 cardboard hinge boxes stacked 3 wide x 5 deep\'>",\n'
+    + '  "concerns": "<null OR one short sentence about anything that made counting hard, e.g. \'some items are partially obscured behind others\'>",\n'
+    + '  "sku_seen": "<null OR the SKU code if a label is visible AND you read it confidently>"\n'
+    + '}\n\n'
+    + 'Confidence guide:\n'
+    + '- "high" = items are clearly separated, fully visible, easy to count\n'
+    + '- "medium" = some uncertainty (stacked items, partial obscurance, glare)\n'
+    + '- "low" = many items hidden, poor lighting, or you had to estimate\n\n'
+    + 'Only set sku_seen if you read a SKU label clearly. Otherwise null.';
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 400,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error('API ' + resp.status + ': ' + errText.slice(0, 200));
+    }
+    const data = await resp.json();
+    const text = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
+    let parsed;
+    try {
+      // Strip code fences if the model added them despite instructions
+      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch(e) {
+      throw new Error('Could not parse AI response: ' + text.slice(0, 100));
+    }
+    hidePhotoEstimateLoading();
+    showPhotoEstimateResult(parsed, base64, mediaType);
+  } catch(err) {
+    hidePhotoEstimateLoading();
+    showToast('⚠ Photo estimate failed: ' + err.message);
+    if (typeof FB !== 'undefined' && FB.error) FB.error();
+  }
+}
+
+function showPhotoEstimateResult(result, base64, mediaType) {
+  const count = parseInt(result.count, 10);
+  const confidence = (result.confidence || 'medium').toLowerCase();
+  const what = result.what_i_see || '';
+  const concerns = result.concerns && result.concerns !== 'null' ? result.concerns : '';
+  const skuSeen = result.sku_seen && result.sku_seen !== 'null' ? result.sku_seen : '';
+
+  const confMeta = {
+    high:   { color: '#00C853', bg: 'rgba(0,200,83,.15)',   label: '✓ HIGH CONFIDENCE',   note: 'Items clearly separated, easy to count.' },
+    medium: { color: '#FFB300', bg: 'rgba(255,179,0,.15)',  label: '⚠ MEDIUM CONFIDENCE', note: 'Some uncertainty — verify if it matters.' },
+    low:    { color: '#FF5252', bg: 'rgba(255,82,82,.18)',  label: '⚠ LOW CONFIDENCE',    note: 'Hard to count from this photo. Recommend manual verification.' },
+  };
+  const meta = confMeta[confidence] || confMeta.medium;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'photoEstimateResultOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px';
+  overlay.innerHTML = ''
+    + '<div class="amp-modal" style="width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column">'
+    +   '<div class="amp-modal-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 18px;flex-shrink:0">'
+    +     '<div class="keep-dark-text" style="font-family:Barlow Condensed,sans-serif;font-size:18px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:1.5px;text-shadow:0 1px 0 rgba(255,255,255,.4)">📷 Photo Count</div>'
+    +     '<button onclick="closePhotoEstimateResult()" class="keep-dark-text" style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;font-size:20px;font-weight:900;cursor:pointer;width:36px;height:36px;border-radius:0;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -1px 2px rgba(0,0,0,.4)">×</button>'
+    +   '</div>'
+    +   '<div style="flex:1 1 auto;overflow-y:auto;padding:18px 20px;background:var(--surface)">'
+    // Photo preview
+    +     '<img src="data:'+mediaType+';base64,'+base64+'" style="display:block;width:100%;max-height:200px;object-fit:cover;border:2px solid var(--brass-dim);margin-bottom:14px">'
+    // Big count
+    +     '<div style="text-align:center;background:#000;border:2px solid var(--brass-dim);padding:18px 14px;margin-bottom:10px">'
+    +       '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:2px;color:var(--brass);margin-bottom:6px">Suggested Count</div>'
+    +       '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:64px;font-weight:900;color:var(--green-bright);line-height:1;text-shadow:0 0 18px rgba(0,230,118,.5)">'+(isNaN(count)?'?':count)+'</div>'
+    +     '</div>'
+    // Confidence pill
+    +     '<div style="display:inline-block;background:'+meta.bg+';color:'+meta.color+';padding:6px 14px;border:1.5px solid '+meta.color+';font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:900;letter-spacing:1.5px;margin-bottom:10px">'+meta.label+'</div>'
+    +     '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">'+esc(meta.note)+'</div>'
+    // What I see
+    +     (what ? '<div style="font-size:13px;color:var(--tape-cream);margin-bottom:10px;line-height:1.55;padding:10px 12px;background:rgba(255,255,255,.03);border-left:2px solid var(--brass)"><strong style="color:var(--brass);font-size:11px;text-transform:uppercase;letter-spacing:1.5px;display:block;margin-bottom:4px">What I see</strong>'+esc(what)+'</div>' : '')
+    // Concerns
+    +     (concerns ? '<div style="font-size:13px;color:var(--orange-bright);margin-bottom:10px;line-height:1.55;padding:10px 12px;background:rgba(255,179,0,.08);border-left:2px solid var(--orange-bright)"><strong style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;display:block;margin-bottom:4px">⚠ Concerns</strong>'+esc(concerns)+'</div>' : '')
+    // SKU detected (only if high confidence)
+    +     (skuSeen && confidence === 'high' ? '<div style="font-size:13px;color:var(--green-bright);margin-bottom:10px;line-height:1.55;padding:10px 12px;background:rgba(0,200,83,.08);border-left:2px solid var(--green-bright)"><strong style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;display:block;margin-bottom:4px">🏷 SKU detected</strong>'+esc(skuSeen)+' <span style="opacity:.7;font-size:11px">(will be filled in too if you accept)</span></div>' : '')
+    // Action buttons
+    +     '<div style="display:flex;gap:8px;margin-top:14px;flex-direction:column">'
+    +       '<button onclick="acceptPhotoEstimate('+(isNaN(count)?'null':count)+', '+(skuSeen && confidence==='high' ? '\''+esc(skuSeen)+'\'' : 'null')+')" class="amp-btn go" style="width:100%">✓ Use this count</button>'
+    +       '<button onclick="closePhotoEstimateResult()" class="amp-btn warn" style="width:100%">Enter different qty manually</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(overlay);
+}
+
+function closePhotoEstimateResult() {
+  const ov = document.getElementById('photoEstimateResultOverlay');
+  if (ov) ov.remove();
+}
+
+function acceptPhotoEstimate(count, sku) {
+  if (count === null || count === undefined || isNaN(count)) {
+    showToast('⚠ AI did not return a usable count');
+    closePhotoEstimateResult();
+    return;
+  }
+  if (!photoEstimateContext) { closePhotoEstimateResult(); return; }
+  if (photoEstimateContext.flow === 'stockReceive') {
+    stockReceiveSession.qty = String(count);
+    if (sku) {
+      // SKU detected with high confidence — fill it in if the SKU field is empty
+      const skuInp = document.getElementById('stockReceiveSku');
+      if (skuInp && !skuInp.value.trim()) {
+        skuInp.value = sku;
+        stockReceiveSession.currentSku = sku.trim().toUpperCase().replace(/^DEPOT[\s-]+/i, '');
+      }
+    }
+    renderReceiveStock();
+  } else if (photoEstimateContext.flow === 'cycleCount') {
+    cycleCountSession.actualQty = String(count);
+    renderCycleCountModal();
+  }
+  closePhotoEstimateResult();
+  if (typeof FB !== 'undefined' && FB.success) FB.success();
+  showToast('✓ Count set to ' + count);
+}
+
 
 // ── STOCK TAB · FIND BY LOCATION KEYPAD ─────────────────────────────────
 // Separate from the SKU search. Lets a worker enter a bin location and
