@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v35</title>
+<title>MBD Inventory Scanner v47</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -28,36 +28,52 @@
   --accent-orange: #FF9100;
   --accent-red: #FF5252;
 }
-body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#F0F4F8;min-height:100vh;color:#1a1a1a}
+body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#050709;background-image:
+  /* Faint tweed weave at low opacity for cabinet-exterior vibe */
+  repeating-linear-gradient(45deg, rgba(201,168,120,.04) 0px, rgba(201,168,120,.04) 2px, transparent 2px, transparent 5px),
+  repeating-linear-gradient(-45deg, rgba(0,0,0,.18) 0px, rgba(0,0,0,.18) 1px, transparent 1px, transparent 5px),
+  radial-gradient(circle at 20% 0%,rgba(0,230,118,.04),transparent 50%),
+  radial-gradient(circle at 80% 100%,rgba(255,82,82,.04),transparent 50%),
+  linear-gradient(180deg,#050709 0%,#0A0E15 100%);
+  min-height:100vh;color:#E8EDF4}
 :root{
-  --blue:#003087;          /* deep navy primary */
-  --blue-bright:#1A5BE0;   /* accent blue */
-  --green:#1A5C1A;         /* dark green for "do" */
-  --green-bright:#00C853;  /* electric green like fulfillment app */
-  --red:#8B0000;           /* dark red for warnings */
-  --red-bright:#E53935;
-  --orange:#FF6B00;        /* energetic orange */
-  --purple:#6A1B9A;
-  --gray:#5f6368;
-  --border:#dadce0;
+  --blue:#1A5BE0;          /* lit accent blue */
+  --blue-bright:#3B82F6;   /* hot blue for hover */
+  --green:#00C853;         /* tube-amp green */
+  --green-bright:#00E676;  /* CRT-glow green */
+  --red:#FF1744;           /* fire-engine red */
+  --red-bright:#FF5252;
+  --orange:#FF9100;        /* amber warning */
+  --orange-bright:#FFB300; /* amplifier orange */
+  --purple:#CE93D8;
+  --gray:#7A8BA0;
+  --border:rgba(232,237,244,.14);
+  /* Surface layers — industrial dark (nearly black) */
+  --surface:#0A0E15;       /* cards, panels */
+  --surface-2:#0F1520;     /* nested cards */
+  --surface-3:#141C2A;     /* hover/active rows */
+  --text:#E8EDF4;
+  --text-dim:#9AAAC0;
+  --text-faint:#5C7390;
 }
 
-.header{background:linear-gradient(135deg,var(--dk-bg) 0%,var(--dk-bg3) 100%);color:var(--dk-text);padding:16px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 4px 14px rgba(0,0,0,.45);border-bottom:1px solid var(--dk-line)}
-.header h1{font-family:'Barlow Condensed','Barlow',sans-serif;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:.5px}
-.header-badge{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
-.tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-.tab-btn{flex:1;padding:14px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:14px;font-weight:800;color:var(--gray);background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;transition:color .15s ease}
-.tab-btn:hover{color:var(--blue-bright)}
-.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+.header{background:linear-gradient(180deg,#000 0%,#0A0E15 100%);color:var(--text);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 6px 24px rgba(0,0,0,.6),0 0 0 1px rgba(0,230,118,.08) inset;border-bottom:1px solid var(--border)}
+.header h1{font-family:'Barlow Condensed','Barlow',sans-serif;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:var(--text);text-shadow:0 0 14px rgba(0,230,118,.3)}
+.header-badge{background:transparent;border:1px solid var(--green-bright);color:var(--green-bright);border-radius:0;padding:4px 10px;font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;font-family:'JetBrains Mono','Barlow Condensed',monospace;box-shadow:0 0 8px rgba(0,230,118,.25),inset 0 0 8px rgba(0,230,118,.08)}
+
+.tabs{display:flex;background:#000;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+.tab-btn{flex:1;padding:14px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:14px;font-weight:800;color:var(--text-dim);background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:1.5px;transition:all .15s ease}
+.tab-btn:hover{color:var(--green-bright)}
+.tab-btn.active{color:var(--green-bright);border-bottom-color:var(--green-bright);text-shadow:0 0 10px rgba(0,230,118,.45);background:linear-gradient(180deg,rgba(0,230,118,.08),transparent)}
 .panel{display:none;padding:14px}
 .panel.active{display:block}
 
 .mode-row{display:flex;gap:6px;margin-bottom:12px}
-.mode-chip{flex:1;padding:11px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);cursor:pointer;text-align:center;transition:all .12s ease}
-.mode-chip.active-count{border-color:var(--blue);background:#E8EFFB;color:var(--blue)}
-.mode-chip.active-addloc{border-color:var(--purple);background:#F3E5F5;color:var(--purple)}
-.mode-chip.active-received{border-color:var(--green-bright);background:#E6F4EA;color:var(--green)}
-.mode-chip.active-removed{border-color:var(--red-bright);background:#FCE8E6;color:var(--red)}
+.mode-chip{flex:1;padding:11px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-radius:8px;border:2px solid var(--border);background:var(--surface);color:var(--text-dim);cursor:pointer;text-align:center;transition:all .12s ease}
+.mode-chip.active-count{border-color:var(--blue);background:rgba(26,91,224,.15);color:#90B6FF;box-shadow:0 0 12px rgba(26,91,224,.3)}
+.mode-chip.active-addloc{border-color:var(--purple);background:rgba(206,147,216,.12);color:var(--purple)}
+.mode-chip.active-received{border-color:var(--green-bright);background:rgba(0,230,118,.12);color:var(--green-bright);box-shadow:0 0 12px rgba(0,230,118,.3)}
+.mode-chip.active-removed{border-color:var(--red);background:rgba(255,23,68,.12);color:var(--red-bright)}
 
 .input-row{display:flex;gap:8px;margin-bottom:10px;align-items:center}
 .cat-chip{padding:8px 14px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;border-radius:999px;border:1.5px solid var(--border);background:#fff;color:var(--gray);cursor:pointer;transition:all .12s ease}
@@ -213,39 +229,618 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .addloc-summary{background:#f3e5f5;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#7b1fa2;font-weight:600}
 .addloc-summary span{font-size:20px;font-weight:700}
 
-.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:500;z-index:999;opacity:0;transition:.3s;pointer-events:none;max-width:88vw;text-align:center}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#000;color:var(--green-bright);border:1px solid var(--green-bright);padding:10px 20px;border-radius:0;font-family:'JetBrains Mono','Barlow Condensed',monospace;font-size:13px;font-weight:700;letter-spacing:1px;z-index:999;opacity:0;transition:.3s;pointer-events:none;max-width:88vw;text-align:center;box-shadow:0 0 16px rgba(0,230,118,.35),inset 0 0 8px rgba(0,230,118,.1)}
 .toast.show{opacity:1}
 
-/* Print mode — force dark surfaces to white so bin labels and any printed
-   content stays readable and ink-friendly. Targets the dark hero cards used
-   for headers, item details, cabinet details, active-shipment banners. */
+/* ── WEATHERED ROCK-AND-ROLL ACCENTS ──────────────────────────────────────
+   Brass/copper highlights, warm-black surfaces, faint metal-grain noise.
+   Layered on top of the dark gamer base for "old guitar" personality.
+   With a Fender-amp pass: tweed/cream warmth, chrome control plate vibes,
+   aged-shellac yellow, faded edges. */
+:root {
+  --brass:        #C9A961;       /* warm brass — knobs, screws, plate edges */
+  --brass-dim:    #8B7239;       /* aged brass — softer accents */
+  --copper:       #B87333;       /* hardware accent */
+  --warm-black:   #0B0908;       /* slightly brown-black like worn ebony */
+  --amber-glow:   rgba(255,179,0,.18);  /* tube-amp warmth */
+  --tape-cream:   #E8DCC4;       /* aged tape-label text */
+  --tweed:        #C9A878;       /* aged tweed cloth highlight */
+  --tweed-dark:   #6B5635;       /* shadow valleys in tweed weave */
+  --shellac:      #D4A03C;       /* aged amber/orange varnish */
+  --chrome:       #C8CDD3;       /* control plate metal */
+  --chrome-dk:    #6B7180;
+}
+
+/* Faint noise/grain overlay — applied to body for an aged feel */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: .03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.85' numOctaves='2' /%3E%3CfeColorMatrix values='0 0 0 0 .8  0 0 0 0 .65  0 0 0 0 .35  0 0 0 1 0' /%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' /%3E%3C/svg%3E");
+}
+.header { z-index: 100; position: sticky !important; top: 0; }
+.tabs   { z-index: 99;  position: sticky !important; top: 56px; display: flex !important; }
+.panel  { z-index: 1; position: relative; }
+
+/* Help/tip text — better contrast than the previous dim grey */
+.help-text, [style*="color:var(--text-dim)"] { color: #B8C4D6 !important; }
+
+/* Search rig — looks like a 1965 Fender Twin control plate
+   over a tweed-clad cabinet. Light tan tweed (not dark brown — real
+   Fender tweed is closer to wheat/yellow), chrome plate strip with the
+   LED + label, brown leather welt around the edges. */
+.search-rig {
+  background:
+    radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,.45) 110%),
+    /* Tweed weave: warp threads going one direction */
+    repeating-linear-gradient(
+      45deg,
+      #C9A878 0px, #C9A878 2px,
+      #8B6F3F 2px, #8B6F3F 3px,
+      #C9A878 3px, #C9A878 5px,
+      #6B5635 5px, #6B5635 6px
+    ),
+    /* Weft threads crossing — gives the woven look */
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0px, transparent 4px,
+      rgba(0,0,0,.18) 4px, rgba(0,0,0,.18) 5px
+    ),
+    linear-gradient(180deg, #BFA070 0%, #A88955 100%);
+  border: 1px solid #2A1A0E;
+  border-radius: 0;
+  padding: 0;
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 rgba(255,235,180,.35),    /* highlight on top of tweed */
+    inset 0 -1px 0 rgba(0,0,0,.5),
+    0 4px 18px rgba(0,0,0,.55),
+    0 0 0 3px #3D2A18,                       /* dark leather welt */
+    0 0 0 4px var(--brass-dim);              /* outer brass piping */
+}
+/* Brass corner "screws" — keep these but place at the chrome plate's corners */
+.search-rig::before, .search-rig::after { display: none; }
+
+/* Chrome control-plate header — holds the label + keyboard toggle */
+.search-rig-label {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: 'Barlow Condensed','Barlow',sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: #2A2A2A;
+  text-transform: uppercase;
+  background:
+    linear-gradient(180deg,
+      #E4E7EC 0%,
+      #BFC4CC 15%,
+      #989EA7 50%,
+      #BFC4CC 85%,
+      #6B7180 100%
+    );
+  padding: 9px 14px 9px 18px;
+  border-bottom: 1px solid #000;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.6),
+    inset 0 -1px 2px rgba(0,0,0,.4);
+  text-shadow: 0 1px 0 rgba(255,255,255,.4);
+  position: relative;
+}
+/* Brass screws on the chrome plate */
+.search-rig-label::before, .search-rig-label::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background:
+    radial-gradient(circle at 35% 35%, var(--brass) 30%, var(--brass-dim) 70%, #000 100%);
+  border-radius: 50%;
+  top: 50%;
+  transform: translateY(-50%);
+  box-shadow:
+    0 1px 1px rgba(0,0,0,.5),
+    inset 0 0 1px rgba(0,0,0,.5);
+}
+.search-rig-label::before { left: 4px; }
+.search-rig-label::after  { right: 4px; }
+
+/* Inner padded area for the display + keypad */
+.search-rig > input,
+.search-rig > #cabKeypadPrefix,
+.search-rig > #cabKeypadGrid,
+.search-rig > .help-tip,
+.search-rig > button.kp-clear { margin-left: 14px; margin-right: 14px; width: calc(100% - 28px); box-sizing: border-box; }
+.search-rig > input { margin-top: 14px; }
+.search-rig > .help-tip { margin-bottom: 14px; }
+.search-rig > button.kp-clear { margin-bottom: 14px; }
+
+/* Tiny lit "power" LED next to the label — keep on chrome plate */
+.brass-led {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #FFE89A 0%, var(--green-bright) 60%, #001A0A 100%);
+  box-shadow: 0 0 8px var(--green-bright), 0 0 16px rgba(0,230,118,.4);
+  animation: led-pulse 2.6s ease-in-out infinite;
+}
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
+/* Numeric keypad keys */
+.kp {
+  font-family: 'Barlow Condensed','Barlow',sans-serif;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: .5px;
+  padding: 18px 0;
+  background: linear-gradient(180deg, #1B1410 0%, #0E0907 100%);
+  color: var(--tape-cream);
+  border: 1.5px solid var(--brass-dim);
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-user-select: none; user-select: none;
+  box-shadow:
+    inset 0 1px 0 rgba(201,169,97,.18),
+    inset 0 -2px 4px rgba(0,0,0,.6),
+    0 2px 4px rgba(0,0,0,.45);
+  transition: transform .04s ease, box-shadow .08s ease, background .12s ease;
+}
+.kp:active {
+  transform: translateY(1px);
+  background: linear-gradient(180deg, #0E0907 0%, #1B1410 100%);
+  box-shadow:
+    inset 0 2px 6px rgba(0,0,0,.7),
+    0 0 8px rgba(0,230,118,.25);
+  color: var(--green-bright);
+}
+.kp.kp-back {
+  color: var(--red-bright);
+  border-color: rgba(255,82,82,.4);
+}
+.kp.kp-clear {
+  color: var(--orange-bright);
+  border-color: rgba(255,179,0,.4);
+  font-size: 16px;
+  letter-spacing: 1.5px;
+}
+
+/* Prefix chips */
+.kp-prefix {
+  flex: 1;
+  font-family: 'Barlow Condensed','Barlow',sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  padding: 12px 0;
+  background: linear-gradient(180deg, #1B1410 0%, #0E0907 100%);
+  color: var(--text-dim);
+  border: 1.5px solid var(--brass-dim);
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-user-select: none; user-select: none;
+  box-shadow:
+    inset 0 1px 0 rgba(201,169,97,.18),
+    0 2px 4px rgba(0,0,0,.45);
+  transition: all .12s ease;
+}
+.kp-prefix.active {
+  background: linear-gradient(180deg, rgba(0,230,118,.22) 0%, rgba(0,230,118,.08) 100%);
+  color: var(--green-bright);
+  border-color: var(--green-bright);
+  box-shadow:
+    inset 0 0 8px rgba(0,230,118,.3),
+    0 0 14px rgba(0,230,118,.35);
+  text-shadow: 0 0 8px rgba(0,230,118,.55);
+}
+
+/* Letter buttons C/D/E — same look as digit keys, no "active" state */
+.kp-letter {
+  font-family: 'Barlow Condensed','Barlow',sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  padding: 14px 0;
+  background: linear-gradient(180deg, #1B1410 0%, #0E0907 100%);
+  color: var(--tape-cream);
+  border: 1.5px solid var(--brass-dim);
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-user-select: none; user-select: none;
+  box-shadow:
+    inset 0 1px 0 rgba(201,169,97,.18),
+    inset 0 -2px 4px rgba(0,0,0,.6),
+    0 2px 4px rgba(0,0,0,.45);
+  transition: transform .04s ease, box-shadow .08s ease, background .12s ease;
+}
+.kp-letter:active {
+  transform: translateY(1px);
+  background: linear-gradient(180deg, #0E0907 0%, #1B1410 100%);
+  color: var(--green-bright);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.7), 0 0 8px rgba(0,230,118,.25);
+}
+
+/* ── AMP-MODAL ─────────────────────────────────────────────────────────
+   Modals (Add Stock, Receive Shipment, Edit Item, etc.) are wrapped in
+   a tweed cabinet with a chrome-plate header strip — same vibe as the
+   search rig, applied to the popup. The interior body stays a clean dark
+   surface so dense controls (qty keypad, status pills, save button) have
+   breathing room. */
+.amp-modal {
+  background:
+    /* Tweed weave — same pattern as search-rig */
+    repeating-linear-gradient(
+      45deg,
+      #C9A878 0px, #C9A878 2px,
+      #8B6F3F 2px, #8B6F3F 3px,
+      #C9A878 3px, #C9A878 5px,
+      #6B5635 5px, #6B5635 6px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0px, transparent 4px,
+      rgba(0,0,0,.18) 4px, rgba(0,0,0,.18) 5px
+    ),
+    linear-gradient(180deg, #BFA070 0%, #A88955 100%);
+  border: 1px solid #2A1A0E;
+  box-shadow:
+    inset 0 1px 0 rgba(255,235,180,.35),
+    0 8px 36px rgba(0,0,0,.6),
+    0 0 0 3px #3D2A18,
+    0 0 0 4px var(--brass-dim);
+}
+/* Chrome control plate for the modal header */
+.amp-modal-header {
+  background:
+    linear-gradient(180deg,
+      #E4E7EC 0%,
+      #BFC4CC 15%,
+      #989EA7 50%,
+      #BFC4CC 85%,
+      #6B7180 100%
+    );
+  border-bottom: 1px solid #000;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.6),
+    inset 0 -2px 4px rgba(0,0,0,.4);
+  position: relative;
+}
+/* Brass screws bookending the modal chrome plate */
+.amp-modal-header::before, .amp-modal-header::after {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: radial-gradient(circle at 35% 35%, var(--brass) 30%, var(--brass-dim) 70%, #000 100%);
+  border-radius: 50%;
+  top: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 1px 1px rgba(0,0,0,.5), inset 0 0 1px rgba(0,0,0,.5);
+}
+.amp-modal-header::before { left: 5px; }
+.amp-modal-header::after  { right: 5px; }
+
+/* When keypad is in iOS-keyboard mode, the keypad grid hides and the
+   input becomes editable normally. */
+.search-rig.kb-mode #cabKeypadGrid,
+.search-rig.kb-mode #cabKeypadPrefix { display: none !important; }
+.search-rig.kb-mode #cabSearchInput {
+  font-size: 28px !important;
+  padding: 16px !important;
+  letter-spacing: 4px !important;
+}
+
+/* ── AMP-FACEPLATE BUTTONS ─────────────────────────────────────────────
+   Big primary actions styled like guitar amp toggle switches:
+   chrome edge bevel, brass corner screws, embossed lettering, glowing
+   indicator LED that lights up when the button is the "active" one. */
+.amp-btn {
+  position: relative;
+  flex: 1;
+  min-width: 160px;
+  padding: 18px 14px;
+  background: linear-gradient(180deg, #1A140E 0%, #0A0706 100%);
+  color: var(--tape-cream);
+  border: 2px solid var(--brass-dim);
+  border-radius: 4px;
+  font-family: 'Barlow Condensed','Barlow',sans-serif;
+  font-size: 17px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  cursor: pointer;
+  text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 0 8px rgba(201,169,97,.15);
+  box-shadow:
+    inset 0 1px 0 rgba(201,169,97,.3),       /* top brass highlight */
+    inset 0 -2px 6px rgba(0,0,0,.7),          /* bottom inset shadow */
+    inset 0 0 0 1px rgba(0,0,0,.5),           /* sharp inner edge */
+    0 4px 0 #000,                             /* sit-on-surface depth */
+    0 6px 12px rgba(0,0,0,.6);                /* drop shadow */
+  transition: transform .04s ease, box-shadow .08s ease;
+  -webkit-user-select: none; user-select: none;
+}
+.amp-btn:active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 2px 6px rgba(0,0,0,.7),
+    inset 0 0 0 1px rgba(0,0,0,.5),
+    0 2px 0 #000,
+    0 3px 6px rgba(0,0,0,.6);
+}
+/* Brass corner screws */
+.amp-btn::before, .amp-btn::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: radial-gradient(circle at 35% 35%, var(--brass) 30%, var(--brass-dim) 70%, #000 100%);
+  border-radius: 50%;
+  box-shadow: 0 1px 1px rgba(0,0,0,.6), inset 0 0 1px rgba(0,0,0,.5);
+  top: 5px;
+}
+.amp-btn::before { left: 6px; }
+.amp-btn::after  { right: 6px; }
+
+/* Color variants — green LED bar on the left for "go" actions, red for
+   destructive, amber/orange for "warning/move", blue for "info" */
+.amp-btn.go {
+  border-color: rgba(0,230,118,.45);
+  box-shadow:
+    inset 0 1px 0 rgba(0,230,118,.35),
+    inset 0 -2px 6px rgba(0,0,0,.7),
+    inset 0 0 0 1px rgba(0,0,0,.5),
+    inset 4px 0 0 var(--green-bright),                   /* lit edge bar */
+    inset 5px 0 14px rgba(0,230,118,.35),                /* glow into face */
+    0 4px 0 #000,
+    0 0 22px rgba(0,230,118,.18),
+    0 6px 12px rgba(0,0,0,.6);
+  color: #E8F8EC;
+  text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 0 10px rgba(0,230,118,.4);
+}
+.amp-btn.warn {
+  border-color: rgba(255,179,0,.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255,179,0,.35),
+    inset 0 -2px 6px rgba(0,0,0,.7),
+    inset 0 0 0 1px rgba(0,0,0,.5),
+    inset 4px 0 0 var(--orange-bright),
+    inset 5px 0 14px rgba(255,179,0,.32),
+    0 4px 0 #000,
+    0 0 22px rgba(255,179,0,.16),
+    0 6px 12px rgba(0,0,0,.6);
+  color: #FFF1D5;
+  text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 0 10px rgba(255,179,0,.4);
+}
+.amp-btn.info {
+  border-color: rgba(26,91,224,.5);
+  box-shadow:
+    inset 0 1px 0 rgba(26,91,224,.35),
+    inset 0 -2px 6px rgba(0,0,0,.7),
+    inset 0 0 0 1px rgba(0,0,0,.5),
+    inset 4px 0 0 var(--blue-bright),
+    inset 5px 0 14px rgba(26,91,224,.35),
+    0 4px 0 #000,
+    0 0 22px rgba(26,91,224,.18),
+    0 6px 12px rgba(0,0,0,.6);
+  color: #DAE8FF;
+  text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 0 10px rgba(26,91,224,.5);
+}
+.amp-btn.danger {
+  border-color: rgba(255,82,82,.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255,82,82,.3),
+    inset 0 -2px 6px rgba(0,0,0,.7),
+    inset 0 0 0 1px rgba(0,0,0,.5),
+    inset 4px 0 0 var(--red-bright),
+    inset 5px 0 14px rgba(255,82,82,.3),
+    0 4px 0 #000,
+    0 0 22px rgba(255,82,82,.18),
+    0 6px 12px rgba(0,0,0,.6);
+  color: #FFE0E0;
+  text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 0 10px rgba(255,82,82,.5);
+}
+
+/* Print mode — force all dark surfaces back to white so bin labels and
+   printed content stay ink-friendly. */
 @media print {
-  body { background: #fff !important; color: #000 !important; }
-  .header { background: #fff !important; color: #000 !important; box-shadow: none !important; border-bottom: 2px solid #000 !important; }
+  body { background: #fff !important; color: #000 !important; background-image: none !important; }
+  body::before { display: none !important; }
+  .header { background: #fff !important; color: #000 !important; box-shadow: none !important; border-bottom: 2px solid #000 !important; text-shadow: none !important; }
+  .tabs, .toast, #cabKeypadGrid, #cabKeypadPrefix, .kp, .kp-prefix { display: none !important; }
   [style*="linear-gradient(135deg,#0D1520"],
-  [style*="linear-gradient(135deg, #0D1520"] {
+  [style*="linear-gradient(135deg, #0D1520"],
+  [style*="linear-gradient(180deg"] {
     background: #fff !important;
     color: #000 !important;
     box-shadow: none !important;
     border: 2px solid #000 !important;
+    text-shadow: none !important;
   }
+  * {
+    color: #000 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* ── INDUSTRIAL DARK THEME OVERRIDES ──────────────────────────────────────
+   The app uses inline styles in many places (legacy from rapid JS-rendered
+   UI). These rules override common light-surface patterns at the inline-
+   style level so the whole app reads as dark + glowing without rewriting
+   thousands of lines of JS. */
+
+/* Inputs and selects — dark with subtle glow on focus */
+input[type="text"], input[type="number"], input[type="password"], input[type="tel"], input[type="email"], input[type="search"], textarea, select {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+  caret-color: var(--green-bright);
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--green-bright) !important;
+  box-shadow: 0 0 0 3px rgba(0,230,118,.18), inset 0 0 8px rgba(0,230,118,.08) !important;
+  outline: none !important;
+}
+input::placeholder, textarea::placeholder {
+  color: var(--text-faint) !important;
+}
+
+/* Override common white card pattern in inline styles. JS code uses
+   background:#fff for cards, list rows, modals. Convert these to dark
+   panels without touching the JS. */
+[style*="background:#fff"]:not(.no-dark) {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+[style*="background: #fff"]:not(.no-dark) {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+[style*="background:#f5f5f5"], [style*="background: #f5f5f5"] {
+  background: var(--surface-2) !important;
+  color: var(--text-dim) !important;
+}
+[style*="background:#fafafa"], [style*="background: #fafafa"] {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+}
+[style*="background:#EAF0FB"], [style*="background: #EAF0FB"] {
+  background: rgba(26,91,224,.18) !important;
+  color: #90B6FF !important;
+}
+[style*="background:#E6F4EA"], [style*="background: #E6F4EA"] {
+  background: rgba(0,230,118,.14) !important;
+  color: var(--green-bright) !important;
+}
+[style*="background:#FFF8E1"], [style*="background: #FFF8E1"] {
+  background: rgba(255,179,0,.14) !important;
+  color: var(--orange-bright) !important;
+}
+[style*="background:#FDECEA"], [style*="background: #FDECEA"] {
+  background: rgba(255,23,68,.14) !important;
+  color: var(--red-bright) !important;
+}
+[style*="background:#FCE8E6"] {
+  background: rgba(255,23,68,.14) !important;
+  color: var(--red-bright) !important;
+}
+[style*="background:#F3E5F5"] {
+  background: rgba(206,147,216,.14) !important;
+  color: var(--purple) !important;
+}
+
+/* Common dark-text on inline styles — invert for dark mode.
+   Skip elements that also have a chrome/silver inline background (those
+   are control-plate buttons that intentionally use dark text on light
+   chrome — e.g. CAMERA/TYPE on the search rig, modal × close button).
+   Skip elements with `.keep-dark-text` opt-out class. */
+[style*="color:#1a1a1a"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color: #1a1a1a"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color:#222"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color: #222"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text) {
+  color: var(--text) !important;
+}
+[style*="color:#444"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color: #444"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color:#666"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color: #666"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color:#888"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+[style*="color: #888"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text) {
+  color: var(--text-dim) !important;
+}
+
+/* Borders that were light grey become subtle white glow */
+[style*="border:1px solid #e0e0e0"], [style*="border: 1px solid #e0e0e0"],
+[style*="border:1.5px solid #e0e0e0"], [style*="border: 1.5px solid #e0e0e0"],
+[style*="border:1px solid #ddd"], [style*="border: 1px solid #ddd"],
+[style*="border:1.5px solid #ccc"], [style*="border: 1.5px solid #ccc"],
+[style*="border:1px solid #ccc"], [style*="border: 1px solid #ccc"],
+[style*="border:1.5px solid #999"], [style*="border:1.5px solid #bbb"] {
+  border-color: var(--border) !important;
+}
+
+/* Big numbers — give them the JetBrains Mono industrial gauge feel.
+   Targets the Barlow Condensed huge font sizes used for cabinet locations,
+   stock counts, etc. */
+[style*="Barlow Condensed"][style*="font-size:48px"],
+[style*="Barlow Condensed"][style*="font-size:42px"],
+[style*="Barlow Condensed"][style*="font-size:36px"] {
+  text-shadow: 0 0 20px rgba(0,230,118,.4), 0 0 40px rgba(0,230,118,.2);
+  letter-spacing: 2px !important;
+}
+
+/* Default dark panels for inline style elements without explicit white bg
+   that historically relied on body being light. */
+.barcode-hint, .info-banner {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.barcode-hint strong, .info-banner strong {
+  color: var(--text) !important;
 }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v35</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v47</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
   <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
-  <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')">Items</button>
-  <button class="tab-btn" id="tab-cycle-btn" onclick="switchTab('cycle')">Cycle</button>
+  <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')">Stock</button>
+  <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()" style="flex:0 0 60px">⋯</button>
+  <button class="tab-btn" id="tab-cycle-btn" onclick="switchTab('cycle')" style="display:none">Count</button>
   <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')" style="display:none">Inventory</button>
-  <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')">Barcodes</button>
-  <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')">Log</button>
-  <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')">Export</button>
+  <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')" style="display:none">Barcodes</button>
+  <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')" style="display:none">Log</button>
+  <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')" style="display:none">Export</button>
+</div>
+
+<!-- MORE MENU — secondary tabs accessed via the ⋯ button -->
+<div id="moreMenuOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998" onclick="closeMoreMenu()">
+  <div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 28px;max-height:80vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">
+    <div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">More</div>
+    <button onclick="goToTabFromMore('cycle')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🎯</span>
+      <div style="flex:1">
+        <div>Count</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Scheduled cycle counting · Tue/Thu/Fri</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('barcodes')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🎛</span>
+      <div style="flex:1">
+        <div>Barcodes</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Scanner mappings + feedback settings</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('log')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📋</span>
+      <div style="flex:1">
+        <div>Log</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Audit trail of everything that happened</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('export')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px">
+      <span style="font-size:22px">📤</span>
+      <div style="flex:1">
+        <div>Export</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Download data as spreadsheet</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="closeMoreMenu()" style="width:100%;padding:14px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>
+  </div>
 </div>
 
 <div id="tab-scan" class="panel">
@@ -306,14 +901,44 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 
 <div id="tab-cabinets" class="panel active">
 
-  <!-- BIG SEARCH BAR -->
-  <div style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
-    <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Find a Cabinet</label>
-    <input type="text" id="cabSearchInput" placeholder="Type or scan cabinet #…"
-      style="width:100%;padding:14px 16px;font-size:18px;font-weight:600;border:2px solid #ccc;border-radius:10px;outline:none;font-family:inherit;-webkit-appearance:none"
-      autocomplete="off" autocorrect="off" autocapitalize="characters">
-    <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.5">
-      Tip: scan the cabinet's barcode label, or type the cabinet # (order # for made-to-order, lot # for stock). You can also search by location to see what's there.
+  <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
+  <div class="search-rig" style="margin-bottom:16px">
+    <div class="search-rig-label">
+      <span style="display:flex;align-items:center;gap:8px"><span class="brass-led"></span>FIND A CABINET</span>
+      <span style="display:flex;gap:4px">
+        <button onclick="openCabinetCameraScan()" type="button" class="keep-dark-text" title="Open camera to scan a barcode or take a photo"
+          style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;padding:8px 16px;font-size:14px;font-weight:900;letter-spacing:1.2px;cursor:pointer;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 -1px 2px rgba(0,0,0,.4);text-transform:uppercase;font-family:'Barlow Condensed','Barlow',sans-serif;min-height:36px">CAMERA</button>
+        <button id="cabKeypadToggle" onclick="toggleCabKeypad()" type="button" class="keep-dark-text" title="Switch to typing on the iOS keyboard"
+          style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;padding:8px 16px;font-size:14px;font-weight:900;letter-spacing:1.2px;cursor:pointer;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 -1px 2px rgba(0,0,0,.4);text-transform:uppercase;font-family:'Barlow Condensed','Barlow',sans-serif;min-height:36px">TYPE</button>
+      </span>
+    </div>
+    <input type="text" id="cabSearchInput" placeholder="—————"
+      style="padding:18px 16px;font-size:36px;font-weight:900;font-family:'JetBrains Mono','Barlow Condensed',monospace;letter-spacing:6px;text-align:center;border:2px solid var(--border);border-radius:0;outline:none;-webkit-appearance:none;background:#000;color:var(--green-bright);text-shadow:0 0 18px rgba(0,230,118,.6),0 0 4px rgba(0,230,118,.4);caret-color:var(--green-bright);box-shadow:inset 0 2px 12px rgba(0,0,0,.7),inset 0 -1px 0 rgba(0,230,118,.15)"
+      autocomplete="off" autocorrect="off" autocapitalize="characters" inputmode="none" readonly>
+    <!-- Letter buttons — tap to append C, D, or E to the current entry -->
+    <div id="cabKeypadPrefix" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px">
+      <button type="button" onclick="cabDigitTap('C')" class="kp-letter">C</button>
+      <button type="button" onclick="cabDigitTap('D')" class="kp-letter">D</button>
+      <button type="button" onclick="cabDigitTap('E')" class="kp-letter">E</button>
+    </div>
+    <!-- Numeric keypad — digits, period (for locations like 001.005), backspace, clear -->
+    <div id="cabKeypadGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px">
+      <button type="button" onclick="cabDigitTap('1')" class="kp">1</button>
+      <button type="button" onclick="cabDigitTap('2')" class="kp">2</button>
+      <button type="button" onclick="cabDigitTap('3')" class="kp">3</button>
+      <button type="button" onclick="cabDigitTap('4')" class="kp">4</button>
+      <button type="button" onclick="cabDigitTap('5')" class="kp">5</button>
+      <button type="button" onclick="cabDigitTap('6')" class="kp">6</button>
+      <button type="button" onclick="cabDigitTap('7')" class="kp">7</button>
+      <button type="button" onclick="cabDigitTap('8')" class="kp">8</button>
+      <button type="button" onclick="cabDigitTap('9')" class="kp">9</button>
+      <button type="button" onclick="cabDigitTap('.')" class="kp kp-dot">·</button>
+      <button type="button" onclick="cabDigitTap('0')" class="kp">0</button>
+      <button type="button" onclick="cabKeypadBackspace()" class="kp kp-back">⌫</button>
+    </div>
+    <button type="button" onclick="cabKeypadClear()" class="kp kp-clear" style="display:block;width:calc(100% - 28px);margin:6px 14px 0;padding:10px 0;font-size:13px">CLEAR</button>
+    <div class="help-tip" style="font-size:12px;color:var(--tape-cream);opacity:.85;margin-top:12px;line-height:1.55;letter-spacing:.3px;padding:0 2px">
+      Scan the barcode · tap prefix + digits · or ⌨ to type a location like <span style="color:var(--shellac);font-family:'JetBrains Mono',monospace;font-weight:700">001.005</span>
     </div>
   </div>
 
@@ -322,16 +947,16 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 
   <!-- PRIMARY ACTIONS — Add Cabinet + Bulk Move + Receive -->
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-    <button onclick="openAddCabinet()" style="flex:1;min-width:160px;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25)">
+    <button onclick="openAddCabinet()" class="amp-btn go">
       + Add Cabinet(s)
     </button>
-    <button onclick="openBulkMove()" style="flex:1;min-width:160px;background:#FF9100;color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(255,145,0,.25)">
+    <button onclick="openBulkMove()" class="amp-btn warn">
       ↪ Bulk Move
     </button>
   </div>
   <!-- Receive shipment button (shows active session badge if applicable) -->
   <div id="receiveButtonContainer">
-    <button onclick="openReceiveShipment()" style="width:100%;background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.45);margin-bottom:14px">
+    <button onclick="openReceiveShipment()" class="amp-btn info" style="width:100%;margin-bottom:14px">
       📥 Receive Shipment
     </button>
   </div>
@@ -417,6 +1042,46 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
     </div>
   </div>
 
+  <!-- FIND BY LOCATION — collapsible Fender-amp keypad rig.
+       Used when a worker wants to know "what's in bin 001.005?" rather than
+       searching by SKU. Closed by default — rare use, mostly for managers
+       hunting down the location of a specific SKU. -->
+  <details id="findByLocationDetails" style="margin-bottom:14px">
+    <summary style="background:#0F0B08;color:var(--text-dim);padding:8px 12px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;border:1px solid var(--border);border-radius:0;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>🔍 Find by Location (uncommon)</span>
+      <span style="font-size:10px;opacity:.6">▾</span>
+    </summary>
+    <div class="search-rig" style="margin-top:0;border-top:none">
+      <div class="search-rig-label">
+        <span style="display:flex;align-items:center;gap:8px"><span class="brass-led"></span>BIN LOCATION</span>
+      </div>
+      <input type="text" id="itemLocSearchInput" placeholder="—————"
+        style="width:100%;padding:18px 16px;font-size:36px;font-weight:900;font-family:'JetBrains Mono','Barlow Condensed',monospace;letter-spacing:6px;text-align:center;border:2px solid var(--border);border-radius:0;outline:none;-webkit-appearance:none;background:#000;color:var(--green-bright);text-shadow:0 0 18px rgba(0,230,118,.6),0 0 4px rgba(0,230,118,.4);caret-color:var(--green-bright);box-shadow:inset 0 2px 12px rgba(0,0,0,.7),inset 0 -1px 0 rgba(0,230,118,.15)"
+        autocomplete="off" autocorrect="off" inputmode="none" readonly>
+      <!-- Location keypad (digits + period only — no letter prefixes) -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px">
+        <button type="button" onclick="itemLocDigitTap('1')" class="kp">1</button>
+        <button type="button" onclick="itemLocDigitTap('2')" class="kp">2</button>
+        <button type="button" onclick="itemLocDigitTap('3')" class="kp">3</button>
+        <button type="button" onclick="itemLocDigitTap('4')" class="kp">4</button>
+        <button type="button" onclick="itemLocDigitTap('5')" class="kp">5</button>
+        <button type="button" onclick="itemLocDigitTap('6')" class="kp">6</button>
+        <button type="button" onclick="itemLocDigitTap('7')" class="kp">7</button>
+        <button type="button" onclick="itemLocDigitTap('8')" class="kp">8</button>
+        <button type="button" onclick="itemLocDigitTap('9')" class="kp">9</button>
+        <button type="button" onclick="itemLocDigitTap('.')" class="kp kp-dot">·</button>
+        <button type="button" onclick="itemLocDigitTap('0')" class="kp">0</button>
+        <button type="button" onclick="itemLocBackspace()" class="kp kp-back">⌫</button>
+      </div>
+      <button type="button" onclick="itemLocClear()" class="kp kp-clear" style="display:block;width:calc(100% - 28px);margin:6px 14px 0;padding:10px 0;font-size:13px">CLEAR</button>
+      <div class="help-tip" style="font-size:12px;color:var(--tape-cream);opacity:.85;margin-top:12px;line-height:1.55;letter-spacing:.3px;padding:0 2px">
+        Enter a bin location like <span style="color:var(--shellac);font-family:'JetBrains Mono',monospace;font-weight:700">001.005</span> to see every SKU stored there.
+      </div>
+    </div>
+    <!-- Location search results -->
+    <div id="itemLocResult" style="margin-top:10px"></div>
+  </details>
+
   <!-- CATEGORY FILTER CHIPS -->
   <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap" id="itemCategoryChips">
     <button class="cat-chip active" data-cat="all" onclick="filterItemCategory('all')">All</button>
@@ -429,20 +1094,20 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
   <!-- RESULT AREA -->
   <div id="itemResult"></div>
 
-  <!-- PRIMARY ACTIONS — Receive Stock + Add Item -->
-  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-    <button onclick="openReceiveStock()" style="flex:2;min-width:180px;background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border:none;border-radius:14px;padding:18px;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.45)">
-      📥 Receive Stock
+  <!-- PRIMARY ACTIONS — Receive Stock + Add Item (page-level, list view only) -->
+  <div id="itemPagePrimaryActions" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button onclick="openReceiveStock()" class="amp-btn info" style="flex:2;min-width:180px">
+      📥 Add Stock
     </button>
-    <button onclick="openAddItem()" style="flex:1;min-width:140px;background:#1A5C1A;color:#fff;border:none;border-radius:14px;padding:18px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;box-shadow:0 3px 10px rgba(26,92,26,.25)">
+    <button onclick="openAddItem()" class="amp-btn go" style="flex:1;min-width:140px;font-size:14px">
       + Add Item
     </button>
   </div>
 
   <!-- EMPTY STATE -->
   <div id="itemEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
-    <strong>📦 No items yet</strong>
-    Tap <strong>+ Add Item</strong> to add SKUs one at a time, or use Upload Spreadsheet (admin tools below).
+    <strong>📦 No stock yet</strong>
+    Tap <strong>+ Add Item</strong> to add a SKU manually, or tap <strong>📥 Add Stock</strong> to scan and quantify what arrived.
   </div>
 
   <!-- ITEM LIST -->
@@ -584,13 +1249,13 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 </div>
 
 <!-- CABINET ACTION MODAL — shared for Add / Move / Pull -->
-<div id="cabModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:stretch;justify-content:center;padding:0">
-  <div id="cabModal" style="background:#fff;width:100%;max-width:560px;margin:auto;display:flex;flex-direction:column;max-height:100vh;box-shadow:0 8px 32px rgba(0,0,0,.3)">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:18px 22px 14px;border-bottom:1.5px solid #e0e0e0;flex-shrink:0">
-      <div id="cabModalTitle" style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#003087;text-transform:uppercase;letter-spacing:.5px"></div>
-      <button onclick="closeCabModal()" style="background:#f5f5f5;border:none;color:#222;font-size:22px;font-weight:700;cursor:pointer;width:36px;height:36px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
+<div id="cabModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;align-items:stretch;justify-content:center;padding:0">
+  <div id="cabModal" class="amp-modal" style="width:100%;max-width:560px;margin:auto;display:flex;flex-direction:column;max-height:100vh">
+    <div class="amp-modal-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 18px;flex-shrink:0">
+      <div id="cabModalTitle" class="keep-dark-text" style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:18px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:1.5px;text-shadow:0 1px 0 rgba(255,255,255,.4)"></div>
+      <button onclick="closeCabModal()" class="amp-modal-x keep-dark-text" style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;font-size:20px;font-weight:900;cursor:pointer;width:36px;height:36px;border-radius:0;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -1px 2px rgba(0,0,0,.4)">×</button>
     </div>
-    <div id="cabModalBody" style="flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:18px 22px 22px;min-height:0"></div>
+    <div id="cabModalBody" style="flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 18px 22px;min-height:0;background:var(--surface)"></div>
   </div>
 </div>
 
@@ -769,6 +1434,9 @@ function stopCamera() {
   video.srcObject = null;
   document.getElementById('camOverlay').classList.remove('open');
   document.getElementById('camBtn').classList.remove('active');
+  // Remove the cabinet photo-OCR fallback button if present
+  const fb = document.getElementById('camPhotoFallbackBtn');
+  if (fb) fb.remove();
 }
 
 // Open camera with a custom callback — used to fill a location field
@@ -983,6 +1651,9 @@ function switchTab(name) {
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
+  // Reset the More button's active state when switching to a primary tab
+  const moreBtn = document.getElementById('tab-more-btn');
+  if (moreBtn) moreBtn.classList.toggle('active', ['cycle','barcodes','log','export'].indexOf(name) >= 0);
   if (name==='export') renderExport();
   if (name==='log') renderLog();
   if (name==='barcodes') { renderBarcodeMap(); syncFeedbackToggles(); }
@@ -991,6 +1662,21 @@ function switchTab(name) {
   if (name==='cycle') renderCycleTab();
   if (name==='scan') PROGRESS.refresh();
   if (name!=='scan' && camActive) stopCamera();
+}
+
+function openMoreMenu() {
+  const ov = document.getElementById('moreMenuOverlay');
+  if (ov) ov.style.display = 'block';
+}
+
+function closeMoreMenu() {
+  const ov = document.getElementById('moreMenuOverlay');
+  if (ov) ov.style.display = 'none';
+}
+
+function goToTabFromMore(name) {
+  closeMoreMenu();
+  switchTab(name);
 }
 
 // ── MODE ──────────────────────────────────────────
@@ -2123,7 +2809,7 @@ function renderItems() {
     return;
   }
   if (empty) empty.style.display = 'none';
-  if (count) count.textContent = activeItems.length + ' item' + (activeItems.length!==1?'s':'') + ' tracked';
+  if (count) count.textContent = activeItems.length + ' SKU' + (activeItems.length!==1?'s':'') + ' tracked';
 
   // Render the search result OR the full list (if no search query)
   const inp = document.getElementById('itemSearchInput');
@@ -2178,9 +2864,17 @@ function itemRowHtml(item) {
 function renderItemResult(query) {
   const el = document.getElementById('itemResult');
   if (!el) return;
-  if (!query.trim()) { el.innerHTML = ''; return; }
+  // Helper to show/hide the page-level Receive Stock + Add Item button bar
+  // — hidden when a single item detail is shown (the detail card has its
+  // own contextual actions, so showing both is duplicative)
+  const setPagePrimaryVisible = (visible) => {
+    const bar = document.getElementById('itemPagePrimaryActions');
+    if (bar) bar.style.display = visible ? 'flex' : 'none';
+  };
+  if (!query.trim()) { el.innerHTML = ''; setPagePrimaryVisible(true); return; }
   if (!items.filter(i => !i.deleted).length) {
     el.innerHTML = '';
+    setPagePrimaryVisible(true);
     return;
   }
   const hits = findItems(query, itemCategoryFilter);
@@ -2191,13 +2885,16 @@ function renderItemResult(query) {
       + '<div style="font-size:13px;color:#666;margin-top:6px">Nothing found for "'+esc(query)+'".</div>'
       + '<button onclick="openAddItem(\''+esc(query)+'\')" style="margin-top:12px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:800;text-transform:uppercase;cursor:pointer">+ Add as new item</button>'
       + '</div>';
+    setPagePrimaryVisible(true);
     return;
   }
   if (hits.length === 1) {
     el.innerHTML = itemDetailHtml(hits[0]);
+    setPagePrimaryVisible(false); // detail card has its own actions
   } else {
     el.innerHTML = '<div style="font-size:13px;font-weight:600;color:#666;margin-bottom:8px">'+hits.length+' matches:</div>'
       + hits.map(itemRowHtml).join('');
+    setPagePrimaryVisible(true);
   }
 }
 
@@ -2220,7 +2917,7 @@ function itemDetailHtml(item) {
         + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a;flex-shrink:0">'+fmt(parseFloat(l.qty)||0)+'</div>'
         + '</div>';
       }).join('')
-    : '<div style="text-align:center;color:#444;font-size:13px;padding:14px;background:#f5f5f5;border-radius:8px">No locations yet. Tap <strong>📥 Receive Stock</strong> below to add some.</div>';
+    : '<div style="text-align:center;color:#444;font-size:13px;padding:14px;background:#f5f5f5;border-radius:8px">No locations yet. Tap <strong>📥 Add Stock</strong> below to add some.</div>';
 
   // Build the breakdown summary line (ok / pending / dnu)
   const breakdownLine = (bd.pending > 0 || bd.dnu > 0)
@@ -2242,7 +2939,7 @@ function itemDetailHtml(item) {
     + '</div>'
     + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin:14px 0 6px">Stock by Location</div>'
     + locsHtml
-    + '<button onclick="openReceiveStock(\''+item.uuid+'\')" style="width:100%;margin-top:10px;padding:14px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;cursor:pointer">📥 Receive Stock</button>'
+    + '<button onclick="openReceiveStock(\''+item.uuid+'\')" style="width:100%;margin-top:10px;padding:14px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;cursor:pointer">📥 Add Stock</button>'
     + (locs.length ? '<button onclick="openMoveStock(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:13px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#FF9100;color:#fff;border:none;border-radius:10px;cursor:pointer">↪ Move Stock Between Locations</button>' : '')
     + '<button onclick="openItemEdit(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;cursor:pointer">✏ Edit Item Details</button>';
 }
@@ -2565,7 +3262,7 @@ function renderReceiveStock() {
   const body =
     // Compact header
     '<div style="background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:12px">'
-    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Receive Stock</div>'
+    +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Add Stock</div>'
     +   '<div style="font-size:13px;opacity:.9;margin-top:3px">Scan a SKU barcode (or type), then enter quantity, location, and status.</div>'
     + '</div>'
 
@@ -2599,10 +3296,20 @@ function renderReceiveStock() {
     + '</div>'
     + renderKeypad()
 
-    // Location chips + input
+    // Location chips + input + keypad
     + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px;margin-top:14px">Location</label>'
     + zoneChipsHtml('stockReceiveLoc')
-    + '<input type="text" id="stockReceiveLoc" value="'+esc(sess.location)+'" placeholder="Type or scan a bin code" autocomplete="off" autocorrect="off" autocapitalize="characters" style="width:100%;padding:12px;font-size:15px;font-weight:700;border:1.5px solid #999;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none;color:#1a1a1a">'
+    + '<input type="text" id="stockReceiveLoc" value="'+esc(sess.location)+'" placeholder="—————" autocomplete="off" autocorrect="off" inputmode="none" readonly style="width:100%;padding:14px 12px;font-size:28px;font-weight:900;font-family:\'JetBrains Mono\',\'Barlow Condensed\',monospace;letter-spacing:5px;text-align:center;border:2px solid #444;border-radius:0;outline:none;margin-bottom:8px;-webkit-appearance:none;background:#000;color:#00E676;text-shadow:0 0 12px rgba(0,230,118,.5);box-shadow:inset 0 2px 10px rgba(0,0,0,.7)">'
+    // Keypad below the location display
+    + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">'
+    +   ['1','2','3','4','5','6','7','8','9'].map(n =>
+          '<button type="button" onclick="receiveStockLocKey(\''+n+'\')" class="kp">'+n+'</button>'
+        ).join('')
+    +   '<button type="button" onclick="receiveStockLocKey(\'.\')" class="kp kp-dot">·</button>'
+    +   '<button type="button" onclick="receiveStockLocKey(\'0\')" class="kp">0</button>'
+    +   '<button type="button" onclick="receiveStockLocBack()" class="kp kp-back">⌫</button>'
+    + '</div>'
+    + '<button type="button" onclick="receiveStockLocClear()" class="kp kp-clear" style="display:block;width:100%;padding:8px 0;font-size:12px;margin-bottom:14px">CLEAR</button>'
 
     // Status pills
     + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">Status</label>'
@@ -2636,7 +3343,7 @@ function renderReceiveStock() {
             }).join('')
         : '');
 
-  openCabModal('📥 Receive Stock', body);
+  openCabModal('📥 Add Stock', body);
 
   // Wire up SKU input — handle Enter key (wrist scanner submits with Enter)
   setTimeout(() => {
@@ -2755,6 +3462,41 @@ function keypadClear() {
 function setReceiveStockStatus(s) {
   stockReceiveSession.status = s;
   renderReceiveStock();
+}
+
+// ── Receive Stock · LOCATION KEYPAD ────────────────────────────────────
+// Locations are pure numeric (e.g. 001.005), so a digit-only keypad is
+// faster than the iOS keyboard. The input is readonly + inputmode=none
+// so iOS doesn't pop a soft keyboard, but the BT scanner can still
+// inject characters because that's a different input pathway.
+function receiveStockLocKey(k) {
+  const inp = document.getElementById('stockReceiveLoc');
+  if (!inp) return;
+  if ((inp.value || '').length >= 12) return;
+  inp.value = (inp.value || '') + k;
+  stockReceiveSession.location = inp.value;
+  // Trigger the input event so any autosave hooks fire
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof FB !== 'undefined' && FB.scan) FB.scan();
+  refreshSaveButtonState();
+}
+function receiveStockLocBack() {
+  const inp = document.getElementById('stockReceiveLoc');
+  if (!inp) return;
+  inp.value = (inp.value || '').slice(0, -1);
+  stockReceiveSession.location = inp.value;
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof FB !== 'undefined' && FB.error) FB.error();
+  refreshSaveButtonState();
+}
+function receiveStockLocClear() {
+  const inp = document.getElementById('stockReceiveLoc');
+  if (!inp) return;
+  inp.value = '';
+  stockReceiveSession.location = '';
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof FB !== 'undefined' && FB.error) FB.error();
+  refreshSaveButtonState();
 }
 
 function saveReceiveStock() {
@@ -3368,7 +4110,7 @@ function renderCycleCountModal() {
   if (!locs.length) {
     body += '<div style="background:#FFF8E1;border:1.5px solid #FFC107;border-radius:8px;padding:14px;margin-bottom:14px;font-size:13px;color:#8B4000;line-height:1.5">'
       + '<strong>No locations on file</strong>'
-      + '<div style="margin-top:4px">If you find this item, use Items → Receive Stock to add it. If you don\'t find any, mark it counted at zero.</div>'
+      + '<div style="margin-top:4px">If you find this item, use Items → Add Stock to add it. If you don\'t find any, mark it counted at zero.</div>'
       + '<button onclick="recordZeroCount()" style="width:100%;margin-top:10px;padding:11px;background:#fff;color:#8B4000;border:1.5px solid #FF9100;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">Record count of 0 (item not present)</button>'
       + '</div>';
   } else {
@@ -3949,6 +4691,312 @@ function renderWarehouseMap(location, opts) {
     + frontLabel
     + '</svg>';
 }
+
+// ── CABINET SEARCH KEYPAD ─────────────────────────────────────────────────
+// Custom on-screen keypad replaces iOS soft keyboard for cabinet search.
+// Keeps the wrist scanner connected (no soft-keyboard tug-of-war) while
+// giving fast tap-to-find access. Toggle to fall back to iOS keyboard via
+// the ⌨ button.
+
+function cabDigitTap(d) {
+  const inp = document.getElementById('cabSearchInput');
+  if (!inp) return;
+  // Cap at 12 chars (fits any cabinet # or location)
+  if (inp.value.length >= 12) return;
+  inp.value = inp.value + d;
+  renderCabResult(inp.value);
+  if (typeof FB !== 'undefined' && FB.scan) FB.scan();
+}
+
+function cabKeypadBackspace() {
+  const inp = document.getElementById('cabSearchInput');
+  if (!inp) return;
+  inp.value = inp.value.slice(0, -1);
+  renderCabResult(inp.value);
+  if (typeof FB !== 'undefined' && FB.error) FB.error();
+}
+
+function cabKeypadClear() {
+  const inp = document.getElementById('cabSearchInput');
+  if (!inp) return;
+  inp.value = '';
+  renderCabResult('');
+  if (typeof FB !== 'undefined' && FB.error) FB.error();
+}
+
+// Toggle between custom keypad and iOS keyboard
+function toggleCabKeypad() {
+  const rig = document.querySelector('.search-rig');
+  const inp = document.getElementById('cabSearchInput');
+  const btn = document.getElementById('cabKeypadToggle');
+  if (!rig || !inp || !btn) return;
+  const goingToKeyboardMode = !rig.classList.contains('kb-mode');
+  rig.classList.toggle('kb-mode', goingToKeyboardMode);
+  if (goingToKeyboardMode) {
+    inp.removeAttribute('readonly');
+    inp.removeAttribute('inputmode');
+    btn.textContent = 'KEYPAD';
+    inp.focus();
+  } else {
+    inp.setAttribute('readonly', 'readonly');
+    inp.setAttribute('inputmode', 'none');
+    btn.textContent = 'TYPE';
+    inp.blur();
+  }
+  try { localStorage.setItem('mbd_cab_kb_mode', goingToKeyboardMode ? '1' : '0'); } catch(e) {}
+}
+
+// On boot, restore the user's last keyboard-mode preference
+function initCabKeypad() {
+  try {
+    if (localStorage.getItem('mbd_cab_kb_mode') === '1') {
+      // Defer slightly so the DOM is ready
+      setTimeout(toggleCabKeypad, 100);
+    }
+  } catch(e) {}
+}
+
+// ── CABINET CAMERA SCAN ─────────────────────────────────────────────────
+// Opens the device camera to scan a cabinet's barcode label, OR fall back
+// to taking a still photo and asking Claude Vision to read the cabinet
+// number off it (handwritten labels, faded barcodes, etc).
+//
+// Two paths:
+//   1. Live ZXing barcode scanner (fast, reliable for printed barcodes)
+//   2. "Take photo instead" button → Claude Vision OCR (slower, handles
+//      handwritten and damaged labels)
+async function openCabinetCameraScan() {
+  // Reuse the existing camera infrastructure. When a barcode is decoded,
+  // handleBarcode() already routes to the cabinet search field if we're
+  // on the Cabinets tab — so we just need to open the camera with a
+  // photo-fallback button.
+  const overlay = document.getElementById('camOverlay');
+  const foot = document.getElementById('camFoot');
+  const footText = document.getElementById('camFootText');
+  if (!overlay) return;
+
+  // Inject a "Take Photo Instead" button into the camera footer (once)
+  if (foot && !document.getElementById('camPhotoFallbackBtn')) {
+    const btn = document.createElement('button');
+    btn.id = 'camPhotoFallbackBtn';
+    btn.textContent = '📸 Read it from a photo instead';
+    btn.style.cssText = 'margin-top:8px;padding:11px 16px;background:linear-gradient(180deg,#1A140E,#0A0706);color:var(--tape-cream);border:1.5px solid var(--brass-dim);border-radius:0;font-family:Barlow Condensed,Barlow,sans-serif;font-size:13px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;box-shadow:inset 0 1px 0 rgba(201,169,97,.25),0 2px 4px rgba(0,0,0,.5)';
+    btn.onclick = takeCabinetPhotoOcr;
+    foot.appendChild(btn);
+  }
+
+  await startCamera();
+  if (footText) footText.textContent = 'Aim at the cabinet barcode label…';
+}
+
+// Take a still photo and send it to Claude Vision to read the cabinet number
+async function takeCabinetPhotoOcr() {
+  if (!camActive) {
+    showToast('⚠ Camera not active');
+    return;
+  }
+  const video = document.getElementById('camVideo');
+  if (!video) return;
+
+  // Capture current frame to canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  const base64 = dataUrl.split(',')[1];
+
+  // Stop camera while we process
+  stopCamera();
+
+  // Show a loading toast
+  const loadingDiv = document.createElement('div');
+  loadingDiv.id = 'cabPhotoOcrLoading';
+  loadingDiv.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:14px;color:var(--green-bright);font-family:Barlow Condensed,sans-serif';
+  loadingDiv.innerHTML = '<div style="font-size:48px;animation:spin 1s linear infinite">⌛</div>'
+    + '<div style="font-size:18px;font-weight:800;letter-spacing:2px;text-transform:uppercase">Reading photo…</div>'
+    + '<div style="font-size:12px;color:var(--text-dim)">Asking Claude Vision to find the cabinet number</div>';
+  document.body.appendChild(loadingDiv);
+
+  try {
+    const apiKey = (typeof getApiKey === 'function') ? getApiKey() : (localStorage.getItem('mbd_anthropic_key') || '');
+    if (!apiKey) {
+      throw new Error('Anthropic API key missing — set in Barcodes/Settings');
+    }
+    const prompt = 'You are reading a label on a wood cabinet in a warehouse. '
+      + 'Find the cabinet identifier — typically a 5-digit order number (e.g. 31072) '
+      + 'or a letter+digits format (D171, C924, E055). '
+      + 'Strip any "DEPOT-" prefix if present. '
+      + 'Return ONLY the cabinet number as a plain string with no quotes, no commentary, no JSON. '
+      + 'If you cannot read any cabinet number clearly, return exactly: NONE';
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 100,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error('API ' + resp.status + ': ' + errText.slice(0,200));
+    }
+    const data = await resp.json();
+    const text = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
+    const cleaned = text.replace(/[^A-Za-z0-9.]/g,''); // strip stray punctuation/whitespace
+    if (!cleaned || cleaned.toUpperCase() === 'NONE') {
+      showToast('⚠ Could not read cabinet number — try again');
+      FB.error && FB.error();
+      return;
+    }
+    // Fill the search field and trigger lookup
+    const inp = document.getElementById('cabSearchInput');
+    if (inp) {
+      inp.value = cleaned;
+      renderCabResult(cleaned);
+      FB.success && FB.success();
+      showToast('✓ Read: ' + cleaned);
+    }
+  } catch(err) {
+    showToast('⚠ Photo OCR failed: ' + err.message);
+    FB.error && FB.error();
+  } finally {
+    const ld = document.getElementById('cabPhotoOcrLoading');
+    if (ld) ld.remove();
+  }
+}
+
+// ── STOCK TAB · FIND BY LOCATION KEYPAD ─────────────────────────────────
+// Separate from the SKU search. Lets a worker enter a bin location and
+// see every SKU that has stock at that location.
+function itemLocDigitTap(d) {
+  const inp = document.getElementById('itemLocSearchInput');
+  if (!inp) return;
+  if (inp.value.length >= 12) return;
+  inp.value = inp.value + d;
+  renderItemLocResult(inp.value);
+  if (typeof FB !== 'undefined' && FB.scan) FB.scan();
+}
+function itemLocBackspace() {
+  const inp = document.getElementById('itemLocSearchInput');
+  if (!inp) return;
+  inp.value = inp.value.slice(0, -1);
+  renderItemLocResult(inp.value);
+  if (typeof FB !== 'undefined' && FB.error) FB.error();
+}
+function itemLocClear() {
+  const inp = document.getElementById('itemLocSearchInput');
+  if (!inp) return;
+  inp.value = '';
+  renderItemLocResult('');
+  if (typeof FB !== 'undefined' && FB.error) FB.error();
+}
+
+// Render every active item that has stock at the queried location.
+// Match strategy: case-insensitive substring on the location code, so
+// "001" finds "001.005" and "001.010" — useful when scanning whole aisles.
+function renderItemLocResult(query) {
+  const el = document.getElementById('itemLocResult');
+  if (!el) return;
+  query = (query || '').trim();
+  if (!query) { el.innerHTML = ''; return; }
+
+  const q = query.toLowerCase();
+  // Find every {item, location entry} pair where the location matches
+  const hits = [];
+  items.forEach(it => {
+    if (it.deleted) return;
+    (it.locations || []).forEach(loc => {
+      const code = (loc.code || '').toLowerCase();
+      if (!code) return;
+      if (code === q || code.startsWith(q) || code.includes(q)) {
+        hits.push({ item: it, loc });
+      }
+    });
+  });
+
+  if (!hits.length) {
+    el.innerHTML = '<div style="background:rgba(255,179,0,.12);border:1.5px solid var(--orange-bright);border-radius:0;padding:14px;color:var(--orange-bright);font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:700;letter-spacing:1px;text-align:center">'
+      + 'Nothing stored at <span style="color:var(--shellac);font-family:JetBrains Mono,monospace;letter-spacing:2px">' + esc(query) + '</span>'
+      + '</div>';
+    return;
+  }
+
+  // Sort: exact matches first, then by location code, then by SKU
+  hits.sort((a, b) => {
+    const aExact = a.loc.code.toLowerCase() === q ? 0 : 1;
+    const bExact = b.loc.code.toLowerCase() === q ? 0 : 1;
+    if (aExact !== bExact) return aExact - bExact;
+    if (a.loc.code !== b.loc.code) return a.loc.code.localeCompare(b.loc.code);
+    return (a.item.sku || '').localeCompare(b.item.sku || '');
+  });
+
+  // Group by location code for cleaner display
+  const grouped = {};
+  hits.forEach(h => {
+    const c = h.loc.code;
+    if (!grouped[c]) grouped[c] = [];
+    grouped[c].push(h);
+  });
+
+  const codes = Object.keys(grouped);
+  el.innerHTML = '<div style="font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:800;color:var(--brass);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">'
+    + hits.length + ' SKU' + (hits.length!==1?'s':'') + ' across ' + codes.length + ' location' + (codes.length!==1?'s':'')
+    + '</div>'
+    + codes.map(code => {
+        const rows = grouped[code];
+        const status = locStatus(rows[0].loc);
+        const meta = STOCK_STATUS_META && STOCK_STATUS_META[status] ? STOCK_STATUS_META[status] : { label:'OK', color:'#1A5C1A', bg:'#E6F4EA' };
+        return '<div style="background:var(--surface);border:1.5px solid var(--brass-dim);border-radius:0;margin-bottom:8px;overflow:hidden">'
+          + '<div style="background:linear-gradient(180deg,#1F170E,#15100A);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #000">'
+          +   '<span style="font-family:JetBrains Mono,monospace;color:var(--green-bright);font-size:18px;font-weight:900;letter-spacing:3px;text-shadow:0 0 10px rgba(0,230,118,.4)">📍 ' + esc(code) + '</span>'
+          +   '<span style="font-family:Barlow Condensed,sans-serif;color:var(--text-dim);font-size:11px;font-weight:700;letter-spacing:1.5px">' + rows.length + ' SKU' + (rows.length!==1?'s':'') + '</span>'
+          + '</div>'
+          + rows.map(h => {
+              const it = h.item, lc = h.loc;
+              const qty = parseFloat(lc.qty) || 0;
+              return '<div onclick="openItemDetail(\''+esc(it.uuid)+'\')" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;border-top:1px solid rgba(232,237,244,.06)">'
+                + '<div style="min-width:0;flex:1">'
+                +   '<div style="font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:800;color:var(--text)">' + esc(it.sku || '?') + '</div>'
+                +   (it.name && it.name !== it.sku ? '<div style="font-size:11px;color:var(--text-dim);margin-top:1px">' + esc(it.name) + '</div>' : '')
+                + '</div>'
+                + '<div style="font-family:Barlow Condensed,sans-serif;font-size:22px;font-weight:900;color:var(--green-bright);text-shadow:0 0 8px rgba(0,230,118,.3)">' + fmt(qty) + '</div>'
+                + '</div>';
+            }).join('')
+          + '</div>';
+      }).join('');
+}
+
+// Hook scanner-input handling: when something gets typed via the BT scanner,
+// it fires keystrokes very fast and ends with Enter. Even though the input
+// is readonly, the scanner can still inject. Wire a listener on init.
+document.addEventListener('DOMContentLoaded', () => {
+  initCabKeypad();
+  const inp = document.getElementById('cabSearchInput');
+  if (inp) {
+    // Allow scanner to inject while input is readonly — we re-listen on input
+    inp.addEventListener('input', e => {
+      renderCabResult(inp.value);
+    });
+    // If a barcode scanner sends Enter at the end, no special handling
+    // needed — the input value is already there.
+  }
+});
+
 
 function renderCabResult(query) {
   const el = document.getElementById('cabResult');
