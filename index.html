@@ -7306,11 +7306,30 @@ function completeReceiveSession() {
   // Fire-and-forget — a network failure here shouldn't block close-out
   // (we still log it locally for follow-up).
   if (missedCabinets.length > 0) {
+    // Person: prefer the receive-session input, fall back to the
+    // ground-tab packer setting so we always show *someone* in the alert.
+    let person = (session.person || '').trim();
+    if (!person) {
+      try { person = (localStorage.getItem('mbd_ground_packer') || '').trim(); } catch(e) {}
+    }
+    // Local time, readable. e.g. "5/10/2026, 7:07:39 PM EDT"
+    const completedAtLocal = (() => {
+      try {
+        return new Date().toLocaleString('en-US', {
+          year: 'numeric', month: 'numeric', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', second: '2-digit',
+          timeZoneName: 'short',
+        });
+      } catch (e) {
+        return new Date().toString();
+      }
+    })();
+
     groundApi('notifyMissedCabinets', {
       shipmentName: session.name || '',
-      person: session.person || '',
+      person: person,
       cabinetNumbers: missedCabinets,
-      completedAt: new Date().toISOString(),
+      completedAt: completedAtLocal,
     }).then(resp => {
       if (resp && resp.ok) {
         showToast('Missed cabinets alert sent to Seth');
