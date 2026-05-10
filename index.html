@@ -6734,7 +6734,12 @@ function autoStartReceiveFromServerSession(s) {
       name = months[Number(parts[1]) - 1] + ' ' + Number(parts[2]);
     }
   }
-  startReceiveSession(s.cabinets, { name: name, serverSessionId: s.session_id });
+  startReceiveSession(s.cabinets, {
+    name: name,
+    serverSessionId: s.session_id,
+    truckCount: s.truck_count || 0,
+    deliveryDate: s.delivery_date || '',
+  });
   showToast('✓ Loaded ' + s.cabinets.length + ' cabinets for ' + name);
 }
 
@@ -7019,6 +7024,8 @@ function startReceiveSession(numbers, opts) {
     defaultLoc: 'RECEIVING',
     person: '',
     serverSessionId: opts.serverSessionId || '',
+    truckCount: Number(opts.truckCount || 0) || 0,
+    deliveryDate: opts.deliveryDate || '',
     cabinets: sorted.map(n => ({
       num: n,
       received: false,
@@ -7043,7 +7050,20 @@ function renderReceiveSession() {
   const done = session.cabinets.filter(c => c.received).length;
   const pct = total ? Math.round(done / total * 100) : 0;
 
-  const rows = session.cabinets.map((c, idx) => {
+  // v69 polish: render unchecked cabinets first, checked cabinets at
+  // the bottom — so the packer always sees the work-left-to-do at the
+  // top of the list. We sort a paired (original-index, cabinet) array
+  // so the toggle handler still gets the correct underlying index.
+  const displayOrder = session.cabinets
+    .map((c, originalIdx) => ({ c, originalIdx }))
+    .sort((a, b) => {
+      if (!a.c.received && b.c.received) return -1;
+      if (a.c.received && !b.c.received) return 1;
+      return a.originalIdx - b.originalIdx; // stable within group
+    });
+
+  const rows = displayOrder.map(({ c, originalIdx }) => {
+    const idx = originalIdx;
     const isDone = c.received;
     const existing = cabinets.find(cb => !cb.deleted && normCab(cb.cabinet) === normCab(c.num));
     const alreadyExists = !!existing;
@@ -7078,6 +7098,9 @@ function renderReceiveSession() {
     +   '<div style="min-width:0;flex:1">'
     +     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Shipment</div>'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.1;margin-top:1px">'+esc(session.name)+'</div>'
+    +     (session.truckCount > 0
+            ? '<div style="font-size:11px;font-weight:700;opacity:.85;margin-top:3px">🚚 ' + session.truckCount + ' trucks</div>'
+            : '')
     +   '</div>'
     +   '<div style="text-align:right;flex-shrink:0">'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;line-height:1">'+done+' / '+total+'</div>'
