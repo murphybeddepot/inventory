@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v93</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v94</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -1137,6 +1137,7 @@ input::placeholder, textarea::placeholder {
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Orders to Pack</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button onclick="addToTodaysListPrompt()" class="amp-btn" style="font-size:13px;padding:8px 16px">+ Add to List</button>
+      <button onclick="addOrderByNumberPrompt()" class="amp-btn" style="font-size:13px;padding:8px 16px">+ Add Order #</button>
       <button onclick="printTodaysInstructions()" class="amp-btn" style="font-size:13px;padding:8px 16px">🖨 Print All</button>
       <button id="packManagerModeBtn" onclick="togglePackManagerMode()" class="amp-btn" style="font-size:13px;padding:8px 16px">👤 Manager</button>
       <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
@@ -1150,6 +1151,8 @@ input::placeholder, textarea::placeholder {
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
       <button onclick="bulkPackAction('packed')" class="amp-btn go" style="padding:8px 14px;font-size:13px;font-weight:900">✓ Mark Packed</button>
       <button onclick="bulkPackAction('shipped')" class="amp-btn go" style="padding:8px 14px;font-size:13px;font-weight:900">📦 Mark Shipped</button>
+      <button onclick="bulkRemoveFromList()" class="amp-btn" style="padding:8px 14px;font-size:13px;font-weight:900">🗑 Remove</button>
+      <button onclick="resetTodaysPackList()" class="amp-btn" style="padding:8px 14px;font-size:13px">↺ Reset List</button>
       <button onclick="togglePackManagerMode()" class="amp-btn" style="padding:8px 14px;font-size:13px">Exit</button>
     </div>
   </div>
@@ -10071,6 +10074,91 @@ async function printTodaysInstructionsAirPrintFallback_(inflight) {
     showPackBanner_(done + ' merged · Share → Print → AirPrint', '#00e676');
   } catch (err) {
     showPackBanner_('AirPrint fallback error: ' + err.message, '#ff5252');
+  }
+}
+
+async function bulkRemoveFromList() {
+  if (!_packBulkSelection.size) {
+    showToast('Select at least one order first');
+    return;
+  }
+  const orderNumbers = Array.from(_packBulkSelection);
+  if (!confirm('Remove ' + orderNumbers.length + ' order' + (orderNumbers.length === 1 ? '' : 's') + ' from today\'s list?\n\n(Status unchanged — they can be re-added with + Add Order #.)')) return;
+  const pin = promptManagerPin_('remove ' + orderNumbers.length + ' from list');
+  if (!pin) return;
+  try {
+    const res = await groundApi('removeFromTodaysPackList', {
+      orderNumbers: orderNumbers,
+      manager_pin: pin,
+    });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      showToast(((res && res.error) || 'Remove failed'));
+      return;
+    }
+    _packBulkSelection.clear();
+    await refreshPackQueue();
+    showPackBanner_(res.removed + ' order' + (res.removed === 1 ? '' : 's') + ' removed from list 🗑', '#42a5f5');
+  } catch (err) {
+    showToast('Remove error: ' + err.message);
+  }
+}
+
+async function resetTodaysPackList() {
+  const inflight = _packQueueCache.filter(r => {
+    const s = String(r.status || '');
+    return s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking';
+  }).length;
+  if (inflight === 0) {
+    showToast('List is already empty');
+    return;
+  }
+  if (!confirm('Reset the entire pack list?\n\nAll ' + inflight + ' in-flight order' + (inflight === 1 ? '' : 's') + ' will be removed from the list. Status is unchanged — they can be re-added.\n\nPacked orders awaiting ship are NOT affected.')) return;
+  const pin = promptManagerPin_('reset entire list');
+  if (!pin) return;
+  try {
+    const res = await groundApi('clearTodaysPackList', { manager_pin: pin });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      showToast(((res && res.error) || 'Reset failed'));
+      return;
+    }
+    _packBulkSelection.clear();
+    await refreshPackQueue();
+    showPackBanner_('List reset — ' + res.cleared + ' order' + (res.cleared === 1 ? '' : 's') + ' cleared ↺', '#42a5f5');
+  } catch (err) {
+    showToast('Reset error: ' + err.message);
+  }
+}
+
+async function addOrderByNumberPrompt() {
+  const input = prompt('Order number to add to today\'s list?\n\n(If the order isn\'t in PackingQueue yet, the orchestrator will look it up in the MBD:FL SHIPMENTS calendar and bootstrap a row.)');
+  if (input == null) return;
+  const orderNumber = String(input).trim().replace(/^#/, '');
+  if (!orderNumber || !/^\d+$/.test(orderNumber)) { showToast('Enter a numeric order number'); return; }
+  const pin = promptManagerPin_('add order ' + orderNumber);
+  if (!pin) return;
+  showPackBanner_('Adding order ' + orderNumber + '…', '#42a5f5');
+  try {
+    const res = await groundApi('addOrderByNumber', { orderNumber: orderNumber, manager_pin: pin });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      showPackBanner_((res && res.error) || 'Add failed', '#ff5252');
+      return;
+    }
+    await refreshPackQueue();
+    if (res.source === 'existing_row') {
+      showPackBanner_('Order ' + orderNumber + ' added to list ✓', '#00e676');
+    } else if (res.source === 'calendar') {
+      const note = res.pickListUrl
+        ? 'Bootstrapped from calendar. Open it to auto-parse the pick list and pull SKUs.'
+        : 'Bootstrapped from calendar but no pick-list URL found in the event. You may need to upload the PDF manually.';
+      showPackBanner_('Order ' + orderNumber + ' added (from calendar) — ' + note, '#00e676');
+    } else {
+      showPackBanner_('Order ' + orderNumber + ' added', '#00e676');
+    }
+  } catch (err) {
+    showPackBanner_('Add error: ' + err.message, '#ff5252');
   }
 }
 
