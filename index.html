@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v78</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v80</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9623,27 +9623,54 @@ function packExtractSku_(desc) {
 async function packParsePdfBuffer_(arrayBuffer) {
   if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js failed to load — check your network');
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let fullText = '';
+
+  // Collect all text items with their positions across all pages.
+  let items = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
-    const items = content.items.sort((a, b) => {
-      const dy = Math.round(b.transform[5]) - Math.round(a.transform[5]);
-      return dy !== 0 ? dy : a.transform[4] - b.transform[4];
+    content.items.forEach(it => {
+      items.push({ text: String(it.str || ''), x: it.transform[4], y: it.transform[5] });
     });
-    const lineMap = {};
-    for (const item of items) {
-      const y = Math.round(item.transform[5]);
-      if (!lineMap[y]) lineMap[y] = [];
-      lineMap[y].push({ x: item.transform[4], text: item.str });
-    }
-    const sortedYs = Object.keys(lineMap).map(Number).sort((a, b) => b - a);
-    for (const y of sortedYs) {
-      const lineItems = lineMap[y].sort((a, b) => a.x - b.x);
-      fullText += lineItems.map(i => i.text).join(' ') + '\n';
+  }
+
+  // The pick-list table has an MBD NOTE column (right-most) full of
+  // human notes like "8 hinge!" that look like qty+desc to a line-based
+  // parser and corrupt rows downstream. Detect that column's left edge
+  // from the header text and filter every item at or to the right of
+  // it before line reconstruction. Header text in real PDFs splits as
+  // separate "MBD" and "NOTE" items — match either.
+  const mbdLeftX =
+    ((items.find(it => /^MBD\s*NOTE$/i.test(it.text.trim())) || {}).x) ||
+    ((items.find(it => /^MBD$/i.test(it.text.trim())) || {}).x) ||
+    ((items.find(it => /^NOTE$/i.test(it.text.trim())) || {}).x) ||
+    null;
+  if (mbdLeftX != null) {
+    items = items.filter(it => it.x < mbdLeftX - 5);
+  }
+
+  // Cluster items into rows by y-coordinate with a small tolerance.
+  // PDF.js can hand back items on the same visible row with sub-pixel
+  // y-offsets (one cell at y=410.2, another at y=409.8) — Math.round
+  // bucketing splits those into phantom rows and the existing line-based
+  // parser then misreads them. Tolerance of ~3pt collapses real rows
+  // while still separating distinct table rows (~14pt apart in practice).
+  items.sort((a, b) => b.y - a.y);
+  const rows = [];
+  const Y_TOL = 3;
+  for (const it of items) {
+    const lastRow = rows[rows.length - 1];
+    if (lastRow && Math.abs(lastRow[0].y - it.y) <= Y_TOL) {
+      lastRow.push(it);
+    } else {
+      rows.push([it]);
     }
   }
-  return packParsePdfText_(fullText);
+
+  const lines = rows.map(row =>
+    row.sort((a, b) => a.x - b.x).map(it => it.text).join(' ').replace(/\s+/g, ' ').trim()
+  );
+  return packParsePdfText_(lines.join('\n'));
 }
 
 async function loadPackPdfFromUrl(url) {
@@ -9761,7 +9788,7 @@ function packParseSpreadsheet_(arrayBuffer) {
   return out;
 }
 
-function applyPackParsedToActiveOrder_(parsed, source) {
+async function applyPackParsedToActiveOrder_(parsed, source) {
   const statusEl = document.getElementById('packLoadStatus');
   if (!_packDetailOrderNumber) {
     if (statusEl) statusEl.textContent = 'No order selected.';
@@ -9777,11 +9804,39 @@ function applyPackParsedToActiveOrder_(parsed, source) {
     if (statusEl) statusEl.textContent = 'Parsed 0 line items — check the file format.';
     return;
   }
+
+  // Optimistic local render so the packer sees the new list immediately,
+  // then persist server-side so scan resolution lines up.
   setPackScanState_(_packDetailOrderNumber, parsed.items);
   renderPackSkuList_(_packDetailOrderNumber);
-  if (statusEl) {
-    statusEl.textContent = 'Loaded ' + parsed.items.length + ' line item' + (parsed.items.length === 1 ? '' : 's') + ' from ' + source
-      + ' (client-side only — sheet not modified)';
+  if (statusEl) statusEl.textContent = 'Loaded ' + parsed.items.length + ' line items from ' + source + ' — saving to sheet…';
+
+  try {
+    const skuLines = parsed.items.map(it => ({ sku: it.sku, qty: it.qty, name: it.name || '' }));
+    const res = await groundApi('updatePackJobSkus', {
+      orderNumber: _packDetailOrderNumber,
+      skuLines: skuLines,
+      source: source,
+    });
+    if (!res || !res.ok) {
+      if (statusEl) statusEl.textContent = 'Loaded locally but server save failed: ' + ((res && res.error) || 'unknown')
+        + ' — scans may be rejected until you retry the re-parse.';
+      return;
+    }
+    // Sync cache so subsequent scans / re-opens use the new canonical list.
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(_packDetailOrderNumber));
+    if (cached) {
+      cached.sku_lines_json = res.sku_lines_json;
+      cached.scanned_json = ''; // server cleared on update
+    }
+    // Refresh scan state from the now-canonical list so the rendered counts
+    // reflect what the server has.
+    delete _packScanState[_packDetailOrderNumber];
+    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, '');
+    renderPackSkuList_(_packDetailOrderNumber);
+    if (statusEl) statusEl.textContent = 'Loaded ' + parsed.items.length + ' line items from ' + source + ' — saved to sheet (scans reset)';
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Loaded locally but server save errored: ' + err.message;
   }
 }
 
