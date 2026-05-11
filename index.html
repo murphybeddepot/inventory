@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v81</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v82</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9339,6 +9339,20 @@ const PACK_SIZE_PREFIXES = new Set(['DOUBLE','SINGLE','QUEEN','KING','TWIN','FUL
 // Per-order scan state. Map<orderNumber, { skus: [{sku, qty, name, scanned}, ...] }>
 const _packScanState = {};
 
+// Per-order request queue so rapid scans / ± taps don't race. Each scan
+// or stepper tap chains onto the prior in-flight request via .then(), so
+// the optimistic-then-server-replace cycle never overlaps for the same
+// order. Without this, response A could overwrite optimistic state from
+// scan B before B's own response lands, flickering rows checked→unchecked
+// →checked.
+const _packScanQueue = {};
+function packEnqueue_(orderNumber, task) {
+  const prev = _packScanQueue[orderNumber] || Promise.resolve();
+  const next = prev.then(task).catch(err => { console.warn('pack queue task failed:', err); });
+  _packScanQueue[orderNumber] = next;
+  return next;
+}
+
 function getPackScanState_(orderNumber, sourceSkusJson, sourceScannedJson) {
   if (!_packScanState[orderNumber]) {
     let arr = [];
@@ -9412,7 +9426,7 @@ function renderPackSkuList_(orderNumber) {
   }).join('');
 }
 
-async function bumpPackSku(orderNumber, idx, delta) {
+function bumpPackSku(orderNumber, idx, delta) {
   const state = _packScanState[orderNumber];
   if (!state || !state.skus[idx]) return;
   const s = state.skus[idx];
@@ -9420,30 +9434,50 @@ async function bumpPackSku(orderNumber, idx, delta) {
   // Optimistic local update so the tap feels instant.
   s.scanned = Math.max(0, s.scanned + delta);
   renderPackSkuList_(orderNumber);
-  try {
-    const res = await groundApi('recordPackScan', {
-      orderNumber: orderNumber,
-      scannedSku: s.sku,
-      manualAdjustment: true,
-      delta: delta,
-      deviceId: getPackDeviceId_(),
-    });
-    if (!res || !res.ok) {
-      s.scanned = prev; // rollback
-      renderPackSkuList_(orderNumber);
-      showToast('Adjustment failed: ' + ((res && res.error) || 'unknown'));
-      return;
+
+  packEnqueue_(orderNumber, async () => {
+    try {
+      const res = await groundApi('recordPackScan', {
+        orderNumber: orderNumber,
+        scannedSku: s.sku,
+        manualAdjustment: true,
+        delta: delta,
+        deviceId: getPackDeviceId_(),
+      });
+      if (!res || !res.ok) {
+        if (_packScanState[orderNumber] && _packScanState[orderNumber].skus[idx]) {
+          _packScanState[orderNumber].skus[idx].scanned = prev;
+          if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+        }
+        showToast('Adjustment failed: ' + ((res && res.error) || 'unknown'));
+        return;
+      }
+      const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (cached) cached.scanned_json = res.scanned_json;
+      // Authoritative apply for manual ± because the user's explicit intent
+      // is the new count (not max-merge — a − tap should be able to
+      // decrement past optimistic increments from concurrent scans).
+      let serverByScannedSku = {};
+      try {
+        const arr = JSON.parse(res.scanned_json || '[]');
+        if (Array.isArray(arr)) arr.forEach(x => { serverByScannedSku[String(x.sku || '').trim()] = Number(x.scanned) || 0; });
+      } catch(e) {}
+      const localState = _packScanState[orderNumber];
+      if (localState) {
+        localState.skus.forEach(x => {
+          if (x.sku === s.sku) x.scanned = serverByScannedSku[x.sku] || 0;
+          else x.scanned = Math.max(x.scanned, serverByScannedSku[x.sku] || 0);
+        });
+      }
+      if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+    } catch (err) {
+      if (_packScanState[orderNumber] && _packScanState[orderNumber].skus[idx]) {
+        _packScanState[orderNumber].skus[idx].scanned = prev;
+        if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+      }
+      showToast('Adjustment error: ' + err.message);
     }
-    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
-    if (cached) cached.scanned_json = res.scanned_json;
-    delete _packScanState[orderNumber];
-    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, cached.scanned_json);
-    renderPackSkuList_(orderNumber);
-  } catch (err) {
-    s.scanned = prev;
-    renderPackSkuList_(orderNumber);
-    showToast('Adjustment error: ' + err.message);
-  }
+  });
 }
 
 function handlePackScanSubmit() {
@@ -9456,15 +9490,18 @@ function handlePackScanSubmit() {
   input.focus();
 }
 
-async function processPackScan_(code) {
+function processPackScan_(code) {
   if (!_packDetailOrderNumber) return;
-  const state = _packScanState[_packDetailOrderNumber];
+  const orderNumber = _packDetailOrderNumber;
+  const state = _packScanState[orderNumber];
   if (!state || !state.skus.length) {
     showToast('No SKU list loaded — upload a pick list first');
     return;
   }
-  // Optimistic local match by normalized SKU so the UI feels instant; the
-  // server response is authoritative and overwrites.
+
+  // Optimistic local match is applied immediately so the UI feels
+  // instant; the actual server roundtrip is queued so it can't race
+  // with a follow-up scan's server roundtrip.
   const codeNorm = packNorm_(code);
   let optimisticIdx = state.skus.findIndex(s => packNorm_(s.sku) === codeNorm);
   if (optimisticIdx < 0) {
@@ -9473,44 +9510,58 @@ async function processPackScan_(code) {
   if (optimisticIdx >= 0) {
     const s = state.skus[optimisticIdx];
     s.scanned = Math.min(s.qty + 5, s.scanned + 1);
-    renderPackSkuList_(_packDetailOrderNumber);
+    renderPackSkuList_(orderNumber);
   }
 
-  try {
-    const res = await groundApi('recordPackScan', {
-      orderNumber: _packDetailOrderNumber,
-      scannedSku: code,
-      deviceId: getPackDeviceId_(),
-    });
-    if (!res || !res.ok) {
-      // Roll back the optimistic increment, surface the reason.
-      if (optimisticIdx >= 0) {
-        state.skus[optimisticIdx].scanned = Math.max(0, state.skus[optimisticIdx].scanned - 1);
-        renderPackSkuList_(_packDetailOrderNumber);
+  packEnqueue_(orderNumber, async () => {
+    try {
+      const res = await groundApi('recordPackScan', {
+        orderNumber: orderNumber,
+        scannedSku: code,
+        deviceId: getPackDeviceId_(),
+      });
+      if (!res || !res.ok) {
+        if (optimisticIdx >= 0 && _packScanState[orderNumber]) {
+          _packScanState[orderNumber].skus[optimisticIdx].scanned =
+            Math.max(0, _packScanState[orderNumber].skus[optimisticIdx].scanned - 1);
+          if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+        }
+        showToast(((res && res.error) || 'Scan rejected'));
+        return;
       }
-      showToast(((res && res.error) || 'Scan rejected'));
-      return;
+      // Merge: keep counts at max(local, server) so an earlier server
+      // response from a stale scan can't overwrite a later optimistic
+      // increment. Once the whole queue drains, the two converge.
+      const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (cached) cached.scanned_json = res.scanned_json;
+      let serverByScannedSku = {};
+      try {
+        const arr = JSON.parse(res.scanned_json || '[]');
+        if (Array.isArray(arr)) arr.forEach(s => { serverByScannedSku[String(s.sku || '').trim()] = Number(s.scanned) || 0; });
+      } catch(e) {}
+      const localState = _packScanState[orderNumber];
+      if (localState) {
+        localState.skus.forEach(s => {
+          const serverCount = serverByScannedSku[s.sku] || 0;
+          s.scanned = Math.max(s.scanned, serverCount);
+        });
+      }
+      if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+      if (navigator.vibrate) navigator.vibrate(res.scanned >= res.qty ? [60, 30, 60] : 40);
+      if (res.kind === 'box_alias' || res.kind === 'parent_alias') {
+        showToast('✓ ' + res.sku + ' via alias "' + res.scanned_alias + '" — ' + res.scanned + '/' + res.qty);
+      } else if (res.scanned >= res.qty) {
+        showToast('✓ ' + res.sku + ' complete (' + res.scanned + '/' + res.qty + ')');
+      }
+    } catch (err) {
+      if (optimisticIdx >= 0 && _packScanState[orderNumber]) {
+        _packScanState[orderNumber].skus[optimisticIdx].scanned =
+          Math.max(0, _packScanState[orderNumber].skus[optimisticIdx].scanned - 1);
+        if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+      }
+      showToast('Scan error: ' + err.message);
     }
-    // Authoritative state from server. Patch the in-memory cache row + the
-    // scan state from the returned scanned_json.
-    const cached = _packQueueCache.find(r => String(r.order_number) === String(_packDetailOrderNumber));
-    if (cached) cached.scanned_json = res.scanned_json;
-    delete _packScanState[_packDetailOrderNumber];
-    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, cached.scanned_json);
-    renderPackSkuList_(_packDetailOrderNumber);
-    if (navigator.vibrate) navigator.vibrate(res.scanned >= res.qty ? [60, 30, 60] : 40);
-    if (res.kind === 'box_alias' || res.kind === 'parent_alias') {
-      showToast('✓ ' + res.sku + ' via alias "' + res.scanned_alias + '" — ' + res.scanned + '/' + res.qty);
-    } else if (res.scanned >= res.qty) {
-      showToast('✓ ' + res.sku + ' complete (' + res.scanned + '/' + res.qty + ')');
-    }
-  } catch (err) {
-    if (optimisticIdx >= 0) {
-      state.skus[optimisticIdx].scanned = Math.max(0, state.skus[optimisticIdx].scanned - 1);
-      renderPackSkuList_(_packDetailOrderNumber);
-    }
-    showToast('Scan error: ' + err.message);
-  }
+  });
 }
 
 async function resetPackScansForOrder(orderNumber) {
