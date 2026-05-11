@@ -1039,6 +1039,14 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <button onclick="closeMoreMenu();openSampleColorLabelsPrinter()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🎨</span>
+      <div style="flex:1">
+        <div>Sample Color Labels</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Print scannable Code 128 stickers for the melamine sample boxes</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="goToTabFromMore('cycle')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🎯</span>
       <div style="flex:1">
@@ -11190,6 +11198,111 @@ function renderGroundPackItemsPreview(orderRow) {
       + '</div>';
     list.appendChild(row);
   });
+
+  // SAMPLES line items: V1 strips Mageworx properties, so the actual
+  // color names don't reach Ground. Ask the orchestrator to look up
+  // the order in Shopify directly and surface the colors here.
+  const hasSamples = items.some(it => /^SAMPLES?\b/i.test(String(it.sku || '')) || /sample/i.test(String(it.name || '')));
+  if (hasSamples && orderRow.order_number) {
+    const colorBlock = document.createElement('div');
+    colorBlock.className = 'no-dark keep-dark-text';
+    colorBlock.id = 'groundSamplesColorsBlock';
+    colorBlock.setAttribute('style',
+      'margin-top:12px;padding:14px;background:var(--surface-2);color:var(--text);'
+      + '-webkit-text-fill-color:var(--text);'
+      + 'border:1.5px solid #FFB300;border-radius:8px');
+    colorBlock.innerHTML = '<div style="font-size:13px;font-weight:700;color:#FFB300;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📦 Colors to Box</div>'
+      + '<div id="groundSamplesColorsContent" style="font-size:14px;color:#9AAAC0">Looking up from Shopify…</div>';
+    list.appendChild(colorBlock);
+    fetchGroundSamplesColors_(orderRow.order_number);
+  }
+}
+
+// Default list — edit the prompt's value to match your actual melamine
+// color SKUs. Each entry becomes one printable sticker with a Code 128
+// barcode that the packer can scan when adding the color to a sample
+// box. Keep names short — long names compress the barcode width.
+const DEFAULT_MELAMINE_COLORS = [
+  'WALNUT', 'OAK', 'CHERRY', 'MAPLE', 'MAHOGANY', 'PEAR',
+  'WHITE', 'BLACK', 'ESPRESSO', 'GRAY', 'PEARL', 'BIRCH',
+];
+
+async function openSampleColorLabelsPrinter() {
+  const seed = (localStorage.getItem('mbd_sample_color_list') || DEFAULT_MELAMINE_COLORS.join('\n')).split('\n').map(s => s.trim()).filter(Boolean).join('\n');
+  const input = prompt('Sample color names (one per line — each becomes a stickered barcode for the melamine box). Edit freely:', seed);
+  if (input == null) return;
+  const colors = input.split('\n').map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!colors.length) { showToast('No colors provided'); return; }
+  localStorage.setItem('mbd_sample_color_list', colors.join('\n'));
+
+  await loadJsBarcode_(); // lazy-load JsBarcode (shared with Pack cover-page generation)
+
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Allow popups to print color labels'); return; }
+  win.document.write([
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>MBD Sample Color Labels</title>',
+    '<style>',
+    'body{margin:0;padding:0.25in;font-family:Helvetica,Arial,sans-serif;background:#fff;color:#000}',
+    'h1{font-size:14px;margin:0 0 6px}',
+    '.hint{font-size:11px;color:#666;margin-bottom:10px;text-align:center}',
+    '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}',
+    '.label{border:1px dashed #888;border-radius:6px;padding:12px 8px;text-align:center;break-inside:avoid;page-break-inside:avoid}',
+    '.name{font-size:24px;font-weight:900;letter-spacing:1.5px;margin-bottom:8px;text-transform:uppercase}',
+    '.bc{display:block;margin:0 auto 4px}',
+    '.sub{font-size:10px;color:#444;letter-spacing:1px;text-transform:uppercase}',
+    '@media print{.hint{display:none}}',
+    '@page{size:letter;margin:0.4in}',
+    '</style></head><body>',
+    '<h1>MBD Melamine Sample Color Labels</h1>',
+    '<div class="hint">Print → cut → stick one on each melamine sample box. Packer scans the barcode to confirm color when filling a sample order.</div>',
+    '<div class="grid">',
+    colors.map(c => '<div class="label"><div class="name">' + escapeHtml(c) + '</div><canvas class="bc" data-code="' + escapeHtml(c) + '"></canvas><div class="sub">CODE 128</div></div>').join(''),
+    '</div>',
+    '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\\/script>',
+    '<script>',
+    'window.addEventListener("load", () => {',
+    '  document.querySelectorAll("canvas.bc").forEach(cv => {',
+    '    try { JsBarcode(cv, cv.dataset.code, { format: "CODE128", width: 2, height: 60, displayValue: false, margin: 0 }); }',
+    '    catch (e) { cv.outerHTML = "<div style=\\"color:red;font-size:11px\\">barcode error: " + e.message + "</div>"; }',
+    '  });',
+    '  setTimeout(() => window.print(), 600);',
+    '});',
+    '<\\/script>',
+    '</body></html>',
+  ].join('\n'));
+  win.document.close();
+}
+
+async function fetchGroundSamplesColors_(orderNumber) {
+  const contentEl = document.getElementById('groundSamplesColorsContent');
+  if (!contentEl) return;
+  try {
+    const res = await groundApi('getShopifySamplesColors', { orderNumber: orderNumber });
+    if (!res || !res.ok) {
+      contentEl.style.color = '#ff9800';
+      contentEl.textContent = 'Could not fetch colors: ' + ((res && res.error) || 'unknown');
+      return;
+    }
+    if (!res.colors || !res.colors.length) {
+      contentEl.style.color = '#ff9800';
+      contentEl.textContent = res.sawSamplesItem
+        ? 'Shopify shows a SAMPLES item but no color list — customer may have ordered the default 1-color variant. Confirm with Jessica before packing.'
+        : 'No SAMPLES line item found in Shopify order.';
+      return;
+    }
+    contentEl.style.color = 'var(--text)';
+    contentEl.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px">'
+      + res.colors.map(c => '<span style="background:rgba(0,230,118,.12);border:1.5px solid #00E676;color:#00E676;'
+          + 'padding:6px 12px;border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;'
+          + 'font-weight:800;letter-spacing:.5px;text-transform:uppercase">'
+          + escapeHtml(c) + '</span>').join('')
+      + '</div>'
+      + '<div style="font-size:11px;color:#9AAAC0;margin-top:8px;font-style:italic">'
+      + res.colors.length + ' color' + (res.colors.length === 1 ? '' : 's') + ' to put in the box.</div>';
+  } catch (err) {
+    contentEl.style.color = '#ff5252';
+    contentEl.textContent = 'Lookup error: ' + err.message;
+  }
 }
 
 // "Create Labels & Start Pack" button handler — this is where money gets spent.
@@ -11990,7 +12103,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.11</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.12</div>
 
 </body>
 </html>
