@@ -1339,9 +1339,14 @@ input::placeholder, textarea::placeholder {
   </div>
   <!-- v72: open a printable page of kanban cards (one per item with QR
        code) — scan any card to fire a re-order request email to Seth. -->
-  <button onclick="openPrintKanbanCards()" style="width:100%;margin-bottom:14px;padding:11px 14px;background:rgba(0,48,135,.08);color:#003087;border:1.5px solid rgba(0,48,135,.35);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
-    🖨 Print Kanban Cards (QR)
-  </button>
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <button onclick="openPrintKanbanCards()" style="flex:2;padding:11px 14px;background:rgba(0,48,135,.08);color:#003087;border:1.5px solid rgba(0,48,135,.35);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
+      🖨 Print Cards (QR)
+    </button>
+    <button onclick="openPrintKanbanInstructions()" style="flex:1;padding:11px 14px;background:rgba(139,79,0,.08);color:#8B4F00;border:1.5px solid rgba(139,79,0,.4);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
+      📋 Print Guide
+    </button>
+  </div>
 
   <!-- EMPTY STATE -->
   <div id="itemEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
@@ -3442,6 +3447,105 @@ function openPrintKanbanCards() {
     +   '<button onclick="window.close()">Close</button>'
     + '</div>'
     + '<div class="page">' + cardsHtml + '</div>'
+    + '</body></html>');
+  w.document.close();
+}
+
+// v72: Printable instruction sheet for the warehouse wall. Single
+// page, color, laminate-ready. Walks any new packer through the kanban
+// loop in <30 seconds of reading.
+function openPrintKanbanInstructions() {
+  const w = window.open('', '_blank');
+  if (!w) {
+    showToast('Pop-up blocked — allow pop-ups to print the guide');
+    return;
+  }
+  w.document.write(''
+    + '<!doctype html><html><head><meta charset="utf-8"><title>MBD Inventory Kanban — Guide</title>'
+    + '<style>'
+    +   '@page { size: letter portrait; margin: 0.5in; }'
+    +   '* { box-sizing: border-box; }'
+    +   'body { font-family: \'Barlow Condensed\', Arial, sans-serif; margin: 0; padding: 0; background:#fff; color:#1a1a1a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
+    +   '.toolbar { padding: 12px 16px; background:#f0f0f0; border-bottom:1px solid #ccc; display:flex; gap:12px; align-items:center; font-family: Arial, sans-serif; font-size:13px; }'
+    +   '.toolbar button { padding: 8px 14px; background:#003087; color:#fff; border:none; border-radius:6px; font-weight:700; cursor:pointer; }'
+    +   '.sheet { padding: 0.1in 0.2in 0.2in; }'
+    +   'h1 { font-size: 38pt; font-weight: 900; letter-spacing: 1px; margin: 0; text-transform: uppercase; color:#0A0706; line-height: 1; }'
+    +   'h1 .sub { font-size: 16pt; font-weight: 700; color:#555; display: block; margin-top: 6px; letter-spacing: 2px; }'
+    +   '.lead { font-size: 13pt; color:#333; margin: 12pt 0 18pt; line-height: 1.4; }'
+    +   '.lanes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8pt; margin-bottom: 18pt; }'
+    +   '.lane { border: 2pt solid; border-left-width: 10pt; border-radius: 4pt; padding: 8pt 10pt; }'
+    +   '.lane .name { font-size: 12pt; font-weight: 900; text-transform: uppercase; letter-spacing: 1pt; line-height: 1; }'
+    +   '.lane .when { font-size: 9pt; color:#444; margin-top: 4pt; line-height: 1.3; }'
+    +   '.lane.reorder { border-color:#C0392B; background:#FCE7E7; }'
+    +   '.lane.onorder { border-color:#1A4FB0; background:#E7EFFC; }'
+    +   '.lane.low     { border-color:#B47200; background:#FCF3D9; }'
+    +   '.lane.ok      { border-color:#1A5C1A; background:#E0F4E6; }'
+    +   '.lane.reorder .name { color:#8B0000; }'
+    +   '.lane.onorder .name { color:#1A4FB0; }'
+    +   '.lane.low .name     { color:#8B4F00; }'
+    +   '.lane.ok .name      { color:#0F5C2E; }'
+    +   '.flow { display: grid; grid-template-columns: 1fr 1fr; gap: 12pt; }'
+    +   '.flow .block { border: 2pt solid #0A0706; border-radius: 5pt; background:#fafafa; padding: 14pt 14pt 12pt; }'
+    +   '.flow h2 { margin: 0 0 8pt; font-size: 18pt; font-weight: 900; text-transform: uppercase; letter-spacing: 1pt; color:#0A0706; padding-bottom: 6pt; border-bottom: 2pt solid #0A0706; }'
+    +   '.flow ol { margin: 0; padding-left: 22pt; font-size: 12pt; line-height: 1.55; font-family: Arial, sans-serif; }'
+    +   '.flow ol li { margin-bottom: 8pt; }'
+    +   '.flow ol li strong { font-family: \'Barlow Condensed\', Arial, sans-serif; font-size: 14pt; }'
+    +   '.icon { font-size: 16pt; vertical-align: -2pt; margin-right: 4pt; }'
+    +   '.footer { margin-top: 18pt; padding: 10pt 12pt; background:#FFF8E1; border: 1.5pt solid #FFC107; border-radius: 4pt; font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5; }'
+    +   '.footer strong { font-family: \'Barlow Condensed\', Arial, sans-serif; font-size: 13pt; }'
+    +   '.brand { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 4pt solid #0A0706; padding-bottom: 10pt; margin-bottom: 12pt; }'
+    +   '.brand .vrs { font-family: Arial, sans-serif; font-size: 10pt; color:#888; }'
+    +   '@media print { .toolbar { display:none; } .sheet { padding: 0; } }'
+    + '</style>'
+    + '</head><body>'
+    + '<div class="toolbar">'
+    +   '<strong>Inventory Kanban — Wall Guide</strong>'
+    +   '<span style="color:#666">Color, single page. Laminate after printing.</span>'
+    +   '<button onclick="window.print()">🖨 Print</button>'
+    +   '<button onclick="window.close()">Close</button>'
+    + '</div>'
+    + '<div class="sheet">'
+    +   '<div class="brand">'
+    +     '<h1>Inventory Kanban<span class="sub">How to keep stock flowing</span></h1>'
+    +     '<div class="vrs">MBD · ' + new Date().toISOString().slice(0,10) + '</div>'
+    +   '</div>'
+    +   '<div class="lead">Every bin has a card. The card tells you which lane the bin is in, what to do, and how to reorder if you\'re running out — just scan it with your phone.</div>'
+    +   '<div class="lanes">'
+    +     '<div class="lane reorder"><div class="name">🔴 Reorder</div><div class="when">Bin is at or below the reorder line. <strong>Scan now</strong> — we\'re about to run out.</div></div>'
+    +     '<div class="lane onorder"><div class="name">📦 On order</div><div class="when">Already ordered. Wait for delivery, then mark the card received.</div></div>'
+    +     '<div class="lane low"><div class="name">🟡 Low</div><div class="when">Getting close. Keep an eye on it — order next time you\'re placing one.</div></div>'
+    +     '<div class="lane ok"><div class="name">🟢 Healthy</div><div class="when">Plenty in the bin. Nothing to do.</div></div>'
+    +   '</div>'
+    +   '<div class="flow">'
+    +     '<div class="block">'
+    +       '<h2><span class="icon">📷</span>When a bin runs low</h2>'
+    +       '<ol>'
+    +         '<li><strong>Pull the card</strong> off the bin.</li>'
+    +         '<li><strong>Open your phone camera</strong> and point at the QR code on the card.</li>'
+    +         '<li>Tap the link that pops up — it opens the iPad app.</li>'
+    +         '<li><strong>Tap "Send"</strong> on the screen. Seth gets an email instantly with the item details. The card flips to the <span style="color:#1A4FB0;font-weight:900">📦 On Order</span> lane.</li>'
+    +         '<li>Put the card in the <strong>On Order</strong> spot on the wall so we don\'t order it twice.</li>'
+    +       '</ol>'
+    +     '</div>'
+    +     '<div class="block">'
+    +       '<h2><span class="icon">📥</span>When stock arrives</h2>'
+    +       '<ol>'
+    +         '<li><strong>Grab the card</strong> from the On Order spot.</li>'
+    +         '<li>Put it back on the bin with the new stock.</li>'
+    +         '<li>On the iPad, open the <strong>Stock</strong> tab and find the item in the <span style="color:#1A4FB0;font-weight:900">📦 On Order</span> lane.</li>'
+    +         '<li>Tap <strong>"✓ Mark received"</strong> on the card.</li>'
+    +         '<li>Tap <strong>"📥 Add Stock"</strong> and scan in what arrived so the on-hand count is right.</li>'
+    +       '</ol>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="footer">'
+    +     '<strong>Rules of thumb:</strong> '
+    +     'One card per bin. '
+    +     'Don\'t scan a card twice — the email already went out. '
+    +     'If a bin is empty but has no card, tell Seth so we can print a new one. '
+    +     'Questions? Ask Seth or Zac.'
+    +   '</div>'
+    + '</div>'
     + '</body></html>');
   w.document.close();
 }
