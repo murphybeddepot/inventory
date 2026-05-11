@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v90</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v91</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9893,12 +9893,62 @@ async function airPrintDrivePdf_(driveUrl, suggestedFilename) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+// Ensure a row has its instructions_pdf_url populated. If it's missing,
+// fetch the pick-list PDF via the orchestrator, parse it with PDF.js,
+// extract the first drive.google.com hyperlink (the INST-* link), and
+// persist via setPackInstructionsUrl. Idempotent — early-exits if the
+// URL is already there. Returns the URL or empty string on failure.
+async function ensurePackInstructionsUrl_(orderNumber) {
+  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  if (!row) return '';
+  if (row.instructions_pdf_url) return row.instructions_pdf_url;
+  if (!row.pick_list_pdf_url) return '';
+
+  const parsed = await (async () => {
+    try {
+      const res = await groundApi('fetchPackPickListPdf', { driveUrl: row.pick_list_pdf_url });
+      if (!res || !res.ok || !res.base64) throw new Error((res && res.error) || 'orchestrator fetch failed');
+      const raw = atob(res.base64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      return await packParsePdfBuffer_(bytes.buffer);
+    } catch (err) {
+      console.warn('ensurePackInstructionsUrl_(' + orderNumber + ') parse failed:', err.message);
+      return null;
+    }
+  })();
+
+  if (!parsed || !parsed.instructionsPdfUrl) return '';
+
+  try {
+    const res = await groundApi('setPackInstructionsUrl', {
+      orderNumber: orderNumber,
+      url: parsed.instructionsPdfUrl,
+    });
+    if (res && res.ok) {
+      row.instructions_pdf_url = parsed.instructionsPdfUrl;
+      return parsed.instructionsPdfUrl;
+    }
+  } catch (e) { /* swallow */ }
+  return '';
+}
+
 async function printOneInstruction(orderNumber) {
   const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
   if (!row) { showToast('Order not in current list — refresh'); return; }
-  const url = row.instructions_pdf_url || row.pick_list_pdf_url;
-  if (!url) { showToast('No PDF URL on this order'); return; }
+  if (!row.pick_list_pdf_url) { showToast('No PDF URL on this order'); return; }
   if (!confirm('Print instructions for ' + orderNumber + ' to the Brother?')) return;
+
+  // If instructions URL hasn't been extracted yet, extract it now so we
+  // don't print the pick list by mistake.
+  if (!row.instructions_pdf_url) {
+    showPackBanner_('Extracting instructions URL from ' + orderNumber + '…', '#42a5f5');
+    const got = await ensurePackInstructionsUrl_(orderNumber);
+    if (!got) {
+      showPackBanner_('Could not find an instructions link inside the pick list for ' + orderNumber, '#ff9800');
+      if (!confirm('No instructions PDF found — print the pick list instead?')) return;
+    }
+  }
 
   // Primary path: PrintNode direct to office Brother. Fallback: open the
   // PDF in a tab for AirPrint if PrintNode is offline / errors.
@@ -9906,15 +9956,17 @@ async function printOneInstruction(orderNumber) {
   try {
     const res = await groundApi('printPackInstructions', { orderNumber: orderNumber });
     if (res && res.ok) {
-      showPackBanner_('Sent ' + orderNumber + ' → Brother 🖨 (job ' + res.job_id + ')', '#00e676');
+      const what = res.which === 'instructions' ? 'instructions' : (res.which || 'pdf');
+      showPackBanner_('Sent ' + orderNumber + ' ' + what + ' → Brother 🖨 (job ' + res.job_id + ')', '#00e676');
       return;
     }
-    // PrintNode failed — fall back to AirPrint with the reason surfaced.
     const why = (res && res.error) || 'unknown';
     showPackBanner_('PrintNode failed (' + why + ') — opening for AirPrint', '#ff9800');
+    const url = row.instructions_pdf_url || row.pick_list_pdf_url;
     await airPrintDrivePdf_(url, orderNumber + '-instructions.pdf');
   } catch (err) {
     showPackBanner_('Print error: ' + err.message + ' — try AirPrint', '#ff5252');
+    const url = row.instructions_pdf_url || row.pick_list_pdf_url;
     try { await airPrintDrivePdf_(url, orderNumber + '-instructions.pdf'); } catch(e) {}
   }
 }
@@ -9929,6 +9981,29 @@ async function printTodaysInstructions() {
     return;
   }
   if (!confirm('Print instructions for ' + inflight.length + ' order' + (inflight.length === 1 ? '' : 's') + ' to the Brother?')) return;
+
+  // Pre-fetch: any order missing instructions_pdf_url gets its pick-list
+  // PDF parsed inline so the server has the right URL to print. Without
+  // this, the server falls back to printing the pick list itself — which
+  // is what was happening in v90.
+  const needsExtraction = inflight.filter(r => !r.instructions_pdf_url && r.pick_list_pdf_url);
+  if (needsExtraction.length) {
+    showPackBanner_('Extracting instructions from ' + needsExtraction.length + ' pick list' + (needsExtraction.length === 1 ? '' : 's') + '…', '#42a5f5');
+    // Run with a small concurrency window so we don't fire 12 simultaneous
+    // Drive fetches at the orchestrator.
+    const CONCURRENCY = 3;
+    let i = 0, extracted = 0, noLink = 0;
+    while (i < needsExtraction.length) {
+      const batch = needsExtraction.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(batch.map(r => ensurePackInstructionsUrl_(r.order_number)));
+      results.forEach(u => { if (u) extracted++; else noLink++; });
+      i += CONCURRENCY;
+      showPackBanner_('Extracted ' + extracted + '/' + needsExtraction.length + '…', '#42a5f5');
+    }
+    if (noLink) {
+      console.warn(noLink + ' orders had no instructions link inside their pick lists — those will print the pick list as fallback');
+    }
+  }
 
   // Primary: PrintNode bulk submit — Brother handles duplex + staple from
   // its printing-defaults config. Fallback: pdf-lib merge for AirPrint.
