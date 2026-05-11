@@ -1039,11 +1039,19 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="closeMoreMenu();openSampleColorLabelsPrinter()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+    <button onclick="closeMoreMenu();openBarcodeTagPrinter('colors')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🎨</span>
       <div style="flex:1">
         <div>Sample Color Labels</div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Print scannable Code 128 stickers for the melamine sample boxes</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="closeMoreMenu();openBarcodeTagPrinter('skus')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🏷️</span>
+      <div style="flex:1">
+        <div>SKU Barcode Tags</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Print scannable Code 128 tags for any SKU (HLR82, hardware bins, anywhere on the floor)</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
@@ -9342,36 +9350,88 @@ const DEFAULT_MELAMINE_COLORS = [
   'WHITE', 'BLACK', 'ESPRESSO', 'GRAY', 'PEARL', 'BIRCH',
 ];
 
-async function openSampleColorLabelsPrinter() {
-  const seed = (localStorage.getItem('mbd_sample_color_list') || DEFAULT_MELAMINE_COLORS.join('\n')).split('\n').map(s => s.trim()).filter(Boolean).join('\n');
-  const input = prompt('Sample color names (one per line — each becomes a stickered barcode for the melamine box). Edit freely:', seed);
-  if (input == null) return;
-  const colors = input.split('\n').map(s => s.trim().toUpperCase()).filter(Boolean);
-  if (!colors.length) { showToast('No colors provided'); return; }
-  localStorage.setItem('mbd_sample_color_list', colors.join('\n'));
+// Common MBD SKUs that don't come barcoded from the manufacturer —
+// the warehouse can print + hang one of these next to each bin so the
+// packer can scan when packing. Edit freely; the list persists in
+// localStorage after the manager edits it once.
+const DEFAULT_PRINTABLE_SKUS = [
+  // Horizontal rails (Brother HLR series)
+  'HLR77', 'HLR82',
+  // Hardware kits
+  'HWKIT', 'HORIZ-HWKIT',
+  // Springs (current + legacy)
+  'SPRINGS-CURRENT-2', 'SPRINGS-CURRENT-4', 'SPRINGS-CURRENT-8',
+  'SPRINGS-LEGACY-2', 'SPRINGS-LEGACY-4', 'SPRINGS-LEGACY-8',
+  // Slat parts
+  'SLAT-2-QE', 'SLAT-2-QR',
+  // Boxes for various frames
+  'SBF-QUEEN', 'SBF-DOUBLE', 'SBF-SINGLE', 'SBF-SINGLEXL', 'SBF-KING',
+  'SBLM', 'SBLM-HWKIT',
+  // Lights + accessories
+  'LIGHTS-SLV', 'LIGHTS-BLK',
+  'WMB-1',
+  'STRAP-HW5',
+  // BC-2
+  'BC-2',
+];
 
-  await loadJsBarcode_(); // lazy-load JsBarcode (shared with Pack cover-page generation)
+/**
+ * Generic barcode tag printer. Two preset modes:
+ *   mode='colors' — sample color names (default list of melamine colors)
+ *   mode='skus'   — any SKU (default seed list of common MBD SKUs)
+ * The manager can edit the input list freely; the choice persists per
+ * mode in localStorage.
+ */
+async function openBarcodeTagPrinter(mode) {
+  mode = mode === 'colors' ? 'colors' : 'skus';
+  const cfg = mode === 'colors'
+    ? {
+        storageKey: 'mbd_sample_color_list',
+        defaults: DEFAULT_MELAMINE_COLORS,
+        promptLabel: 'Sample color names (one per line — each becomes a stickered barcode for the melamine box). Edit freely:',
+        pageTitle: 'MBD Melamine Sample Color Labels',
+        heading: 'Sample Color Labels',
+        hint: 'Print → cut → stick one on each melamine sample box. Packer scans the barcode to confirm color when filling a sample order.',
+      }
+    : {
+        storageKey: 'mbd_printable_sku_list',
+        defaults: DEFAULT_PRINTABLE_SKUS,
+        promptLabel: 'SKUs to print (one per line). Each gets a Code 128 barcode + readable label. Hang next to bins for quick scan-to-confirm packing.',
+        pageTitle: 'MBD SKU Barcode Tags',
+        heading: 'SKU Barcode Tags',
+        hint: 'Print → cut → hang next to the bin/shelf for that SKU. Packer scans to confirm when picking.',
+      };
+
+  const seed = (localStorage.getItem(cfg.storageKey) || cfg.defaults.join('\n'))
+    .split('\n').map(s => s.trim()).filter(Boolean).join('\n');
+  const input = prompt(cfg.promptLabel, seed);
+  if (input == null) return;
+  const items = input.split('\n').map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!items.length) { showToast('Nothing to print'); return; }
+  localStorage.setItem(cfg.storageKey, items.join('\n'));
+
+  await loadJsBarcode_(); // lazy-load JsBarcode
 
   const win = window.open('', '_blank');
-  if (!win) { showToast('Allow popups to print color labels'); return; }
+  if (!win) { showToast('Allow popups to print labels'); return; }
   win.document.write([
-    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>MBD Sample Color Labels</title>',
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + cfg.pageTitle + '</title>',
     '<style>',
     'body{margin:0;padding:0.25in;font-family:Helvetica,Arial,sans-serif;background:#fff;color:#000}',
     'h1{font-size:14px;margin:0 0 6px}',
     '.hint{font-size:11px;color:#666;margin-bottom:10px;text-align:center}',
     '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}',
     '.label{border:1px dashed #888;border-radius:6px;padding:12px 8px;text-align:center;break-inside:avoid;page-break-inside:avoid}',
-    '.name{font-size:24px;font-weight:900;letter-spacing:1.5px;margin-bottom:8px;text-transform:uppercase}',
-    '.bc{display:block;margin:0 auto 4px}',
+    '.name{font-size:20px;font-weight:900;letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;font-family:Helvetica,Arial,sans-serif;word-break:break-all}',
+    '.bc{display:block;margin:0 auto 4px;max-width:100%}',
     '.sub{font-size:10px;color:#444;letter-spacing:1px;text-transform:uppercase}',
     '@media print{.hint{display:none}}',
     '@page{size:letter;margin:0.4in}',
     '</style></head><body>',
-    '<h1>MBD Melamine Sample Color Labels</h1>',
-    '<div class="hint">Print → cut → stick one on each melamine sample box. Packer scans the barcode to confirm color when filling a sample order.</div>',
+    '<h1>' + cfg.heading + '</h1>',
+    '<div class="hint">' + cfg.hint + '</div>',
     '<div class="grid">',
-    colors.map(c => '<div class="label"><div class="name">' + escapeHtml(c) + '</div><canvas class="bc" data-code="' + escapeHtml(c) + '"></canvas><div class="sub">CODE 128</div></div>').join(''),
+    items.map(c => '<div class="label"><div class="name">' + escapeHtml(c) + '</div><canvas class="bc" data-code="' + escapeHtml(c) + '"></canvas><div class="sub">CODE 128</div></div>').join(''),
     '</div>',
     '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\\/script>',
     '<script>',
@@ -9387,6 +9447,9 @@ async function openSampleColorLabelsPrinter() {
   ].join('\n'));
   win.document.close();
 }
+
+// Backwards-compat alias — the More menu used to call this name directly.
+async function openSampleColorLabelsPrinter() { return openBarcodeTagPrinter('colors'); }
 
 async function fetchGroundSamplesColors_(orderNumber) {
   const contentEl = document.getElementById('groundSamplesColorsContent');
@@ -10225,7 +10288,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.13</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.16</div>
 
 </body>
 </html>
