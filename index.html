@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v85</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v86</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -1135,12 +1135,14 @@ input::placeholder, textarea::placeholder {
 <div id="tab-pack" class="panel active">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Orders to Pack</div>
-    <div style="display:flex;gap:8px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="addToTodaysListPrompt()" class="amp-btn" style="font-size:13px;padding:8px 16px">+ Add to List</button>
       <button id="packManagerModeBtn" onclick="togglePackManagerMode()" class="amp-btn" style="font-size:13px;padding:8px 16px">👤 Manager</button>
       <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
     </div>
   </div>
   <div id="packQueueStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
+  <div id="packActionBanner" style="display:none"></div>
   <div id="packBulkBar" style="display:none;align-items:center;gap:10px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.45);border-radius:10px;padding:12px 14px;margin-bottom:10px;position:sticky;top:0;z-index:10;flex-wrap:wrap">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;color:#ff9800;letter-spacing:1.5px;text-transform:uppercase">Manager Mode</div>
     <div id="packBulkCount" style="font-size:13px;color:var(--text);font-weight:700">0 selected</div>
@@ -9112,7 +9114,7 @@ function paintPackQueue_(rows, fromCache) {
   const list = document.getElementById('packQueueList');
   list.innerHTML = '';
   if (!rows.length) {
-    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No cabinet orders to pack right now.<br><span style="font-size:12px">Pick-list emails get ingested every 15 minutes.</span></div>';
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">Today\'s pack list is empty.<br><span style="font-size:12px">Tap <strong>+ Add to List</strong> above to load today\'s orders by ship date.</span></div>';
     return;
   }
   rows.forEach(r => {
@@ -9802,6 +9804,76 @@ async function releasePackCheck(orderNumber) {
   }
 }
 
+// In-memory cache of the manager PIN — saved after one successful
+// manager action, expires 10 min later. Avoids re-typing the PIN for
+// every batch the same manager runs in one session. Not persisted to
+// localStorage (would defeat the security premise).
+let _packManagerPin = null;
+let _packManagerPinExpiresAt = 0;
+
+function getCachedManagerPin_() {
+  if (_packManagerPin && Date.now() < _packManagerPinExpiresAt) return _packManagerPin;
+  return null;
+}
+
+function cacheManagerPin_(pin) {
+  _packManagerPin = pin;
+  _packManagerPinExpiresAt = Date.now() + 10 * 60 * 1000;
+}
+
+function clearManagerPin_() {
+  _packManagerPin = null;
+  _packManagerPinExpiresAt = 0;
+}
+
+function promptManagerPin_(reason) {
+  const cached = getCachedManagerPin_();
+  if (cached) return cached;
+  const pin = prompt('Manager PIN' + (reason ? ' (' + reason + ')' : '') + ':');
+  if (pin == null) return null;
+  const trimmed = pin.trim();
+  if (!trimmed) return null;
+  cacheManagerPin_(trimmed);
+  return trimmed;
+}
+
+function showPackBanner_(text, color) {
+  const banner = document.getElementById('packActionBanner');
+  if (!banner) return;
+  banner.style.cssText = 'display:block;background:'+color+'1a;border:1px solid '+color+'72;border-radius:10px;padding:14px 16px;margin-bottom:10px;color:'+color+';font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;text-transform:uppercase';
+  banner.textContent = text;
+  clearTimeout(showPackBanner_._t);
+  showPackBanner_._t = setTimeout(() => { banner.style.display = 'none'; }, 6000);
+}
+
+async function addToTodaysListPrompt() {
+  const inflightNow = _packQueueCache.filter(r => {
+    const s = String(r.status || '');
+    return s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking';
+  }).length;
+  const suggested = Math.max(1, 12 - inflightNow);
+  const input = prompt('How many orders to add to today\'s list?', String(suggested));
+  if (input == null) return;
+  const count = parseInt(input, 10);
+  if (!count || count < 1) { showToast('Enter a positive number'); return; }
+
+  const pin = promptManagerPin_('add to list');
+  if (!pin) return;
+
+  try {
+    const res = await groundApi('addToTodaysPackList', { count: count, manager_pin: pin });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      showToast((res && res.error) || 'Add failed');
+      return;
+    }
+    showPackBanner_('+ ' + res.added + ' added · ' + res.totalActive + ' on today\'s list', '#42a5f5');
+    await refreshPackQueue();
+  } catch (err) {
+    showToast('Add error: ' + err.message);
+  }
+}
+
 function togglePackManagerMode() {
   _packManagerMode = !_packManagerMode;
   _packBulkSelection.clear();
@@ -9834,47 +9906,59 @@ async function bulkPackAction(target) {
   }
   const orderNumbers = Array.from(_packBulkSelection);
   const targetLabel = target === 'packed' ? 'Mark Packed' : 'Mark Shipped';
-  const pin = prompt('Manager PIN to ' + targetLabel + ' ' + orderNumbers.length
-    + ' order' + (orderNumbers.length === 1 ? '' : 's') + ':');
-  if (pin == null) return;
-  if (!pin.trim()) { showToast('PIN required'); return; }
+  const pin = promptManagerPin_(targetLabel + ' ' + orderNumbers.length
+    + ' order' + (orderNumbers.length === 1 ? '' : 's'));
+  if (!pin) return;
 
   const action = target === 'packed' ? 'markPackJobComplete' : 'markPackJobShipped';
   let ok = 0, failed = [];
+  let pinInvalid = false;
   for (const orderNumber of orderNumbers) {
     try {
       const res = await groundApi(action, {
         orderNumber: orderNumber,
-        manager_pin: pin.trim(),
+        manager_pin: pin,
         deviceId: getPackDeviceId_(),
         packerName: localStorage.getItem('mbd_ground_packer') || '',
       });
       if (res && res.ok) ok++;
-      else failed.push(orderNumber + ': ' + ((res && res.error) || 'unknown'));
+      else {
+        if (res && /pin/i.test(res.error || '')) pinInvalid = true;
+        failed.push(orderNumber + ': ' + ((res && res.error) || 'unknown'));
+      }
     } catch (err) {
       failed.push(orderNumber + ': ' + err.message);
     }
   }
+  if (pinInvalid) clearManagerPin_();
   _packBulkSelection.clear();
   await refreshPackQueue();
-  if (failed.length) {
-    alert('Bulk ' + targetLabel + ' done: ' + ok + ' succeeded, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
+
+  // Highly visible feedback so the manager can see the result without
+  // staring at the toast — banner persists for 6 seconds.
+  if (ok > 0 && failed.length === 0) {
+    const verb = target === 'packed' ? '✓ packed' : '📦 shipped';
+    showPackBanner_(ok + ' order' + (ok === 1 ? '' : 's') + ' ' + verb, '#00e676');
+  } else if (ok > 0 && failed.length > 0) {
+    showPackBanner_(ok + ' ok · ' + failed.length + ' failed — see alert', '#ff9800');
+    alert('Bulk ' + targetLabel + ':\n' + ok + ' succeeded, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
   } else {
-    showToast('Bulk ' + targetLabel + ' done — ' + ok + ' updated');
+    showPackBanner_('Bulk ' + targetLabel + ' failed', '#ff5252');
+    alert('Bulk ' + targetLabel + ' failed:\n\n' + failed.join('\n'));
   }
 }
 
 async function confirmMarkPackJobShipped(orderNumber) {
-  const pin = prompt('Manager PIN required to mark order ' + orderNumber + ' as shipped:');
-  if (pin == null) return; // cancelled
-  if (!pin.trim()) { showToast('PIN required'); return; }
+  const pin = promptManagerPin_('mark ' + orderNumber + ' shipped');
+  if (!pin) return;
   try {
-    const res = await groundApi('markPackJobShipped', { orderNumber: orderNumber, manager_pin: pin.trim() });
+    const res = await groundApi('markPackJobShipped', { orderNumber: orderNumber, manager_pin: pin });
     if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
       showToast(((res && res.error) || 'Mark shipped failed'));
       return;
     }
-    showToast('Order ' + orderNumber + ' marked shipped 🚚');
+    showPackBanner_('Order ' + orderNumber + ' shipped 📦', '#00e676');
     await refreshPackQueue();
   } catch (err) {
     showToast('Mark shipped error: ' + err.message);
