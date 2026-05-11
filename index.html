@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v75</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v76</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9183,6 +9183,7 @@ function openPackDetail(orderNumber) {
           ${row.pick_list_pdf_url ? '<button onclick="loadPackPdfFromUrl(\''+esc(row.pick_list_pdf_url)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">📥 Re-parse from Drive PDF</button>' : ''}
           <label for="packPdfFile" class="amp-btn" style="cursor:pointer;padding:8px 12px;font-size:12px;margin:0">📂 Upload PDF/CSV</label>
           <input type="file" id="packPdfFile" accept="application/pdf,.pdf,.xlsx,.xls,.csv" style="display:none" onchange="onPackPdfFileSelected(event)">
+          <button onclick="resetPackScansForOrder('${esc(row.order_number)}')" class="amp-btn" style="padding:8px 12px;font-size:12px">↺ Reset Scans</button>
         </div>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -9228,7 +9229,7 @@ function openPackDetail(orderNumber) {
   // Fresh on every open so a re-parse via PDF/upload from a previous session
   // doesn't survive a back-and-forward into a different order.
   delete _packScanState[row.order_number];
-  getPackScanState_(row.order_number, row.sku_lines_json);
+  getPackScanState_(row.order_number, row.sku_lines_json, row.scanned_json);
   renderPackSkuList_(row.order_number);
 }
 
@@ -9338,17 +9339,25 @@ const PACK_SIZE_PREFIXES = new Set(['DOUBLE','SINGLE','QUEEN','KING','TWIN','FUL
 // Per-order scan state. Map<orderNumber, { skus: [{sku, qty, name, scanned}, ...] }>
 const _packScanState = {};
 
-function getPackScanState_(orderNumber, sourceSkusJson) {
+function getPackScanState_(orderNumber, sourceSkusJson, sourceScannedJson) {
   if (!_packScanState[orderNumber]) {
     let arr = [];
     try { arr = JSON.parse(sourceSkusJson || '[]'); if (!Array.isArray(arr)) arr = []; } catch(e) {}
+    let scannedBySku = {};
+    try {
+      const scArr = JSON.parse(sourceScannedJson || '[]');
+      if (Array.isArray(scArr)) scArr.forEach(s => { scannedBySku[String(s.sku || '').trim()] = Number(s.scanned) || 0; });
+    } catch(e) {}
     _packScanState[orderNumber] = {
-      skus: arr.map(s => ({
-        sku: String(s.sku || '').trim(),
-        qty: Number(s.qty) || 0,
-        name: String(s.name || s.sku || '').trim(),
-        scanned: 0,
-      })),
+      skus: arr.map(s => {
+        const sku = String(s.sku || '').trim();
+        return {
+          sku: sku,
+          qty: Number(s.qty) || 0,
+          name: String(s.name || s.sku || '').trim(),
+          scanned: scannedBySku[sku] || 0,
+        };
+      }),
     };
   }
   return _packScanState[orderNumber];
@@ -9421,30 +9430,82 @@ function handlePackScanSubmit() {
   input.focus();
 }
 
-function processPackScan_(code) {
+async function processPackScan_(code) {
   if (!_packDetailOrderNumber) return;
   const state = _packScanState[_packDetailOrderNumber];
   if (!state || !state.skus.length) {
     showToast('No SKU list loaded — upload a pick list first');
     return;
   }
+  // Optimistic local match by normalized SKU so the UI feels instant; the
+  // server response is authoritative and overwrites.
   const codeNorm = packNorm_(code);
-  // Match: exact, normalized, or "starts with" against any SKU on the order.
-  let hitIdx = state.skus.findIndex(s => packNorm_(s.sku) === codeNorm);
-  if (hitIdx < 0) {
-    // Loose match: scanned code is a prefix of a SKU (e.g. partial barcodes)
-    hitIdx = state.skus.findIndex(s => packNorm_(s.sku).startsWith(codeNorm) && codeNorm.length >= 4);
+  let optimisticIdx = state.skus.findIndex(s => packNorm_(s.sku) === codeNorm);
+  if (optimisticIdx < 0) {
+    optimisticIdx = state.skus.findIndex(s => packNorm_(s.sku).startsWith(codeNorm) && codeNorm.length >= 4);
   }
-  if (hitIdx < 0) {
-    showToast('Barcode "' + code + '" not on this order');
-    return;
+  if (optimisticIdx >= 0) {
+    const s = state.skus[optimisticIdx];
+    s.scanned = Math.min(s.qty + 5, s.scanned + 1);
+    renderPackSkuList_(_packDetailOrderNumber);
   }
-  const s = state.skus[hitIdx];
-  s.scanned = Math.min(s.qty + 5, s.scanned + 1);
-  if (navigator.vibrate) navigator.vibrate(s.scanned >= s.qty ? [60, 30, 60] : 40);
-  renderPackSkuList_(_packDetailOrderNumber);
-  if (s.scanned >= s.qty) {
-    showToast('✓ ' + s.sku + ' complete (' + s.scanned + '/' + s.qty + ')');
+
+  try {
+    const res = await groundApi('recordPackScan', {
+      orderNumber: _packDetailOrderNumber,
+      scannedSku: code,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      // Roll back the optimistic increment, surface the reason.
+      if (optimisticIdx >= 0) {
+        state.skus[optimisticIdx].scanned = Math.max(0, state.skus[optimisticIdx].scanned - 1);
+        renderPackSkuList_(_packDetailOrderNumber);
+      }
+      showToast(((res && res.error) || 'Scan rejected'));
+      return;
+    }
+    // Authoritative state from server. Patch the in-memory cache row + the
+    // scan state from the returned scanned_json.
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(_packDetailOrderNumber));
+    if (cached) cached.scanned_json = res.scanned_json;
+    delete _packScanState[_packDetailOrderNumber];
+    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, cached.scanned_json);
+    renderPackSkuList_(_packDetailOrderNumber);
+    if (navigator.vibrate) navigator.vibrate(res.scanned >= res.qty ? [60, 30, 60] : 40);
+    if (res.kind === 'box_alias' || res.kind === 'parent_alias') {
+      showToast('✓ ' + res.sku + ' via alias "' + res.scanned_alias + '" — ' + res.scanned + '/' + res.qty);
+    } else if (res.scanned >= res.qty) {
+      showToast('✓ ' + res.sku + ' complete (' + res.scanned + '/' + res.qty + ')');
+    }
+  } catch (err) {
+    if (optimisticIdx >= 0) {
+      state.skus[optimisticIdx].scanned = Math.max(0, state.skus[optimisticIdx].scanned - 1);
+      renderPackSkuList_(_packDetailOrderNumber);
+    }
+    showToast('Scan error: ' + err.message);
+  }
+}
+
+async function resetPackScansForOrder(orderNumber) {
+  if (!confirm('Reset all scan counts for order ' + orderNumber + '? (Photos and claim are preserved.)')) return;
+  try {
+    const res = await groundApi('resetPackScans', {
+      orderNumber: orderNumber,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      showToast('Reset failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    if (cached) cached.scanned_json = '';
+    delete _packScanState[orderNumber];
+    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, '');
+    renderPackSkuList_(orderNumber);
+    showToast('Scans reset');
+  } catch (err) {
+    showToast('Reset error: ' + err.message);
   }
 }
 
