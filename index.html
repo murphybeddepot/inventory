@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v96</span></h1>
+  <h1>MBD Inventory</h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -11981,5 +11981,12 @@ renderCabinets();
 // Start auto-sync if configured
 startAutoSync();
 </script>
+
+<!-- Version chip — fixed bottom-right, low-contrast so it's there for
+     debugging but doesn't compete with content. Format is 9.7 (one
+     decimal) so consecutive bumps read like minor revisions instead
+     of a sprawling build counter. -->
+<div style="position:fixed;right:6px;bottom:4px;font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,.32);letter-spacing:.5px;pointer-events:none;z-index:9990">v9.7</div>
+
 </body>
 </html>
