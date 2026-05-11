@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v76</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v77</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9412,12 +9412,38 @@ function renderPackSkuList_(orderNumber) {
   }).join('');
 }
 
-function bumpPackSku(orderNumber, idx, delta) {
+async function bumpPackSku(orderNumber, idx, delta) {
   const state = _packScanState[orderNumber];
   if (!state || !state.skus[idx]) return;
   const s = state.skus[idx];
+  const prev = s.scanned;
+  // Optimistic local update so the tap feels instant.
   s.scanned = Math.max(0, s.scanned + delta);
   renderPackSkuList_(orderNumber);
+  try {
+    const res = await groundApi('recordPackScan', {
+      orderNumber: orderNumber,
+      scannedSku: s.sku,
+      manualAdjustment: true,
+      delta: delta,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      s.scanned = prev; // rollback
+      renderPackSkuList_(orderNumber);
+      showToast('Adjustment failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    if (cached) cached.scanned_json = res.scanned_json;
+    delete _packScanState[orderNumber];
+    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, cached.scanned_json);
+    renderPackSkuList_(orderNumber);
+  } catch (err) {
+    s.scanned = prev;
+    renderPackSkuList_(orderNumber);
+    showToast('Adjustment error: ' + err.message);
+  }
 }
 
 function handlePackScanSubmit() {
