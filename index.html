@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v87</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v89</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9848,47 +9848,130 @@ function showPackBanner_(text, color) {
   showPackBanner_._t = setTimeout(() => { banner.style.display = 'none'; }, 6000);
 }
 
-async function printTodaysInstructions() {
-  const inflightCount = _packQueueCache.filter(r => {
-    const s = String(r.status || '');
-    return s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking';
-  }).length;
-  if (inflightCount === 0) {
-    showToast('No orders on today\'s list to print');
-    return;
-  }
-  if (!confirm('Print pick-list instructions for ' + inflightCount + ' order' + (inflightCount === 1 ? '' : 's') + ' to the office printer?')) return;
+// pdf-lib lazy loader — only fetched when "Print All" is tapped so
+// the ~300KB doesn't load on every page open.
+async function loadPdfLib_() {
+  if (window.PDFLib) return window.PDFLib;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('pdf-lib failed to load — check your network'));
+    document.head.appendChild(s);
+  });
+  if (!window.PDFLib) throw new Error('pdf-lib loaded but not on window');
+  return window.PDFLib;
+}
 
-  showPackBanner_('Sending ' + inflightCount + ' to printer…', '#42a5f5');
-  try {
-    const res = await groundApi('printTodaysPackInstructions', {});
-    if (!res || !res.ok) {
-      showPackBanner_('Print failed: ' + ((res && res.error) || 'unknown'), '#ff5252');
-      return;
-    }
-    if (res.failed > 0) {
-      showPackBanner_(res.submitted + ' sent · ' + res.failed + ' failed — see alert', '#ff9800');
-      const failedDetails = res.results.filter(r => !r.ok).map(r => r.order_number + ': ' + r.error).join('\n');
-      alert('Print Today\'s Instructions:\n' + res.submitted + ' submitted, ' + res.failed + ' failed.\n\n' + failedDetails);
-    } else {
-      showPackBanner_(res.submitted + ' instruction packet' + (res.submitted === 1 ? '' : 's') + ' sent to printer 🖨', '#00e676');
-    }
-  } catch (err) {
-    showPackBanner_('Print error: ' + err.message, '#ff5252');
+// Fetch a Drive PDF via the orchestrator (passes auth so PII-restricted
+// PDFs work) and return raw bytes as Uint8Array.
+async function packFetchPdfBytes_(driveUrl) {
+  const res = await groundApi('fetchPackPickListPdf', { driveUrl: driveUrl });
+  if (!res || !res.ok || !res.base64) {
+    throw new Error((res && res.error) || 'orchestrator returned no bytes for ' + driveUrl);
   }
+  const raw = atob(res.base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+
+// Open a Drive PDF in a new tab for AirPrint. Fetches via orchestrator
+// (since the PDF carries customer PII and isn't publicly shared), wraps
+// as a Blob URL, opens. Safari → Share sheet → Print → AirPrint Brother.
+async function airPrintDrivePdf_(driveUrl, suggestedFilename) {
+  const bytes = await packFetchPdfBytes_(driveUrl);
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (!w) {
+    // Popup blocked — surface a tappable link.
+    showToast('Allow popups, then tap Print again');
+  }
+  // Don't revoke immediately — Safari may still be loading. Revoke after a
+  // minute; if the user prints faster than that, the blob will be cached.
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 async function printOneInstruction(orderNumber) {
-  if (!confirm('Print pick-list instructions for ' + orderNumber + ' to the office printer?')) return;
+  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  if (!row) { showToast('Order not in current list — refresh'); return; }
+  const url = row.instructions_pdf_url || row.pick_list_pdf_url;
+  if (!url) { showToast('No PDF URL on this order'); return; }
+  const which = row.instructions_pdf_url ? 'instructions' : 'pick list (no instructions link parsed yet)';
+  if (!confirm('Open ' + which + ' for ' + orderNumber + ' to AirPrint?')) return;
   try {
-    const res = await groundApi('printPackInstructions', { orderNumber: orderNumber });
-    if (!res || !res.ok) {
-      showToast('Print failed: ' + ((res && res.error) || 'unknown'));
+    showPackBanner_('Fetching ' + which + ' for ' + orderNumber + '…', '#42a5f5');
+    await airPrintDrivePdf_(url, orderNumber + '-' + which.replace(/\s+/g, '_') + '.pdf');
+    showPackBanner_('Tap Share → Print → AirPrint to the Brother', '#00e676');
+  } catch (err) {
+    showPackBanner_('Open error: ' + err.message, '#ff5252');
+  }
+}
+
+async function printTodaysInstructions() {
+  const inflight = _packQueueCache.filter(r => {
+    const s = String(r.status || '');
+    return s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking';
+  });
+  if (inflight.length === 0) {
+    showToast('No orders on today\'s list to print');
+    return;
+  }
+  const withInstructions = inflight.filter(r => r.instructions_pdf_url);
+  const fallbackPick = inflight.filter(r => !r.instructions_pdf_url && r.pick_list_pdf_url);
+  const missing = inflight.length - withInstructions.length - fallbackPick.length;
+  if (!withInstructions.length && !fallbackPick.length) {
+    showToast('No PDFs available to print');
+    return;
+  }
+  const total = withInstructions.length + fallbackPick.length;
+  let confirmMsg = 'Merge ' + total + ' PDF' + (total === 1 ? '' : 's') + ' into one packet for AirPrint?';
+  if (fallbackPick.length) confirmMsg += '\n\n' + fallbackPick.length + ' order(s) have no instructions link extracted yet — will use the pick list as a fallback.';
+  if (missing) confirmMsg += '\n' + missing + ' order(s) have no PDF and will be skipped.';
+  if (!confirm(confirmMsg)) return;
+
+  showPackBanner_('Merging ' + total + ' PDFs (this may take 10–30 seconds)…', '#42a5f5');
+  try {
+    const PDFLib = await loadPdfLib_();
+    const merged = await PDFLib.PDFDocument.create();
+    const all = withInstructions.concat(fallbackPick);
+    let done = 0, failed = [];
+    for (const r of all) {
+      const url = r.instructions_pdf_url || r.pick_list_pdf_url;
+      try {
+        const bytes = await packFetchPdfBytes_(url);
+        const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+        const pages = await merged.copyPages(src, src.getPageIndices());
+        pages.forEach(p => merged.addPage(p));
+        done++;
+        showPackBanner_('Merged ' + done + '/' + total + '…', '#42a5f5');
+      } catch (err) {
+        failed.push(r.order_number + ': ' + err.message);
+      }
+    }
+    if (!done) {
+      showPackBanner_('Merge failed — see alert', '#ff5252');
+      alert('Could not merge any PDFs:\n\n' + failed.join('\n'));
       return;
     }
-    showPackBanner_('Instructions for ' + orderNumber + ' sent to printer 🖨', '#00e676');
+    const mergedBytes = await merged.save();
+    const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+    const blobUrl = URL.createObjectURL(blob);
+    const w = window.open(blobUrl, '_blank');
+    if (!w) {
+      showPackBanner_('Allow popups, then tap Print All again', '#ff9800');
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 5 * 60 * 1000);
+    if (failed.length) {
+      showPackBanner_(done + ' merged · ' + failed.length + ' failed — Share → Print', '#ff9800');
+      alert('Print All:\n' + done + ' merged, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
+    } else {
+      showPackBanner_(done + ' instructions merged · Share → Print → AirPrint', '#00e676');
+    }
   } catch (err) {
-    showToast('Print error: ' + err.message);
+    showPackBanner_('Merge error: ' + err.message, '#ff5252');
   }
 }
 
@@ -10122,14 +10205,25 @@ async function packParsePdfBuffer_(arrayBuffer) {
   if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js failed to load — check your network');
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-  // Collect all text items with their positions across all pages.
+  // Collect all text items + URL annotations across all pages. The
+  // instructions PDF link is buried as an annotation behind a SKU like
+  // "INST-QL8F-V2" — pdfjs surfaces it via page.getAnnotations().
   let items = [];
+  let urlAnnotations = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
     content.items.forEach(it => {
       items.push({ text: String(it.str || ''), x: it.transform[4], y: it.transform[5] });
     });
+    try {
+      const anns = await page.getAnnotations();
+      anns.forEach(a => {
+        if (a && a.subtype === 'Link' && a.url) {
+          urlAnnotations.push({ url: a.url });
+        }
+      });
+    } catch(e) { /* annotations optional */ }
   }
 
   // The pick-list table has an MBD NOTE column (right-most) full of
@@ -10168,7 +10262,15 @@ async function packParsePdfBuffer_(arrayBuffer) {
   const lines = rows.map(row =>
     row.sort((a, b) => a.x - b.x).map(it => it.text).join(' ').replace(/\s+/g, ' ').trim()
   );
-  return packParsePdfText_(lines.join('\n'));
+  const parsed = packParsePdfText_(lines.join('\n'));
+
+  // Pick the first Drive URL as the instructions link. The pick-list
+  // emails embed exactly one INST-* hyperlink per order; if there are
+  // multiple, the first one wins. Filter to drive.google.com to avoid
+  // grabbing any non-instructions URL the carrier might have stuck in.
+  const driveAnn = urlAnnotations.find(a => /drive\.google\.com/i.test(a.url));
+  parsed.instructionsPdfUrl = driveAnn ? driveAnn.url : '';
+  return parsed;
 }
 
 async function loadPackPdfFromUrl(url) {
@@ -10315,6 +10417,7 @@ async function applyPackParsedToActiveOrder_(parsed, source) {
       orderNumber: _packDetailOrderNumber,
       skuLines: skuLines,
       source: source,
+      instructionsPdfUrl: parsed.instructionsPdfUrl || '',
     });
     if (!res || !res.ok) {
       if (statusEl) statusEl.textContent = 'Loaded locally but server save failed: ' + ((res && res.error) || 'unknown')
@@ -10326,6 +10429,7 @@ async function applyPackParsedToActiveOrder_(parsed, source) {
     if (cached) {
       cached.sku_lines_json = res.sku_lines_json;
       cached.scanned_json = ''; // server cleared on update
+      if (res.instructions_pdf_url) cached.instructions_pdf_url = res.instructions_pdf_url;
     }
     // Refresh scan state from the now-canonical list so the rendered counts
     // reflect what the server has.
