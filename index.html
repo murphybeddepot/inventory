@@ -1337,6 +1337,11 @@ input::placeholder, textarea::placeholder {
       + Add Item
     </button>
   </div>
+  <!-- v72: open a printable page of kanban cards (one per item with QR
+       code) — scan any card to fire a re-order request email to Seth. -->
+  <button onclick="openPrintKanbanCards()" style="width:100%;margin-bottom:14px;padding:11px 14px;background:rgba(0,48,135,.08);color:#003087;border:1.5px solid rgba(0,48,135,.35);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
+    🖨 Print Kanban Cards (QR)
+  </button>
 
   <!-- EMPTY STATE -->
   <div id="itemEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
@@ -3345,6 +3350,205 @@ function markItemReceivedFromOrder(uuid) {
   saveItems();
   showToast('✓ ' + (item.sku || 'item') + ' off on-order — use Add Stock to credit qty');
   renderItems();
+}
+
+// ── v72 Printable kanban cards (with QR for re-order) ──────────────
+// Opens a new window with a print-ready page: one card per inventory
+// item, with a QR code that encodes a URL back to this PWA carrying
+// `?reorder=<SKU>`. Scanning the QR opens the PWA which surfaces a
+// confirm modal; confirming fires sendReorderRequest on the orchestrator
+// and emails seth@. Lean kanban physical-card workflow.
+function openPrintKanbanCards() {
+  const candidates = items.filter(i => !i.deleted);
+  if (candidates.length === 0) {
+    showToast('No items to print cards for');
+    return;
+  }
+  // Cards link back to the PWA's canonical URL. Include the orchestrator
+  // URL configured on this device so future scans don't depend on the
+  // scanner picking up local settings.
+  const pwaBase = (location.origin + location.pathname).replace(/index\.html$/, '');
+  const orchUrl = GROUND_ORCH_URL || '';
+
+  // Sort by category, then SKU.
+  const sorted = candidates.slice().sort((a, b) => {
+    const ca = (a.category || 'zz').toLowerCase();
+    const cb = (b.category || 'zz').toLowerCase();
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    return String(a.sku || '').localeCompare(String(b.sku || ''));
+  });
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    showToast('Pop-up blocked — allow pop-ups to print cards');
+    return;
+  }
+
+  // Inline minimal HTML/CSS so the print page is self-contained.
+  // QR codes via api.qrserver.com (no JS library needed; ~5KB GET per
+  // card; cached after first render).
+  function cardHtml(item) {
+    const sku = String(item.sku || '').trim();
+    const name = String(item.name || '').trim();
+    const vendor = String(item.vendor || item.category || '').trim();
+    const rp = Number(item.reorderPoint) || 0;
+    const qrTarget = pwaBase + '?reorder=' + encodeURIComponent(sku);
+    const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data='
+      + encodeURIComponent(qrTarget);
+    return ''
+      + '<div class="card">'
+      +   '<div class="vendor">' + escHtml_(vendor) + '</div>'
+      +   '<div class="sku">' + escHtml_(sku) + '</div>'
+      +   (name ? '<div class="name">' + escHtml_(name) + '</div>' : '')
+      +   '<div class="rule"></div>'
+      +   '<div class="qr-row">'
+      +     '<div class="meta">'
+      +       (rp ? '<div><span class="lbl">Reorder ≤</span><span class="val">' + rp + '</span></div>' : '')
+      +       '<div><span class="lbl">SCAN TO</span><span class="val">REORDER</span></div>'
+      +     '</div>'
+      +     '<img class="qr" src="' + qrSrc + '" alt="QR">'
+      +   '</div>'
+      + '</div>';
+  }
+
+  const cardsHtml = sorted.map(cardHtml).join('');
+
+  w.document.write(''
+    + '<!doctype html><html><head><meta charset="utf-8"><title>MBD Kanban Cards</title>'
+    + '<style>'
+    +   '@page { size: letter; margin: 0.4in; }'
+    +   '* { box-sizing: border-box; }'
+    +   'body { font-family: \'Barlow Condensed\', Arial, sans-serif; margin: 0; padding: 0; background:#fff; color:#000; }'
+    +   '.toolbar { padding: 12px 16px; background:#f0f0f0; border-bottom:1px solid #ccc; display:flex; gap:12px; align-items:center; font-family: Arial, sans-serif; font-size:13px; }'
+    +   '.toolbar button { padding: 8px 14px; background:#003087; color:#fff; border:none; border-radius:6px; font-weight:700; cursor:pointer; }'
+    +   '.page { display:grid; grid-template-columns: repeat(2, 1fr); gap: 0.18in; padding: 0; }'
+    +   '.card { border: 2px solid #000; border-radius: 4px; padding: 0.18in 0.2in; height: 3.5in; display:flex; flex-direction:column; page-break-inside: avoid; background:#fff; }'
+    +   '.vendor { font-size: 11pt; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color:#555; }'
+    +   '.sku { font-size: 28pt; font-weight: 900; line-height: 1.05; margin-top: 4px; word-break: break-word; }'
+    +   '.name { font-size: 11pt; color:#333; margin-top: 4px; line-height: 1.25; }'
+    +   '.rule { border-top: 1px dashed #999; margin: 10px 0 8px; }'
+    +   '.qr-row { display:flex; gap: 12px; justify-content:space-between; align-items:flex-end; flex: 1; }'
+    +   '.meta { font-family: Arial, sans-serif; font-size: 10pt; display:flex; flex-direction:column; gap:6px; }'
+    +   '.meta .lbl { font-size: 8pt; color:#666; letter-spacing:.5px; text-transform: uppercase; display:block; }'
+    +   '.meta .val { font-size: 14pt; font-weight: 900; }'
+    +   '.qr { width: 1.4in; height: 1.4in; }'
+    +   '@media print { .toolbar { display:none; } .page { gap: 0.12in; } }'
+    + '</style>'
+    + '</head><body>'
+    + '<div class="toolbar">'
+    +   '<strong>' + sorted.length + ' kanban cards</strong>'
+    +   '<span style="color:#666">Scan any card to send a re-order email to Seth.</span>'
+    +   '<button onclick="window.print()">🖨 Print</button>'
+    +   '<button onclick="window.close()">Close</button>'
+    + '</div>'
+    + '<div class="page">' + cardsHtml + '</div>'
+    + '</body></html>');
+  w.document.close();
+}
+
+// Cheap HTML escape for the print page (the main PWA's `esc` is fine
+// but we want the print-card code self-contained for clarity).
+function escHtml_(s) {
+  return String(s || '').replace(/[&<>"']/g, function (c) {
+    return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
+  });
+}
+
+// ── Re-order URL handler ───────────────────────────────────────────
+// When the PWA loads with `?reorder=<sku>`, surface a confirm modal
+// and fire sendReorderRequest on confirm. Activated by a card scan.
+(function handleReorderUrlParam_() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const sku = params.get('reorder');
+    if (!sku) return;
+    // Defer to after the items array is loaded — page init runs many
+    // localStorage reads before this point; setTimeout puts us safely
+    // after the synchronous bootstrap.
+    setTimeout(() => openReorderConfirmModal(sku), 200);
+    // Strip the param so a refresh doesn't re-trigger.
+    if (window.history && window.history.replaceState) {
+      const cleanUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  } catch (e) {
+    console.warn('reorder url handler failed:', e);
+  }
+})();
+
+function openReorderConfirmModal(sku) {
+  const item = items.find(i => !i.deleted && String(i.sku || '').toLowerCase() === String(sku).toLowerCase());
+  const knownItem = !!item;
+  const vendor = knownItem ? (item.vendor || item.category || '') : '';
+  const name = knownItem ? (item.name || '') : '';
+  const rp = knownItem ? (Number(item.reorderPoint) || 0) : 0;
+  const onHand = knownItem ? itemQtyBreakdown(item).ok : '?';
+
+  const ov = document.createElement('div');
+  ov.id = 'reorderConfirmOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998';
+  ov.onclick = (e) => { if (e.target === ov) closeReorderConfirmModal(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;border-radius:14px;padding:22px 22px 18px;width:min(420px,92vw);box-shadow:0 16px 40px rgba(0,0,0,.4)">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#003087;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🔄 Reorder</div>'
+    + '<div style="font-size:13px;color:#444;margin-bottom:12px">' + (knownItem
+        ? 'Send a re-order request for this item to <strong>seth@</strong>?'
+        : '⚠ SKU <strong>' + esc(sku) + '</strong> wasn\'t found in the items list. Send anyway?') + '</div>'
+    + '<div style="background:#F5F5F5;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;line-height:1.6">'
+    +   '<div><span style="color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:11px">SKU</span> <strong>' + esc(sku) + '</strong></div>'
+    +   (name ? '<div><span style="color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Name</span> ' + esc(name) + '</div>' : '')
+    +   (vendor ? '<div><span style="color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Vendor</span> ' + esc(vendor) + '</div>' : '')
+    +   (knownItem ? '<div><span style="color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:11px">On hand</span> ' + esc(String(onHand)) + (rp ? ' &nbsp;·&nbsp; <span style="color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Reorder ≤</span> ' + rp : '') + '</div>' : '')
+    + '</div>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="closeReorderConfirmModal()" style="flex:1;padding:12px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="submitReorderRequest(\''+esc(sku)+'\')" style="flex:1;padding:12px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">📧 Send</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+function closeReorderConfirmModal() {
+  const ov = document.getElementById('reorderConfirmOverlay');
+  if (ov) ov.remove();
+}
+
+async function submitReorderRequest(sku) {
+  closeReorderConfirmModal();
+  if (!GROUND_ORCH_URL) {
+    showToast('⚠ Orchestrator URL not configured');
+    return;
+  }
+  const item = items.find(i => !i.deleted && String(i.sku || '').toLowerCase() === String(sku).toLowerCase());
+  let person = '';
+  try { person = localStorage.getItem('mbd_ground_packer') || ''; } catch (e) {}
+
+  const payload = {
+    sku: sku,
+    name: item ? (item.name || '') : '',
+    vendor: item ? (item.vendor || item.category || '') : '',
+    onHand: item ? itemQtyBreakdown(item).ok : 0,
+    reorderPoint: item ? (Number(item.reorderPoint) || 0) : 0,
+    requestedQty: 0,
+    requestedBy: person,
+  };
+  try {
+    const resp = await groundApi('sendReorderRequest', payload);
+    if (resp && resp.ok) {
+      showToast('📧 Reorder request emailed to Seth');
+      // Also flag on-order locally so the kanban card visibly moves.
+      if (item) {
+        item.onOrder = true;
+        item.orderedAt = Date.now();
+        saveItems();
+        renderItems();
+      }
+    } else {
+      showToast('⚠ Reorder failed: ' + esc(resp && resp.error || 'unknown'));
+    }
+  } catch (err) {
+    showToast('⚠ Reorder error: ' + esc(String(err && err.message || err)));
+  }
 }
 
 function renderItemResult(query) {
