@@ -10013,7 +10013,9 @@ async function buildPackCoverPagePdf_(row) {
   return await cover.save();
 }
 
-// Take instructions PDF bytes, prepend the generated cover, return
+// Take instructions PDF bytes, prepend the generated cover + a blank
+// page (so duplex printing lands the instructions' original first page
+// on the front of sheet 2, not the back of the cover sheet), return
 // the combined bytes.
 async function prependCoverToPdf_(coverBytes, instructionsBytes) {
   const PDFLib = await loadPdfLib_();
@@ -10022,6 +10024,9 @@ async function prependCoverToPdf_(coverBytes, instructionsBytes) {
   const instructions = await PDFLib.PDFDocument.load(instructionsBytes, { ignoreEncryption: true });
   const coverPages = await out.copyPages(cover, cover.getPageIndices());
   coverPages.forEach(p => out.addPage(p));
+  // Blank duplex spacer. Sized to match the cover so the printer
+  // doesn't reflow / scale anything. Letter (612×792 pt).
+  out.addPage([612, 792]);
   const instructionPages = await out.copyPages(instructions, instructions.getPageIndices());
   instructionPages.forEach(p => out.addPage(p));
   return await out.save();
@@ -11985,7 +11990,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.9</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.10</div>
 
 </body>
 </html>
