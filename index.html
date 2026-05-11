@@ -9410,37 +9410,47 @@ async function openBarcodeTagPrinter(mode) {
   if (!items.length) { showToast('Nothing to print'); return; }
   localStorage.setItem(cfg.storageKey, items.join('\n'));
 
-  await loadJsBarcode_(); // lazy-load JsBarcode
-
+  // QR codes via api.qrserver.com — same approach as the kanban cards
+  // in v72. No client JS lib needed (JsBarcode wasn't rendering reliably
+  // inside the new-window context), and QR codes are easier to scan
+  // when hung at a distance vs Code 128.
   const win = window.open('', '_blank');
   if (!win) { showToast('Allow popups to print labels'); return; }
+  function qrUrl(code) {
+    return 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=' + encodeURIComponent(code);
+  }
   win.document.write([
     '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + cfg.pageTitle + '</title>',
     '<style>',
     'body{margin:0;padding:0.25in;font-family:Helvetica,Arial,sans-serif;background:#fff;color:#000}',
     'h1{font-size:14px;margin:0 0 6px}',
     '.hint{font-size:11px;color:#666;margin-bottom:10px;text-align:center}',
-    '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}',
-    '.label{border:1px dashed #888;border-radius:6px;padding:12px 8px;text-align:center;break-inside:avoid;page-break-inside:avoid}',
-    '.name{font-size:20px;font-weight:900;letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;font-family:Helvetica,Arial,sans-serif;word-break:break-all}',
-    '.bc{display:block;margin:0 auto 4px;max-width:100%}',
-    '.sub{font-size:10px;color:#444;letter-spacing:1px;text-transform:uppercase}',
+    '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}',
+    '.label{border:1px dashed #888;border-radius:6px;padding:10px 8px 8px;text-align:center;break-inside:avoid;page-break-inside:avoid}',
+    '.name{font-size:18px;font-weight:900;letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase;font-family:Helvetica,Arial,sans-serif;word-break:break-all;line-height:1.15}',
+    '.qr{display:block;margin:0 auto;width:160px;height:160px}',
+    '.sub{font-size:10px;color:#444;letter-spacing:1px;text-transform:uppercase;margin-top:4px}',
     '@media print{.hint{display:none}}',
     '@page{size:letter;margin:0.4in}',
     '</style></head><body>',
     '<h1>' + cfg.heading + '</h1>',
     '<div class="hint">' + cfg.hint + '</div>',
     '<div class="grid">',
-    items.map(c => '<div class="label"><div class="name">' + escapeHtml(c) + '</div><canvas class="bc" data-code="' + escapeHtml(c) + '"></canvas><div class="sub">CODE 128</div></div>').join(''),
+    items.map(c => '<div class="label">'
+      + '<div class="name">' + escapeHtml(c) + '</div>'
+      + '<img class="qr" src="' + qrUrl(c) + '" alt="' + escapeHtml(c) + '">'
+      + '<div class="sub">QR · ' + escapeHtml(c) + '</div>'
+      + '</div>').join(''),
     '</div>',
-    '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\\/script>',
     '<script>',
+    // Wait for all QR images to load before triggering print, otherwise
+    // Safari sometimes prints blank squares.
     'window.addEventListener("load", () => {',
-    '  document.querySelectorAll("canvas.bc").forEach(cv => {',
-    '    try { JsBarcode(cv, cv.dataset.code, { format: "CODE128", width: 2, height: 60, displayValue: false, margin: 0 }); }',
-    '    catch (e) { cv.outerHTML = "<div style=\\"color:red;font-size:11px\\">barcode error: " + e.message + "</div>"; }',
-    '  });',
-    '  setTimeout(() => window.print(), 600);',
+    '  const imgs = Array.from(document.images);',
+    '  if (!imgs.length) { window.print(); return; }',
+    '  let pending = imgs.length;',
+    '  const done = () => { if (--pending <= 0) setTimeout(() => window.print(), 250); };',
+    '  imgs.forEach(i => { if (i.complete) done(); else { i.addEventListener("load", done); i.addEventListener("error", done); } });',
     '});',
     '<\\/script>',
     '</body></html>',
@@ -10288,7 +10298,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.16</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.17</div>
 
 </body>
 </html>
