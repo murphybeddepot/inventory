@@ -8629,6 +8629,10 @@ async function callStartPackAndRender(orderRow) {
     const data = await groundApi('startPack', {
       orderId: orderRow.order_id,
       packerName: groundPackerName,
+      // v71: pass the full V1 shape inline so the server skips its
+      // re-fetch. Server falls back to fetching if inline_order is
+      // missing or malformed (older iPad caches).
+      inlineOrder: orderRow.inline_order || null,
     });
 
     if (data.hold && data.hold.length > 0) {
