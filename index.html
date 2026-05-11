@@ -1000,10 +1000,15 @@ input::placeholder, textarea::placeholder {
   </div>
   <!-- Receive shipment button (shows active session badge if applicable) -->
   <div id="receiveButtonContainer">
-    <button onclick="openReceiveShipment()" class="amp-btn info" style="width:100%;margin-bottom:14px">
+    <button onclick="openReceiveShipment()" class="amp-btn info" style="width:100%;margin-bottom:8px">
       📥 Receive Shipment
     </button>
   </div>
+  <!-- v71: damage log opener — small subdued button so it doesn't compete
+       with the primary receive flow; badge shows open-record count when known -->
+  <button onclick="openDamageLog()" id="damageLogOpener" style="width:100%;margin-bottom:14px;padding:11px 14px;background:rgba(139,0,0,.08);color:#8B0000;border:1.5px solid rgba(139,0,0,.35);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
+    🚫 Damage Log <span id="damageLogBadge" style="opacity:.7;font-weight:600"></span>
+  </button>
 
   <!-- EMPTY STATE -->
   <div id="cabEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
@@ -7560,6 +7565,138 @@ function submitMarkDamaged(idx) {
   });
 
   renderReceiveSession();
+}
+
+// v71 Phase 2: Damage Log — list open damage records with inline
+// lifecycle controls. Fetches from server on open, mutations call
+// updateDamageRecord and re-render. No local state caching — this
+// view is always live from the server (open records are small N).
+function openDamageLog() {
+  if (!GROUND_ORCH_URL) {
+    showToast('⚠ Orchestrator URL not configured');
+    return;
+  }
+  const ov = document.createElement('div');
+  ov.id = 'damageLogOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998';
+  ov.onclick = (e) => { if (e.target === ov) closeDamageLog(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;border-radius:14px;padding:0;width:min(560px,94vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 16px 40px rgba(0,0,0,.4)">'
+    + '<div style="padding:18px 20px 12px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#8B0000;text-transform:uppercase;letter-spacing:.5px">🚫 Damage Log</div>'
+    +   '<button onclick="closeDamageLog()" style="background:#f5f5f5;color:#444;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>'
+    + '<div id="damageLogBody" style="padding:14px 20px;overflow-y:auto;flex:1;background:#fafafa">'
+    +   '<div style="text-align:center;color:#666;padding:40px 10px;font-size:14px">Loading…</div>'
+    + '</div>'
+    + '<div style="padding:10px 20px;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#888">'
+    +   '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="damageLogIncludeComplete" onchange="refreshDamageLog()"> Show completed</label>'
+    +   '<button onclick="refreshDamageLog()" style="background:#003087;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">↻ Refresh</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  refreshDamageLog();
+}
+
+function closeDamageLog() {
+  const ov = document.getElementById('damageLogOverlay');
+  if (ov) ov.remove();
+}
+
+async function refreshDamageLog() {
+  const body = document.getElementById('damageLogBody');
+  if (!body) return;
+  const includeComplete = !!document.getElementById('damageLogIncludeComplete')?.checked;
+  body.innerHTML = '<div style="text-align:center;color:#666;padding:40px 10px;font-size:14px">Loading…</div>';
+  try {
+    const resp = await groundApi('listDamageRecords', { includeComplete });
+    if (!resp || !resp.ok) {
+      body.innerHTML = '<div style="text-align:center;color:#8B0000;padding:40px 10px;font-size:14px">Failed to load: '+esc(resp && resp.error || 'unknown error')+'</div>';
+      return;
+    }
+    const records = resp.records || [];
+    // Update opener badge with open count
+    const badge = document.getElementById('damageLogBadge');
+    if (badge) {
+      const openCount = records.filter(r => String(r.status||'').trim() !== 'complete').length;
+      badge.textContent = openCount > 0 ? '(' + openCount + ' open)' : '';
+    }
+    if (records.length === 0) {
+      body.innerHTML = '<div style="text-align:center;color:#666;padding:40px 10px;font-size:14px">'+(includeComplete?'No damage records.':'No open damage records. 🎉')+'</div>';
+      return;
+    }
+    body.innerHTML = records.map(damageRecordCardHtml_).join('');
+  } catch (err) {
+    body.innerHTML = '<div style="text-align:center;color:#8B0000;padding:40px 10px;font-size:14px">Error: '+esc(String(err && err.message || err))+'</div>';
+  }
+}
+
+function damageRecordCardHtml_(r) {
+  const status = String(r.status || 'reported');
+  const statusColor = ({
+    reported:           '#8B0000',
+    inspecting:         '#B25500',
+    parts_ordered:      '#6B4F00',
+    remake_in_transit:  '#2C5282',
+    remake_received:    '#0F6B3C',
+    complete:           '#444',
+  })[status] || '#444';
+  const repAt = r.reported_at ? new Date(r.reported_at).toLocaleString() : '';
+  const partsDue = r.parts_due_date ? String(r.parts_due_date).slice(0,10) : '';
+  const safeId = esc(r.damage_id || '');
+  return ''
+    + '<div data-damage-id="'+safeId+'" style="background:#fff;border:1.5px solid #e0e0e0;border-left:5px solid '+statusColor+';border-radius:10px;padding:14px 16px;margin-bottom:10px">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:.5px">'+esc(r.cabinet_num||'?')+'</div>'
+    +     '<div style="font-size:10px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:1px">'+esc(r.session_id||'')+'</div>'
+    +   '</div>'
+    +   '<div style="font-size:12px;color:#555;margin-bottom:10px">Reported '+(r.reported_by?'by <strong>'+esc(r.reported_by)+'</strong> ':'')+(repAt?'· '+esc(repAt):'')+'</div>'
+    +   (r.notes
+        ? '<div style="background:#FFF8E1;border-left:3px solid #FFC107;padding:8px 10px;font-size:13px;color:#5C4400;margin-bottom:10px;border-radius:4px;white-space:pre-wrap">'+esc(r.notes)+'</div>'
+        : '')
+    +   '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;font-size:12px">'
+    +     '<label style="font-weight:700;color:#444;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Status</label>'
+    +     '<select onchange="updateDamageField(\''+safeId+'\',\'status\',this.value)" style="padding:7px 10px;border:1.5px solid #ccc;border-radius:6px;font-size:13px;font-weight:600;background:#fff">'
+    +       DAMAGE_STATUSES.map(s => '<option value="'+s+'"'+(s===status?' selected':'')+'>'+damageStatusLabel_(s)+'</option>').join('')
+    +     '</select>'
+    +     '<label style="font-weight:700;color:#444;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Parts due</label>'
+    +     '<input type="date" value="'+esc(partsDue)+'" onchange="updateDamageField(\''+safeId+'\',\'parts_due_date\',this.value)" style="padding:7px 10px;border:1.5px solid #ccc;border-radius:6px;font-size:13px;font-weight:600;background:#fff">'
+    +   '</div>'
+    + '</div>';
+}
+
+const DAMAGE_STATUSES = [
+  'reported','inspecting','parts_ordered',
+  'remake_in_transit','remake_received','complete',
+];
+function damageStatusLabel_(s) {
+  return ({
+    reported:           'Reported',
+    inspecting:         'Inspecting',
+    parts_ordered:      'Parts ordered',
+    remake_in_transit:  'Remake in transit',
+    remake_received:    'Remake received',
+    complete:           'Complete ✓',
+  })[s] || s;
+}
+
+async function updateDamageField(damageId, field, value) {
+  const fields = {};
+  fields[field] = value;
+  try {
+    const resp = await groundApi('updateDamageRecord', { damageId, fields });
+    if (resp && resp.ok) {
+      const verb = field === 'status' ? 'Status' : (field === 'parts_due_date' ? 'Parts due' : field);
+      showToast('✓ '+verb+' saved');
+      // Auto-refresh so the card's left-border color matches the new status,
+      // and to drop "complete" rows out of the list when applicable.
+      refreshDamageLog();
+    } else {
+      showToast('⚠ Save failed: '+esc(resp && resp.error || 'unknown'));
+    }
+  } catch (err) {
+    showToast('⚠ Save error: '+esc(String(err && err.message || err)));
+  }
 }
 
 // Cancel a session entirely without committing anything not already saved.
