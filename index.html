@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v91</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v92</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -10318,9 +10318,11 @@ async function packParsePdfBuffer_(arrayBuffer) {
     try {
       const anns = await page.getAnnotations();
       anns.forEach(a => {
-        if (a && a.subtype === 'Link' && a.url) {
-          urlAnnotations.push({ url: a.url });
-        }
+        if (!a || a.subtype !== 'Link') return;
+        // pdfjs exposes external link URLs under several fields depending
+        // on how the PDF encoded the link. Check all of them.
+        const url = a.url || a.unsafeUrl || (typeof a.dest === 'string' ? a.dest : '') || '';
+        if (url) urlAnnotations.push({ url: url, raw: a });
       });
     } catch(e) { /* annotations optional */ }
   }
@@ -10363,13 +10365,49 @@ async function packParsePdfBuffer_(arrayBuffer) {
   );
   const parsed = packParsePdfText_(lines.join('\n'));
 
-  // Pick the first Drive URL as the instructions link. The pick-list
-  // emails embed exactly one INST-* hyperlink per order; if there are
-  // multiple, the first one wins. Filter to drive.google.com to avoid
-  // grabbing any non-instructions URL the carrier might have stuck in.
-  const driveAnn = urlAnnotations.find(a => /drive\.google\.com/i.test(a.url));
-  parsed.instructionsPdfUrl = driveAnn ? driveAnn.url : '';
+  // Pick the first Drive (or Docs) URL as the instructions link. The
+  // pick-list PDFs embed exactly one INST-* hyperlink per order; if there
+  // are multiple, the first one wins. Match drive.google.com OR
+  // docs.google.com OR a bare file id pattern — some PDFs encode just
+  // the file id as the destination instead of a full URL.
+  const driveAnn = urlAnnotations.find(a => /drive\.google\.com|docs\.google\.com|drive\.usercontent\.google\.com/i.test(a.url));
+  let instructionsPdfUrl = driveAnn ? driveAnn.url : '';
+  if (!instructionsPdfUrl && urlAnnotations.length) {
+    // If we found URLs but none Google-shaped, take the first http(s)
+    // URL — better to print something than nothing.
+    const httpAnn = urlAnnotations.find(a => /^https?:\/\//i.test(a.url));
+    if (httpAnn) instructionsPdfUrl = httpAnn.url;
+  }
+  parsed.instructionsPdfUrl = instructionsPdfUrl;
+  parsed._debugAnnotations = urlAnnotations.map(a => a.url); // exposed for debugPackPdfAnnotations
   return parsed;
+}
+
+// Editor-runnable debug helper: parse one order's pick-list PDF and
+// log every annotation URL we find, so we can see what's actually in
+// there when the instructions extraction fails. Invoke from the iPad
+// console: `await debugPackPdfAnnotations('31851')`.
+async function debugPackPdfAnnotations(orderNumber) {
+  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  if (!row) { console.log('Order not in cache — open it first or refresh the queue'); return; }
+  if (!row.pick_list_pdf_url) { console.log('Order has no pick_list_pdf_url'); return; }
+  console.log('=== debugPackPdfAnnotations ' + orderNumber + ' ===');
+  console.log('  pick_list_pdf_url:', row.pick_list_pdf_url);
+  try {
+    const res = await groundApi('fetchPackPickListPdf', { driveUrl: row.pick_list_pdf_url });
+    if (!res || !res.ok || !res.base64) { console.log('  fetch failed:', res); return; }
+    const raw = atob(res.base64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const parsed = await packParsePdfBuffer_(bytes.buffer);
+    console.log('  annotation URLs found (' + (parsed._debugAnnotations || []).length + '):');
+    (parsed._debugAnnotations || []).forEach((u, i) => console.log('    [' + i + '] ' + u));
+    console.log('  picked instructionsPdfUrl:', parsed.instructionsPdfUrl || '(none)');
+    console.log('  SKU lines parsed:');
+    parsed.items.forEach(it => console.log('    ' + it.qty + ' x ' + it.sku + (it.name && it.name !== it.sku ? ' — ' + it.name : '')));
+  } catch (err) {
+    console.log('  ERROR:', err.message);
+  }
 }
 
 async function loadPackPdfFromUrl(url) {
