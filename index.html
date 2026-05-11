@@ -19,6 +19,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
@@ -1009,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v74</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v75</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9176,8 +9177,21 @@ function openPackDetail(orderNumber) {
     </div>
 
     <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
-      <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">SKUs to pack (${skus.length})</div>
-      ${skus.length ? skus.map(s => '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed rgba(255,255,255,.08);font-size:14px"><span style="font-family:\'JetBrains Mono\',monospace;color:var(--text)">'+esc(s.sku)+'</span><span style="color:var(--text-dim);font-weight:700">×'+esc(s.qty)+'</span></div>').join('') : '<div style="color:var(--text-dim);font-size:13px">No SKUs parsed from pick-list email.</div>'}
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">SKUs to pack <span id="packSkuProgress" style="color:var(--text-dim);font-size:13px;letter-spacing:0;margin-left:6px"></span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${row.pick_list_pdf_url ? '<button onclick="loadPackPdfFromUrl(\''+esc(row.pick_list_pdf_url)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">📥 Re-parse from Drive PDF</button>' : ''}
+          <label for="packPdfFile" class="amp-btn" style="cursor:pointer;padding:8px 12px;font-size:12px;margin:0">📂 Upload PDF/CSV</label>
+          <input type="file" id="packPdfFile" accept="application/pdf,.pdf,.xlsx,.xls,.csv" style="display:none" onchange="onPackPdfFileSelected(event)">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" id="packScanInput" placeholder="Scan or type a SKU…" autocomplete="off" autocorrect="off" spellcheck="false"
+          style="flex:1;padding:11px 13px;font-size:15px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;background:#000;color:var(--green-bright);border:2px solid rgba(0,230,118,.35);border-radius:8px;outline:none;text-shadow:0 0 8px rgba(0,230,118,.4)">
+        <button onclick="handlePackScanSubmit()" class="amp-btn go" style="padding:11px 16px;font-size:13px">Scan</button>
+      </div>
+      <div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:8px"></div>
+      <div id="packSkuList"></div>
     </div>
 
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
@@ -9209,6 +9223,13 @@ function openPackDetail(orderNumber) {
       <button onclick="confirmMarkPackJobComplete('${esc(row.order_number)}')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900;margin-left:auto">✓ Mark Packed</button>
     </div>
   `;
+
+  // Seed scan-to-verify state from the row's sku_lines_json + render the list.
+  // Fresh on every open so a re-parse via PDF/upload from a previous session
+  // doesn't survive a back-and-forward into a different order.
+  delete _packScanState[row.order_number];
+  getPackScanState_(row.order_number, row.sku_lines_json);
+  renderPackSkuList_(row.order_number);
 }
 
 function renderPackPhotoGallery_(jsonStr) {
@@ -9282,6 +9303,370 @@ function compressImageToJpeg_(file, maxDim, quality) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+if (typeof pdfjsLib !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+
+// ────────────────────────────────────────────────────────────
+// PACK PDF PARSER + SCAN-TO-VERIFY (DIAG-V75-PACK-PDF)
+//
+// Hybrid per Phase 3 plan:
+//   • Client-side PDF/CSV/manual parse ported from
+//     murphybeddepot/fulfillment/index.html (parsePDFText / parsePDFBuffer
+//     / extractDriveFileId / loadFromLink). QTY column governs item
+//     count (regex /^(\d+)\s+(.+)$/) per the fulfillment app's contract.
+//   • Scan-to-verify state lives in JS only this slice (per-order map
+//     keyed by normalized SKU). The PackingQueue sheet's sku_lines_json
+//     is unchanged unless the packer explicitly re-parses; no scan-
+//     progress endpoint exists yet — proposed `recordPackScan` in the
+//     deploy summary so multi-device sync + inside-item resolution
+//     can move server-side in the next slice.
+//   • Drive-link load uses the same CORS proxy fallback chain from the
+//     fulfillment app since GitHub Pages can't fetch drive.google.com
+//     directly.
+// ────────────────────────────────────────────────────────────
+
+const PACK_PDF_CORS_PROXIES = [
+  function(u){ return 'https://corsproxy.io/?' + encodeURIComponent(u); },
+  function(u){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+  function(u){ return 'https://cors-anywhere.herokuapp.com/' + u; },
+];
+const PACK_SIZE_PREFIXES = new Set(['DOUBLE','SINGLE','QUEEN','KING','TWIN','FULL','NOTE','QTY','DESCRIPTION','MBD']);
+
+// Per-order scan state. Map<orderNumber, { skus: [{sku, qty, name, scanned}, ...] }>
+const _packScanState = {};
+
+function getPackScanState_(orderNumber, sourceSkusJson) {
+  if (!_packScanState[orderNumber]) {
+    let arr = [];
+    try { arr = JSON.parse(sourceSkusJson || '[]'); if (!Array.isArray(arr)) arr = []; } catch(e) {}
+    _packScanState[orderNumber] = {
+      skus: arr.map(s => ({
+        sku: String(s.sku || '').trim(),
+        qty: Number(s.qty) || 0,
+        name: String(s.name || s.sku || '').trim(),
+        scanned: 0,
+      })),
+    };
+  }
+  return _packScanState[orderNumber];
+}
+
+function setPackScanState_(orderNumber, skuArr) {
+  _packScanState[orderNumber] = {
+    skus: skuArr.map(s => ({
+      sku: String(s.sku || '').trim(),
+      qty: Number(s.qty) || 0,
+      name: String(s.name || s.sku || '').trim(),
+      scanned: Number(s.scanned) || 0,
+    })),
+  };
+}
+
+function packNorm_(s) {
+  return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function renderPackSkuList_(orderNumber) {
+  const list = document.getElementById('packSkuList');
+  const prog = document.getElementById('packSkuProgress');
+  if (!list) return;
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus.length) {
+    list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;font-style:italic">No SKUs loaded — upload a pick list PDF/CSV or re-parse from the email.</div>';
+    if (prog) prog.textContent = '';
+    return;
+  }
+  const done = state.skus.filter(s => s.scanned >= s.qty).length;
+  if (prog) prog.textContent = '(' + done + '/' + state.skus.length + ' complete)';
+  list.innerHTML = state.skus.map((s, idx) => {
+    const isDone = s.scanned >= s.qty;
+    const isOver = s.scanned > s.qty;
+    const bg = isDone ? 'rgba(0,230,118,.10)' : isOver ? 'rgba(255,82,82,.10)' : 'rgba(255,255,255,.02)';
+    const border = isDone ? 'rgba(0,230,118,.45)' : isOver ? 'rgba(255,82,82,.45)' : 'rgba(255,255,255,.08)';
+    const checkColor = isDone ? '#00e676' : isOver ? '#ff5252' : 'var(--text-dim)';
+    const checkChar = isDone ? '✓' : isOver ? '!' : '○';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:6px;background:'+bg+';border:1px solid '+border+';border-radius:8px">'
+      + '<div style="font-size:18px;font-weight:900;color:'+checkColor+';width:22px;text-align:center">'+checkChar+'</div>'
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;color:var(--text);word-break:break-all">'+esc(s.sku)+'</div>'
+      +   (s.name && s.name !== s.sku ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">'+esc(s.name)+'</div>' : '')
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
+      +   '<button onclick="bumpPackSku(\''+esc(orderNumber)+'\',' + idx + ',-1)" class="amp-btn" style="padding:4px 9px;font-size:14px;min-width:32px">−</button>'
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:900;color:'+(isOver?'#ff5252':isDone?'#00e676':'var(--text)')+';min-width:48px;text-align:center">'+s.scanned+'/'+s.qty+'</div>'
+      +   '<button onclick="bumpPackSku(\''+esc(orderNumber)+'\',' + idx + ',1)" class="amp-btn go" style="padding:4px 9px;font-size:14px;min-width:32px">+</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function bumpPackSku(orderNumber, idx, delta) {
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus[idx]) return;
+  const s = state.skus[idx];
+  s.scanned = Math.max(0, s.scanned + delta);
+  renderPackSkuList_(orderNumber);
+}
+
+function handlePackScanSubmit() {
+  const input = document.getElementById('packScanInput');
+  if (!input) return;
+  const code = input.value.trim();
+  input.value = '';
+  if (!code) return;
+  processPackScan_(code);
+  input.focus();
+}
+
+function processPackScan_(code) {
+  if (!_packDetailOrderNumber) return;
+  const state = _packScanState[_packDetailOrderNumber];
+  if (!state || !state.skus.length) {
+    showToast('No SKU list loaded — upload a pick list first');
+    return;
+  }
+  const codeNorm = packNorm_(code);
+  // Match: exact, normalized, or "starts with" against any SKU on the order.
+  let hitIdx = state.skus.findIndex(s => packNorm_(s.sku) === codeNorm);
+  if (hitIdx < 0) {
+    // Loose match: scanned code is a prefix of a SKU (e.g. partial barcodes)
+    hitIdx = state.skus.findIndex(s => packNorm_(s.sku).startsWith(codeNorm) && codeNorm.length >= 4);
+  }
+  if (hitIdx < 0) {
+    showToast('Barcode "' + code + '" not on this order');
+    return;
+  }
+  const s = state.skus[hitIdx];
+  s.scanned = Math.min(s.qty + 5, s.scanned + 1);
+  if (navigator.vibrate) navigator.vibrate(s.scanned >= s.qty ? [60, 30, 60] : 40);
+  renderPackSkuList_(_packDetailOrderNumber);
+  if (s.scanned >= s.qty) {
+    showToast('✓ ' + s.sku + ' complete (' + s.scanned + '/' + s.qty + ')');
+  }
+}
+
+// Wire Enter-key in the scan input (cordless barcode scanners terminate with \n).
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const ae = document.activeElement;
+  if (!ae || ae.id !== 'packScanInput') return;
+  e.preventDefault();
+  handlePackScanSubmit();
+});
+
+// ── PDF / CSV parse (ported from fulfillment/index.html with the QTY-
+//    column-governs rule kept intact) ─────────────────────────────
+
+function packExtractDriveFileId_(raw) {
+  let url = String(raw || '').trim();
+  if (url.includes('google.com/url')) {
+    const m = url.match(/[?&]q=([^&]+)/);
+    if (m) url = decodeURIComponent(m[1]);
+  }
+  const patterns = [
+    /\/file\/d\/([a-zA-Z0-9_-]{20,})/,
+    /[?&]id=([a-zA-Z0-9_-]{20,})/,
+    /\/d\/([a-zA-Z0-9_-]{20,})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function packParsePdfText_(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  let orderNum = null, shipDate = null, shipFrom = null, color = null;
+
+  for (const line of lines) {
+    let m;
+    if ((m = line.match(/ORDER INFO:\s*(\d+)/i))) orderNum = m[1];
+    if ((m = line.match(/SHIP-FROM:\s*(\S+)/i))) shipFrom = m[1];
+    if ((m = line.match(/COLOR:\s*(.+)/i))) color = m[1].trim();
+    if (/^\d{2}\/\d{2}\/\d{2}$/.test(line)) shipDate = line;
+  }
+
+  const items = [];
+  let inItems = false;
+  let pending = null;
+
+  for (const line of lines) {
+    if (/QTY\s+DESCRIPTION/i.test(line)) { inItems = true; continue; }
+    if (/Packed By:/i.test(line) || /^__Palletized/i.test(line)) break;
+    if (!inItems) continue;
+
+    // QTY column governs: leading digits = quantity, rest = description.
+    // "LB-4 HINGE PACK" with leading "1 LB-4 ..." means qty=1, not 4.
+    const itemMatch = line.match(/^(\d+)\s+(.+)$/);
+    if (itemMatch) {
+      if (pending) items.push(pending);
+      const qty = parseInt(itemMatch[1], 10);
+      const desc = itemMatch[2].trim();
+      const { sku, name } = packExtractSku_(desc);
+      pending = { qty: qty, sku: sku, name: desc, scanned: 0 };
+    } else if (pending) {
+      pending.name += ' ' + line;
+      const partMatch = line.match(/(\d{3}\.\d{2}\.\d{3})/);
+      if (partMatch && pending.sku === pending.name.split(' ')[0]) {
+        pending.sku = partMatch[1];
+      }
+    }
+  }
+  if (pending) items.push(pending);
+
+  return { orderNum, shipDate, shipFrom, color, items };
+}
+
+function packExtractSku_(desc) {
+  const tokens = desc.split(/\s+/);
+  let i = 0;
+  while (i < tokens.length && PACK_SIZE_PREFIXES.has(tokens[i].toUpperCase())) i++;
+  if (i >= tokens.length) return { sku: tokens[0] || desc, name: desc };
+  let sku = tokens[i].replace(/[,;]$/, '');
+  let name = desc.replace(/^\S+\s*[-–]\s*/, '').trim() || desc;
+  const partNum = desc.match(/^(?:[A-Z\s]+\s)?(\d{3}\.\d{2}\.\d{3})\s*[-–]?\s*(.*)/);
+  if (partNum) { sku = partNum[1]; name = partNum[2] || partNum[1]; }
+  return { sku: sku, name: name };
+}
+
+async function packParsePdfBuffer_(arrayBuffer) {
+  if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js failed to load — check your network');
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const items = content.items.sort((a, b) => {
+      const dy = Math.round(b.transform[5]) - Math.round(a.transform[5]);
+      return dy !== 0 ? dy : a.transform[4] - b.transform[4];
+    });
+    const lineMap = {};
+    for (const item of items) {
+      const y = Math.round(item.transform[5]);
+      if (!lineMap[y]) lineMap[y] = [];
+      lineMap[y].push({ x: item.transform[4], text: item.str });
+    }
+    const sortedYs = Object.keys(lineMap).map(Number).sort((a, b) => b - a);
+    for (const y of sortedYs) {
+      const lineItems = lineMap[y].sort((a, b) => a.x - b.x);
+      fullText += lineItems.map(i => i.text).join(' ') + '\n';
+    }
+  }
+  return packParsePdfText_(fullText);
+}
+
+async function loadPackPdfFromUrl(url) {
+  const statusEl = document.getElementById('packLoadStatus');
+  const fileId = packExtractDriveFileId_(url);
+  if (!fileId) {
+    if (statusEl) statusEl.textContent = 'Not a Drive URL — can\'t extract a file ID.';
+    return;
+  }
+  const driveUrl = 'https://drive.google.com/uc?export=download&id=' + fileId + '&confirm=t';
+  if (statusEl) statusEl.textContent = 'Fetching PDF from Drive…';
+
+  let buf = null, lastErr = '';
+  for (const makeProxy of PACK_PDF_CORS_PROXIES) {
+    try {
+      const resp = await fetch(makeProxy(driveUrl));
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const bytes = await resp.arrayBuffer();
+      const header = new Uint8Array(bytes, 0, 4);
+      const isPDF = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46;
+      if (!isPDF) throw new Error('Response is not a PDF');
+      buf = bytes;
+      break;
+    } catch (e) {
+      lastErr = e.message;
+    }
+  }
+  if (!buf) {
+    if (statusEl) statusEl.textContent = 'PDF fetch failed (' + lastErr + '). Try Upload PDF/CSV.';
+    return;
+  }
+  try {
+    const parsed = await packParsePdfBuffer_(buf);
+    applyPackParsedToActiveOrder_(parsed, 'drive');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Parse failed: ' + e.message;
+  }
+}
+
+async function onPackPdfFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  const statusEl = document.getElementById('packLoadStatus');
+  if (statusEl) statusEl.textContent = 'Parsing ' + file.name + '…';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const nameLow = file.name.toLowerCase();
+    if (nameLow.endsWith('.pdf')) {
+      const parsed = await packParsePdfBuffer_(buf);
+      applyPackParsedToActiveOrder_(parsed, 'upload-pdf');
+    } else if (nameLow.endsWith('.xlsx') || nameLow.endsWith('.xls') || nameLow.endsWith('.csv')) {
+      const items = packParseSpreadsheet_(buf);
+      if (!items.length) throw new Error('No items found — expected columns including SKU and QTY');
+      applyPackParsedToActiveOrder_({ orderNum: null, items: items }, 'upload-sheet');
+    } else {
+      throw new Error('Unsupported file type — use PDF, XLSX, or CSV');
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Parse failed: ' + e.message;
+  }
+}
+
+function packParseSpreadsheet_(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const out = [];
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    if (rows.length < 2) continue;
+    const hdr = rows[0].map(c => String(c).toLowerCase());
+    const sc = hdr.findIndex(h => h.includes('sku') || h.includes('item'));
+    const nc = hdr.findIndex(h => h.includes('name') || h.includes('product') || h.includes('title') || h.includes('description'));
+    const qc = hdr.findIndex(h => h.includes('qty') || h.includes('quantity'));
+    if (sc < 0 || qc < 0) continue;
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const sku = String(r[sc]).trim();
+      const qty = parseInt(r[qc], 10) || 0;
+      if (!sku || !qty) continue;
+      const name = nc >= 0 ? String(r[nc]).trim() : sku;
+      out.push({ sku: sku, qty: qty, name: name, scanned: 0 });
+    }
+  }
+  return out;
+}
+
+function applyPackParsedToActiveOrder_(parsed, source) {
+  const statusEl = document.getElementById('packLoadStatus');
+  if (!_packDetailOrderNumber) {
+    if (statusEl) statusEl.textContent = 'No order selected.';
+    return;
+  }
+  if (parsed.orderNum && String(parsed.orderNum) !== String(_packDetailOrderNumber)) {
+    if (!confirm('Parsed order # is ' + parsed.orderNum + ' but the open order is ' + _packDetailOrderNumber + '. Replace SKU list anyway?')) {
+      if (statusEl) statusEl.textContent = 'Parse discarded — order mismatch.';
+      return;
+    }
+  }
+  if (!parsed.items || !parsed.items.length) {
+    if (statusEl) statusEl.textContent = 'Parsed 0 line items — check the file format.';
+    return;
+  }
+  setPackScanState_(_packDetailOrderNumber, parsed.items);
+  renderPackSkuList_(_packDetailOrderNumber);
+  if (statusEl) {
+    statusEl.textContent = 'Loaded ' + parsed.items.length + ' line item' + (parsed.items.length === 1 ? '' : 's') + ' from ' + source
+      + ' (client-side only — sheet not modified)';
+  }
 }
 
 async function confirmMarkPackJobComplete(orderNumber) {
