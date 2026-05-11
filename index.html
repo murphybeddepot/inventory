@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v94</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v95</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9182,6 +9182,7 @@ function renderPackCard_(r) {
         ${r.customer_name ? '<span>'+esc(r.customer_name)+'</span>' : ''}
         ${skuCount ? '<span>· '+skuCount+' SKU'+(skuCount===1?'':'s')+'</span>' : ''}
         ${inStock ? '<span style="color:#00e676;font-weight:700">· IN STOCK</span>' : ''}
+        ${r.instructions_printed_at ? '<span style="color:#42a5f5;font-weight:700" title="Printed '+esc(r.instructions_printed_at)+'">· 🖨 Printed</span>' : ''}
         <span style="margin-left:auto;padding:2px 8px;font-size:10px;font-weight:900;letter-spacing:1px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
         ${stateLine ? '<span style="flex-basis:100%;color:'+(accent||'var(--text-dim)')+';font-weight:700;margin-top:2px">'+esc(stateLine)+'</span>' : ''}
       </div>
@@ -9288,6 +9289,7 @@ function openPackDetail(orderNumber) {
         <div style="color:var(--text-dim)">Address</div><div style="color:var(--text)">${esc(row.customer_address || '—')}</div>
         <div style="color:var(--text-dim)">Phone</div><div style="color:var(--text)">${esc(row.customer_phone || '—')}</div>
         <div style="color:var(--text-dim)">Order details</div><div style="color:var(--text)">${esc(row.order_details || '—')}</div>
+        <div style="color:var(--text-dim)">Instructions</div><div style="color:${row.instructions_printed_at?'#42a5f5':'var(--text-dim)'};font-weight:${row.instructions_printed_at?'700':'400'}">${row.instructions_printed_at ? '🖨 Printed ' + esc(row.instructions_printed_at) : 'Not yet printed'}</div>
       </div>
     </div>
 
@@ -9866,6 +9868,193 @@ async function loadPdfLib_() {
   return window.PDFLib;
 }
 
+// JsBarcode lazy loader — Code 128 barcode generation for the stamped
+// cover page. Renders to a canvas, which we then snapshot as a PNG and
+// embed in the cover via pdf-lib.
+async function loadJsBarcode_() {
+  if (window.JsBarcode) return window.JsBarcode;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('JsBarcode failed to load'));
+    document.head.appendChild(s);
+  });
+  if (!window.JsBarcode) throw new Error('JsBarcode loaded but not on window');
+  return window.JsBarcode;
+}
+
+// Generate a Code 128 barcode of the order number as a PNG data URL.
+function makeOrderBarcodePng_(orderNumber) {
+  const canvas = document.createElement('canvas');
+  JsBarcode(canvas, String(orderNumber), {
+    format: 'CODE128',
+    width: 3,
+    height: 80,
+    displayValue: true,
+    fontSize: 22,
+    margin: 10,
+    background: '#ffffff',
+    lineColor: '#000000',
+  });
+  return canvas.toDataURL('image/png');
+}
+
+// Build a one-page cover PDF (as Uint8Array) with order # huge at the
+// top, customer abbrev + state, ship date, customer name + address,
+// and a Code 128 barcode at the bottom. Prepends to the instructions
+// PDF before sending to PrintNode. Page is Letter (612×792 pt).
+async function buildPackCoverPagePdf_(row) {
+  const PDFLib = await loadPdfLib_();
+  await loadJsBarcode_();
+  const cover = await PDFLib.PDFDocument.create();
+  const page = cover.addPage([612, 792]);
+  const bold = await cover.embedFont(PDFLib.StandardFonts.HelveticaBold);
+  const reg = await cover.embedFont(PDFLib.StandardFonts.Helvetica);
+  const black = PDFLib.rgb(0, 0, 0);
+  const dim = PDFLib.rgb(0.35, 0.35, 0.35);
+
+  // Huge order number, centered horizontally near the top.
+  const orderText = '#' + String(row.order_number || '?');
+  const orderSize = 140;
+  const orderWidth = bold.widthOfTextAtSize(orderText, orderSize);
+  page.drawText(orderText, {
+    x: (612 - orderWidth) / 2,
+    y: 600,
+    size: orderSize,
+    font: bold,
+    color: black,
+  });
+
+  // Second line: the task line (e.g. "31875 OSB (D123 QLHW81) -BKS MN CC")
+  // gives us customer abbrev, lot, SKU, state, carrier at a glance.
+  const taskLine = String(row.task_line || '').trim();
+  if (taskLine) {
+    const taskSize = 28;
+    const taskWidth = bold.widthOfTextAtSize(taskLine, taskSize);
+    page.drawText(taskLine, {
+      x: Math.max(40, (612 - taskWidth) / 2),
+      y: 540,
+      size: Math.min(taskSize, (612 - 80) * taskSize / Math.max(taskWidth, taskSize)),
+      font: bold,
+      color: black,
+      maxWidth: 612 - 80,
+    });
+  }
+
+  // Ship date — third line.
+  if (row.ship_date) {
+    const sd = 'SHIP: ' + row.ship_date;
+    const sdSize = 22;
+    const sdWidth = bold.widthOfTextAtSize(sd, sdSize);
+    page.drawText(sd, {
+      x: (612 - sdWidth) / 2,
+      y: 490,
+      size: sdSize,
+      font: bold,
+      color: black,
+    });
+  }
+
+  // Customer name + address as a small block in the middle.
+  const cust = String(row.customer_name || '').trim();
+  const addr = String(row.customer_address || '').trim();
+  let y = 410;
+  if (cust) {
+    page.drawText(cust, { x: 40, y: y, size: 16, font: reg, color: black, maxWidth: 532 });
+    y -= 22;
+  }
+  if (addr) {
+    // Wrap manually at ~70 chars.
+    const lines = [];
+    let buf = '';
+    addr.split(/\s+/).forEach(w => {
+      if ((buf + ' ' + w).trim().length > 70) { if (buf) lines.push(buf); buf = w; }
+      else buf = (buf ? buf + ' ' : '') + w;
+    });
+    if (buf) lines.push(buf);
+    lines.forEach(l => {
+      page.drawText(l, { x: 40, y: y, size: 14, font: reg, color: dim });
+      y -= 18;
+    });
+  }
+  if (row.customer_phone) {
+    page.drawText(String(row.customer_phone), { x: 40, y: y, size: 14, font: reg, color: dim });
+    y -= 18;
+  }
+
+  // Barcode at the bottom — scannable by the iPad's keyboard-wedge scanner.
+  try {
+    const barcodeDataUrl = makeOrderBarcodePng_(row.order_number);
+    const pngBytes = await fetch(barcodeDataUrl).then(r => r.arrayBuffer());
+    const png = await cover.embedPng(pngBytes);
+    const targetWidth = 400;
+    const scale = targetWidth / png.width;
+    const targetHeight = png.height * scale;
+    page.drawImage(png, {
+      x: (612 - targetWidth) / 2,
+      y: 80,
+      width: targetWidth,
+      height: targetHeight,
+    });
+  } catch (err) {
+    console.warn('barcode embed failed:', err);
+    // Fallback: draw the order number plain
+    page.drawText('Order ' + String(row.order_number), {
+      x: 40, y: 100, size: 18, font: bold, color: black,
+    });
+  }
+
+  // Footer with timestamp + a packer note
+  const ts = new Date().toLocaleString();
+  page.drawText('Printed ' + ts, { x: 40, y: 40, size: 9, font: reg, color: dim });
+  page.drawText('Scan barcode at packing station to open order', { x: 320, y: 40, size: 9, font: reg, color: dim });
+
+  return await cover.save();
+}
+
+// Take instructions PDF bytes, prepend the generated cover, return
+// the combined bytes.
+async function prependCoverToPdf_(coverBytes, instructionsBytes) {
+  const PDFLib = await loadPdfLib_();
+  const out = await PDFLib.PDFDocument.create();
+  const cover = await PDFLib.PDFDocument.load(coverBytes);
+  const instructions = await PDFLib.PDFDocument.load(instructionsBytes, { ignoreEncryption: true });
+  const coverPages = await out.copyPages(cover, cover.getPageIndices());
+  coverPages.forEach(p => out.addPage(p));
+  const instructionPages = await out.copyPages(instructions, instructions.getPageIndices());
+  instructionPages.forEach(p => out.addPage(p));
+  return await out.save();
+}
+
+// Base64-encode a Uint8Array — avoiding String.fromCharCode.apply spread
+// blow-up on large arrays.
+function uint8ToBase64_(bytes) {
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+// Stamp + print one order's instructions. Fetches the instructions PDF
+// (via existing orchestrator passthrough), generates the cover, prepends,
+// sends base64 to printRawPackPdf. Returns the server's response object.
+async function stampAndPrintPackInstructions_(row) {
+  const url = row.instructions_pdf_url || row.pick_list_pdf_url;
+  if (!url) throw new Error('no PDF URL for ' + row.order_number);
+  const instructionsBytes = await packFetchPdfBytes_(url);
+  const coverBytes = await buildPackCoverPagePdf_(row);
+  const combined = await prependCoverToPdf_(coverBytes, instructionsBytes);
+  const base64 = uint8ToBase64_(combined);
+  return await groundApi('printRawPackPdf', {
+    orderNumber: row.order_number,
+    base64: base64,
+    jobTitle: 'MBD Pack ' + row.order_number,
+  });
+}
+
 // Fetch a Drive PDF via the orchestrator (passes auth so PII-restricted
 // PDFs work) and return raw bytes as Uint8Array.
 async function packFetchPdfBytes_(driveUrl) {
@@ -9940,27 +10129,25 @@ async function printOneInstruction(orderNumber) {
   const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
   if (!row) { showToast('Order not in current list — refresh'); return; }
   if (!row.pick_list_pdf_url) { showToast('No PDF URL on this order'); return; }
-  if (!confirm('Print instructions for ' + orderNumber + ' to the Brother?')) return;
+  if (!confirm('Print stamped instructions packet for ' + orderNumber + ' to the Brother?\n\n(Cover page with order # + barcode is added on top.)')) return;
 
   // If instructions URL hasn't been extracted yet, extract it now so we
   // don't print the pick list by mistake.
   if (!row.instructions_pdf_url) {
     showPackBanner_('Extracting instructions URL from ' + orderNumber + '…', '#42a5f5');
-    const got = await ensurePackInstructionsUrl_(orderNumber);
-    if (!got) {
-      showPackBanner_('Could not find an instructions link inside the pick list for ' + orderNumber, '#ff9800');
-      if (!confirm('No instructions PDF found — print the pick list instead?')) return;
-    }
+    await ensurePackInstructionsUrl_(orderNumber);
+    // (If extraction failed, the stamping path still works against
+    // pick_list_pdf_url as a fallback.)
   }
 
-  // Primary path: PrintNode direct to office Brother. Fallback: open the
-  // PDF in a tab for AirPrint if PrintNode is offline / errors.
-  showPackBanner_('Sending ' + orderNumber + ' to Brother…', '#42a5f5');
+  showPackBanner_('Stamping cover + sending ' + orderNumber + ' to Brother…', '#42a5f5');
   try {
-    const res = await groundApi('printPackInstructions', { orderNumber: orderNumber });
+    const res = await stampAndPrintPackInstructions_(row);
     if (res && res.ok) {
-      const what = res.which === 'instructions' ? 'instructions' : (res.which || 'pdf');
-      showPackBanner_('Sent ' + orderNumber + ' ' + what + ' → Brother 🖨 (job ' + res.job_id + ')', '#00e676');
+      // Reflect printed status locally so the badge appears immediately.
+      row.instructions_printed_at = new Date().toISOString();
+      paintPackQueue_(_packQueueCache, false);
+      showPackBanner_('Sent ' + orderNumber + ' → Brother 🖨 (job ' + res.job_id + ')', '#00e676');
       return;
     }
     const why = (res && res.error) || 'unknown';
@@ -10008,28 +10195,37 @@ async function printTodaysInstructions() {
     }
   }
 
-  // Primary: PrintNode bulk submit — Brother handles duplex + staple from
-  // its printing-defaults config. Fallback: pdf-lib merge for AirPrint.
-  showPackBanner_('Sending ' + inflight.length + ' to Brother…', '#42a5f5');
-  try {
-    const res = await groundApi('printTodaysPackInstructions', {});
-    if (res && res.ok && res.submitted > 0) {
-      if (res.failed > 0) {
-        showPackBanner_(res.submitted + ' sent · ' + res.failed + ' failed — see alert', '#ff9800');
-        const failedDetails = (res.results || []).filter(r => !r.ok).map(r => r.order_number + ': ' + r.error).join('\n');
-        alert('Print Today\'s Instructions:\n' + res.submitted + ' submitted, ' + res.failed + ' failed.\n\n' + failedDetails);
+  // Stamp + submit each order sequentially. Each order = one PrintNode
+  // job = one stapled packet at the Brother. Sequential (not concurrent)
+  // because we want the printer's spool to receive them in ship_date
+  // order so packets stack in the right order at the printer.
+  showPackBanner_('Stamping covers + printing ' + inflight.length + ' packets…', '#42a5f5');
+  const sorted = inflight.slice().sort((a, b) => String(a.ship_date || '').localeCompare(String(b.ship_date || '')));
+  let ok = 0, failed = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const row = sorted[i];
+    showPackBanner_('Stamping ' + (i + 1) + '/' + sorted.length + ' (' + row.order_number + ')…', '#42a5f5');
+    try {
+      const res = await stampAndPrintPackInstructions_(row);
+      if (res && res.ok) {
+        row.instructions_printed_at = new Date().toISOString();
+        ok++;
       } else {
-        showPackBanner_(res.submitted + ' packet' + (res.submitted === 1 ? '' : 's') + ' sent to Brother 🖨 (duplex + staple per printer defaults)', '#00e676');
+        failed.push(row.order_number + ': ' + ((res && res.error) || 'unknown'));
       }
-      return;
+    } catch (err) {
+      failed.push(row.order_number + ': ' + err.message);
     }
-    // PrintNode returned nothing useful (no printer configured, all jobs
-    // failed, etc) — fall back to AirPrint merge.
-    const why = (res && res.error) || (res && res.failed === inflight.length ? 'all jobs failed' : 'no jobs submitted');
-    showPackBanner_('PrintNode unavailable (' + why + ') — falling back to AirPrint merge…', '#ff9800');
-    await printTodaysInstructionsAirPrintFallback_(inflight);
-  } catch (err) {
-    showPackBanner_('PrintNode error: ' + err.message + ' — falling back to AirPrint…', '#ff9800');
+  }
+  paintPackQueue_(_packQueueCache, false); // refresh badges
+
+  if (failed.length === 0) {
+    showPackBanner_(ok + ' packet' + (ok === 1 ? '' : 's') + ' sent to Brother 🖨', '#00e676');
+  } else if (ok > 0) {
+    showPackBanner_(ok + ' sent · ' + failed.length + ' failed — see alert', '#ff9800');
+    alert('Print Today\'s Instructions:\n' + ok + ' sent, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
+  } else {
+    showPackBanner_('All ' + failed.length + ' prints failed — falling back to AirPrint merge', '#ff9800');
     await printTodaysInstructionsAirPrintFallback_(inflight);
   }
 }
