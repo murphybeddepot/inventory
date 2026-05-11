@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v84</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v85</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -1135,9 +1135,21 @@ input::placeholder, textarea::placeholder {
 <div id="tab-pack" class="panel active">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Orders to Pack</div>
-    <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
+    <div style="display:flex;gap:8px">
+      <button id="packManagerModeBtn" onclick="togglePackManagerMode()" class="amp-btn" style="font-size:13px;padding:8px 16px">👤 Manager</button>
+      <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
+    </div>
   </div>
   <div id="packQueueStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
+  <div id="packBulkBar" style="display:none;align-items:center;gap:10px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.45);border-radius:10px;padding:12px 14px;margin-bottom:10px;position:sticky;top:0;z-index:10;flex-wrap:wrap">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;color:#ff9800;letter-spacing:1.5px;text-transform:uppercase">Manager Mode</div>
+    <div id="packBulkCount" style="font-size:13px;color:var(--text);font-weight:700">0 selected</div>
+    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="bulkPackAction('packed')" class="amp-btn go" style="padding:8px 14px;font-size:13px;font-weight:900">✓ Mark Packed</button>
+      <button onclick="bulkPackAction('shipped')" class="amp-btn go" style="padding:8px 14px;font-size:13px;font-weight:900">📦 Mark Shipped</button>
+      <button onclick="togglePackManagerMode()" class="amp-btn" style="padding:8px 14px;font-size:13px">Exit</button>
+    </div>
+  </div>
   <div id="packQueueList" style="display:flex;flex-direction:column;gap:10px"></div>
   <div id="packQueueDetail" style="display:none"></div>
 </div>
@@ -9143,7 +9155,16 @@ function renderPackCard_(r) {
   else if (status === 'checking') stateLine = checkerMine ? 'YOU\'RE CHECKING' : 'CHECKING — ' + (r.checker_started_by || 'other');
   else if (status === 'packed') stateLine = 'PACKED — AWAITING SHIP';
 
+  const isSelected = _packBulkSelection.has(String(r.order_number));
+  const checkboxHtml = _packManagerMode
+    ? '<label style="flex:0 0 28px;display:flex;align-items:center;justify-content:center;cursor:pointer" onclick="event.stopPropagation()"><input type="checkbox" '
+        + (isSelected ? 'checked ' : '')
+        + 'onchange="togglePackBulkSelect(\''+esc(r.order_number)+'\', this.checked)" '
+        + 'style="width:22px;height:22px;cursor:pointer;accent-color:#ff9800"></label>'
+    : '';
+
   card.innerHTML = `
+    ${checkboxHtml}
     <div style="flex:0 0 78px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:14px;cursor:pointer" onclick="openPackDetail('${esc(r.order_number)}')">
       <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase">Ship</div>
       <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:900;color:var(--green-bright);margin-top:2px">${esc(shipDate.slice(5))}</div>
@@ -9274,13 +9295,11 @@ function openPackDetail(orderNumber) {
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">${phaseHelp}</div>
-      ${canScan ? `
-        <div style="display:flex;gap:8px;margin-bottom:10px">
-          <input type="text" id="packScanInput" placeholder="Scan or type a SKU…" autocomplete="off" autocorrect="off" spellcheck="false"
-            style="flex:1;padding:11px 13px;font-size:15px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;background:#000;color:${phase==='checker'?'#ce93d8':'var(--green-bright)'};border:2px solid ${phaseAccent};border-radius:8px;outline:none;text-shadow:0 0 8px ${phaseAccent}">
-          <button onclick="handlePackScanSubmit()" class="amp-btn go" style="padding:11px 16px;font-size:13px">Scan</button>
-        </div>
-      ` : ''}
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" id="packScanInput" placeholder="Scan or type a SKU…" autocomplete="off" autocorrect="off" spellcheck="false"
+          style="flex:1;padding:11px 13px;font-size:15px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;background:#000;color:${phase==='checker'?'#ce93d8':'var(--green-bright)'};border:2px solid ${phaseAccent};border-radius:8px;outline:none;text-shadow:0 0 8px ${phaseAccent}">
+        <button onclick="handlePackScanSubmit()" class="amp-btn go" style="padding:11px 16px;font-size:13px">Scan</button>
+      </div>
       <div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:8px"></div>
       <div id="packSkuList"></div>
     </div>
@@ -9457,6 +9476,12 @@ const _packScanQueue = {};
 // openPackDetail based on the row's status + whose device id is on the
 // row's claim fields.
 let _packActivePhase = 'packer';
+
+// Manager bulk-mode state — when enabled, cards show a checkbox and a
+// sticky toolbar at the top of the list lets the manager mark multiple
+// orders packed/shipped in one PIN-gated batch.
+let _packManagerMode = false;
+const _packBulkSelection = new Set();
 function packEnqueue_(orderNumber, task) {
   const prev = _packScanQueue[orderNumber] || Promise.resolve();
   const next = prev.then(task).catch(err => { console.warn('pack queue task failed:', err); });
@@ -9774,6 +9799,68 @@ async function releasePackCheck(orderNumber) {
     openPackDetail(orderNumber);
   } catch (err) {
     showToast('Release error: ' + err.message);
+  }
+}
+
+function togglePackManagerMode() {
+  _packManagerMode = !_packManagerMode;
+  _packBulkSelection.clear();
+  const btn = document.getElementById('packManagerModeBtn');
+  const bar = document.getElementById('packBulkBar');
+  if (btn) btn.classList.toggle('go', _packManagerMode);
+  if (bar) bar.style.display = _packManagerMode ? 'flex' : 'none';
+  updatePackBulkBar_();
+  paintPackQueue_(_packQueueCache, false);
+}
+
+function togglePackBulkSelect(orderNumber, checked) {
+  if (checked) _packBulkSelection.add(String(orderNumber));
+  else _packBulkSelection.delete(String(orderNumber));
+  updatePackBulkBar_();
+}
+
+function updatePackBulkBar_() {
+  const countEl = document.getElementById('packBulkCount');
+  if (countEl) {
+    const n = _packBulkSelection.size;
+    countEl.textContent = n + ' selected';
+  }
+}
+
+async function bulkPackAction(target) {
+  if (!_packBulkSelection.size) {
+    showToast('Select at least one order first');
+    return;
+  }
+  const orderNumbers = Array.from(_packBulkSelection);
+  const targetLabel = target === 'packed' ? 'Mark Packed' : 'Mark Shipped';
+  const pin = prompt('Manager PIN to ' + targetLabel + ' ' + orderNumbers.length
+    + ' order' + (orderNumbers.length === 1 ? '' : 's') + ':');
+  if (pin == null) return;
+  if (!pin.trim()) { showToast('PIN required'); return; }
+
+  const action = target === 'packed' ? 'markPackJobComplete' : 'markPackJobShipped';
+  let ok = 0, failed = [];
+  for (const orderNumber of orderNumbers) {
+    try {
+      const res = await groundApi(action, {
+        orderNumber: orderNumber,
+        manager_pin: pin.trim(),
+        deviceId: getPackDeviceId_(),
+        packerName: localStorage.getItem('mbd_ground_packer') || '',
+      });
+      if (res && res.ok) ok++;
+      else failed.push(orderNumber + ': ' + ((res && res.error) || 'unknown'));
+    } catch (err) {
+      failed.push(orderNumber + ': ' + err.message);
+    }
+  }
+  _packBulkSelection.clear();
+  await refreshPackQueue();
+  if (failed.length) {
+    alert('Bulk ' + targetLabel + ' done: ' + ok + ' succeeded, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
+  } else {
+    showToast('Bulk ' + targetLabel + ' done — ' + ok + ' updated');
   }
 }
 
