@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v82</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v83</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -1131,10 +1131,10 @@ input::placeholder, textarea::placeholder {
   <div id="itemCard"></div>
 </div>
 
-<!-- PACK TAB — Jonah's daily cabinet packing queue (PackingQueue Phase 2) -->
+<!-- PACK TAB — daily cabinet/freight packing + checker workflow -->
 <div id="tab-pack" class="panel active">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Today's Pack Queue</div>
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Orders to Pack</div>
     <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
   </div>
   <div id="packQueueStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
@@ -6054,6 +6054,14 @@ function renderItemLocResult(query) {
 // Hook scanner-input handling: when something gets typed via the BT scanner,
 // it fires keystrokes very fast and ends with Enter. Even though the input
 // is readonly, the scanner can still inject. Wire a listener on init.
+// Pack tab is the default active panel on page load (its <div> has
+// class="panel active"), but switchTab() never fires for it on the
+// initial render so renderPackTab() doesn't run. Kick it off here so
+// the list loads automatically without the user having to tap Refresh.
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderPackTab === 'function') renderPackTab();
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   initCabKeypad();
   const inp = document.getElementById('cabSearchInput');
@@ -9063,8 +9071,8 @@ async function refreshPackQueue() {
   statusEl.textContent = 'Loading…';
   try {
     const data = await groundApi('listPackingQueue', {
-      status: ['pending','in_progress'],
-      limit: 12,
+      status: ['pending','in_progress','ready_for_check','checking','packed'],
+      limit: 30,
     });
     if (!data || !data.ok) {
       statusEl.textContent = 'Error: ' + ((data && data.error) || 'unknown');
@@ -9073,7 +9081,7 @@ async function refreshPackQueue() {
     _packQueueCache = data.rows || [];
     localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
     paintPackQueue_(_packQueueCache, false);
-    statusEl.textContent = _packQueueCache.length + ' job' + (_packQueueCache.length===1?'':'s') + ' on deck';
+    statusEl.textContent = _packQueueCache.length + ' order' + (_packQueueCache.length===1?'':'s') + ' to pack';
   } catch (err) {
     statusEl.textContent = 'Error: ' + err.message;
   }
@@ -9083,7 +9091,7 @@ function paintPackQueue_(rows, fromCache) {
   const list = document.getElementById('packQueueList');
   list.innerHTML = '';
   if (!rows.length) {
-    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No cabinet orders in the queue.<br><span style="font-size:12px">Pick-list emails get ingested every 15 minutes.</span></div>';
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No cabinet orders to pack right now.<br><span style="font-size:12px">Pick-list emails get ingested every 15 minutes.</span></div>';
     return;
   }
   rows.forEach(r => {
@@ -9099,37 +9107,53 @@ function paintPackQueue_(rows, fromCache) {
 
 function renderPackCard_(r) {
   const card = document.createElement('div');
-  const claimed = (r.status === 'in_progress');
-  const mine = claimed && r.started_by === getPackDeviceId_();
-  const bg = claimed ? (mine ? 'rgba(0,230,118,.10)' : 'rgba(255,165,0,.10)') : 'rgba(255,255,255,.04)';
-  const border = claimed ? (mine ? 'rgba(0,230,118,.45)' : 'rgba(255,165,0,.45)') : 'rgba(255,255,255,.12)';
-  card.style.cssText = 'background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:14px;transition:transform .1s ease';
-  card.onmousedown = () => { card.style.transform = 'scale(0.98)'; };
-  card.onmouseup = () => { card.style.transform = ''; };
-  card.onmouseleave = () => { card.style.transform = ''; };
-  card.onclick = () => openPackDetail(r.order_number);
+  const status = String(r.status || 'pending');
+  const meta = PACK_STATUS_META[status] || PACK_STATUS_META.pending;
+  const myDevice = getPackDeviceId_();
+  const packerMine = (status === 'in_progress') && r.started_by === myDevice;
+  const checkerMine = (status === 'checking') && r.checker_started_by === myDevice;
+  const someoneActive = (status === 'in_progress') || (status === 'checking');
+  const accent = (status === 'packed') ? '#00e676'
+               : (status === 'ready_for_check') ? '#42a5f5'
+               : (status === 'checking') ? '#ab47bc'
+               : (status === 'in_progress') ? (packerMine ? '#00e676' : '#ff9800')
+               : null;
+  const bg = accent ? accent + '1a' : 'rgba(255,255,255,.04)';
+  const border = accent ? accent + '72' : 'rgba(255,255,255,.12)';
+  card.style.cssText = 'background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:14px;transition:transform .1s ease';
 
   const shipDate = r.ship_date || '—';
   const taskLine = r.task_line || (r.order_number + ' (no task line)');
   const skuCount = packCountSkus_(r.sku_lines_json);
   const inStock = /INSTOCK/i.test(r.sku_lines_json || '');
 
+  // Status chip line text
+  let stateLine = '';
+  if (status === 'in_progress') stateLine = packerMine ? 'YOU\'RE PACKING' : 'PACKING — ' + (r.started_by || 'other');
+  else if (status === 'ready_for_check') stateLine = 'READY FOR CHECKER';
+  else if (status === 'checking') stateLine = checkerMine ? 'YOU\'RE CHECKING' : 'CHECKING — ' + (r.checker_started_by || 'other');
+  else if (status === 'packed') stateLine = 'PACKED — AWAITING SHIP';
+
   card.innerHTML = `
-    <div style="flex:0 0 78px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:14px">
+    <div style="flex:0 0 78px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:14px;cursor:pointer" onclick="openPackDetail('${esc(r.order_number)}')">
       <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase">Ship</div>
       <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:900;color:var(--green-bright);margin-top:2px">${esc(shipDate.slice(5))}</div>
       <div style="font-size:10px;color:var(--text-dim);margin-top:2px">${esc(shipDate.slice(0,4))}</div>
     </div>
-    <div style="flex:1;min-width:0">
+    <div style="flex:1;min-width:0;cursor:pointer" onclick="openPackDetail('${esc(r.order_number)}')">
       <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:20px;font-weight:900;color:var(--text);text-transform:uppercase;line-height:1.15;word-break:break-word">${esc(taskLine)}</div>
-      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
         ${r.customer_name ? '<span>'+esc(r.customer_name)+'</span>' : ''}
         ${skuCount ? '<span>· '+skuCount+' SKU'+(skuCount===1?'':'s')+'</span>' : ''}
         ${inStock ? '<span style="color:#00e676;font-weight:700">· IN STOCK</span>' : ''}
-        ${claimed ? '<span style="color:'+(mine?'#00e676':'#ff9800')+';font-weight:700">· '+(mine?'YOU CLAIMED':'IN PROGRESS — '+esc(r.started_by||''))+'</span>' : ''}
+        <span style="margin-left:auto;padding:2px 8px;font-size:10px;font-weight:900;letter-spacing:1px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
+        ${stateLine ? '<span style="flex-basis:100%;color:'+(accent||'var(--text-dim)')+';font-weight:700;margin-top:2px">'+esc(stateLine)+'</span>' : ''}
       </div>
     </div>
-    <div style="color:var(--text-dim);font-size:20px">›</div>
+    ${status === 'packed'
+      ? '<button onclick="event.stopPropagation();confirmMarkPackJobShipped(\''+esc(r.order_number)+'\')" class="amp-btn go" style="padding:10px 16px;font-size:13px;font-weight:900;white-space:nowrap">📦 Mark Shipped</button>'
+      : '<div style="color:var(--text-dim);font-size:20px;cursor:pointer" onclick="openPackDetail(\''+esc(r.order_number)+'\')">›</div>'
+    }
   `;
   return card;
 }
@@ -9140,6 +9164,15 @@ function packCountSkus_(jsonStr) {
     return Array.isArray(arr) ? arr.length : 0;
   } catch(e) { return 0; }
 }
+
+// Status meta used by openPackDetail to pick badge color + intent.
+const PACK_STATUS_META = {
+  pending:          { label: 'PENDING',          color: '#9aa0a6', bg: 'rgba(154,160,166,.10)' },
+  in_progress:      { label: 'PACKING',          color: '#ff9800', bg: 'rgba(255,152,0,.10)' },
+  ready_for_check:  { label: 'READY FOR CHECK',  color: '#42a5f5', bg: 'rgba(66,165,245,.10)' },
+  checking:         { label: 'CHECKING',         color: '#ab47bc', bg: 'rgba(171,71,188,.10)' },
+  packed:           { label: 'PACKED',           color: '#00e676', bg: 'rgba(0,230,118,.10)' },
+};
 
 function openPackDetail(orderNumber) {
   const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
@@ -9152,17 +9185,63 @@ function openPackDetail(orderNumber) {
   const detail = document.getElementById('packQueueDetail');
   detail.style.display = '';
 
-  let skus = [];
-  try { skus = JSON.parse(row.sku_lines_json || '[]'); } catch(e) {}
+  const myDevice = getPackDeviceId_();
+  const status = String(row.status || 'pending');
+  const meta = PACK_STATUS_META[status] || PACK_STATUS_META.pending;
 
-  const claimed = row.status === 'in_progress';
-  const mine = claimed && row.started_by === getPackDeviceId_();
-  const claimBtnDisabled = claimed && !mine;
+  // Phase selection: the SKU list + scan input read/write the checker
+  // column when the order is past ready_for_check. Otherwise packer column.
+  const phase = (status === 'checking' || status === 'ready_for_check' || status === 'packed') ? 'checker' : 'packer';
+  _packActivePhase = phase;
+  const scannedColumnJson = (phase === 'checker') ? row.checker_scanned_json : row.scanned_json;
+
+  const packerMine = (status === 'in_progress') && row.started_by === myDevice;
+  const checkerMine = (status === 'checking') && row.checker_started_by === myDevice;
+
+  const photoCount = (() => {
+    try { const a = JSON.parse(row.photo_urls_json || '[]'); return Array.isArray(a) ? a.length : 0; }
+    catch(e) { return 0; }
+  })();
+
+  // ── action-row HTML driven by status ──────────────────────────────
+  let actionRowHtml = '';
+  if (status === 'pending') {
+    actionRowHtml = '<button onclick="claimPackOrder(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900">▶ Start Packing</button>';
+  } else if (status === 'in_progress') {
+    if (packerMine) {
+      actionRowHtml =
+        '<button onclick="releasePackOrder(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px 22px;font-size:14px">↩ Release Claim</button>'
+        + '<button onclick="confirmReadyForCheck(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900;margin-left:auto">✓ Ready for Checker →</button>';
+    } else {
+      actionRowHtml = '<div style="padding:12px 18px;background:rgba(255,165,0,.10);border:1px solid rgba(255,165,0,.45);border-radius:10px;font-size:13px;color:var(--text)">Packing in progress by '+esc(row.started_by||'another device')+'</div>';
+    }
+  } else if (status === 'ready_for_check') {
+    actionRowHtml =
+      '<div style="padding:12px 18px;background:rgba(66,165,245,.10);border:1px solid rgba(66,165,245,.45);border-radius:10px;font-size:13px;color:var(--text);flex:1">Packer finished — checker, please verify frame boxes and hardware-box contents before sealing.</div>'
+      + '<button onclick="claimPackCheck(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900;margin-left:auto">▶ Start Checking</button>';
+  } else if (status === 'checking') {
+    if (checkerMine) {
+      actionRowHtml =
+        '<button onclick="releasePackCheck(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px 22px;font-size:14px">↩ Release Check</button>'
+        + '<button onclick="confirmMarkPackJobComplete(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900;margin-left:auto">✓ Confirm Packed & Email Seth</button>';
+    } else {
+      actionRowHtml = '<div style="padding:12px 18px;background:rgba(171,71,188,.10);border:1px solid rgba(171,71,188,.45);border-radius:10px;font-size:13px;color:var(--text)">Checking in progress by '+esc(row.checker_started_by||'another device')+'</div>';
+    }
+  }
+
+  // ── SKU list card: read-write for the active phase's claimer, read-only otherwise.
+  const canScan = (phase === 'packer' && packerMine) || (phase === 'checker' && checkerMine);
+  const phaseLabel = phase === 'checker' ? 'CHECKER SCAN' : 'PACKER SCAN';
+  const phaseHelp = phase === 'checker'
+    ? 'Independent verification — scan everything the packer scanned, plus open the hardware box and verify its contents before sealing.'
+    : 'Scan each SKU as you stage it on the pallet. When complete, tap Ready for Checker.';
+  const phaseAccent = phase === 'checker' ? 'rgba(171,71,188,.45)' : 'rgba(0,230,118,.35)';
 
   detail.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <button onclick="closePackDetail()" class="amp-btn" style="padding:8px 14px;font-size:13px">← Back</button>
       <div style="flex:1;font-family:'Barlow Condensed',Arial,sans-serif;font-size:22px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ${esc(row.order_number)}</div>
+      <span style="padding:6px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
     </div>
 
     <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
@@ -9178,20 +9257,22 @@ function openPackDetail(orderNumber) {
 
     <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
-        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">SKUs to pack <span id="packSkuProgress" style="color:var(--text-dim);font-size:13px;letter-spacing:0;margin-left:6px"></span></div>
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;color:${phase==='checker'?'#ab47bc':'#00e676'};text-transform:uppercase;letter-spacing:1.5px">${phaseLabel} <span id="packSkuProgress" style="color:var(--text-dim);font-size:12px;letter-spacing:0;margin-left:6px;font-weight:700"></span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${row.pick_list_pdf_url ? '<button onclick="loadPackPdfFromUrl(\''+esc(row.pick_list_pdf_url)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">📥 Re-parse from Drive PDF</button>' : ''}
-          <label for="packPdfFile" class="amp-btn" style="cursor:pointer;padding:8px 12px;font-size:12px;margin:0">📂 Upload PDF/CSV</label>
-          <input type="file" id="packPdfFile" accept="application/pdf,.pdf,.xlsx,.xls,.csv" style="display:none" onchange="onPackPdfFileSelected(event)">
-          <button onclick="resetPackScansForOrder('${esc(row.order_number)}')" class="amp-btn" style="padding:8px 12px;font-size:12px">↺ Reset Scans</button>
+          ${(phase === 'packer' && packerMine && row.pick_list_pdf_url) ? '<button onclick="loadPackPdfFromUrl(\''+esc(row.pick_list_pdf_url)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">📥 Re-parse from Drive PDF</button>' : ''}
+          ${(phase === 'packer' && packerMine) ? '<label for="packPdfFile" class="amp-btn" style="cursor:pointer;padding:8px 12px;font-size:12px;margin:0">📂 Upload PDF/CSV</label><input type="file" id="packPdfFile" accept="application/pdf,.pdf,.xlsx,.xls,.csv" style="display:none" onchange="onPackPdfFileSelected(event)">' : ''}
+          ${canScan ? '<button onclick="resetActivePackScansForOrder(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">↺ Reset Scans</button>' : ''}
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-        <input type="text" id="packScanInput" placeholder="Scan or type a SKU…" autocomplete="off" autocorrect="off" spellcheck="false"
-          style="flex:1;padding:11px 13px;font-size:15px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;background:#000;color:var(--green-bright);border:2px solid rgba(0,230,118,.35);border-radius:8px;outline:none;text-shadow:0 0 8px rgba(0,230,118,.4)">
-        <button onclick="handlePackScanSubmit()" class="amp-btn go" style="padding:11px 16px;font-size:13px">Scan</button>
-      </div>
-      <div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:8px"></div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">${phaseHelp}</div>
+      ${canScan ? `
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <input type="text" id="packScanInput" placeholder="Scan or type a SKU…" autocomplete="off" autocorrect="off" spellcheck="false"
+            style="flex:1;padding:11px 13px;font-size:15px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;background:#000;color:${phase==='checker'?'#ce93d8':'var(--green-bright)'};border:2px solid ${phaseAccent};border-radius:8px;outline:none;text-shadow:0 0 8px ${phaseAccent}">
+          <button onclick="handlePackScanSubmit()" class="amp-btn go" style="padding:11px 16px;font-size:13px">Scan</button>
+        </div>
+        <div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:8px"></div>
+      ` : ''}
       <div id="packSkuList"></div>
     </div>
 
@@ -9202,7 +9283,7 @@ function openPackDetail(orderNumber) {
 
     <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
-        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Shipment Photos <span id="packPhotoCount" style="color:var(--text-dim);font-size:13px;letter-spacing:0;margin-left:6px">(${(function(){try{var a=JSON.parse(row.photo_urls_json||'[]');return Array.isArray(a)?a.length:0;}catch(e){return 0;}})()})</span></div>
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Shipment Photos <span id="packPhotoCount" style="color:var(--text-dim);font-size:13px;letter-spacing:0;margin-left:6px">(${photoCount})</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <label for="packPhotoCamera" class="amp-btn" style="cursor:pointer;padding:10px 16px;font-size:13px;margin:0">📷 Take Photo</label>
           <input type="file" id="packPhotoCamera" accept="image/*" capture="environment" style="display:none" onchange="onPackPhotoSelected(event, '${esc(row.order_number)}')">
@@ -9214,22 +9295,14 @@ function openPackDetail(orderNumber) {
       <div id="packPhotoStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
     </div>
 
-    <div style="display:flex;flex-wrap:wrap;gap:10px">
-      ${!claimed
-        ? '<button onclick="claimPackOrder(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900">▶ Start Packing</button>'
-        : (mine
-          ? '<button onclick="releasePackOrder(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px 22px;font-size:14px">↩ Release Claim</button>'
-          : '<div style="padding:12px 18px;background:rgba(255,165,0,.10);border:1px solid rgba(255,165,0,.45);border-radius:10px;font-size:13px;color:var(--text)">In progress by '+esc(row.started_by||'another device')+'</div>')
-      }
-      <button onclick="confirmMarkPackJobComplete('${esc(row.order_number)}')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900;margin-left:auto">✓ Mark Packed</button>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      ${actionRowHtml}
     </div>
   `;
 
-  // Seed scan-to-verify state from the row's sku_lines_json + render the list.
-  // Fresh on every open so a re-parse via PDF/upload from a previous session
-  // doesn't survive a back-and-forward into a different order.
+  // Seed scan state from the active phase's column.
   delete _packScanState[row.order_number];
-  getPackScanState_(row.order_number, row.sku_lines_json, row.scanned_json);
+  getPackScanState_(row.order_number, row.sku_lines_json, scannedColumnJson);
   renderPackSkuList_(row.order_number);
 }
 
@@ -9346,6 +9419,12 @@ const _packScanState = {};
 // scan B before B's own response lands, flickering rows checked→unchecked
 // →checked.
 const _packScanQueue = {};
+
+// 'packer' or 'checker' — controls which endpoint scan + ± calls hit, and
+// which scanned-state column the iPad reads on detail open. Set by
+// openPackDetail based on the row's status + whose device id is on the
+// row's claim fields.
+let _packActivePhase = 'packer';
 function packEnqueue_(orderNumber, task) {
   const prev = _packScanQueue[orderNumber] || Promise.resolve();
   const next = prev.then(task).catch(err => { console.warn('pack queue task failed:', err); });
@@ -9435,9 +9514,10 @@ function bumpPackSku(orderNumber, idx, delta) {
   s.scanned = Math.max(0, s.scanned + delta);
   renderPackSkuList_(orderNumber);
 
+  const bumpAction = _packActivePhase === 'checker' ? 'recordPackCheckScan' : 'recordPackScan';
   packEnqueue_(orderNumber, async () => {
     try {
-      const res = await groundApi('recordPackScan', {
+      const res = await groundApi(bumpAction, {
         orderNumber: orderNumber,
         scannedSku: s.sku,
         manualAdjustment: true,
@@ -9453,7 +9533,10 @@ function bumpPackSku(orderNumber, idx, delta) {
         return;
       }
       const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
-      if (cached) cached.scanned_json = res.scanned_json;
+      if (cached) {
+        if (_packActivePhase === 'checker') cached.checker_scanned_json = res.scanned_json;
+        else cached.scanned_json = res.scanned_json;
+      }
       // Authoritative apply for manual ± because the user's explicit intent
       // is the new count (not max-merge — a − tap should be able to
       // decrement past optimistic increments from concurrent scans).
@@ -9513,9 +9596,10 @@ function processPackScan_(code) {
     renderPackSkuList_(orderNumber);
   }
 
+  const scanAction = _packActivePhase === 'checker' ? 'recordPackCheckScan' : 'recordPackScan';
   packEnqueue_(orderNumber, async () => {
     try {
-      const res = await groundApi('recordPackScan', {
+      const res = await groundApi(scanAction, {
         orderNumber: orderNumber,
         scannedSku: code,
         deviceId: getPackDeviceId_(),
@@ -9533,7 +9617,10 @@ function processPackScan_(code) {
       // response from a stale scan can't overwrite a later optimistic
       // increment. Once the whole queue drains, the two converge.
       const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
-      if (cached) cached.scanned_json = res.scanned_json;
+      if (cached) {
+        if (_packActivePhase === 'checker') cached.checker_scanned_json = res.scanned_json;
+        else cached.scanned_json = res.scanned_json;
+      }
       let serverByScannedSku = {};
       try {
         const arr = JSON.parse(res.scanned_json || '[]');
@@ -9562,6 +9649,117 @@ function processPackScan_(code) {
       showToast('Scan error: ' + err.message);
     }
   });
+}
+
+// Phase-aware reset: hits whichever scan column is active.
+async function resetActivePackScansForOrder(orderNumber) {
+  const action = _packActivePhase === 'checker' ? 'resetPackCheckScans' : 'resetPackScans';
+  return resetPackScansViaAction_(orderNumber, action);
+}
+
+async function resetPackScansViaAction_(orderNumber, action) {
+  if (!confirm('Reset scans for order ' + orderNumber + '? (Photos, claim, and the other phase\'s scans are preserved.)')) return;
+  try {
+    const res = await groundApi(action, { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
+    if (!res || !res.ok) {
+      showToast('Reset failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    if (cached) {
+      if (_packActivePhase === 'checker') cached.checker_scanned_json = '';
+      else cached.scanned_json = '';
+    }
+    delete _packScanState[orderNumber];
+    if (cached) {
+      const seedJson = (_packActivePhase === 'checker') ? cached.checker_scanned_json : cached.scanned_json;
+      getPackScanState_(orderNumber, cached.sku_lines_json, seedJson);
+    }
+    renderPackSkuList_(orderNumber);
+    showToast('Scans reset');
+  } catch (err) {
+    showToast('Reset error: ' + err.message);
+  }
+}
+
+async function confirmReadyForCheck(orderNumber) {
+  const state = _packScanState[orderNumber];
+  let unscanned = 0;
+  if (state) state.skus.forEach(s => { if (s.scanned < s.qty) unscanned += (s.qty - s.scanned); });
+  const warn = unscanned > 0 ? '\n\nWARNING: ' + unscanned + ' SKU unit' + (unscanned===1?'':'s') + ' still unscanned. Tap Cancel and finish scanning, or push through if it\'s OK.' : '';
+  if (!confirm('Hand off order ' + orderNumber + ' to the checker?' + warn)) return;
+  try {
+    const res = await groundApi('markPackJobReadyForCheck', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
+    if (!res || !res.ok) {
+      let msg = (res && res.error) || 'unknown';
+      if (res && res.pending && res.pending.length) {
+        msg += '\nUnscanned: ' + res.pending.map(p => p.sku + ' (' + p.scanned + '/' + p.qty + ')').join(', ');
+      }
+      showToast('Ready-for-check failed: ' + msg);
+      return;
+    }
+    showToast('Handed off to checker ✓');
+    closePackDetail();
+    await refreshPackQueue();
+  } catch (err) {
+    showToast('Ready-for-check error: ' + err.message);
+  }
+}
+
+async function claimPackCheck(orderNumber) {
+  try {
+    const res = await groundApi('claimPackCheckJob', {
+      orderNumber: orderNumber,
+      deviceId: getPackDeviceId_(),
+      checkerName: localStorage.getItem('mbd_ground_packer') || '',
+    });
+    if (!res || !res.ok) {
+      showToast('Could not start check: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('Checking order ' + orderNumber);
+    await refreshPackQueue();
+    openPackDetail(orderNumber);
+  } catch (err) {
+    showToast('Check claim error: ' + err.message);
+  }
+}
+
+async function releasePackCheck(orderNumber) {
+  if (!confirm('Release the check on order ' + orderNumber + '? Status goes back to "ready for check".')) return;
+  try {
+    // No dedicated server endpoint yet; revert by clearing checker fields
+    // via resetPackCheckScans and then status flip. For MVP, just leave the
+    // status at 'checking' and clear scans — the user can resume or another
+    // device can take over by setting status manually if needed.
+    const res = await groundApi('resetPackCheckScans', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
+    if (!res || !res.ok) {
+      showToast('Release failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('Check scans cleared — close the order to release');
+    await refreshPackQueue();
+    openPackDetail(orderNumber);
+  } catch (err) {
+    showToast('Release error: ' + err.message);
+  }
+}
+
+async function confirmMarkPackJobShipped(orderNumber) {
+  const pin = prompt('Manager PIN required to mark order ' + orderNumber + ' as shipped:');
+  if (pin == null) return; // cancelled
+  if (!pin.trim()) { showToast('PIN required'); return; }
+  try {
+    const res = await groundApi('markPackJobShipped', { orderNumber: orderNumber, manager_pin: pin.trim() });
+    if (!res || !res.ok) {
+      showToast(((res && res.error) || 'Mark shipped failed'));
+      return;
+    }
+    showToast('Order ' + orderNumber + ' marked shipped 🚚');
+    await refreshPackQueue();
+  } catch (err) {
+    showToast('Mark shipped error: ' + err.message);
+  }
 }
 
 async function resetPackScansForOrder(orderNumber) {
