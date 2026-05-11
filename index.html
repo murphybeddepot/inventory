@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v86</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v87</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -1137,6 +1137,7 @@ input::placeholder, textarea::placeholder {
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Orders to Pack</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button onclick="addToTodaysListPrompt()" class="amp-btn" style="font-size:13px;padding:8px 16px">+ Add to List</button>
+      <button onclick="printTodaysInstructions()" class="amp-btn" style="font-size:13px;padding:8px 16px">🖨 Print All</button>
       <button id="packManagerModeBtn" onclick="togglePackManagerMode()" class="amp-btn" style="font-size:13px;padding:8px 16px">👤 Manager</button>
       <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
     </div>
@@ -9308,6 +9309,7 @@ function openPackDetail(orderNumber) {
 
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       ${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">📄 Open Pick List PDF</a>' : ''}
+      ${row.pick_list_pdf_url ? '<button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px">🖨 Print Instructions</button>' : ''}
       ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
     </div>
 
@@ -9844,6 +9846,50 @@ function showPackBanner_(text, color) {
   banner.textContent = text;
   clearTimeout(showPackBanner_._t);
   showPackBanner_._t = setTimeout(() => { banner.style.display = 'none'; }, 6000);
+}
+
+async function printTodaysInstructions() {
+  const inflightCount = _packQueueCache.filter(r => {
+    const s = String(r.status || '');
+    return s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking';
+  }).length;
+  if (inflightCount === 0) {
+    showToast('No orders on today\'s list to print');
+    return;
+  }
+  if (!confirm('Print pick-list instructions for ' + inflightCount + ' order' + (inflightCount === 1 ? '' : 's') + ' to the office printer?')) return;
+
+  showPackBanner_('Sending ' + inflightCount + ' to printer…', '#42a5f5');
+  try {
+    const res = await groundApi('printTodaysPackInstructions', {});
+    if (!res || !res.ok) {
+      showPackBanner_('Print failed: ' + ((res && res.error) || 'unknown'), '#ff5252');
+      return;
+    }
+    if (res.failed > 0) {
+      showPackBanner_(res.submitted + ' sent · ' + res.failed + ' failed — see alert', '#ff9800');
+      const failedDetails = res.results.filter(r => !r.ok).map(r => r.order_number + ': ' + r.error).join('\n');
+      alert('Print Today\'s Instructions:\n' + res.submitted + ' submitted, ' + res.failed + ' failed.\n\n' + failedDetails);
+    } else {
+      showPackBanner_(res.submitted + ' instruction packet' + (res.submitted === 1 ? '' : 's') + ' sent to printer 🖨', '#00e676');
+    }
+  } catch (err) {
+    showPackBanner_('Print error: ' + err.message, '#ff5252');
+  }
+}
+
+async function printOneInstruction(orderNumber) {
+  if (!confirm('Print pick-list instructions for ' + orderNumber + ' to the office printer?')) return;
+  try {
+    const res = await groundApi('printPackInstructions', { orderNumber: orderNumber });
+    if (!res || !res.ok) {
+      showToast('Print failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showPackBanner_('Instructions for ' + orderNumber + ' sent to printer 🖨', '#00e676');
+  } catch (err) {
+    showToast('Print error: ' + err.message);
+  }
 }
 
 async function addToTodaysListPrompt() {
