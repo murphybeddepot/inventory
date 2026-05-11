@@ -1009,14 +1009,15 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v72</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v73</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
-  <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
-  <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')">Stock</button>
+  <button class="tab-btn active" id="tab-pack-btn" onclick="switchTab('pack')">Pack</button>
+  <button class="tab-btn" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
   <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')">Ground</button>
   <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()" style="flex:0 0 60px">⋯</button>
+  <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')" style="display:none">Stock</button>
   <button class="tab-btn" id="tab-cycle-btn" onclick="switchTab('cycle')" style="display:none">Count</button>
   <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')" style="display:none">Inventory</button>
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')" style="display:none">Barcodes</button>
@@ -1029,6 +1030,14 @@ input::placeholder, textarea::placeholder {
   <div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 28px;max-height:80vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">
     <div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">More</div>
+    <button onclick="goToTabFromMore('items')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📦</span>
+      <div style="flex:1">
+        <div>Stock</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Hardware inventory + kanban re-order cards</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="goToTabFromMore('cycle')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🎯</span>
       <div style="flex:1">
@@ -1121,7 +1130,18 @@ input::placeholder, textarea::placeholder {
   <div id="itemCard"></div>
 </div>
 
-<div id="tab-cabinets" class="panel active">
+<!-- PACK TAB — Jonah's daily cabinet packing queue (PackingQueue Phase 2) -->
+<div id="tab-pack" class="panel active">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Today's Pack Queue</div>
+    <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
+  </div>
+  <div id="packQueueStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
+  <div id="packQueueList" style="display:flex;flex-direction:column;gap:10px"></div>
+  <div id="packQueueDetail" style="display:none"></div>
+</div>
+
+<div id="tab-cabinets" class="panel">
 
   <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
   <div class="search-rig" style="margin-bottom:16px">
@@ -1990,17 +2010,19 @@ function showUnmappedBarcode(code) {
 
 // ── TABS ──────────────────────────────────────────
 function switchTab(name) {
-  ['scan','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
-    document.getElementById('tab-'+t).classList.toggle('active', t===name);
+  ['scan','pack','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
+    const panel = document.getElementById('tab-'+t);
+    if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
   // Reset the More button's active state when switching to a primary tab
   const moreBtn = document.getElementById('tab-more-btn');
-  if (moreBtn) moreBtn.classList.toggle('active', ['cycle','barcodes','log','export'].indexOf(name) >= 0);
+  if (moreBtn) moreBtn.classList.toggle('active', ['items','cycle','barcodes','log','export'].indexOf(name) >= 0);
   if (name==='export') renderExport();
   if (name==='log') renderLog();
   if (name==='barcodes') { renderBarcodeMap(); syncFeedbackToggles(); }
+  if (name==='pack') renderPackTab();
   if (name==='cabinets') renderCabinets();
   if (name==='items') renderItems();
   if (name==='cycle') renderCycleTab();
@@ -8998,6 +9020,227 @@ async function groundApi(action, payload) {
   try { data = await resp.json(); }
   catch(e) { throw new Error('Bad response from orchestrator'); }
   return data;
+}
+
+// ────────────────────────────────────────────────────────────
+// PACK TAB — cabinet/freight daily packing queue (PackingQueue Phase 2)
+// Pulls today's TODO from the PackingQueue Murphy Ops tab via
+// listPackingQueue, renders 10–12 cards, supports server-side claim.
+// ────────────────────────────────────────────────────────────
+
+const PACK_QUEUE_CACHE_KEY = 'mbd_pack_queue_cache_v1';
+const PACK_DEVICE_ID_KEY = 'mbd_pack_device_id';
+
+function getPackDeviceId_() {
+  let id = localStorage.getItem(PACK_DEVICE_ID_KEY);
+  if (!id) {
+    id = 'ipad-' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem(PACK_DEVICE_ID_KEY, id);
+  }
+  return id;
+}
+
+let _packQueueCache = [];
+let _packDetailOrderNumber = null;
+
+function renderPackTab() {
+  document.getElementById('packQueueDetail').style.display = 'none';
+  document.getElementById('packQueueList').style.display = '';
+  // Paint cached rows immediately for instant feel, then refresh.
+  try {
+    const cached = JSON.parse(localStorage.getItem(PACK_QUEUE_CACHE_KEY) || '[]');
+    if (Array.isArray(cached) && cached.length) {
+      _packQueueCache = cached;
+      paintPackQueue_(cached, true);
+    }
+  } catch(e) {}
+  refreshPackQueue();
+}
+
+async function refreshPackQueue() {
+  const statusEl = document.getElementById('packQueueStatus');
+  statusEl.textContent = 'Loading…';
+  try {
+    const data = await groundApi('listPackingQueue', {
+      status: ['pending','in_progress'],
+      limit: 12,
+    });
+    if (!data || !data.ok) {
+      statusEl.textContent = 'Error: ' + ((data && data.error) || 'unknown');
+      return;
+    }
+    _packQueueCache = data.rows || [];
+    localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
+    paintPackQueue_(_packQueueCache, false);
+    statusEl.textContent = _packQueueCache.length + ' job' + (_packQueueCache.length===1?'':'s') + ' on deck';
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+  }
+}
+
+function paintPackQueue_(rows, fromCache) {
+  const list = document.getElementById('packQueueList');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No cabinet orders in the queue.<br><span style="font-size:12px">Pick-list emails get ingested every 15 minutes.</span></div>';
+    return;
+  }
+  rows.forEach(r => {
+    list.appendChild(renderPackCard_(r));
+  });
+  if (fromCache) {
+    const tag = document.createElement('div');
+    tag.style.cssText = 'font-size:10px;color:var(--text-dim);text-align:center;margin-top:6px;opacity:.6';
+    tag.textContent = '(cached — refreshing…)';
+    list.appendChild(tag);
+  }
+}
+
+function renderPackCard_(r) {
+  const card = document.createElement('div');
+  const claimed = (r.status === 'in_progress');
+  const mine = claimed && r.started_by === getPackDeviceId_();
+  const bg = claimed ? (mine ? 'rgba(0,230,118,.10)' : 'rgba(255,165,0,.10)') : 'rgba(255,255,255,.04)';
+  const border = claimed ? (mine ? 'rgba(0,230,118,.45)' : 'rgba(255,165,0,.45)') : 'rgba(255,255,255,.12)';
+  card.style.cssText = 'background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:14px;transition:transform .1s ease';
+  card.onmousedown = () => { card.style.transform = 'scale(0.98)'; };
+  card.onmouseup = () => { card.style.transform = ''; };
+  card.onmouseleave = () => { card.style.transform = ''; };
+  card.onclick = () => openPackDetail(r.order_number);
+
+  const shipDate = r.ship_date || '—';
+  const taskLine = r.task_line || (r.order_number + ' (no task line)');
+  const skuCount = packCountSkus_(r.sku_lines_json);
+  const inStock = /INSTOCK/i.test(r.sku_lines_json || '');
+
+  card.innerHTML = `
+    <div style="flex:0 0 78px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:14px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase">Ship</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:900;color:var(--green-bright);margin-top:2px">${esc(shipDate.slice(5))}</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:2px">${esc(shipDate.slice(0,4))}</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:20px;font-weight:900;color:var(--text);text-transform:uppercase;line-height:1.15;word-break:break-word">${esc(taskLine)}</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">
+        ${r.customer_name ? '<span>'+esc(r.customer_name)+'</span>' : ''}
+        ${skuCount ? '<span>· '+skuCount+' SKU'+(skuCount===1?'':'s')+'</span>' : ''}
+        ${inStock ? '<span style="color:#00e676;font-weight:700">· IN STOCK</span>' : ''}
+        ${claimed ? '<span style="color:'+(mine?'#00e676':'#ff9800')+';font-weight:700">· '+(mine?'YOU CLAIMED':'IN PROGRESS — '+esc(r.started_by||''))+'</span>' : ''}
+      </div>
+    </div>
+    <div style="color:var(--text-dim);font-size:20px">›</div>
+  `;
+  return card;
+}
+
+function packCountSkus_(jsonStr) {
+  try {
+    const arr = JSON.parse(jsonStr || '[]');
+    return Array.isArray(arr) ? arr.length : 0;
+  } catch(e) { return 0; }
+}
+
+function openPackDetail(orderNumber) {
+  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  if (!row) {
+    showToast('Order not in current queue — refresh');
+    return;
+  }
+  _packDetailOrderNumber = orderNumber;
+  document.getElementById('packQueueList').style.display = 'none';
+  const detail = document.getElementById('packQueueDetail');
+  detail.style.display = '';
+
+  let skus = [];
+  try { skus = JSON.parse(row.sku_lines_json || '[]'); } catch(e) {}
+
+  const claimed = row.status === 'in_progress';
+  const mine = claimed && row.started_by === getPackDeviceId_();
+  const claimBtnDisabled = claimed && !mine;
+
+  detail.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button onclick="closePackDetail()" class="amp-btn" style="padding:8px 14px;font-size:13px">← Back</button>
+      <div style="flex:1;font-family:'Barlow Condensed',Arial,sans-serif;font-size:22px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ${esc(row.order_number)}</div>
+    </div>
+
+    <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
+      <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);text-transform:uppercase;line-height:1.2;margin-bottom:8px">${esc(row.task_line || '')}</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px">
+        <div style="color:var(--text-dim)">Ship date</div><div style="color:var(--text);font-weight:600">${esc(row.ship_date || '—')}</div>
+        <div style="color:var(--text-dim)">Customer</div><div style="color:var(--text)">${esc(row.customer_name || '—')}</div>
+        <div style="color:var(--text-dim)">Address</div><div style="color:var(--text)">${esc(row.customer_address || '—')}</div>
+        <div style="color:var(--text-dim)">Phone</div><div style="color:var(--text)">${esc(row.customer_phone || '—')}</div>
+        <div style="color:var(--text-dim)">Order details</div><div style="color:var(--text)">${esc(row.order_details || '—')}</div>
+      </div>
+    </div>
+
+    <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
+      <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">SKUs to pack (${skus.length})</div>
+      ${skus.length ? skus.map(s => '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed rgba(255,255,255,.08);font-size:14px"><span style="font-family:\'JetBrains Mono\',monospace;color:var(--text)">'+esc(s.sku)+'</span><span style="color:var(--text-dim);font-weight:700">×'+esc(s.qty)+'</span></div>').join('') : '<div style="color:var(--text-dim);font-size:13px">No SKUs parsed from pick-list email.</div>'}
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      ${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">📄 Open Pick List PDF</a>' : ''}
+      ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px">
+      ${!claimed
+        ? '<button onclick="claimPackOrder(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900">▶ Start Packing</button>'
+        : (mine
+          ? '<button onclick="releasePackOrder(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px 22px;font-size:14px">↩ Release Claim</button>'
+          : '<div style="padding:12px 18px;background:rgba(255,165,0,.10);border:1px solid rgba(255,165,0,.45);border-radius:10px;font-size:13px;color:var(--text)">In progress by '+esc(row.started_by||'another device')+'</div>')
+      }
+    </div>
+
+    <div style="margin-top:18px;font-size:11px;color:var(--text-dim);opacity:.7">
+      Phase 3 (scan-to-verify) will add a tap-to-check column to the SKU list above.
+    </div>
+  `;
+}
+
+function closePackDetail() {
+  _packDetailOrderNumber = null;
+  document.getElementById('packQueueDetail').style.display = 'none';
+  document.getElementById('packQueueList').style.display = '';
+}
+
+async function claimPackOrder(orderNumber) {
+  try {
+    const data = await groundApi('claimPackJob', {
+      orderNumber: orderNumber,
+      deviceId: getPackDeviceId_(),
+      packerName: localStorage.getItem('mbd_ground_packer') || '',
+    });
+    if (!data || !data.ok) {
+      showToast('Could not claim: ' + ((data && data.error) || 'unknown'));
+      return;
+    }
+    showToast('Claimed order ' + orderNumber);
+    await refreshPackQueue();
+    openPackDetail(orderNumber);
+  } catch (err) {
+    showToast('Claim error: ' + err.message);
+  }
+}
+
+async function releasePackOrder(orderNumber) {
+  try {
+    const data = await groundApi('releasePackJob', {
+      orderNumber: orderNumber,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!data || !data.ok) {
+      showToast('Could not release: ' + ((data && data.error) || 'unknown'));
+      return;
+    }
+    showToast('Released order ' + orderNumber);
+    await refreshPackQueue();
+    openPackDetail(orderNumber);
+  } catch (err) {
+    showToast('Release error: ' + err.message);
+  }
 }
 
 // ── Tab render entry point ────────────────────────────────
