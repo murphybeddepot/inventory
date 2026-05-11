@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v77</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v78</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9653,24 +9653,53 @@ async function loadPackPdfFromUrl(url) {
     if (statusEl) statusEl.textContent = 'Not a Drive URL — can\'t extract a file ID.';
     return;
   }
-  const driveUrl = 'https://drive.google.com/uc?export=download&id=' + fileId + '&confirm=t';
-  if (statusEl) statusEl.textContent = 'Fetching PDF from Drive…';
+  if (statusEl) statusEl.textContent = 'Fetching PDF via orchestrator…';
 
+  // Primary: route through the orchestrator. Pick-list PDFs carry
+  // customer PII so they're never publicly shared — the iPad can't
+  // reach them anonymously, but the orchestrator has the script
+  // owner's Drive auth.
   let buf = null, lastErr = '';
-  for (const makeProxy of PACK_PDF_CORS_PROXIES) {
-    try {
-      const resp = await fetch(makeProxy(driveUrl));
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const bytes = await resp.arrayBuffer();
-      const header = new Uint8Array(bytes, 0, 4);
+  try {
+    const res = await groundApi('fetchPackPickListPdf', { fileId: fileId });
+    if (res && res.ok && res.base64) {
+      const raw = atob(res.base64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      const header = bytes.slice(0, 4);
       const isPDF = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46;
-      if (!isPDF) throw new Error('Response is not a PDF');
-      buf = bytes;
-      break;
-    } catch (e) {
-      lastErr = e.message;
+      if (!isPDF) throw new Error('Orchestrator returned non-PDF bytes');
+      buf = bytes.buffer;
+    } else if (res && res.error) {
+      lastErr = 'orchestrator: ' + res.error;
+    } else {
+      lastErr = 'orchestrator returned no data';
+    }
+  } catch (e) {
+    lastErr = 'orchestrator: ' + e.message;
+  }
+
+  // Fallback: CORS proxy chain for genuinely public Drive links
+  // (e.g., a manually pasted URL where the file is shared with
+  // anyone-with-link). Skipped when the primary path succeeded.
+  if (!buf) {
+    const driveUrl = 'https://drive.google.com/uc?export=download&id=' + fileId + '&confirm=t';
+    for (const makeProxy of PACK_PDF_CORS_PROXIES) {
+      try {
+        const resp = await fetch(makeProxy(driveUrl));
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const bytes = await resp.arrayBuffer();
+        const header = new Uint8Array(bytes, 0, 4);
+        const isPDF = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46;
+        if (!isPDF) throw new Error('Response is not a PDF');
+        buf = bytes;
+        break;
+      } catch (e) {
+        lastErr = 'proxy: ' + e.message;
+      }
     }
   }
+
   if (!buf) {
     if (statusEl) statusEl.textContent = 'PDF fetch failed (' + lastErr + '). Try Upload PDF/CSV.';
     return;
