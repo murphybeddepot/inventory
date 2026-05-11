@@ -1010,7 +1010,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v83</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v84</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9070,18 +9070,27 @@ async function refreshPackQueue() {
   const statusEl = document.getElementById('packQueueStatus');
   statusEl.textContent = 'Loading…';
   try {
-    const data = await groundApi('listPackingQueue', {
-      status: ['pending','in_progress','ready_for_check','checking','packed'],
-      limit: 30,
-    });
-    if (!data || !data.ok) {
-      statusEl.textContent = 'Error: ' + ((data && data.error) || 'unknown');
+    // Two-pass: in-flight orders capped at 12 (Jonah's daily TODO size),
+    // packed orders unlimited so the manager can ship any of them.
+    const [inflight, packed] = await Promise.all([
+      groundApi('listPackingQueue', {
+        status: ['pending','in_progress','ready_for_check','checking'],
+        limit: 12,
+      }),
+      groundApi('listPackingQueue', { status: ['packed'] }),
+    ]);
+    if (!inflight || !inflight.ok) {
+      statusEl.textContent = 'Error: ' + ((inflight && inflight.error) || 'unknown');
       return;
     }
-    _packQueueCache = data.rows || [];
+    const inflightRows = inflight.rows || [];
+    const packedRows = (packed && packed.ok && packed.rows) ? packed.rows : [];
+    _packQueueCache = inflightRows.concat(packedRows);
     localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
     paintPackQueue_(_packQueueCache, false);
-    statusEl.textContent = _packQueueCache.length + ' order' + (_packQueueCache.length===1?'':'s') + ' to pack';
+    const ipPart = inflightRows.length + ' to pack';
+    const pkPart = packedRows.length ? (', ' + packedRows.length + ' awaiting ship') : '';
+    statusEl.textContent = ipPart + pkPart;
   } catch (err) {
     statusEl.textContent = 'Error: ' + err.message;
   }
@@ -9259,8 +9268,8 @@ function openPackDetail(orderNumber) {
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;color:${phase==='checker'?'#ab47bc':'#00e676'};text-transform:uppercase;letter-spacing:1.5px">${phaseLabel} <span id="packSkuProgress" style="color:var(--text-dim);font-size:12px;letter-spacing:0;margin-left:6px;font-weight:700"></span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${(phase === 'packer' && packerMine && row.pick_list_pdf_url) ? '<button onclick="loadPackPdfFromUrl(\''+esc(row.pick_list_pdf_url)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">📥 Re-parse from Drive PDF</button>' : ''}
-          ${(phase === 'packer' && packerMine) ? '<label for="packPdfFile" class="amp-btn" style="cursor:pointer;padding:8px 12px;font-size:12px;margin:0">📂 Upload PDF/CSV</label><input type="file" id="packPdfFile" accept="application/pdf,.pdf,.xlsx,.xls,.csv" style="display:none" onchange="onPackPdfFileSelected(event)">' : ''}
+          ${(phase !== 'checker' && row.pick_list_pdf_url) ? '<button onclick="loadPackPdfFromUrl(\''+esc(row.pick_list_pdf_url)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">📥 Re-parse from Drive PDF</button>' : ''}
+          ${phase !== 'checker' ? '<label for="packPdfFile" class="amp-btn" style="cursor:pointer;padding:8px 12px;font-size:12px;margin:0">📂 Upload PDF/CSV</label><input type="file" id="packPdfFile" accept="application/pdf,.pdf,.xlsx,.xls,.csv" style="display:none" onchange="onPackPdfFileSelected(event)">' : ''}
           ${canScan ? '<button onclick="resetActivePackScansForOrder(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:8px 12px;font-size:12px">↺ Reset Scans</button>' : ''}
         </div>
       </div>
@@ -9271,8 +9280,8 @@ function openPackDetail(orderNumber) {
             style="flex:1;padding:11px 13px;font-size:15px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;background:#000;color:${phase==='checker'?'#ce93d8':'var(--green-bright)'};border:2px solid ${phaseAccent};border-radius:8px;outline:none;text-shadow:0 0 8px ${phaseAccent}">
           <button onclick="handlePackScanSubmit()" class="amp-btn go" style="padding:11px 16px;font-size:13px">Scan</button>
         </div>
-        <div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:8px"></div>
       ` : ''}
+      <div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:8px"></div>
       <div id="packSkuList"></div>
     </div>
 
@@ -9304,6 +9313,29 @@ function openPackDetail(orderNumber) {
   delete _packScanState[row.order_number];
   getPackScanState_(row.order_number, row.sku_lines_json, scannedColumnJson);
   renderPackSkuList_(row.order_number);
+
+  // Auto-parse the pick list PDF the first time an order is opened, so
+  // the packer doesn't have to manually tap "Re-parse from Drive PDF"
+  // to get the accurate breakdown. Email-parsed SKUs are summaries
+  // ("Here are the SKUs"); the PDF has the physical pack breakdown the
+  // packer actually needs to scan. Skipped if:
+  //   • the row has already been PDF-parsed (sku_source === 'pdf')
+  //   • there's no Drive URL to parse from
+  //   • the order is past the packer phase (don't churn the list once
+  //     a checker is involved)
+  const skuSource = String(row.sku_source || '').trim();
+  const hasExistingScans = (() => {
+    try {
+      const a = JSON.parse(row.scanned_json || '[]');
+      return Array.isArray(a) && a.some(s => Number(s.scanned) > 0);
+    } catch(e) { return false; }
+  })();
+  if (skuSource !== 'pdf' && skuSource !== 'sheet' && row.pick_list_pdf_url && phase === 'packer' && !hasExistingScans) {
+    const statusEl = document.getElementById('packLoadStatus');
+    if (statusEl) statusEl.textContent = 'Auto-loading pick list PDF…';
+    // Fire and forget — loadPackPdfFromUrl updates the UI as it goes.
+    loadPackPdfFromUrl(row.pick_list_pdf_url);
+  }
 }
 
 function renderPackPhotoGallery_(jsonStr) {
