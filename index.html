@@ -1009,7 +1009,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v73</span></h1>
+  <h1>MBD Inventory <span style="font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;margin-left:6px;vertical-align:middle">v74</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -9185,6 +9185,20 @@ function openPackDetail(orderNumber) {
       ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
     </div>
 
+    <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Shipment Photos <span id="packPhotoCount" style="color:var(--text-dim);font-size:13px;letter-spacing:0;margin-left:6px">(${(function(){try{var a=JSON.parse(row.photo_urls_json||'[]');return Array.isArray(a)?a.length:0;}catch(e){return 0;}})()})</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <label for="packPhotoCamera" class="amp-btn" style="cursor:pointer;padding:10px 16px;font-size:13px;margin:0">📷 Take Photo</label>
+          <input type="file" id="packPhotoCamera" accept="image/*" capture="environment" style="display:none" onchange="onPackPhotoSelected(event, '${esc(row.order_number)}')">
+          <label for="packPhotoLibrary" class="amp-btn" style="cursor:pointer;padding:10px 16px;font-size:13px;margin:0">🖼 From Library</label>
+          <input type="file" id="packPhotoLibrary" accept="image/*" multiple style="display:none" onchange="onPackPhotoSelected(event, '${esc(row.order_number)}')">
+        </div>
+      </div>
+      <div id="packPhotoGallery" style="display:flex;flex-wrap:wrap;gap:8px">${renderPackPhotoGallery_(row.photo_urls_json)}</div>
+      <div id="packPhotoStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
+    </div>
+
     <div style="display:flex;flex-wrap:wrap;gap:10px">
       ${!claimed
         ? '<button onclick="claimPackOrder(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900">▶ Start Packing</button>'
@@ -9192,12 +9206,106 @@ function openPackDetail(orderNumber) {
           ? '<button onclick="releasePackOrder(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px 22px;font-size:14px">↩ Release Claim</button>'
           : '<div style="padding:12px 18px;background:rgba(255,165,0,.10);border:1px solid rgba(255,165,0,.45);border-radius:10px;font-size:13px;color:var(--text)">In progress by '+esc(row.started_by||'another device')+'</div>')
       }
-    </div>
-
-    <div style="margin-top:18px;font-size:11px;color:var(--text-dim);opacity:.7">
-      Phase 3 (scan-to-verify) will add a tap-to-check column to the SKU list above.
+      <button onclick="confirmMarkPackJobComplete('${esc(row.order_number)}')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900;margin-left:auto">✓ Mark Packed</button>
     </div>
   `;
+}
+
+function renderPackPhotoGallery_(jsonStr) {
+  let arr = [];
+  try { arr = JSON.parse(jsonStr || '[]'); if (!Array.isArray(arr)) arr = []; } catch(e) {}
+  if (!arr.length) return '<div style="color:var(--text-dim);font-size:12px;font-style:italic">No photos yet — take a few of the boxed shipment before marking packed.</div>';
+  return arr.map((p, idx) =>
+    '<a href="'+esc(p.url)+'" target="_blank" rel="noopener" style="display:block;width:80px;height:80px;background:#000 url(\'https://drive.google.com/thumbnail?id='+esc((p.url.match(/\/d\/([^/]+)\//)||[])[1]||'')+'&sz=w160\') center/cover no-repeat;border:1px solid rgba(255,255,255,.15);border-radius:8px;position:relative" title="'+esc(p.name||'photo '+(idx+1))+'"><span style="position:absolute;bottom:2px;right:4px;background:rgba(0,0,0,.7);color:#fff;font-size:9px;padding:1px 4px;border-radius:3px">'+(idx+1)+'</span></a>'
+  ).join('');
+}
+
+async function onPackPhotoSelected(event, orderNumber) {
+  const files = Array.from(event.target.files || []);
+  event.target.value = ''; // reset so the same file can be picked again later
+  if (!files.length) return;
+  const statusEl = document.getElementById('packPhotoStatus');
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    statusEl.textContent = 'Uploading ' + (i+1) + '/' + files.length + ' (' + f.name + ')…';
+    try {
+      const dataUrl = await compressImageToJpeg_(f, 1920, 0.85);
+      const base64 = dataUrl.split(',')[1];
+      const res = await groundApi('addPackPhoto', {
+        orderNumber: orderNumber,
+        base64Data: base64,
+        filename: orderNumber + '-' + Date.now() + '-' + (i+1) + '.jpg',
+        mimeType: 'image/jpeg',
+        deviceId: getPackDeviceId_(),
+      });
+      if (!res || !res.ok) {
+        statusEl.textContent = 'Upload failed: ' + ((res && res.error) || 'unknown');
+        return;
+      }
+      // Patch the in-memory cache row + repaint the gallery
+      const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (row) {
+        let arr = []; try { arr = JSON.parse(row.photo_urls_json || '[]'); if (!Array.isArray(arr)) arr = []; } catch(e) {}
+        arr.push({ url: res.url, name: f.name, addedAt: new Date().toISOString() });
+        row.photo_urls_json = JSON.stringify(arr);
+        document.getElementById('packPhotoGallery').innerHTML = renderPackPhotoGallery_(row.photo_urls_json);
+        document.getElementById('packPhotoCount').textContent = '(' + arr.length + ')';
+      }
+    } catch (err) {
+      statusEl.textContent = 'Upload error: ' + err.message;
+      return;
+    }
+  }
+  statusEl.textContent = files.length + ' photo' + (files.length===1?'':'s') + ' uploaded';
+}
+
+function compressImageToJpeg_(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('FileReader failed'));
+    reader.onload = e => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image decode failed'));
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          const scale = maxDim / Math.max(w, h);
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
+        }
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function confirmMarkPackJobComplete(orderNumber) {
+  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  let photoCount = 0;
+  try { const a = JSON.parse((row && row.photo_urls_json) || '[]'); photoCount = Array.isArray(a) ? a.length : 0; } catch(e) {}
+  const warn = photoCount === 0 ? '\n\nWARNING: No shipment photos attached.' : '\n\n' + photoCount + ' photo' + (photoCount===1?'':'s') + ' attached.';
+  if (!confirm('Mark order ' + orderNumber + ' as completely packed?' + warn)) return;
+  try {
+    const res = await groundApi('markPackJobComplete', {
+      orderNumber: orderNumber,
+      deviceId: getPackDeviceId_(),
+      packerName: localStorage.getItem('mbd_ground_packer') || '',
+    });
+    if (!res || !res.ok) {
+      showToast('Mark packed failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('Order ' + orderNumber + ' marked packed ✓');
+    closePackDetail();
+    await refreshPackQueue();
+  } catch (err) {
+    showToast('Mark packed error: ' + err.message);
+  }
 }
 
 function closePackDetail() {
