@@ -47,6 +47,14 @@ function renderPackTab() {
 async function refreshPackQueue() {
   const statusEl = document.getElementById('packQueueStatus');
   statusEl.textContent = 'Loading…';
+  // Only show the big loading card if we don't have a cached list to
+  // show — otherwise the cache paints first and the user sees the
+  // small "Loading…" status as a quiet refresh indicator, which is
+  // fine when content is already on screen.
+  if (!_packQueueCache.length) {
+    const list = document.getElementById('packQueueList');
+    if (list) list.innerHTML = '<div style="padding:48px 24px;text-align:center;background:rgba(66,165,245,.06);border:1.5px dashed rgba(66,165,245,.35);border-radius:12px;color:#42a5f5;font-size:18px;font-weight:800;letter-spacing:.5px"><div style="font-size:36px;margin-bottom:12px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</div><div>Loading pack queue…</div></div>';
+  }
   try {
     // Two-pass: in-flight orders capped at 12 (Jonah's daily TODO size),
     // packed orders unlimited so the manager can ship any of them.
@@ -1962,12 +1970,22 @@ function setPrePackHorizon(h) {
     const btn = document.getElementById('prePackHorizon' + k.charAt(0).toUpperCase() + k.slice(1));
     if (btn) btn.classList.toggle('go', k === h);
   });
+  // Clear immediately so the old horizon's results don't masquerade
+  // as the new horizon's during the API round-trip.
+  _prePackQueueCache = [];
   refreshPrePackQueue();
+}
+
+function renderPrePackLoadingState_(message) {
+  const list = document.getElementById('prePackQueueList');
+  if (!list) return;
+  list.innerHTML = '<div style="padding:48px 24px;text-align:center;background:rgba(66,165,245,.06);border:1.5px dashed rgba(66,165,245,.35);border-radius:12px;color:#42a5f5;font-size:18px;font-weight:800;letter-spacing:.5px"><div style="font-size:36px;margin-bottom:12px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</div><div>' + (message || 'Loading…') + '</div></div>';
 }
 
 async function refreshPrePackQueue() {
   const statusEl = document.getElementById('prePackQueueStatus');
   statusEl.textContent = 'Loading…';
+  renderPrePackLoadingState_('Loading ' + _prePackHorizon + ' queue…');
   try {
     const res = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
     if (!res || !res.ok) {
