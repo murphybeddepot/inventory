@@ -1027,6 +1027,18 @@ input::placeholder, textarea::placeholder {
   <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')" style="display:none">Export</button>
 </div>
 
+<!-- Setup nudge — shows when GROUND_SECRET or GROUND_ORCH_URL is empty,
+     so a fresh iPad sees the action item up-front instead of buried in
+     Ground Settings. Tap to open the settings modal. -->
+<div id="setupNudge" onclick="openGroundSettings()" style="display:none;margin:8px 12px 4px;padding:14px 16px;background:linear-gradient(135deg,#FFB300,#FF9100);color:#1a1a1a;border-radius:10px;font-weight:800;font-size:14px;line-height:1.35;letter-spacing:.3px;box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer;display:flex;align-items:center;gap:12px">
+  <span style="font-size:24px">⚠</span>
+  <div style="flex:1">
+    <div id="setupNudgeTitle" style="text-transform:uppercase;letter-spacing:.5px">Setup required</div>
+    <div id="setupNudgeBody" style="font-weight:600;font-size:13px;opacity:.92;margin-top:2px"></div>
+  </div>
+  <span style="font-size:22px;font-weight:900">›</span>
+</div>
+
 <!-- MORE MENU — secondary tabs accessed via the ⋯ button -->
 <div id="moreMenuOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998" onclick="closeMoreMenu()">
   <div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 28px;max-height:80vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">
@@ -6117,6 +6129,7 @@ function renderItemLocResult(query) {
 // the list loads automatically without the user having to tap Refresh.
 document.addEventListener('DOMContentLoaded', () => {
   if (typeof renderPackTab === 'function') renderPackTab();
+  if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -9027,6 +9040,35 @@ try {
   GROUND_SECRET = localStorage.getItem('mbd_ground_secret') || '';
 } catch(e) {}
 
+// Show a banner under the tab bar when foundational settings are
+// missing (Orchestrator URL or Shared Secret). Without these, every
+// groundApi call fails — and historically the failure was silent and
+// hard to diagnose. Surface it up-front so a fresh iPad sees the
+// action item without having to know about Ground Settings.
+function renderSetupNudge_() {
+  const el = document.getElementById('setupNudge');
+  if (!el) return;
+  const missingUrl = !GROUND_ORCH_URL;
+  const missingSecret = !GROUND_SECRET;
+  if (!missingUrl && !missingSecret) {
+    el.style.display = 'none';
+    return;
+  }
+  const title = document.getElementById('setupNudgeTitle');
+  const body = document.getElementById('setupNudgeBody');
+  if (missingUrl && missingSecret) {
+    title.textContent = 'Setup required';
+    body.textContent = 'Orchestrator URL and Shared Secret aren\'t configured. Tap to open Ground Settings.';
+  } else if (missingUrl) {
+    title.textContent = 'Orchestrator URL missing';
+    body.textContent = 'Ground / Pack / Cabinets actions will fail until set. Tap to open Ground Settings.';
+  } else {
+    title.textContent = 'Shared Secret missing';
+    body.textContent = 'Ground / Pack / Cabinets calls will return Unauthorized. Tap to paste the secret.';
+  }
+  el.style.display = 'flex';
+}
+
 // In-flight pack state
 let groundQueue = [];          // last-fetched queue
 let groundCurrentOrder = null; // {orderId, orderNumber, customer, address, packages: [...]}
@@ -9076,6 +9118,7 @@ function saveGroundSettings() {
   } catch(e) {}
   closeGroundSettings();
   showToast('Ground settings saved');
+  renderSetupNudge_();
   refreshGroundQueue();
 }
 
@@ -10335,7 +10378,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.22</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.23</div>
 
 </body>
 </html>
