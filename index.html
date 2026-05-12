@@ -16,7 +16,7 @@
 <meta name="theme-color" content="#0F0B08">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&family=Audiowide&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
@@ -69,7 +69,9 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 }
 
 .header{background:linear-gradient(180deg,#000 0%,#0A0E15 100%);color:var(--text);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 6px 24px rgba(0,0,0,.6),0 0 0 1px rgba(0,230,118,.08) inset;border-bottom:1px solid var(--border)}
-.header h1{font-family:'Barlow Condensed','Barlow',sans-serif;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:var(--text);text-shadow:0 0 14px rgba(0,230,118,.3)}
+.header h1{font-family:'Barlow Condensed','Barlow',sans-serif;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:var(--text);text-shadow:0 0 14px rgba(0,230,118,.3);display:flex;align-items:baseline;gap:2px}
+.header h1 .bed{font-family:'Barlow Condensed','Barlow',sans-serif;color:var(--text)}
+.header h1 .rock{font-family:'Audiowide','Barlow Condensed',sans-serif;font-weight:400;letter-spacing:.5px;color:var(--green-bright,#00E676);text-shadow:0 0 18px rgba(0,230,118,.7),0 0 4px rgba(0,230,118,.4)}
 .header-badge{background:transparent;border:1px solid var(--green-bright);color:var(--green-bright);border-radius:0;padding:4px 10px;font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;font-family:'JetBrains Mono','Barlow Condensed',monospace;box-shadow:0 0 8px rgba(0,230,118,.25),inset 0 0 8px rgba(0,230,118,.08)}
 
 .tabs{display:flex;background:#000;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.5)}
@@ -1012,7 +1014,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>Bedrock</h1>
+  <h1><span class="bed">BED</span><span class="rock">ROCK</span></h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -10505,7 +10507,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.31</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.32</div>
 
 </body>
 </html>
