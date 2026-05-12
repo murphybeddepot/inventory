@@ -9818,6 +9818,13 @@ function renderGroundPackBoxes() {
       + '</div>'
       + printButton
       + '</div>';
+    // Amber callout for box-specific packing protocol (e.g. HLR77/82
+    // standalone shipments need a PVC sleeve, not just bubble wrap).
+    // Sourced from rulebook.boxes.pack_notes — packer-editable in Sheets.
+    const packNotes = String(p.pack_notes || '').trim();
+    const packNotesHtml = packNotes
+      ? '<div style="display:flex;gap:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(255,179,0,.18),rgba(255,145,0,.12));border:1.5px solid #FFB300;border-radius:8px;color:#FFD27A;-webkit-text-fill-color:#FFD27A;font-size:13px;font-weight:700;line-height:1.45;white-space:pre-wrap"><span style="font-size:18px;flex-shrink:0">⚠</span><div style="flex:1">' + escapeHtml(packNotes) + '</div></div>'
+      : '';
     // Inside-items sub-list, only when there ARE inside items.
     let insideHtml = '';
     if (insideItems.length > 0) {
@@ -9842,7 +9849,7 @@ function renderGroundPackBoxes() {
         + itemRows
         + '</div>';
     }
-    row.innerHTML = topRow + insideHtml;
+    row.innerHTML = topRow + packNotesHtml + insideHtml;
     list.appendChild(row);
   });
 
@@ -10449,7 +10456,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.25</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.26</div>
 
 </body>
 </html>
