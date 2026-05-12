@@ -2162,9 +2162,9 @@ function paintPrePackDetail_(row) {
     const done = scanned >= qty;
     const accent = done ? '#00e676' : '#ff9800';
     return `<div style="display:flex;align-items:center;gap:12px;padding:14px;background:${accent}14;border:1.5px solid ${accent}55;border-radius:10px">
-      <div style="flex:0 0 56px;text-align:center">
+      <div style="flex:0 0 70px;text-align:center;cursor:pointer;padding:4px;border-radius:8px;background:rgba(255,255,255,.04)" onclick="promptPrePackCount('${esc(row.order_number)}','${esc(sku)}',${scanned},${qty})" title="Tap to set the count directly (e.g. 40 screws)">
         <div style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:900;color:${accent}">${scanned}/${qty}</div>
-        <div style="font-size:10px;color:var(--text-dim);letter-spacing:1px;margin-top:2px">${done?'DONE':'PEND'}</div>
+        <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;margin-top:2px">${done?'DONE':'TAP TO SET'}</div>
       </div>
       <div style="flex:1;min-width:0">
         <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text)">${esc(sku)}</div>
@@ -2250,6 +2250,26 @@ async function processPrePackScan_(code) {
   } catch (err) {
     showPrePackBanner_('Scan error: ' + err.message, '#ff5252');
   }
+}
+
+// Tap-to-set count flow: opens a numeric prompt defaulted to qty so a
+// packer with a fistful of N pieces can confirm with one tap (or
+// override to a different count if they're short). Solves the
+// "40 screws shouldn't require 40 scans" problem.
+async function promptPrePackCount(orderNumber, sku, currentScanned, qty) {
+  const ask = 'How many ' + sku + ' did you pack?\n\n'
+    + 'Currently logged: ' + currentScanned + '\n'
+    + 'Target on this order: ' + qty + '\n\n'
+    + 'Type the actual count and tap OK.';
+  const input = prompt(ask, String(qty));
+  if (input == null) return;
+  const n = parseInt(input, 10);
+  if (!Number.isFinite(n) || n < 0) { showToast('Enter a non-negative number'); return; }
+  // Server clamps to [0, qty+5]; bumpPrePackSku uses a delta, so compute
+  // the difference between desired and current count.
+  const delta = n - currentScanned;
+  if (delta === 0) return;
+  await bumpPrePackSku(orderNumber, sku, delta);
 }
 
 async function bumpPrePackSku(orderNumber, sku, delta) {
