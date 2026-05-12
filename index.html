@@ -9040,6 +9040,39 @@ try {
   GROUND_SECRET = localStorage.getItem('mbd_ground_secret') || '';
 } catch(e) {}
 
+// One-time setup via URL hash: open
+//   https://.../inventory/#setup?secret=XXX&url=YYY
+// and the page self-configures + strips the hash. Pair with the QR
+// generator in Ground Settings so an existing iPad can hand off
+// credentials to a new one without manual paste.
+try {
+  const hash = String(location.hash || '');
+  if (hash.indexOf('#setup?') === 0) {
+    const params = new URLSearchParams(hash.slice('#setup?'.length));
+    const incomingSecret = params.get('secret') || '';
+    const incomingUrl = params.get('url') || '';
+    let consumed = false;
+    if (incomingSecret) {
+      GROUND_SECRET = incomingSecret;
+      try { localStorage.setItem('mbd_ground_secret', incomingSecret); } catch(e) {}
+      consumed = true;
+    }
+    if (incomingUrl) {
+      GROUND_ORCH_URL = incomingUrl;
+      try { localStorage.setItem('mbd_ground_orch_url', incomingUrl); } catch(e) {}
+      consumed = true;
+    }
+    if (consumed) {
+      // Strip the hash so the secret stops sitting in history / address bar.
+      history.replaceState(null, '', location.pathname + location.search);
+      setTimeout(() => {
+        if (typeof showToast === 'function') showToast('✓ Setup applied from link');
+        if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
+      }, 200);
+    }
+  }
+} catch(e) {}
+
 // Show a banner under the tab bar when foundational settings are
 // missing (Orchestrator URL or Shared Secret). Without these, every
 // groundApi call fails — and historically the failure was silent and
@@ -9093,6 +9126,7 @@ function openGroundSettings() {
     + '<input type="text" id="groundSecretInput" placeholder="(token)" autocomplete="off" autocorrect="off" style="width:100%;padding:12px;font-size:13px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none;font-family:monospace">'
     + '<div style="font-size:12px;font-weight:700;color:#444;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Packer Name</div>'
     + '<input type="text" id="groundPackerInput" placeholder="e.g. Jonah" autocomplete="off" style="width:100%;padding:12px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:18px;-webkit-appearance:none">'
+    + '<button onclick="showShareSetupQr()" style="width:100%;padding:12px;margin-bottom:10px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">📱 Share Setup to New Device (QR)</button>'
     + '<div style="display:flex;gap:8px">'
     + '  <button onclick="closeGroundSettings()" style="flex:1;padding:14px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
     + '  <button onclick="saveGroundSettings()" style="flex:1;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Save</button>'
@@ -9120,6 +9154,43 @@ function saveGroundSettings() {
   showToast('Ground settings saved');
   renderSetupNudge_();
   refreshGroundQueue();
+}
+
+// Generate a QR code that encodes a self-configuring setup URL. A new
+// iPad scans this with the Camera app → iOS offers to open in Safari
+// → the hash consumer at the top of this file picks up the secret +
+// URL, writes them to localStorage, and strips the hash. Settings
+// saved by Safari are visible to the home-screen PWA on the same
+// origin, so adding to home screen after scanning Just Works.
+function showShareSetupQr() {
+  // Read latest values from the input fields in case the user just
+  // edited but hasn't tapped Save yet — they probably want the new
+  // values in the QR, not the old ones.
+  const urlInp = document.getElementById('groundOrchUrlInput');
+  const secInp = document.getElementById('groundSecretInput');
+  const currentUrl = (urlInp && urlInp.value.trim()) || GROUND_ORCH_URL || '';
+  const currentSecret = (secInp && secInp.value.trim()) || GROUND_SECRET || '';
+  if (!currentSecret) { showToast('Shared Secret is empty — can\'t share'); return; }
+  if (!currentUrl) { showToast('Orchestrator URL is empty — can\'t share'); return; }
+
+  const setupUrl = location.origin + location.pathname
+    + '#setup?secret=' + encodeURIComponent(currentSecret)
+    + '&url=' + encodeURIComponent(currentUrl);
+  const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=4&data=' + encodeURIComponent(setupUrl);
+
+  const ov = document.createElement('div');
+  ov.id = 'shareSetupOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.onclick = () => ov.remove();
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:18px;padding:22px 22px 18px;max-width:380px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.4);text-align:center">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px">Set Up New Device</div>'
+    + '<div style="font-size:13px;color:#555;line-height:1.45;margin-bottom:14px">On the new iPad, open <strong>Camera</strong> and point at this code. Tap the Safari prompt — the orchestrator URL + shared secret will be saved automatically.</div>'
+    + '<img src="' + qrSrc + '" alt="Setup QR" style="width:280px;height:280px;display:block;margin:0 auto 12px;border:1px solid #eee;border-radius:8px">'
+    + '<div style="font-size:11px;color:#888;line-height:1.4;margin-bottom:12px">Don\'t share this code publicly — it contains the shared secret. Rotate the secret in Apps Script Script Properties if it leaks.</div>'
+    + '<button onclick="document.getElementById(\'shareSetupOverlay\').remove()" style="width:100%;padding:12px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Done</button>'
+    + '</div>';
+  document.body.appendChild(ov);
 }
 
 // ── API wrapper ──────────────────────────────────────────
@@ -10378,7 +10449,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.23</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.24</div>
 
 </body>
 </html>
