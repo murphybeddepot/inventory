@@ -2104,9 +2104,10 @@ function paintPrePackDetail_(row) {
         <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text)">${esc(sku)}</div>
         ${l.name ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">'+esc(l.name)+'</div>' : ''}
       </div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',-1)" class="amp-btn" style="padding:6px 10px;font-size:13px">−</button>
         <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',1)" class="amp-btn" style="padding:6px 10px;font-size:13px">+</button>
+        ${done ? '' : '<button onclick="bumpPrePackSku(\''+esc(row.order_number)+'\',\''+esc(sku)+'\','+(qty-scanned)+')" class="amp-btn" style="padding:6px 10px;font-size:13px;background:#00e676;color:#000" title="Mark this SKU fully scanned (testing)">✓</button>'}
       </div>
     </div>`;
   }).join('');
@@ -2267,6 +2268,55 @@ function showPrePackBanner_(text, color) {
  * an AirPrint-discovered office printer). v2 will route via PrintNode
  * so it's truly auto with no print sheet.
  */
+// Bulk-print pick-list instructions for everything currently in the
+// Pre-Pack view (whichever horizon is selected). Skips rows where
+// hardware_packed_at is already set so we don't re-print yesterday's
+// work. Mirrors the Pack-tab printTodaysInstructions pattern but uses
+// _prePackQueueCache as the source so it respects horizon selection.
+async function printPrePackInstructions() {
+  const todo = (_prePackQueueCache || []).filter(r => !r.hardware_packed_at);
+  if (!todo.length) {
+    showToast('Nothing to print in this horizon (or everything is already HW-ready)');
+    return;
+  }
+  if (!confirm('Print pick-list instructions for ' + todo.length + ' order' + (todo.length === 1 ? '' : 's') + ' to the Brother?')) return;
+
+  const needsExtraction = todo.filter(r => !r.instructions_pdf_url && r.pick_list_pdf_url);
+  if (needsExtraction.length && typeof ensurePackInstructionsUrl_ === 'function') {
+    showPrePackBanner_('Extracting instructions from ' + needsExtraction.length + ' pick list' + (needsExtraction.length === 1 ? '' : 's') + '…', '#42a5f5');
+    const CONCURRENCY = 3;
+    let i = 0;
+    while (i < needsExtraction.length) {
+      const batch = needsExtraction.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map(r => ensurePackInstructionsUrl_(r.order_number)));
+      i += CONCURRENCY;
+    }
+  }
+
+  const sorted = todo.slice().sort((a, b) => String(a.ship_date || '').localeCompare(String(b.ship_date || '')));
+  showPrePackBanner_('Stamping + printing ' + sorted.length + ' packets…', '#42a5f5');
+  let ok = 0, failed = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const row = sorted[i];
+    showPrePackBanner_('Printing ' + (i + 1) + '/' + sorted.length + ' (' + row.order_number + ')…', '#42a5f5');
+    try {
+      const res = (typeof stampAndPrintPackInstructions_ === 'function')
+        ? await stampAndPrintPackInstructions_(row)
+        : await groundApi('printPackInstructions', { orderNumber: row.order_number });
+      if (res && res.ok) ok++;
+      else failed.push(row.order_number + ': ' + ((res && res.error) || 'unknown'));
+    } catch (err) {
+      failed.push(row.order_number + ': ' + err.message);
+    }
+  }
+
+  if (failed.length === 0) {
+    showPrePackBanner_('✓ ' + ok + ' packet' + (ok === 1 ? '' : 's') + ' sent to Brother', '#00e676');
+  } else {
+    showPrePackBanner_(ok + ' sent · ' + failed.length + ' failed: ' + failed.join('; '), '#ff9800');
+  }
+}
+
 function printPrePackLabel(orderNumber) {
   const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
   if (!row) { showToast('Order not in current queue — refresh'); return; }
