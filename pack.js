@@ -1323,6 +1323,40 @@ async function addOrderByNumberPrompt() {
   }
 }
 
+async function batchAddOrdersPrompt() {
+  const input = prompt('Paste order numbers to add to today\'s list.\n\nSeparate with commas, spaces, or new lines.\n\n(Rows not yet in PackingQueue will be bootstrapped from the MBD:FL SHIPMENTS calendar. One PIN entry covers the whole batch.)');
+  if (input == null) return;
+  const orderNumbers = String(input)
+    .split(/[\s,;]+/)
+    .map(s => s.trim().replace(/^#/, ''))
+    .filter(s => s.length && /^\d+$/.test(s));
+  if (!orderNumbers.length) { showToast('No numeric order numbers found'); return; }
+  // De-dupe while preserving order.
+  const seen = new Set();
+  const deduped = orderNumbers.filter(n => { if (seen.has(n)) return false; seen.add(n); return true; });
+  if (!confirm('Add ' + deduped.length + ' order' + (deduped.length === 1 ? '' : 's') + ' to today\'s list?\n\n' + deduped.join(', '))) return;
+  const pin = promptManagerPin_('batch add ' + deduped.length + ' orders');
+  if (!pin) return;
+  showPackBanner_('Adding ' + deduped.length + ' order' + (deduped.length === 1 ? '' : 's') + '…', '#42a5f5');
+  try {
+    const res = await groundApi('addOrdersByNumber', { orderNumbers: deduped, manager_pin: pin });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      showPackBanner_((res && res.error) || 'Batch add failed', '#ff5252');
+      return;
+    }
+    await refreshPackQueue();
+    if (res.failed === 0) {
+      showPackBanner_('+ ' + res.added + ' added to list ✓', '#00e676');
+    } else {
+      const fails = (res.results || []).filter(r => !r.ok).map(r => r.orderNumber + ' (' + r.error + ')').join('; ');
+      showPackBanner_(res.added + ' added · ' + res.failed + ' failed: ' + fails, '#ff9800');
+    }
+  } catch (err) {
+    showPackBanner_('Batch add error: ' + err.message, '#ff5252');
+  }
+}
+
 async function addToTodaysListPrompt() {
   const inflightNow = _packQueueCache.filter(r => {
     const s = String(r.status || '');
