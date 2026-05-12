@@ -2075,6 +2075,72 @@ function openPrePackDetail(orderNumber) {
   const detail = document.getElementById('prePackQueueDetail');
   detail.style.display = '';
   paintPrePackDetail_(row);
+  // Email-derived sku_lines_json typically only has top-level SKUs
+  // (the cabinet, mattress, backs). HW pack SKUs (450.81.*, INST-*,
+  // MAGNETS-*, etc.) only appear inside the pick-list PDF. If after
+  // server-side filtering this order has zero HW lines AND we have a
+  // pick-list PDF URL, fetch + parse it client-side and persist the
+  // detailed line list back to PackingQueue so Pack and Pre-Pack
+  // both see the full breakdown.
+  autoLoadPrePackPdfIfThin_(row);
+}
+
+async function autoLoadPrePackPdfIfThin_(row) {
+  if (!row) return;
+  const hwLines = Array.isArray(row.hardware_sku_lines) ? row.hardware_sku_lines : [];
+  if (hwLines.length > 0) return;
+  const pdfUrl = String(row.pick_list_pdf_url || '').trim();
+  if (!pdfUrl) {
+    showPrePackBanner_('No HW SKUs on this order and no pick-list PDF URL — manual entry needed', '#ff9800');
+    return;
+  }
+  showPrePackBanner_('No HW SKUs found in email body — fetching pick-list PDF…', '#42a5f5');
+  try {
+    const fileId = packExtractDriveFileId_(pdfUrl);
+    if (!fileId) {
+      showPrePackBanner_('Pick-list URL isn\'t a Drive file — manual entry needed', '#ff9800');
+      return;
+    }
+    const fetchRes = await groundApi('fetchPackPickListPdf', { fileId: fileId });
+    if (!fetchRes || !fetchRes.ok || !fetchRes.base64) {
+      showPrePackBanner_('PDF fetch failed: ' + ((fetchRes && fetchRes.error) || 'unknown'), '#ff5252');
+      return;
+    }
+    const raw = atob(fetchRes.base64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const parsed = await packParsePdfBuffer_(bytes.buffer);
+    if (!parsed || !parsed.items || !parsed.items.length) {
+      showPrePackBanner_('PDF parsed but no line items found — manual entry needed', '#ff9800');
+      return;
+    }
+    showPrePackBanner_('Parsed ' + parsed.items.length + ' line items, saving…', '#42a5f5');
+    const skuLines = parsed.items.map(it => ({ sku: it.sku, qty: it.qty, name: it.name || '' }));
+    const updateRes = await groundApi('updatePackJobSkus', {
+      orderNumber: row.order_number,
+      skuLines: skuLines,
+      source: 'prepack-auto-pdf',
+      instructionsPdfUrl: parsed.instructionsPdfUrl || '',
+    });
+    if (!updateRes || !updateRes.ok) {
+      showPrePackBanner_('Parsed OK but server save failed: ' + ((updateRes && updateRes.error) || 'unknown'), '#ff5252');
+      return;
+    }
+    // Re-fetch the queue so we get the freshly-filtered hardware_sku_lines.
+    const fresh = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
+    if (fresh && fresh.ok && Array.isArray(fresh.rows)) {
+      _prePackQueueCache = fresh.rows;
+      const updatedRow = _prePackQueueCache.find(r => String(r.order_number) === String(row.order_number));
+      if (updatedRow && _prePackDetailOrderNumber === String(row.order_number)) {
+        paintPrePackDetail_(updatedRow);
+      }
+    }
+    const newHwCount = (fresh && fresh.rows || []).find(r => String(r.order_number) === String(row.order_number));
+    const hwCount = newHwCount && Array.isArray(newHwCount.hardware_sku_lines) ? newHwCount.hardware_sku_lines.length : 0;
+    showPrePackBanner_('✓ Loaded ' + parsed.items.length + ' lines · ' + hwCount + ' classified as HW', '#00e676');
+  } catch (err) {
+    showPrePackBanner_('Auto-load error: ' + err.message, '#ff5252');
+  }
 }
 
 function paintPrePackDetail_(row) {
