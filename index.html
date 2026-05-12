@@ -7464,6 +7464,16 @@ async function openReceiveShipment() {
         autoStartReceiveFromServerSession(resp.session);
         return;
       }
+      if (resp && !resp.ok) {
+        const err = String(resp.error || '');
+        if (/unauthor/i.test(err)) {
+          showToast('⚠ Unauthorized — set Shared Secret in Ground Settings');
+        } else {
+          showToast('⚠ ' + (err || 'Auto-load failed — manual setup'));
+        }
+      } else if (resp && resp.ok && (!resp.session || !resp.session.cabinets || resp.session.cabinets.length === 0)) {
+        showToast('No auto-loaded list this week — manual setup');
+      }
     } catch (e) {
       console.warn('getActiveReceiveSession failed:', e);
       showToast('⚠ Could not reach server — manual setup');
@@ -10325,7 +10335,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.21</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.22</div>
 
 </body>
 </html>
