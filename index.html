@@ -1570,9 +1570,12 @@ input::placeholder, textarea::placeholder {
     <div style="background:#FDF3DC;border:1.5px solid #C9A55B;border-radius:10px;padding:18px;color:#7A4E00">
       <div style="font-size:14px;font-weight:800;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">⚠ Order on hold</div>
       <div id="groundHoldReasons" style="font-size:13px;line-height:1.5;font-weight:600"></div>
-      <div style="font-size:12px;margin-top:10px;opacity:.85;line-height:1.5">No labels were generated. Resolve the issue (typically: confirm sizing with the customer), then tap Back and try again.</div>
+      <div style="font-size:12px;margin-top:10px;opacity:.85;line-height:1.5">No labels were generated. Resolve the root cause (rulebook fix, sizing confirmation, etc.), then tap <strong>Mark Hold Resolved</strong> to put the order back in the queue.</div>
     </div>
-    <button onclick="leaveGroundPack()" style="margin-top:14px;width:100%;padding:14px;background:#1a1a1a;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">Back to Queue</button>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button onclick="resolveCurrentHold()" style="flex:1;min-width:160px;padding:14px;background:linear-gradient(180deg,#00C853 0%,#1A5C1A 100%);color:#fff;border:1.5px solid #00E676;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 0 18px rgba(0,230,118,.3)">✓ Mark Hold Resolved</button>
+      <button onclick="leaveGroundPack()" style="flex:0 0 auto;padding:14px 18px;background:#1a1a1a;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">Back</button>
+    </div>
   </div>
 
   <!-- View 4: error (couldn't generate labels for some other reason) -->
@@ -10432,6 +10435,37 @@ function leaveGroundPack() {
   showGroundView('queue');
 }
 
+// Hold view → Mark Hold Resolved. Clears pack_status='Hold' +
+// hold_reason on the OrderPack row so the order re-appears in the
+// queue; the packer can then re-tap and retry. Assumes the user
+// has already fixed the root cause (rulebook row added, sizing
+// confirmed with customer, etc.).
+async function resolveCurrentHold() {
+  if (!groundPendingOrder) {
+    showToast('No order on this hold view — already cleared?');
+    showGroundView('queue');
+    return;
+  }
+  const orderId = groundPendingOrder.order_id;
+  if (!confirm('Did you fix the root cause?\n\nMark hold resolved and put the order back in the queue?')) return;
+  try {
+    const res = await groundApi('resumeOrderFromHold', { orderId: orderId });
+    if (!res || !res.ok) {
+      showToast('Could not resolve: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast(res.noChange
+      ? 'Order was no longer on Hold (' + (res.currentStatus || 'unknown') + ')'
+      : '✓ Hold cleared — refreshing queue');
+    groundPendingOrder = null;
+    groundCurrentOrder = null;
+    showGroundView('queue');
+    await refreshGroundQueue();
+  } catch (e) {
+    showToast('Resolve error: ' + e.message);
+  }
+}
+
 // ============================================================
 // END GROUND PACK MODULE
 // ============================================================
@@ -10456,7 +10490,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.26</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.27</div>
 
 </body>
 </html>
