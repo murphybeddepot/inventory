@@ -2252,24 +2252,84 @@ async function processPrePackScan_(code) {
   }
 }
 
-// Tap-to-set count flow: opens a numeric prompt defaulted to qty so a
-// packer with a fistful of N pieces can confirm with one tap (or
+// Tap-to-set count flow: opens a numeric keypad modal defaulted to qty
+// so a packer with a fistful of N pieces can confirm with one tap (or
 // override to a different count if they're short). Solves the
 // "40 screws shouldn't require 40 scans" problem.
-async function promptPrePackCount(orderNumber, sku, currentScanned, qty) {
-  const ask = 'How many ' + sku + ' did you pack?\n\n'
-    + 'Currently logged: ' + currentScanned + '\n'
-    + 'Target on this order: ' + qty + '\n\n'
-    + 'Type the actual count and tap OK.';
-  const input = prompt(ask, String(qty));
-  if (input == null) return;
-  const n = parseInt(input, 10);
-  if (!Number.isFinite(n) || n < 0) { showToast('Enter a non-negative number'); return; }
-  // Server clamps to [0, qty+5]; bumpPrePackSku uses a delta, so compute
-  // the difference between desired and current count.
-  const delta = n - currentScanned;
-  if (delta === 0) return;
-  await bumpPrePackSku(orderNumber, sku, delta);
+function promptPrePackCount(orderNumber, sku, currentScanned, qty) {
+  const skuLabel = esc(sku);
+  const target = Number(qty) || 0;
+  // Start with the target as the default — most common case is "I got
+  // all of them, just confirm." User can backspace to override.
+  let entry = String(target);
+
+  // Remove any prior open keypad
+  const prior = document.getElementById('prePackKeypadOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'prePackKeypadOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#1a1a1a;color:#fff;border:1.5px solid rgba(255,255,255,.15);border-radius:14px;padding:18px 16px 14px;max-width:420px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.5);font-family:Helvetica,Arial,sans-serif';
+  ov.appendChild(panel);
+
+  function paint() {
+    const n = parseInt(entry, 10);
+    const safeN = Number.isFinite(n) ? n : 0;
+    const diff = safeN - currentScanned;
+    const diffLabel = diff === 0 ? '(no change)'
+      : (diff > 0 ? '+' + diff + ' from current' : diff + ' from current');
+    panel.innerHTML =
+        '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#FFD27A;letter-spacing:.5px;text-transform:uppercase;line-height:1.1;margin-bottom:4px">' + skuLabel + '</div>'
+      + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">Current ' + currentScanned + ' · Target ' + target + ' · ' + diffLabel + '</div>'
+      + '<div style="background:#000;color:var(--green-bright,#00E676);font-family:\'JetBrains Mono\',monospace;font-size:64px;font-weight:900;text-align:center;padding:14px;border:2px solid rgba(0,230,118,.3);border-radius:10px;margin-bottom:14px;letter-spacing:6px;text-shadow:0 0 18px rgba(0,230,118,.5)">'
+        + (entry || '0')
+      + '</div>'
+      + '<div id="ppKpGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">'
+      + ['7','8','9','4','5','6','1','2','3'].map(d => keyBtn(d, d)).join('')
+      + keyBtn('⌫', '__back__', '#3a2a1a;color:#FFD27A')
+      + keyBtn('0', '0')
+      + keyBtn('Clr', '__clear__', '#3a1a1a;color:#ff9090')
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +   '<button id="ppKpAll" style="flex:1;min-width:90px;padding:14px;background:linear-gradient(180deg,#FFB300,#FF9100);color:#000;border:none;border-radius:10px;font-size:15px;font-weight:900;letter-spacing:.5px;cursor:pointer">ALL · ' + target + '</button>'
+      +   '<button id="ppKpCancel" style="flex:1;min-width:90px;padding:14px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+      +   '<button id="ppKpSave" style="flex:1.4;min-width:120px;padding:14px;background:linear-gradient(180deg,#00C853,#1A5C1A);color:#fff;border:1.5px solid #00E676;border-radius:10px;font-size:16px;font-weight:900;cursor:pointer;letter-spacing:.5px">✓ Save</button>'
+      + '</div>';
+
+    document.getElementById('ppKpAll').onclick = () => { entry = String(target); paint(); };
+    document.getElementById('ppKpCancel').onclick = () => ov.remove();
+    document.getElementById('ppKpSave').onclick = async () => {
+      const finalN = parseInt(entry || '0', 10);
+      if (!Number.isFinite(finalN) || finalN < 0) { showToast('Enter a non-negative number'); return; }
+      ov.remove();
+      const delta = finalN - currentScanned;
+      if (delta !== 0) await bumpPrePackSku(orderNumber, sku, delta);
+    };
+    panel.querySelectorAll('button[data-kp]').forEach(b => {
+      b.onclick = () => {
+        const v = b.getAttribute('data-kp');
+        if (v === '__back__') { entry = entry.slice(0, -1); }
+        else if (v === '__clear__') { entry = ''; }
+        else {
+          if (entry === '0') entry = v;
+          else if (entry.length < 6) entry += v;
+        }
+        paint();
+      };
+    });
+  }
+
+  function keyBtn(label, val, extraStyle) {
+    const base = 'padding:18px 0;background:#262626;color:#fff;border:1px solid #3a3a3a;border-radius:10px;font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;cursor:pointer;letter-spacing:.5px';
+    return '<button data-kp="' + val + '" style="' + base + (extraStyle ? ';background:' + extraStyle : '') + '">' + label + '</button>';
+  }
+
+  document.body.appendChild(ov);
+  paint();
 }
 
 async function bumpPrePackSku(orderNumber, sku, delta) {
