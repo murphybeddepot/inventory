@@ -113,6 +113,10 @@ function renderPackCard_(r) {
   const taskLine = r.task_line || (r.order_number + ' (no task line)');
   const skuCount = packCountSkus_(r.sku_lines_json);
   const inStock = /INSTOCK/i.test(r.sku_lines_json || '');
+  const hwReady = !!r.hardware_packed_at;
+  const hwChip = hwReady
+    ? '<span style="color:#00e676;font-weight:700" title="HW box prepped by '+esc(String(r.hardware_packed_by||''))+'">· 🔧 HW READY</span>'
+    : '<span style="color:#ff9800;font-weight:700" title="Hardware pre-pack pending — see Pre-Pack tab">· 🔧 HW PENDING</span>';
 
   // Status chip line text
   let stateLine = '';
@@ -142,6 +146,7 @@ function renderPackCard_(r) {
         ${r.customer_name ? '<span>'+esc(r.customer_name)+'</span>' : ''}
         ${skuCount ? '<span style="color:var(--text-dim)">· '+skuCount+' SKU'+(skuCount===1?'':'s')+'</span>' : ''}
         ${inStock ? '<span style="color:#00e676;font-weight:700">· IN STOCK</span>' : ''}
+        ${hwChip}
         ${r.instructions_printed_at ? '<span style="color:#42a5f5;font-weight:700" title="Printed '+esc(r.instructions_printed_at)+'">· 🖨 Printed</span>' : ''}
         <span style="margin-left:auto;padding:3px 10px;font-size:12px;font-weight:900;letter-spacing:1.2px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
         ${stateLine ? '<span style="flex-basis:100%;color:'+(accent||'var(--text-dim)')+';font-weight:700;margin-top:4px;font-size:13px;letter-spacing:1px">'+esc(stateLine)+'</span>' : ''}
@@ -1927,4 +1932,366 @@ async function releasePackOrder(orderNumber) {
   } catch (err) {
     showToast('Release error: ' + err.message);
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// PRE-PACK TAB — hardware-box prep, day before cabinet pack
+// ──────────────────────────────────────────────────────────────────────
+
+let _prePackQueueCache = [];
+let _prePackDetailOrderNumber = null;
+let _prePackHorizon = 'all';
+const PRE_PACK_QUEUE_CACHE_KEY = 'mbd_pre_pack_queue_cache_v1';
+
+function renderPrePackTab() {
+  document.getElementById('prePackQueueDetail').style.display = 'none';
+  document.getElementById('prePackQueueList').style.display = '';
+  try {
+    const cached = JSON.parse(localStorage.getItem(PRE_PACK_QUEUE_CACHE_KEY) || '[]');
+    if (Array.isArray(cached) && cached.length) {
+      _prePackQueueCache = cached;
+      paintPrePackQueue_(cached, true);
+    }
+  } catch(e) {}
+  refreshPrePackQueue();
+}
+
+function setPrePackHorizon(h) {
+  _prePackHorizon = h;
+  ['all', 'today', 'tomorrow', 'beyond'].forEach(k => {
+    const btn = document.getElementById('prePackHorizon' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (btn) btn.classList.toggle('go', k === h);
+  });
+  refreshPrePackQueue();
+}
+
+async function refreshPrePackQueue() {
+  const statusEl = document.getElementById('prePackQueueStatus');
+  statusEl.textContent = 'Loading…';
+  try {
+    const res = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
+    if (!res || !res.ok) {
+      statusEl.textContent = 'Error: ' + ((res && res.error) || 'unknown');
+      return;
+    }
+    _prePackQueueCache = res.rows || [];
+    localStorage.setItem(PRE_PACK_QUEUE_CACHE_KEY, JSON.stringify(_prePackQueueCache));
+    paintPrePackQueue_(_prePackQueueCache, false);
+    const pending = _prePackQueueCache.filter(r => !r.hardware_packed_at).length;
+    const done = _prePackQueueCache.filter(r => r.hardware_packed_at).length;
+    statusEl.textContent = pending + ' to pre-pack' + (done ? (' · ' + done + ' done in last 48h') : '')
+      + ' · today=' + res.today + ' · tomorrow=' + res.tomorrow;
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+  }
+}
+
+function paintPrePackQueue_(rows, fromCache) {
+  const list = document.getElementById('prePackQueueList');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No hardware to pre-pack in this horizon.<br><span style="font-size:12px">Switch to <strong>All</strong> or <strong>Tomorrow</strong> to see upcoming jobs.</span></div>';
+    return;
+  }
+  rows.forEach(r => { list.appendChild(renderPrePackCard_(r)); });
+  if (fromCache) {
+    const tag = document.createElement('div');
+    tag.style.cssText = 'font-size:10px;color:var(--text-dim);text-align:center;margin-top:6px;opacity:.6';
+    tag.textContent = '(cached — refreshing…)';
+    list.appendChild(tag);
+  }
+}
+
+function renderPrePackCard_(r) {
+  const card = document.createElement('div');
+  const hwReady = !!r.hardware_packed_at;
+  const hwLines = Array.isArray(r.hardware_sku_lines) ? r.hardware_sku_lines : [];
+  const accent = hwReady ? '#00e676' : '#ff9800';
+  const bg = accent + '1a';
+  const border = accent + '72';
+  card.style.cssText = 'background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:18px 18px;display:flex;align-items:center;gap:16px;transition:transform .1s ease;cursor:pointer';
+  card.onclick = () => openPrePackDetail(r.order_number);
+
+  const shipDate = r.ship_date || '—';
+  const taskLine = r.task_line || (r.order_number + ' (no task line)');
+  const hwSkuCount = hwLines.length;
+  const hwTotalQty = hwLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
+
+  let scannedTotal = 0;
+  try {
+    const arr = JSON.parse(r.hardware_scanned_json || '[]');
+    if (Array.isArray(arr)) {
+      const wantedSkus = new Set(hwLines.map(l => String(l.sku || '').trim()));
+      arr.forEach(s => { if (wantedSkus.has(String(s.sku || '').trim())) scannedTotal += Number(s.scanned) || 0; });
+    }
+  } catch(e) {}
+
+  const stateLabel = hwReady
+    ? ('✓ HW READY · ' + esc(String(r.hardware_packed_by || '').slice(0, 14)))
+    : (scannedTotal > 0 ? 'IN PROGRESS · ' + scannedTotal + '/' + hwTotalQty : 'PENDING');
+
+  card.innerHTML = `
+    <div style="flex:0 0 96px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:16px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;color:var(--text-dim);text-transform:uppercase">Ship</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:900;color:var(--green-bright);margin-top:4px;line-height:1.05">${esc(shipDate.slice(5))}</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:3px">${esc(shipDate.slice(0,4))}</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;line-height:1.2;word-break:break-word">${esc(taskLine)}</div>
+      <div style="font-size:14px;color:var(--text);opacity:.85;margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;line-height:1.4">
+        ${r.customer_name ? '<span>'+esc(r.customer_name)+'</span>' : ''}
+        <span style="color:var(--text-dim)">· ${hwSkuCount} HW SKU${hwSkuCount===1?'':'s'} · ${hwTotalQty} pc${hwTotalQty===1?'':'s'}</span>
+        <span style="margin-left:auto;padding:3px 10px;font-size:12px;font-weight:900;letter-spacing:1.2px;background:${accent}22;color:${accent};border:1px solid ${accent}55;border-radius:999px">${stateLabel}</span>
+      </div>
+    </div>
+    <div style="color:var(--text-dim);font-size:20px">›</div>
+  `;
+  return card;
+}
+
+function openPrePackDetail(orderNumber) {
+  const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  if (!row) { showToast('Order not in current queue — refresh'); return; }
+  _prePackDetailOrderNumber = orderNumber;
+  document.getElementById('prePackQueueList').style.display = 'none';
+  const detail = document.getElementById('prePackQueueDetail');
+  detail.style.display = '';
+  paintPrePackDetail_(row);
+}
+
+function paintPrePackDetail_(row) {
+  const detail = document.getElementById('prePackQueueDetail');
+  const hwLines = Array.isArray(row.hardware_sku_lines) ? row.hardware_sku_lines : [];
+  const scannedBySku = {};
+  try {
+    const arr = JSON.parse(row.hardware_scanned_json || '[]');
+    if (Array.isArray(arr)) arr.forEach(s => { scannedBySku[String(s.sku || '').trim()] = Number(s.scanned) || 0; });
+  } catch(e) {}
+
+  const hwReady = !!row.hardware_packed_at;
+  const allScanned = hwLines.length > 0 && hwLines.every(l => (scannedBySku[String(l.sku).trim()] || 0) >= (Number(l.qty) || 0));
+
+  const skuRowsHtml = hwLines.map((l, idx) => {
+    const sku = String(l.sku || '').trim();
+    const qty = Number(l.qty) || 0;
+    const scanned = scannedBySku[sku] || 0;
+    const done = scanned >= qty;
+    const accent = done ? '#00e676' : '#ff9800';
+    return `<div style="display:flex;align-items:center;gap:12px;padding:14px;background:${accent}14;border:1.5px solid ${accent}55;border-radius:10px">
+      <div style="flex:0 0 56px;text-align:center">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:900;color:${accent}">${scanned}/${qty}</div>
+        <div style="font-size:10px;color:var(--text-dim);letter-spacing:1px;margin-top:2px">${done?'DONE':'PEND'}</div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text)">${esc(sku)}</div>
+        ${l.name ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">'+esc(l.name)+'</div>' : ''}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',-1)" class="amp-btn" style="padding:6px 10px;font-size:13px">−</button>
+        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',1)" class="amp-btn" style="padding:6px 10px;font-size:13px">+</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const markReadyDisabled = hwReady || !allScanned;
+  const markReadyLabel = hwReady ? '✓ HW READY' : (allScanned ? '✓ MARK HW READY + PRINT LABEL' : 'Scan all SKUs to enable');
+  const markReadyColor = hwReady ? '#00e676' : (allScanned ? '#00e676' : '#9aa0a6');
+
+  detail.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+      <button onclick="closePrePackDetail()" class="amp-btn" style="font-size:13px;padding:8px 14px">‹ Back</button>
+      <div style="flex:1">
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;line-height:1.1">${esc(row.task_line || row.order_number)}</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">${esc(row.customer_name || '')} · Ship ${esc(row.ship_date || '—')}</div>
+      </div>
+    </div>
+    ${hwReady ? '<div style="padding:12px 14px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.45);border-radius:10px;margin-bottom:14px;font-size:14px;color:#00e676;font-weight:700">✓ HW box already prepped by '+esc(String(row.hardware_packed_by || ''))+' at '+esc(String(row.hardware_packed_at || '').slice(0,16))+'</div>' : ''}
+    <div style="margin-bottom:14px">
+      <input type="search" id="prePackScanInput" placeholder="Scan or type HW SKU…" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="handlePrePackScanKey(event)" style="width:100%;padding:14px 16px;font-size:18px;font-family:'JetBrains Mono',monospace;background:#000;color:var(--green-bright);border:2px solid var(--border);border-radius:10px;outline:none">
+    </div>
+    <div id="prePackSkuList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">${skuRowsHtml || '<div style="padding:20px;text-align:center;color:var(--text-dim)">No HW SKUs detected on this order. (If you expect HW, check the SKU list against the rulebook classifier.)</div>'}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="confirmMarkHardwareReady('${esc(row.order_number)}')" ${markReadyDisabled?'disabled':''} class="amp-btn ${allScanned&&!hwReady?'go':''}" style="flex:1;min-width:200px;padding:14px;font-size:15px;font-weight:900;background:${markReadyColor};color:#000;opacity:${markReadyDisabled?'.55':'1'}">${markReadyLabel}</button>
+      ${hwReady ? '<button onclick="printPrePackLabel(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px;font-size:14px">🖨 Reprint Label</button>' : ''}
+      <button onclick="confirmResetHardwareScans('${esc(row.order_number)}')" class="amp-btn" style="padding:14px;font-size:14px">↺ Reset Scans</button>
+    </div>
+  `;
+  setTimeout(() => {
+    const inp = document.getElementById('prePackScanInput');
+    if (inp) inp.focus();
+  }, 100);
+}
+
+function closePrePackDetail() {
+  _prePackDetailOrderNumber = null;
+  document.getElementById('prePackQueueDetail').style.display = 'none';
+  document.getElementById('prePackQueueList').style.display = '';
+  refreshPrePackQueue();
+}
+
+function handlePrePackScanKey(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const inp = document.getElementById('prePackScanInput');
+    const code = String(inp.value || '').trim();
+    if (!code) return;
+    inp.value = '';
+    processPrePackScan_(code);
+  }
+}
+
+async function processPrePackScan_(code) {
+  const orderNumber = _prePackDetailOrderNumber;
+  if (!orderNumber) return;
+  try {
+    const res = await groundApi('recordHardwarePackScan', {
+      orderNumber: orderNumber,
+      scannedSku: code,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      const msg = (res && res.error) || 'Scan failed';
+      showPrePackBanner_(msg, '#ff5252');
+      return;
+    }
+    // Refresh row + repaint.
+    const fresh = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
+    if (fresh && fresh.ok && Array.isArray(fresh.rows)) {
+      _prePackQueueCache = fresh.rows;
+      const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (row) paintPrePackDetail_(row);
+    }
+    showPrePackBanner_('✓ ' + res.sku + ' · ' + res.scanned + '/' + res.qty, '#00e676');
+  } catch (err) {
+    showPrePackBanner_('Scan error: ' + err.message, '#ff5252');
+  }
+}
+
+async function bumpPrePackSku(orderNumber, sku, delta) {
+  try {
+    const res = await groundApi('recordHardwarePackScan', {
+      orderNumber: orderNumber,
+      scannedSku: sku,
+      manualAdjustment: true,
+      delta: delta,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      showPrePackBanner_((res && res.error) || 'Bump failed', '#ff5252');
+      return;
+    }
+    const fresh = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
+    if (fresh && fresh.ok && Array.isArray(fresh.rows)) {
+      _prePackQueueCache = fresh.rows;
+      const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (row) paintPrePackDetail_(row);
+    }
+  } catch (err) {
+    showPrePackBanner_('Bump error: ' + err.message, '#ff5252');
+  }
+}
+
+async function confirmMarkHardwareReady(orderNumber) {
+  if (!confirm('Mark hardware box ready for order ' + orderNumber + '?\n\nA customer-facing "OPEN ME FIRST" label will be opened for printing.')) return;
+  try {
+    const res = await groundApi('markHardwarePackReady', {
+      orderNumber: orderNumber,
+      packedBy: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      showPrePackBanner_((res && res.error) || 'Mark failed', '#ff5252');
+      return;
+    }
+    showPrePackBanner_('✓ HW ready for ' + orderNumber, '#00e676');
+    printPrePackLabel(orderNumber);
+    await refreshPrePackQueue();
+    setTimeout(() => closePrePackDetail(), 800);
+  } catch (err) {
+    showPrePackBanner_('Mark error: ' + err.message, '#ff5252');
+  }
+}
+
+async function confirmResetHardwareScans(orderNumber) {
+  if (!confirm('Reset all hardware scans for order ' + orderNumber + '?')) return;
+  try {
+    const res = await groundApi('resetHardwarePackScans', { orderNumber: orderNumber });
+    if (!res || !res.ok) {
+      showPrePackBanner_((res && res.error) || 'Reset failed', '#ff5252');
+      return;
+    }
+    showPrePackBanner_('↺ HW scans cleared', '#42a5f5');
+    const fresh = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
+    if (fresh && fresh.ok && Array.isArray(fresh.rows)) {
+      _prePackQueueCache = fresh.rows;
+      const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (row) paintPrePackDetail_(row);
+    }
+  } catch (err) {
+    showPrePackBanner_('Reset error: ' + err.message, '#ff5252');
+  }
+}
+
+function showPrePackBanner_(text, color) {
+  const el = document.getElementById('prePackActionBanner');
+  if (!el) return;
+  el.style.cssText = 'display:block;padding:10px 14px;background:'+color+'1a;border:1px solid '+color+'72;border-radius:10px;color:'+color+';font-weight:700;margin-bottom:10px;font-size:13px';
+  el.textContent = text;
+  clearTimeout(showPrePackBanner_._t);
+  showPrePackBanner_._t = setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+/**
+ * Customer-facing HW box label. Opens a new window with a single-page
+ * 8.5x11 (or 4x6) label saying "OPEN ME FIRST" + order info, and
+ * auto-triggers window.print(). The pre-packer slaps it on the box.
+ *
+ * For now: prints whatever the iPad's default print target is (usually
+ * an AirPrint-discovered office printer). v2 will route via PrintNode
+ * so it's truly auto with no print sheet.
+ */
+function printPrePackLabel(orderNumber) {
+  const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  if (!row) { showToast('Order not in current queue — refresh'); return; }
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Allow popups to print label'); return; }
+  const customer = String(row.customer_name || '').trim();
+  const shipDate = String(row.ship_date || '').trim();
+  const taskLine = String(row.task_line || '').trim();
+  const tag = 'HWBOX-' + orderNumber;
+  const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=' + encodeURIComponent(tag);
+  win.document.write([
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Hardware Box Label — ' + orderNumber + '</title>',
+    '<style>',
+    'body{margin:0;padding:0.5in;font-family:Helvetica,Arial,sans-serif;background:#fff;color:#000}',
+    '.box{border:4px solid #000;border-radius:12px;padding:28px;text-align:center}',
+    '.headline{font-size:64px;font-weight:900;letter-spacing:2px;line-height:1.0;margin-bottom:8px;font-family:"Arial Black",Helvetica,sans-serif}',
+    '.headline .em{color:#c00}',
+    '.sub{font-size:22px;font-weight:700;margin-bottom:18px;color:#222}',
+    '.body{font-size:18px;line-height:1.4;margin:16px 0;color:#222;text-align:left;display:inline-block;max-width:5.5in}',
+    '.body strong{font-weight:900}',
+    '.info{font-size:22px;font-weight:800;letter-spacing:.5px;margin-top:14px;padding-top:14px;border-top:2px solid #000}',
+    '.info .label{font-size:11px;font-weight:700;letter-spacing:2px;color:#666;text-transform:uppercase;margin-bottom:2px}',
+    '.info-row{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-top:10px}',
+    '.info-row > div{flex:1}',
+    '.qr{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:12px}',
+    '.qr img{width:1.4in;height:1.4in}',
+    '.qr .tag{font-family:"JetBrains Mono",Menlo,monospace;font-size:14px;font-weight:700;letter-spacing:1px}',
+    '@media print{@page{size:letter;margin:0.3in}}',
+    '</style></head><body><div class="box">',
+    '<div class="headline"><span class="em">OPEN ME</span><br>FIRST!</div>',
+    '<div class="sub">Hardware &amp; Assembly Instructions Inside</div>',
+    '<div class="body">Hi! Please open <strong>this box first</strong> when your shipment arrives. Inside you\'ll find the <strong>hardware</strong> and <strong>assembly instructions</strong> you\'ll need to set up your Murphy bed cabinet.</div>',
+    '<div class="info">',
+    '<div class="info-row">',
+    '  <div><div class="label">Order</div>#' + esc(orderNumber) + '</div>',
+    '  <div><div class="label">Customer</div>' + esc(customer || '—') + '</div>',
+    '  <div><div class="label">Ship Date</div>' + esc(shipDate || '—') + '</div>',
+    '</div>',
+    '</div>',
+    '<div class="qr"><img src="' + qrUrl + '" alt="' + tag + '"><div><div class="tag">' + esc(tag) + '</div><div style="font-size:11px;color:#666;margin-top:4px">Internal scan code</div></div></div>',
+    '</div>',
+    '<script>window.addEventListener("load",()=>{setTimeout(()=>window.print(),400);});<\\/script>',
+    '</body></html>',
+  ].join('\n'));
+  win.document.close();
 }

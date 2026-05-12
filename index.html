@@ -1014,6 +1014,7 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
+  <button class="tab-btn" id="tab-prepack-btn" onclick="switchTab('prepack')">Pre-Pack</button>
   <button class="tab-btn active" id="tab-pack-btn" onclick="switchTab('pack')">Pack</button>
   <button class="tab-btn" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
   <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')">Ground</button>
@@ -1145,6 +1146,26 @@ input::placeholder, textarea::placeholder {
   </div>
   <div id="suggestions"></div>
   <div id="itemCard"></div>
+</div>
+
+<!-- PRE-PACK TAB — day-before hardware-box prep (Zoe's flow) -->
+<div id="tab-prepack" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">🔧 Hardware Pre-Pack</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="refreshPrePackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+    <button id="prePackHorizonAll" onclick="setPrePackHorizon('all')" class="amp-btn go" style="font-size:12px;padding:6px 14px">All</button>
+    <button id="prePackHorizonToday" onclick="setPrePackHorizon('today')" class="amp-btn" style="font-size:12px;padding:6px 14px">Today</button>
+    <button id="prePackHorizonTomorrow" onclick="setPrePackHorizon('tomorrow')" class="amp-btn" style="font-size:12px;padding:6px 14px">Tomorrow</button>
+    <button id="prePackHorizonBeyond" onclick="setPrePackHorizon('beyond')" class="amp-btn" style="font-size:12px;padding:6px 14px">Beyond</button>
+  </div>
+  <div id="prePackQueueStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
+  <div id="prePackActionBanner" style="display:none"></div>
+  <div id="prePackQueueList" style="display:flex;flex-direction:column;gap:12px"></div>
+  <div id="prePackQueueDetail" style="display:none"></div>
 </div>
 
 <!-- PACK TAB — daily cabinet/freight packing + checker workflow -->
@@ -2046,7 +2067,7 @@ function showUnmappedBarcode(code) {
 
 // ── TABS ──────────────────────────────────────────
 function switchTab(name) {
-  ['scan','pack','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
+  ['scan','prepack','pack','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
     if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
@@ -2059,6 +2080,7 @@ function switchTab(name) {
   if (name==='log') renderLog();
   if (name==='barcodes') { renderBarcodeMap(); syncFeedbackToggles(); }
   if (name==='pack') renderPackTab();
+  if (name==='prepack' && typeof renderPrePackTab === 'function') renderPrePackTab();
   if (name==='cabinets') renderCabinets();
   if (name==='items') renderItems();
   if (name==='cycle') renderCycleTab();
@@ -10303,7 +10325,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.20</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.21</div>
 
 </body>
 </html>
