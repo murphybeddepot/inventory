@@ -9345,9 +9345,13 @@ function renderGroundPackItemsPreview(orderRow) {
 // color SKUs. Each entry becomes one printable sticker with a Code 128
 // barcode that the packer can scan when adding the color to a sample
 // box. Keep names short — long names compress the barcode width.
+// The actual 9 melamine colors MBD sells as samples (per Seth, 2026-05).
+// Order matches the Shopify product's option list. If Shopify gets a new
+// color, edit this array OR switch to dynamic Shopify fetch (see the
+// commented note in openBarcodeTagPrinter).
 const DEFAULT_MELAMINE_COLORS = [
-  'WALNUT', 'OAK', 'CHERRY', 'MAPLE', 'MAHOGANY', 'PEAR',
-  'WHITE', 'BLACK', 'ESPRESSO', 'GRAY', 'PEARL', 'BIRCH',
+  'WHITE', 'BISQUE', 'GRAY', 'BLACK', 'HUDSON',
+  'CHOCOLATE', 'MARSEILLE', 'MONACO', 'NAPLES',
 ];
 
 // Common MBD SKUs that don't come barcoded from the manufacturer —
@@ -10298,7 +10302,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.18</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.19</div>
 
 </body>
 </html>
