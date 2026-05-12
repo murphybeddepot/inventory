@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MBD Inventory Scanner v72</title>
+<title>Bedrock</title>
 <!-- Favicon (browser tab) — inline data URI so the single-file deploy works -->
 <link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABu0lEQVR42sWXzU7CQBSFTxsTQ+JCkVJBRFcquLPlDXwC4wMZF8atO1f6AsZEw9KNJm4sBfxpqSBijG5IgCANBITWFQkdClrSoXfVuen0fHPPnWaGARHrwTkTlCNf1pn+MzttcVKHnbY4qcd4IT4YrJfiADBDJu5uzuDzzY6ccJW8xf7ByVA+HOKQvDweK3Z4dIrzi2trBZwSJ4S4bV4U45NZ4HRCKBTAcpj7N5jrAAAg2IiJ0wQgVxuJ8OD5RXoAlWqd8HtrLJBpmqjWvt0DkGXVMuaDfkQi/EhLim+fqLkJIBEA5KpFIWZ9P6W4a0G1Ukfp/cu2EaMrSwhyfroAACBJim0FyP1vGCbkdI4CAGEDxy1gNRpCQrA2pPZSQqPRdB8gJaswTZOwIQZhe3L/HQHU6zoKrx+W3N7uDgKBeQJApfcjShEf39xYs4y73R4yWY0ewP0f5X1Wimi12vQA0hkNhmGMblSH/jsG0PUmclrJO4D+brCLdruDx6cCfYBRXf7wmEen80MfIJPV0O32XCn/RACtVhuKWhzeIdJkAIzXp2IWHof3AIMXRc8q4BVEvqwzrN2VeVriAPAL68ywLwCqFg4AAAAASUVORK5CYII=">
 <!-- iOS home-screen icon — REQUIRES an apple-touch-icon.png file at the repo root.
      Safari does not reliably support data URIs for the touch icon. -->
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <!-- Title shown when added to iOS home screen (no version number) -->
-<meta name="apple-mobile-web-app-title" content="MBD Inventory">
+<meta name="apple-mobile-web-app-title" content="Bedrock">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0F0B08">
@@ -1012,7 +1012,7 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1>MBD Inventory</h1>
+  <h1>Bedrock</h1>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
@@ -2090,6 +2090,16 @@ function switchTab(name) {
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
+  // Browser tab title reflects the active panel so multiple Safari
+  // tabs are distinguishable: "Pack — Bedrock", "Ground — Bedrock",
+  // etc. Label map matches the tab-button text the user sees.
+  const tabLabels = {
+    scan: 'Inventory', prepack: 'Pre-Pack', pack: 'Pack', cabinets: 'Cabinets',
+    items: 'Stock', ground: 'Ground', cycle: 'Count', barcodes: 'Barcodes',
+    log: 'Log', export: 'Export',
+  };
+  const label = tabLabels[name];
+  document.title = label ? (label + ' — Bedrock') : 'Bedrock';
   // Reset the More button's active state when switching to a primary tab
   const moreBtn = document.getElementById('tab-more-btn');
   if (moreBtn) moreBtn.classList.toggle('active', ['items','cycle','barcodes','log','export'].indexOf(name) >= 0);
@@ -6135,6 +6145,9 @@ function renderItemLocResult(query) {
 document.addEventListener('DOMContentLoaded', () => {
   if (typeof renderPackTab === 'function') renderPackTab();
   if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
+  // Pack tab is the default active panel; set the matching browser
+  // tab title so first paint matches what switchTab would produce.
+  document.title = 'Pack — Bedrock';
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -8731,7 +8744,7 @@ function printCommandCard() {
       + '<div class="cmd-code">' + val + '</div>'
       + '</div>';
   };
-  const html = '<!DOCTYPE html><html><head><title>MBD Inventory — Hands-Free Command Card</title>'
+  const html = '<!DOCTYPE html><html><head><title>Bedrock — Hands-Free Command Card</title>'
     + '<style>'
     + '@page{size:letter;margin:.4in}'
     + 'body{font-family:Arial,sans-serif;color:#000;background:#fff;margin:0;padding:0}'
@@ -8765,7 +8778,7 @@ function printCommandCard() {
     + '.workflow ol{margin-left:20px}.workflow li{margin-bottom:3px}'
     + '@media print{.no-print{display:none}}'
     + '</style></head><body><div class="page">'
-    + '<h1>MBD Inventory — Hands-Free Command Card</h1>'
+    + '<h1>Bedrock — Hands-Free Command Card</h1>'
     + '<div class="intro"><b>How to use:</b> Scan an item barcode → scan digits to enter a quantity → optionally scan a location barcode → scan APPLY. The action depends on the current mode. Hands-free mode must be ON (scan the toggle below to enable).</div>'
 
     + '<h2>1. Toggle Hands-Free Mode</h2>'
@@ -10492,7 +10505,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.30</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.31</div>
 
 </body>
 </html>
