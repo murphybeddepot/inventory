@@ -2510,3 +2510,123 @@ async function printPrePackLabel(orderNumber) {
     showPrePackBanner_('Label print error: ' + err.message, '#ff5252');
   }
 }
+
+
+// ──────────────────────────────────────────────────────────────────────
+// SCHEDULE TAB — shipping schedule, replaces MBD:FL SHIPMENTS GCal
+// Phase 1: read-only, mobile-first scrollable date-grouped list.
+// Today card auto-scrolls into view; past days dim; future days
+// in regular accent. Carrier color comes from the rulebook carriers
+// tab — to add a new carrier, just add a row in the sheet.
+// ──────────────────────────────────────────────────────────────────────
+
+let _scheduleCache = null;
+const SCHEDULE_CACHE_KEY = 'mbd_schedule_cache_v1';
+
+function renderScheduleTab() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(SCHEDULE_CACHE_KEY) || 'null');
+    if (cached && cached.days) {
+      _scheduleCache = cached;
+      paintSchedule_(cached);
+    }
+  } catch(e) {}
+  refreshScheduleTab();
+}
+
+async function refreshScheduleTab() {
+  const statusEl = document.getElementById('scheduleStatus');
+  const listEl = document.getElementById('scheduleDayList');
+  if (statusEl) statusEl.textContent = 'Loading schedule…';
+  const hasCached = _scheduleCache && _scheduleCache.days && _scheduleCache.days.length;
+  if (listEl && !hasCached) {
+    listEl.innerHTML = '<div style="padding:48px 24px;text-align:center;background:rgba(66,165,245,.06);border:1.5px dashed rgba(66,165,245,.35);border-radius:12px;color:#42a5f5;font-size:18px;font-weight:800;letter-spacing:.5px"><div style="font-size:36px;margin-bottom:12px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</div><div>Loading schedule…</div></div>';
+  }
+  try {
+    const res = await groundApi('listScheduleByDateRange', {});
+    if (!res || !res.ok) {
+      if (statusEl) statusEl.textContent = 'Error: ' + ((res && res.error) || 'unknown');
+      return;
+    }
+    _scheduleCache = res;
+    try { localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(res)); } catch(e) {}
+    paintSchedule_(res);
+    const totalOrders = (res.days || []).reduce((s, d) => s + d.total, 0);
+    if (statusEl) statusEl.textContent = totalOrders + ' order' + (totalOrders === 1 ? '' : 's') + ' across ' + (res.days || []).length + ' day' + ((res.days || []).length === 1 ? '' : 's') + ' · today=' + res.today;
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+  }
+}
+
+function paintSchedule_(payload) {
+  const legendEl = document.getElementById('scheduleLegend');
+  const listEl = document.getElementById('scheduleDayList');
+  if (!legendEl || !listEl) return;
+
+  const carriers = payload.carriers || [];
+  const carriersUsed = {};
+  (payload.days || []).forEach(d => {
+    Object.keys(d.counts || {}).forEach(k => { carriersUsed[k] = (carriersUsed[k] || 0) + d.counts[k]; });
+  });
+  legendEl.innerHTML = carriers
+    .filter(c => carriersUsed[c.carrier_key])
+    .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('');
+
+  if (!payload.days || !payload.days.length) {
+    listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No orders scheduled in this window.</div>';
+    return;
+  }
+
+  const today = payload.today;
+  const isPast = (iso) => iso < today;
+  const isToday = (iso) => iso === today;
+  const dayName = (iso) => {
+    const d = new Date(iso + 'T12:00:00');
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  };
+
+  listEl.innerHTML = payload.days.map(d => {
+    const past = isPast(d.date);
+    const todayFlag = isToday(d.date);
+    const dimStyle = past ? 'opacity:.55' : '';
+    const accent = todayFlag ? '#00e676' : (past ? '#666' : '#FFB300');
+    const bgAccent = todayFlag ? 'rgba(0,230,118,.10)' : 'rgba(255,255,255,.03)';
+    const todayChip = todayFlag ? '<span style="padding:2px 10px;background:#00e676;color:#000;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase">Today</span>' : '';
+
+    const top = d.orders.filter(o => o.source !== 'ground');
+    const bottom = d.orders.filter(o => o.source === 'ground');
+
+    const renderRow = (o) => {
+      const computed = o.ship_date_computed ? ' <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">EST</span>' : '';
+      const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px">'
+        + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">#' + esc(o.order_number) + '</div>'
+        + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
+        + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
+        + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
+        + '</div>';
+    };
+
+    return '<div id="sched-day-' + d.date + '" style="padding:12px 14px;background:' + bgAccent + ';border:1px solid ' + accent + '55;border-radius:12px;' + dimStyle + '">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
+      +   '<div style="display:flex;align-items:baseline;gap:10px">'
+      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;color:' + accent + '">' + esc(d.date.slice(5)) + '</div>'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">' + dayName(d.date) + '</div>'
+      +     todayChip
+      +   '</div>'
+      +   '<div style="font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:.5px">'
+      +     d.total + ' · ' + (d.freight_count ? d.freight_count + ' freight ' : '') + (d.mattress_count ? '· ' + d.mattress_count + ' mattress ' : '') + (d.ground_count ? '· ' + d.ground_count + ' ground' : '')
+      +   '</div>'
+      + '</div>'
+      + (top.length ? '<div style="display:flex;flex-direction:column;gap:4px">' + top.map(renderRow).join('') + '</div>' : '')
+      + (bottom.length ? '<div style="margin-top:' + (top.length ? '8' : '0') + 'px;padding-top:' + (top.length ? '8' : '0') + 'px;' + (top.length ? 'border-top:1px dashed rgba(255,255,255,.10);' : '') + 'display:flex;flex-direction:column;gap:4px">' + '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:2px">Ground</div>' + bottom.map(renderRow).join('') + '</div>' : '')
+      + (top.length === 0 && bottom.length === 0 ? '<div style="padding:12px;text-align:center;color:var(--text-dim);font-size:12px">(no orders)</div>' : '')
+      + '</div>';
+  }).join('');
+
+  // Auto-scroll today's card into view.
+  setTimeout(() => {
+    const t = document.getElementById('sched-day-' + today);
+    if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 50);
+}
