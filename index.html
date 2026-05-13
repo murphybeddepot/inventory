@@ -1018,11 +1018,16 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
-  <button class="tab-btn" id="tab-prepack-btn" onclick="switchTab('prepack')">Pre-Pack</button>
-  <button class="tab-btn active" id="tab-pack-btn" onclick="switchTab('pack')">Pack</button>
-  <button class="tab-btn" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
+  <!-- Primary tabs: only Cabinets + Ground are in active production
+       use. Pre-Pack/Pack/Schedule are still being iterated on and
+       live in the ⋯ More menu until the workflows are battle-tested. -->
+  <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
   <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')">Ground</button>
   <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()" style="flex:0 0 60px">⋯</button>
+  <!-- Hidden / More-menu-only tabs -->
+  <button class="tab-btn" id="tab-prepack-btn" onclick="switchTab('prepack')" style="display:none">Pre-Pack</button>
+  <button class="tab-btn" id="tab-pack-btn" onclick="switchTab('pack')" style="display:none">Pack</button>
+  <button class="tab-btn" id="tab-schedule-btn" onclick="switchTab('schedule')" style="display:none">Schedule</button>
   <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')" style="display:none">Stock</button>
   <button class="tab-btn" id="tab-cycle-btn" onclick="switchTab('cycle')" style="display:none">Count</button>
   <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')" style="display:none">Inventory</button>
@@ -1048,8 +1053,33 @@ input::placeholder, textarea::placeholder {
   <div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 28px;max-height:80vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">
     <div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">More</div>
-    <button onclick="goToTabFromMore('items')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+    <!-- In-development workflow tabs — primary nav has Cabinets+Ground only. -->
+    <button onclick="goToTabFromMore('schedule')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📅</span>
+      <div style="flex:1">
+        <div>Schedule</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Shipping schedule · carrier breakdown by day (replaces MBD:FL SHIPMENTS GCal)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('prepack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🔧</span>
+      <div style="flex:1">
+        <div>Pre-Pack</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Hardware-box prep · day-before scan-to-verify</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('pack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📦</span>
+      <div style="flex:1">
+        <div>Pack</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Cabinet / freight packing · two-phase checker workflow</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('items')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📋</span>
       <div style="flex:1">
         <div>Stock</div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Hardware inventory + kanban re-order cards</div>
@@ -1186,7 +1216,7 @@ input::placeholder, textarea::placeholder {
 </div>
 
 <!-- PACK TAB — daily cabinet/freight packing + checker workflow -->
-<div id="tab-pack" class="panel active">
+<div id="tab-pack" class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Orders to Pack</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1215,7 +1245,7 @@ input::placeholder, textarea::placeholder {
   <div id="packQueueDetail" style="display:none"></div>
 </div>
 
-<div id="tab-cabinets" class="panel">
+<div id="tab-cabinets" class="panel active">
 
   <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
   <div class="search-rig" style="margin-bottom:16px">
@@ -2091,7 +2121,7 @@ function showUnmappedBarcode(code) {
 
 // ── TABS ──────────────────────────────────────────
 function switchTab(name) {
-  ['scan','prepack','pack','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
+  ['scan','prepack','pack','schedule','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
     if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
@@ -2107,14 +2137,18 @@ function switchTab(name) {
   };
   const label = tabLabels[name];
   document.title = label ? (label + ' — Bedrock') : 'Bedrock';
-  // Reset the More button's active state when switching to a primary tab
+  // Reset the More button's active state when switching to a primary tab.
+  // Primary in production: cabinets + ground only. Everything else lives
+  // in the More menu and lights up the ⋯ button when active.
   const moreBtn = document.getElementById('tab-more-btn');
-  if (moreBtn) moreBtn.classList.toggle('active', ['items','cycle','barcodes','log','export'].indexOf(name) >= 0);
+  const moreOwnedTabs = ['schedule','prepack','pack','items','cycle','barcodes','log','export'];
+  if (moreBtn) moreBtn.classList.toggle('active', moreOwnedTabs.indexOf(name) >= 0);
   if (name==='export') renderExport();
   if (name==='log') renderLog();
   if (name==='barcodes') { renderBarcodeMap(); syncFeedbackToggles(); }
   if (name==='pack') renderPackTab();
   if (name==='prepack' && typeof renderPrePackTab === 'function') renderPrePackTab();
+  if (name==='schedule' && typeof renderScheduleTab === 'function') renderScheduleTab();
   if (name==='cabinets') renderCabinets();
   if (name==='items') renderItems();
   if (name==='cycle') renderCycleTab();
@@ -6150,11 +6184,11 @@ function renderItemLocResult(query) {
 // initial render so renderPackTab() doesn't run. Kick it off here so
 // the list loads automatically without the user having to tap Refresh.
 document.addEventListener('DOMContentLoaded', () => {
-  if (typeof renderPackTab === 'function') renderPackTab();
+  // Cabinets is the default active panel (Pack moved to the More menu).
+  // Kick its render so the receive list paints on first load.
+  if (typeof renderCabinets === 'function') renderCabinets();
   if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
-  // Pack tab is the default active panel; set the matching browser
-  // tab title so first paint matches what switchTab would produce.
-  document.title = 'Pack — Bedrock';
+  document.title = 'Cabinets — Bedrock';
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -10512,7 +10546,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.43</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.44</div>
 
 </body>
 </html>
