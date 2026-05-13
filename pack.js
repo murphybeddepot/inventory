@@ -2463,49 +2463,20 @@ async function printPrePackInstructions() {
   }
 }
 
-function printPrePackLabel(orderNumber) {
-  const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
-  if (!row) { showToast('Order not in current queue — refresh'); return; }
-  const win = window.open('', '_blank');
-  if (!win) { showToast('Allow popups to print label'); return; }
-  const customer = String(row.customer_name || '').trim();
-  const shipDate = String(row.ship_date || '').trim();
-  const taskLine = String(row.task_line || '').trim();
-  const tag = 'HWBOX-' + orderNumber;
-  const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=' + encodeURIComponent(tag);
-  win.document.write([
-    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Hardware Box Label — ' + orderNumber + '</title>',
-    '<style>',
-    'body{margin:0;padding:0.5in;font-family:Helvetica,Arial,sans-serif;background:#fff;color:#000}',
-    '.box{border:4px solid #000;border-radius:12px;padding:28px;text-align:center}',
-    '.headline{font-size:64px;font-weight:900;letter-spacing:2px;line-height:1.0;margin-bottom:8px;font-family:"Arial Black",Helvetica,sans-serif}',
-    '.headline .em{color:#c00}',
-    '.sub{font-size:22px;font-weight:700;margin-bottom:18px;color:#222}',
-    '.body{font-size:18px;line-height:1.4;margin:16px 0;color:#222;text-align:left;display:inline-block;max-width:5.5in}',
-    '.body strong{font-weight:900}',
-    '.info{font-size:22px;font-weight:800;letter-spacing:.5px;margin-top:14px;padding-top:14px;border-top:2px solid #000}',
-    '.info .label{font-size:11px;font-weight:700;letter-spacing:2px;color:#666;text-transform:uppercase;margin-bottom:2px}',
-    '.info-row{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-top:10px}',
-    '.info-row > div{flex:1}',
-    '.qr{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:12px}',
-    '.qr img{width:1.4in;height:1.4in}',
-    '.qr .tag{font-family:"JetBrains Mono",Menlo,monospace;font-size:14px;font-weight:700;letter-spacing:1px}',
-    '@media print{@page{size:letter;margin:0.3in}}',
-    '</style></head><body><div class="box">',
-    '<div class="headline"><span class="em">OPEN ME</span><br>FIRST!</div>',
-    '<div class="sub">Hardware &amp; Assembly Instructions Inside</div>',
-    '<div class="body">Hi! Please open <strong>this box first</strong> when your shipment arrives. Inside you\'ll find the <strong>hardware</strong> and <strong>assembly instructions</strong> you\'ll need to set up your Murphy bed cabinet.</div>',
-    '<div class="info">',
-    '<div class="info-row">',
-    '  <div><div class="label">Order</div>#' + esc(orderNumber) + '</div>',
-    '  <div><div class="label">Customer</div>' + esc(customer || '—') + '</div>',
-    '  <div><div class="label">Ship Date</div>' + esc(shipDate || '—') + '</div>',
-    '</div>',
-    '</div>',
-    '<div class="qr"><img src="' + qrUrl + '" alt="' + tag + '"><div><div class="tag">' + esc(tag) + '</div><div style="font-size:11px;color:#666;margin-top:4px">Internal scan code</div></div></div>',
-    '</div>',
-    '<script>window.addEventListener("load",()=>{setTimeout(()=>window.print(),400);});<\\/script>',
-    '</body></html>',
-  ].join('\n'));
-  win.document.close();
+// HW box label is now generated server-side as a B&W PDF and sent
+// straight to the default PrintNode printer — no Safari new-tab,
+// no print dialog, no color. The label says "OPEN ME FIRST" and
+// gets slapped on the outside of the HW carton.
+async function printPrePackLabel(orderNumber) {
+  showPrePackBanner_('Printing HW box label for ' + orderNumber + '…', '#42a5f5');
+  try {
+    const res = await groundApi('printHwBoxLabel', { orderNumber: orderNumber });
+    if (!res || !res.ok) {
+      showPrePackBanner_('Label print failed: ' + ((res && res.error) || 'unknown'), '#ff5252');
+      return;
+    }
+    showPrePackBanner_('✓ Label sent to printer #' + res.printer_id + ' (job ' + res.job_id + ')', '#00e676');
+  } catch (err) {
+    showPrePackBanner_('Label print error: ' + err.message, '#ff5252');
+  }
 }
