@@ -2171,9 +2171,7 @@ function paintPrePackDetail_(row) {
         ${l.name ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">'+esc(l.name)+'</div>' : ''}
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',-1)" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto">−</button>
-        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',1)" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto">+</button>
-        ${done ? '' : '<button onclick="bumpPrePackSku(\''+esc(row.order_number)+'\',\''+esc(sku)+'\','+(qty-scanned)+')" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto;background:#00e676;color:#000" title="Mark this SKU fully scanned (testing)">✓</button>'}
+        ${done ? '' : '<button onclick="bumpPrePackSku(\''+esc(row.order_number)+'\',\''+esc(sku)+'\','+(qty-scanned)+')" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto;background:#00e676;color:#000" title="Mark this SKU fully scanned">✓</button>'}
       </div>
     </div>`;
   }).join('');
@@ -2195,6 +2193,7 @@ function paintPrePackDetail_(row) {
       <input type="search" id="prePackScanInput" placeholder="Scan or type HW SKU…" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="handlePrePackScanKey(event)" style="width:100%;padding:14px 16px;font-size:18px;font-family:'JetBrains Mono',monospace;background:#000;color:var(--green-bright);border:2px solid var(--border);border-radius:10px;outline:none">
     </div>
     <div id="prePackSkuList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">${skuRowsHtml || '<div style="padding:20px;text-align:center;color:var(--text-dim)">No HW SKUs detected on this order. (If you expect HW, check the SKU list against the rulebook classifier.)</div>'}</div>
+    ${hwReady ? '' : '<button onclick="confirmMarkAllHardwareScanned(\''+esc(row.order_number)+'\')" class="amp-btn" style="width:100%;padding:14px;font-size:14px;font-weight:900;background:linear-gradient(135deg,#FFB300,#FF9100);color:#1a1a1a;border:1.5px solid #FFB300;letter-spacing:.5px;margin-bottom:10px">👤 MARK ALL PACKED (MANAGER)</button>'}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button onclick="confirmMarkHardwareReady('${esc(row.order_number)}')" ${markReadyDisabled?'disabled':''} class="amp-btn ${allScanned&&!hwReady?'go':''}" style="flex:1;min-width:200px;padding:14px;font-size:15px;font-weight:900;background:${markReadyColor};color:#000;opacity:${markReadyDisabled?'.55':'1'}">${markReadyLabel}</button>
       ${hwReady ? '<button onclick="printPrePackLabel(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px;font-size:14px">🖨 Reprint Label</button>' : ''}
@@ -2373,6 +2372,37 @@ async function confirmMarkHardwareReady(orderNumber) {
     setTimeout(() => closePrePackDetail(), 800);
   } catch (err) {
     showPrePackBanner_('Mark error: ' + err.message, '#ff5252');
+  }
+}
+
+// Manager-gated bulk-mark: sets scanned = qty for every HW SKU on
+// the order in one call. Lets a manager fast-forward an order that
+// was packed visually without scan-to-verify (catch-up, override,
+// etc.). After this, Mark HW Ready will unlock and the label can
+// print normally.
+async function confirmMarkAllHardwareScanned(orderNumber) {
+  if (!confirm('Mark ALL HW SKUs on order ' + orderNumber + ' as fully packed?\n\nBypasses scan-to-verify. Requires manager PIN.')) return;
+  const pin = promptManagerPin_('mark all HW packed on ' + orderNumber);
+  if (!pin) return;
+  try {
+    const res = await groundApi('markAllHardwareScanned', {
+      orderNumber: orderNumber,
+      manager_pin: pin,
+    });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      showPrePackBanner_((res && res.error) || 'Mark-all failed', '#ff5252');
+      return;
+    }
+    showPrePackBanner_('✓ Marked ' + res.marked + ' HW SKU' + (res.marked === 1 ? '' : 's') + ' (' + res.totalQty + ' total pcs) as packed', '#00e676');
+    const fresh = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
+    if (fresh && fresh.ok && Array.isArray(fresh.rows)) {
+      _prePackQueueCache = fresh.rows;
+      const row = _prePackQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (row) paintPrePackDetail_(row);
+    }
+  } catch (err) {
+    showPrePackBanner_('Mark-all error: ' + err.message, '#ff5252');
   }
 }
 
