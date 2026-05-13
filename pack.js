@@ -2171,9 +2171,9 @@ function paintPrePackDetail_(row) {
         ${l.name ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">'+esc(l.name)+'</div>' : ''}
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',-1)" class="amp-btn" style="padding:6px 10px;font-size:13px">−</button>
-        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',1)" class="amp-btn" style="padding:6px 10px;font-size:13px">+</button>
-        ${done ? '' : '<button onclick="bumpPrePackSku(\''+esc(row.order_number)+'\',\''+esc(sku)+'\','+(qty-scanned)+')" class="amp-btn" style="padding:6px 10px;font-size:13px;background:#00e676;color:#000" title="Mark this SKU fully scanned (testing)">✓</button>'}
+        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',-1)" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto">−</button>
+        <button onclick="bumpPrePackSku('${esc(row.order_number)}','${esc(sku)}',1)" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto">+</button>
+        ${done ? '' : '<button onclick="bumpPrePackSku(\''+esc(row.order_number)+'\',\''+esc(sku)+'\','+(qty-scanned)+')" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto;background:#00e676;color:#000" title="Mark this SKU fully scanned (testing)">✓</button>'}
       </div>
     </div>`;
   }).join('');
