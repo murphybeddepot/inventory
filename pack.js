@@ -2644,18 +2644,31 @@ function _scheduleRenderOrderRow_(o, opts) {
     + '</div>';
 }
 
-// Booker assignment modal — tap a chip to open. Kim/Seth/Clear, plus
-// optional Mark Booked field for confirmation #.
+// Booker assignment modal — tap a chip to open. Kim/Seth/Clear + a
+// Mark Booked form (shown when a booker is already assigned) to
+// capture the carrier confirmation # and optional freight label URL.
 function openScheduleBookerModal(orderNumber, currentBooker, alreadyBooked) {
   const prior = document.getElementById('scheduleBookerOverlay');
   if (prior) prior.remove();
   const ov = document.createElement('div');
   ov.id = 'scheduleBookerOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
 
   const panel = document.createElement('div');
-  panel.style.cssText = 'background:#1a1a1a;color:#fff;border:1.5px solid rgba(255,255,255,.15);border-radius:14px;padding:20px 18px 16px;max-width:420px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.5);font-family:Helvetica,Arial,sans-serif';
+  panel.style.cssText = 'background:#1a1a1a;color:#fff;border:1.5px solid rgba(255,255,255,.15);border-radius:14px;padding:20px 18px 16px;max-width:440px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.5);font-family:Helvetica,Arial,sans-serif';
+
+  const bookedForm = currentBooker && !alreadyBooked
+    ? '<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10)">'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#00e676;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Mark Booked</div>'
+      + '<input type="text" id="schedBookingRef" placeholder="Confirmation # from carrier" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding:12px;font-size:14px;font-family:\'JetBrains Mono\',monospace;background:#000;color:var(--green-bright,#00e676);border:1.5px solid rgba(0,230,118,.35);border-radius:8px;outline:none;margin-bottom:8px;letter-spacing:1px">'
+      + '<input type="text" id="schedFreightLabel" placeholder="Freight label URL (optional)" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:12px;font-family:\'JetBrains Mono\',monospace;background:#000;color:#9AAAC0;border:1px solid rgba(255,255,255,.15);border-radius:8px;outline:none;margin-bottom:10px">'
+      + '<button onclick="scheduleMarkBooked(\''+esc(orderNumber)+'\',\''+esc(currentBooker)+'\')" style="width:100%;padding:14px;background:linear-gradient(180deg,#00C853,#1A5C1A);color:#fff;border:1.5px solid #00E676;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">✓ Save Booking</button>'
+      + '</div>'
+    : (alreadyBooked
+        ? '<div style="margin-top:14px;padding:10px 12px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.45);border-radius:10px;font-size:12px;color:#00e676;font-weight:700;text-align:center">✓ Already booked — tap a name to change booker, or Clear to unassign.</div>'
+        : '');
+
   panel.innerHTML =
       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:var(--text);letter-spacing:.5px;text-transform:uppercase;line-height:1.1;margin-bottom:6px">Booker · Order #' + esc(orderNumber) + '</div>'
     + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">' + (currentBooker ? 'Currently assigned: <strong style="color:#FFB300">' + esc(currentBooker) + '</strong>' + (alreadyBooked ? ' · <span style="color:#00e676">✓ booked</span>' : '') : 'Unassigned. Tap a name to claim.') + '</div>'
@@ -2668,9 +2681,15 @@ function openScheduleBookerModal(orderNumber, currentBooker, alreadyBooked) {
     + '<div style="display:flex;gap:8px">'
     +   (currentBooker ? '<button onclick="scheduleAssignBooker(\''+esc(orderNumber)+'\',\'\')" style="flex:1;padding:12px;background:rgba(255,82,82,.12);color:#ff5252;border:1px solid rgba(255,82,82,.4);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer">Clear</button>' : '')
     +   '<button onclick="document.getElementById(\'scheduleBookerOverlay\').remove()" style="flex:1;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
-    + '</div>';
+    + '</div>'
+    + bookedForm;
   ov.appendChild(panel);
   document.body.appendChild(ov);
+  // Focus the booking-ref input if the form is shown
+  setTimeout(() => {
+    const inp = document.getElementById('schedBookingRef');
+    if (inp) inp.focus();
+  }, 80);
 }
 
 async function scheduleAssignBooker(orderNumber, booker) {
@@ -2683,10 +2702,39 @@ async function scheduleAssignBooker(orderNumber, booker) {
       return;
     }
     showToast(booker ? '✓ ' + booker + ' on #' + orderNumber : 'Cleared booker on #' + orderNumber);
-    // Re-fetch the schedule so the chip updates.
     refreshScheduleTab();
   } catch (err) {
     showToast('Booker update error: ' + err.message);
+  }
+}
+
+async function scheduleMarkBooked(orderNumber, booker) {
+  const refEl = document.getElementById('schedBookingRef');
+  const lblEl = document.getElementById('schedFreightLabel');
+  const bookingRef = refEl ? String(refEl.value || '').trim() : '';
+  const labelUrl = lblEl ? String(lblEl.value || '').trim() : '';
+  if (!bookingRef) {
+    showToast('Enter a confirmation # before saving');
+    if (refEl) refEl.focus();
+    return;
+  }
+  try {
+    const res = await groundApi('markPackJobBooked', {
+      orderNumber: orderNumber,
+      booking_ref: bookingRef,
+      freight_label_url: labelUrl,
+      booker: booker,
+    });
+    if (!res || !res.ok) {
+      showToast('Save failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    const ov = document.getElementById('scheduleBookerOverlay');
+    if (ov) ov.remove();
+    showToast('✓ #' + orderNumber + ' booked · ref ' + bookingRef);
+    refreshScheduleTab();
+  } catch (err) {
+    showToast('Save error: ' + err.message);
   }
 }
 
