@@ -2982,6 +2982,230 @@ function _scheduleDayName_(iso) {
   return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
 }
 
+// ── Remakes (CS VP entry — Jessica) ──────────────────────
+// Phase 1: list + create overlay. Jessica taps "New Remake",
+// fills the customer + SKU details, hits create — orchestrator
+// logs the row and emails shipping@ with structured details.
+async function openRemakesPanel(statusFilter) {
+  statusFilter = statusFilter || 'open';
+  const prior = document.getElementById('remakesOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'remakesOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;width:100%;max-width:720px;max-height:92vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">🔧 Remakes</div>'
+    +   '<button onclick="document.getElementById(\'remakesOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:12px">Replacement parts to ship to customers. Creating one emails the warehouse and logs to the Remakes tab.</div>'
+    + '<button onclick="openRemakeCreate()" style="width:100%;padding:14px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;margin-bottom:12px;letter-spacing:.5px;text-transform:uppercase">+ New Remake</button>'
+    + '<div style="display:flex;gap:6px;margin-bottom:12px">'
+    + ['open', 'pending', 'ready_to_ship', 'shipped', 'all'].map(s => '<button onclick="openRemakesPanel(\'' + s + '\')" style="flex:1;padding:8px 4px;background:' + (s === statusFilter ? '#003087' : '#f5f5f5') + ';color:' + (s === statusFilter ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + s.replace(/_/g, ' ') + '</button>').join('')
+    + '</div>'
+    + '<div id="remakesListBody" style="min-height:60px">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  let res;
+  try { res = await groundApi('listRemakes', { status: statusFilter }); }
+  catch (err) {
+    document.getElementById('remakesListBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>';
+    return;
+  }
+  if (!res || !res.ok) {
+    document.getElementById('remakesListBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+
+  const rows = res.remakes || [];
+  if (!rows.length) {
+    document.getElementById('remakesListBody').innerHTML = '<div style="padding:24px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:13px">No remakes in this view.</div>';
+    return;
+  }
+
+  document.getElementById('remakesListBody').innerHTML = rows.map(r => {
+    const statusColor = r.status === 'pending' ? '#FFB300' : r.status === 'ready_to_ship' ? '#3DBEFF' : r.status === 'shipped' ? '#00C853' : '#888';
+    const skuList = (r.skus || []).map(s => esc(s.qty + '× ' + s.sku)).join(', ');
+    const rushChip = r.priority === 'rush' ? '<span style="background:#ff5252;color:#fff;padding:1px 6px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.5px;margin-left:4px">⚡ RUSH</span>' : '';
+    const orderRef = r.original_order_number ? ' · #' + esc(r.original_order_number) : '';
+    return '<div style="padding:12px;background:#fafafa;border-left:3px solid ' + statusColor + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">'
+      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">' + esc(r.remake_id) + orderRef + '</span>'
+      +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + statusColor + '">' + esc(r.status).replace(/_/g, ' ') + rushChip + '</span>'
+      + '</div>'
+      + '<div style="font-weight:700;color:#1a1a1a">' + esc(r.customer_name) + '</div>'
+      + '<div style="font-size:12px;color:#666;margin:4px 0">' + skuList + '</div>'
+      + (r.reason ? '<div style="font-size:11px;color:#888;font-style:italic;margin-bottom:6px">"' + esc(r.reason) + '"</div>' : '')
+      + '<div style="display:flex;gap:6px;margin-top:6px">'
+      + (r.status === 'pending' ? '<button onclick="updateRemakeStatus_(\'' + esc(r.remake_id) + '\',\'ready_to_ship\')" style="flex:1;padding:8px;background:rgba(61,190,255,.15);color:#0099CC;border:1px solid #3DBEFF;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Ready to Ship</button>' : '')
+      + (r.status === 'ready_to_ship' ? '<button onclick="openRemakeShipModal(\'' + esc(r.remake_id) + '\')" style="flex:1;padding:8px;background:rgba(0,200,83,.15);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Mark Shipped</button>' : '')
+      + (r.status !== 'shipped' && r.status !== 'cancelled' ? '<button onclick="updateRemakeStatus_(\'' + esc(r.remake_id) + '\',\'cancelled\')" style="padding:8px 12px;background:rgba(255,82,82,.10);color:#c33;border:1px solid rgba(255,82,82,.4);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Cancel</button>' : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function openRemakeCreate() {
+  const defaultBy = (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e) { return ''; } })();
+  const ov = document.createElement('div');
+  ov.id = 'remakeCreateOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:20px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">New Remake</div><button onclick="document.getElementById(\'remakeCreateOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#999;cursor:pointer">✕</button></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+    +   '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Your name *</label><input type="text" id="rmkBy" value="' + esc(defaultBy) + '" placeholder="e.g. Jessica" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px"></div>'
+    +   '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Original Order #</label><input type="text" id="rmkOrigOrder" placeholder="(optional)" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px"></div>'
+    + '</div>'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Customer name *</label>'
+    + '<input type="text" id="rmkCustName" placeholder="" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+    +   '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Email</label><input type="email" id="rmkCustEmail" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px"></div>'
+    +   '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Phone</label><input type="tel" id="rmkCustPhone" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px"></div>'
+    + '</div>'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Ship address *</label>'
+    + '<textarea id="rmkShipAddr" rows="3" placeholder="Street&#10;City, State Zip" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px;resize:vertical;font-family:inherit"></textarea>'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Items to ship *</label>'
+    + '<div id="rmkSkuRows" style="margin:4px 0 6px">'
+    +   _renderRemakeSkuRow_(0)
+    + '</div>'
+    + '<button type="button" onclick="addRemakeSkuRow_()" style="padding:6px 12px;background:#f5f5f5;color:#444;border:1px solid #ccc;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:10px">+ Add another SKU</button>'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-top:6px;display:block">Reason</label>'
+    + '<textarea id="rmkReason" rows="2" placeholder="e.g. FedEx damaged the HLR77 in transit" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 10px;resize:vertical;font-family:inherit"></textarea>'
+    + '<label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="rmkRush" style="width:18px;height:18px"> <span style="font-size:13px;font-weight:700;color:#c33">⚡ RUSH — flag as priority</span></label>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="document.getElementById(\'remakeCreateOverlay\').remove()" style="flex:1;padding:12px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="submitRemakeCreate()" style="flex:2;padding:12px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">Create Remake</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => {
+    const inp = document.getElementById('rmkBy');
+    if (inp && !inp.value) inp.focus();
+    else { const c = document.getElementById('rmkCustName'); if (c) c.focus(); }
+  }, 80);
+}
+
+let _remakeSkuRowSeq = 1;
+function _renderRemakeSkuRow_(idx) {
+  return '<div class="rmkSkuRow" data-idx="' + idx + '" style="display:grid;grid-template-columns:60px 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px">'
+    + '<input type="number" min="1" value="1" class="rmkSkuQty" style="padding:8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px;outline:none;text-align:center">'
+    + '<input type="text" class="rmkSkuSku" placeholder="SKU (e.g. HLR77)" style="padding:8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px;outline:none;font-family:monospace">'
+    + '<input type="text" class="rmkSkuNotes" placeholder="notes (optional)" style="padding:8px;font-size:13px;border:1.5px solid #ccc;border-radius:6px;outline:none">'
+    + (idx > 0 ? '<button onclick="this.closest(\'.rmkSkuRow\').remove()" style="background:none;border:none;color:#c33;font-size:18px;cursor:pointer;padding:0 4px">✕</button>' : '<span></span>')
+    + '</div>';
+}
+function addRemakeSkuRow_() {
+  const container = document.getElementById('rmkSkuRows');
+  if (!container) return;
+  const idx = _remakeSkuRowSeq++;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = _renderRemakeSkuRow_(idx);
+  container.appendChild(tmp.firstChild);
+}
+
+async function submitRemakeCreate() {
+  const by = (document.getElementById('rmkBy') || {}).value || '';
+  const origOrder = (document.getElementById('rmkOrigOrder') || {}).value || '';
+  const custName = (document.getElementById('rmkCustName') || {}).value || '';
+  const custEmail = (document.getElementById('rmkCustEmail') || {}).value || '';
+  const custPhone = (document.getElementById('rmkCustPhone') || {}).value || '';
+  const shipAddr = (document.getElementById('rmkShipAddr') || {}).value || '';
+  const reason = (document.getElementById('rmkReason') || {}).value || '';
+  const rush = !!(document.getElementById('rmkRush') || {}).checked;
+
+  const skus = [];
+  document.querySelectorAll('.rmkSkuRow').forEach(row => {
+    const qty = Number(row.querySelector('.rmkSkuQty').value || 0);
+    const sku = String(row.querySelector('.rmkSkuSku').value || '').trim();
+    const notes = String(row.querySelector('.rmkSkuNotes').value || '').trim();
+    if (sku && qty > 0) skus.push({ sku, qty, notes });
+  });
+
+  if (!by.trim()) { showToast('Enter your name'); document.getElementById('rmkBy').focus(); return; }
+  if (!custName.trim()) { showToast('Enter customer name'); document.getElementById('rmkCustName').focus(); return; }
+  if (!shipAddr.trim()) { showToast('Enter ship address'); document.getElementById('rmkShipAddr').focus(); return; }
+  if (!skus.length) { showToast('Add at least one SKU'); return; }
+
+  try {
+    const res = await groundApi('createRemake', {
+      created_by: by.trim(),
+      original_order_number: origOrder.trim(),
+      customer_name: custName.trim(),
+      customer_email: custEmail.trim(),
+      customer_phone: custPhone.trim(),
+      ship_address: shipAddr.trim(),
+      skus: skus,
+      reason: reason.trim(),
+      priority: rush ? 'rush' : 'normal',
+    });
+    if (!res || !res.ok) { showToast('Create failed: ' + ((res && res.error) || 'unknown')); return; }
+    const ov = document.getElementById('remakeCreateOverlay');
+    if (ov) ov.remove();
+    showToast('✓ Remake ' + res.remake_id + ' created · warehouse notified');
+    openRemakesPanel('open');
+  } catch (err) {
+    showToast('Create error: ' + err.message);
+  }
+}
+
+async function updateRemakeStatus_(remakeId, newStatus) {
+  if (newStatus === 'cancelled' && !confirm('Cancel remake ' + remakeId + '?')) return;
+  try {
+    const res = await groundApi('updateRemakeStatus', { remake_id: remakeId, status: newStatus });
+    if (!res || !res.ok) { showToast('Update failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ ' + remakeId + ' → ' + newStatus.replace(/_/g, ' '));
+    openRemakesPanel('open');
+  } catch (err) {
+    showToast('Update error: ' + err.message);
+  }
+}
+
+function openRemakeShipModal(remakeId) {
+  const ov = document.createElement('div');
+  ov.id = 'remakeShipOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10002;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:20px;max-width:380px;width:100%">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a;margin-bottom:10px;text-transform:uppercase">Mark Shipped · ' + esc(remakeId) + '</div>'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Carrier</label>'
+    + '<input type="text" id="rmkShipCarrier" placeholder="e.g. UPS Ground" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px">'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Tracking #</label>'
+    + '<input type="text" id="rmkShipTracking" style="width:100%;padding:10px;font-size:14px;font-family:monospace;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 14px">'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="document.getElementById(\'remakeShipOverlay\').remove()" style="flex:1;padding:12px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="submitRemakeShip(\'' + esc(remakeId) + '\')" style="flex:2;padding:12px;background:#00C853;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer">✓ Mark Shipped</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+async function submitRemakeShip(remakeId) {
+  const carrier = String((document.getElementById('rmkShipCarrier') || {}).value || '').trim();
+  const tracking = String((document.getElementById('rmkShipTracking') || {}).value || '').trim();
+  try {
+    const res = await groundApi('updateRemakeStatus', {
+      remake_id: remakeId,
+      status: 'shipped',
+      shipped_carrier: carrier,
+      shipped_tracking: tracking,
+    });
+    if (!res || !res.ok) { showToast('Save failed: ' + ((res && res.error) || 'unknown')); return; }
+    const ov1 = document.getElementById('remakeShipOverlay'); if (ov1) ov1.remove();
+    showToast('✓ ' + remakeId + ' shipped');
+    openRemakesPanel('open');
+  } catch (err) {
+    showToast('Save error: ' + err.message);
+  }
+}
+
 // ── Catch-Rate Stats (Norm's ROI dashboard) ──────────────
 // Renders ScanRejections aggregates so Norm can decide whether
 // scan-to-verify is paying for itself. Default: last 30 days,
