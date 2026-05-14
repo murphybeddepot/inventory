@@ -1040,7 +1040,7 @@ input::placeholder, textarea::placeholder {
 <!-- Setup nudge — shows when GROUND_SECRET or GROUND_ORCH_URL is empty,
      so a fresh iPad sees the action item up-front instead of buried in
      Ground Settings. Tap to open the settings modal. -->
-<div id="setupNudge" onclick="openGroundSettings()" style="display:none;margin:8px 12px 4px;padding:14px 16px;background:linear-gradient(135deg,#FFB300,#FF9100);color:#1a1a1a;border-radius:10px;font-weight:800;font-size:14px;line-height:1.35;letter-spacing:.3px;box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer;display:flex;align-items:center;gap:12px">
+<div id="setupNudge" onclick="openSystemStatus()" style="display:none;margin:8px 12px 4px;padding:14px 16px;background:linear-gradient(135deg,#FFB300,#FF9100);color:#1a1a1a;border-radius:10px;font-weight:800;font-size:14px;line-height:1.35;letter-spacing:.3px;box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer;display:flex;align-items:center;gap:12px">
   <span style="font-size:24px">⚠</span>
   <div style="flex:1">
     <div id="setupNudgeTitle" style="text-transform:uppercase;letter-spacing:.5px">Setup required</div>
@@ -6225,6 +6225,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof renderCabinets === 'function') renderCabinets();
   if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
   document.title = 'Cabinets — Bedrock';
+  // v9.52: auto-open System Status on first launch if device isn't
+  // configured. Addresses Zac's "not by digging through settings"
+  // requirement — the user lands on the setup flow immediately.
+  if (!GROUND_SECRET && typeof openSystemStatus === 'function') {
+    setTimeout(openSystemStatus, 400);
+  }
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -9360,14 +9366,14 @@ function renderSetupNudge_() {
   const title = document.getElementById('setupNudgeTitle');
   const body = document.getElementById('setupNudgeBody');
   if (missingUrl && missingSecret) {
-    title.textContent = 'Setup required';
-    body.textContent = 'Orchestrator URL and Shared Secret aren\'t configured. Tap to open Ground Settings.';
+    title.textContent = 'Tap to set up';
+    body.textContent = 'Enter the device-setup PIN — no long URLs or codes to copy.';
   } else if (missingUrl) {
     title.textContent = 'Orchestrator URL missing';
-    body.textContent = 'Ground / Pack / Cabinets actions will fail until set. Tap to open Ground Settings.';
+    body.textContent = 'Tap to enter the setup PIN (fixes both URL and secret).';
   } else {
     title.textContent = 'Shared Secret missing';
-    body.textContent = 'Ground / Pack / Cabinets calls will return Unauthorized. Tap to paste the secret.';
+    body.textContent = 'Tap to enter the setup PIN — pulls the secret from the orchestrator.';
   }
   el.style.display = 'flex';
 }
@@ -9461,6 +9467,177 @@ function showShareSetupQr() {
     + '<button onclick="document.getElementById(\'shareSetupOverlay\').remove()" style="width:100%;padding:12px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Done</button>'
     + '</div>';
   document.body.appendChild(ov);
+}
+
+// ── System Status (v9.52) ─────────────────────────────────
+// Tap the version pill anywhere in Bedrock → see what's installed
+// and what's configured, without digging through Ground Settings.
+// Fresh devices land here with everything empty — primary CTA is
+// "Enter Setup PIN" which retrieves the URL + shared secret from
+// the orchestrator without anyone typing them.
+function openSystemStatus() {
+  const ver = (document.getElementById('versionPill') && document.getElementById('versionPill').textContent) || '';
+  const urlConfigured = !!GROUND_ORCH_URL;
+  const secretConfigured = !!GROUND_SECRET;
+  const packer = (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e) { return ''; } })();
+  const deviceId = (function(){ try { return localStorage.getItem('mbd_pack_device_id') || ''; } catch(e) { return ''; } })();
+  const urlShort = urlConfigured ? GROUND_ORCH_URL.replace(/^https?:\/\//,'').slice(0, 38) + (GROUND_ORCH_URL.length > 45 ? '…' : '') : '— not set —';
+  const secretMask = secretConfigured ? ('•••• ' + GROUND_SECRET.slice(-4)) : '— not set —';
+  const ok = urlConfigured && secretConfigured;
+
+  const row = (label, value, ok) =>
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #eee">'
+    + '<span style="font-size:12px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">' + label + '</span>'
+    + '<span style="font-size:13px;font-family:monospace;color:' + (ok ? '#1a1a1a' : '#c33') + '">' + value + '</span>'
+    + '</div>';
+
+  const ov = document.createElement('div');
+  ov.id = 'systemStatusOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999';
+  ov.onclick = () => ov.remove();
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 24px;max-height:90vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">System Status</div>'
+    + '<div style="font-size:13px;color:' + (ok ? '#0a8a3f' : '#c33') + ';font-weight:700;margin-bottom:12px">' + (ok ? '✓ Ready' : '⚠ Setup needed') + '</div>'
+    + row('Bedrock', ver, true)
+    + row('Orchestrator URL', urlShort, urlConfigured)
+    + row('Shared Secret', secretMask, secretConfigured)
+    + row('Packer', packer || '— not set —', !!packer)
+    + row('Device ID', deviceId.slice(0, 18) || '— none —', !!deviceId)
+    + '<div id="systemStatusServer" style="font-size:11px;color:#888;padding:8px 0 14px;text-align:right;font-family:monospace">server: …</div>'
+    + (ok
+        ? '<button onclick="openGroundSettingsFromStatus()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px">Edit Settings</button>'
+        : '<button onclick="openSetupPinPrompt()" style="width:100%;padding:16px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:900;cursor:pointer;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">🔑 Enter Setup PIN</button>'
+        + '<button onclick="openGroundSettingsFromStatus()" style="width:100%;padding:12px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px">Or enter URL + Secret manually</button>')
+    + '<button onclick="document.getElementById(\'systemStatusOverlay\').remove()" style="width:100%;padding:10px;background:#f5f5f5;color:#666;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  // Lazy server probe — only if we have credentials.
+  if (ok) {
+    groundApi('getQueue', { limit: 1 }).then(res => {
+      const el = document.getElementById('systemStatusServer');
+      if (!el) return;
+      if (res && res.ok) {
+        el.textContent = 'server: ✓ reachable' + (res.server_version ? ' (orch v' + res.server_version + ')' : '');
+        el.style.color = '#0a8a3f';
+      } else {
+        el.textContent = 'server: ⚠ ' + ((res && res.error) || 'no response');
+        el.style.color = '#c33';
+      }
+    }).catch(err => {
+      const el = document.getElementById('systemStatusServer');
+      if (el) { el.textContent = 'server: ⚠ ' + (err.message || 'unreachable'); el.style.color = '#c33'; }
+    });
+  } else {
+    const el = document.getElementById('systemStatusServer');
+    if (el) el.textContent = '';
+  }
+}
+
+function openGroundSettingsFromStatus() {
+  const ov = document.getElementById('systemStatusOverlay');
+  if (ov) ov.remove();
+  openGroundSettings();
+}
+
+// PIN entry — types numeric PIN, orchestrator hands back the secrets.
+// The orchestrator URL is hardcoded in DEFAULT_GROUND_ORCH_URL, so we
+// can call it before the user has anything else configured.
+function openSetupPinPrompt() {
+  const ov = document.createElement('div');
+  ov.id = 'setupPinOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px';
+  const pad = (digit, label) =>
+    '<button onclick="setupPinAppend(\'' + digit + '\')" style="aspect-ratio:1;padding:0;background:#fff;color:#1a1a1a;border:1.5px solid #ccc;border-radius:14px;font-size:30px;font-weight:700;cursor:pointer;font-family:\'JetBrains Mono\',monospace">' + (label || digit) + '</button>';
+  ov.innerHTML =
+    '<div style="background:#fff;border-radius:20px;padding:22px;max-width:360px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.4)">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px">Setup PIN</div>'
+    + '<div style="font-size:12px;color:#666;text-align:center;margin-bottom:14px">Ask Zac or Seth for the device-setup PIN</div>'
+    + '<div id="setupPinDisplay" style="text-align:center;font-family:\'JetBrains Mono\',monospace;font-size:32px;font-weight:700;letter-spacing:8px;color:#1a1a1a;background:#f5f5f5;padding:14px;border-radius:10px;margin-bottom:14px;min-height:32px">·····</div>'
+    + '<div id="setupPinError" style="font-size:13px;color:#c33;text-align:center;min-height:18px;margin-bottom:8px"></div>'
+    + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">'
+    +   pad('1') + pad('2') + pad('3')
+    +   pad('4') + pad('5') + pad('6')
+    +   pad('7') + pad('8') + pad('9')
+    + '  <button onclick="setupPinClear()" style="aspect-ratio:1;padding:0;background:#f5f5f5;color:#666;border:none;border-radius:14px;font-size:14px;font-weight:700;cursor:pointer">Clear</button>'
+    +   pad('0')
+    + '  <button onclick="setupPinBackspace()" style="aspect-ratio:1;padding:0;background:#f5f5f5;color:#666;border:none;border-radius:14px;font-size:22px;cursor:pointer">⌫</button>'
+    + '</div>'
+    + '<button id="setupPinSubmit" onclick="setupPinSubmit()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;margin-bottom:8px;text-transform:uppercase">Submit</button>'
+    + '<button onclick="document.getElementById(\'setupPinOverlay\').remove()" style="width:100%;padding:10px;background:transparent;color:#666;border:none;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  window._setupPinValue = '';
+}
+
+function setupPinAppend(d) {
+  window._setupPinValue = ((window._setupPinValue || '') + d).slice(0, 8);
+  setupPinRender();
+}
+function setupPinBackspace() {
+  window._setupPinValue = (window._setupPinValue || '').slice(0, -1);
+  setupPinRender();
+}
+function setupPinClear() {
+  window._setupPinValue = '';
+  setupPinRender();
+}
+function setupPinRender() {
+  const v = window._setupPinValue || '';
+  const display = v.padEnd(5, '·').split('').map(c => c === '·' ? '·' : '•').join(' ');
+  const el = document.getElementById('setupPinDisplay');
+  if (el) el.textContent = display;
+  const err = document.getElementById('setupPinError');
+  if (err) err.textContent = '';
+}
+
+async function setupPinSubmit() {
+  const pin = window._setupPinValue || '';
+  if (pin.length < 4) {
+    const err = document.getElementById('setupPinError');
+    if (err) err.textContent = 'PIN too short';
+    return;
+  }
+  const submitBtn = document.getElementById('setupPinSubmit');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Checking…'; }
+  try {
+    // claimProvisioning is the one endpoint that doesn't need
+    // GROUND_SECRET (because we don't have it yet — that's the
+    // point). Call the hardcoded DEFAULT_GROUND_ORCH_URL directly.
+    const resp = await fetch(DEFAULT_GROUND_ORCH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'claimProvisioning', pin: pin }),
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      const err = document.getElementById('setupPinError');
+      if (err) err.textContent = data.error || 'Invalid PIN';
+      window._setupPinValue = '';
+      setupPinRender();
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit'; }
+      return;
+    }
+    GROUND_ORCH_URL = data.orchUrl || DEFAULT_GROUND_ORCH_URL;
+    GROUND_SECRET = data.sharedSecret || '';
+    try {
+      localStorage.setItem('mbd_ground_orch_url', GROUND_ORCH_URL);
+      localStorage.setItem('mbd_ground_secret', GROUND_SECRET);
+    } catch(e) {}
+    const ov = document.getElementById('setupPinOverlay');
+    if (ov) ov.remove();
+    const ss = document.getElementById('systemStatusOverlay');
+    if (ss) ss.remove();
+    if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
+    if (typeof showToast === 'function') showToast('✓ Bedrock configured — ready to go');
+    if (typeof refreshGroundQueue === 'function') refreshGroundQueue();
+  } catch (e) {
+    const err = document.getElementById('setupPinError');
+    if (err) err.textContent = e.message || 'Network error';
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit'; }
+  }
 }
 
 // ── API wrapper ──────────────────────────────────────────
@@ -10752,12 +10929,16 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.50"></script>
+<script src="./pack.js?v=9.52"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.51</div>
+<!-- Tappable version pill — opens one-screen System Status modal
+     (version + orchestrator URL + secret state + packer + device id).
+     Avoids the user having to dig through Ground Settings to verify
+     basic config. -->
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.52</div>
 
 </body>
 </html>
