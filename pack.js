@@ -2611,7 +2611,26 @@ function _scheduleBookerChip_(o, compact) {
   if (booker) {
     return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',false)" class="amp-btn" style="background:rgba(255,179,0,.18);color:#FFB300;border:1px solid #FFB300;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Assigned. Tap to reassign or mark booked.">👤 ' + esc(booker) + '</button>';
   }
+  // Gate the "+ ASSIGN" prompt on customer-ready — Kim shouldn't be
+  // booking freight on orders Ken hasn't confirmed yet.
+  if (o.customer_ready === false || o.customer_ready === undefined || o.customer_ready === '') {
+    return '<button onclick="event.stopPropagation();openCustomerReadyModal(\''+esc(o.order_number)+'\',false,\'\',\'\')" class="amp-btn" style="background:transparent;color:#9AAAC0;border:1px dashed rgba(154,170,192,.4);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer not yet confirmed. Tap to mark ready.">⏳ WAIT</button>';
+  }
   return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\'\',false)" class="amp-btn" style="background:transparent;color:var(--text-dim);border:1px dashed rgba(255,255,255,.25);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Tap to assign a booker">+ ASSIGN</button>';
+}
+
+function _scheduleCustomerReadyChip_(o, compact) {
+  if (o.source !== 'cabinet') return '';
+  const ready = !!o.customer_ready;
+  const by = String(o.customer_ready_by || '').trim();
+  const notes = String(o.customer_ready_notes || '').trim();
+  const pad = compact ? '1px 6px' : '2px 8px';
+  const fs = compact ? '9px' : '10px';
+  const onclick = 'event.stopPropagation();openCustomerReadyModal(\''+esc(o.order_number)+'\',' + (ready ? 'true' : 'false') + ',\''+esc(by)+'\',\''+esc(notes)+'\')';
+  if (ready) {
+    return '<button onclick="' + onclick + '" class="amp-btn" style="background:rgba(0,180,255,.15);color:#3DBEFF;border:1px solid #3DBEFF;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer confirmed ready' + (by ? ' by ' + esc(by) : '') + '. Tap to edit.">✓ CUST</button>';
+  }
+  return ''; // unconfirmed → the booker chip already shows "⏳ WAIT" which itself opens this modal
 }
 
 // Shared: format a single order row inside a day cell.
@@ -2620,6 +2639,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   const computed = o.ship_date_computed ? ' <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">EST</span>' : '';
   const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
   const bookerChip = _scheduleBookerChip_(o, !!opts.compact);
+  const custChip = _scheduleCustomerReadyChip_(o, !!opts.compact);
   if (opts.compact) {
     // Desktop grid cell — compact two-line layout to fit a column
     return '<div style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3">'
@@ -2630,7 +2650,7 @@ function _scheduleRenderOrderRow_(o, opts) {
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
       +   (o.status ? '<span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">' + esc(String(o.status).slice(0,14)) + '</span>' : '<span></span>')
-      +   bookerChip
+      +   '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' + custChip + bookerChip + '</div>'
       + '</div>'
       + '</div>';
   }
@@ -2640,6 +2660,7 @@ function _scheduleRenderOrderRow_(o, opts) {
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
     + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
+    + custChip
     + bookerChip
     + '</div>';
 }
@@ -2662,11 +2683,15 @@ function openScheduleBookerModal(orderNumber, currentBooker, alreadyBooked) {
     ? '<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10)">'
       + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#00e676;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Mark Booked</div>'
       + '<input type="text" id="schedBookingRef" placeholder="Confirmation # from carrier" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding:12px;font-size:14px;font-family:\'JetBrains Mono\',monospace;background:#000;color:var(--green-bright,#00e676);border:1.5px solid rgba(0,230,118,.35);border-radius:8px;outline:none;margin-bottom:8px;letter-spacing:1px">'
-      + '<input type="text" id="schedFreightLabel" placeholder="Freight label URL (optional)" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:12px;font-family:\'JetBrains Mono\',monospace;background:#000;color:#9AAAC0;border:1px solid rgba(255,255,255,.15);border-radius:8px;outline:none;margin-bottom:10px">'
+      + '<input type="file" id="schedFreightFile" accept="application/pdf,image/*" style="display:none" onchange="schedFreightFilePicked_(event)">'
+      + '<button type="button" id="schedFreightFileBtn" onclick="document.getElementById(\'schedFreightFile\').click()" style="width:100%;padding:12px;background:rgba(255,179,0,.10);color:#FFB300;border:1.5px dashed rgba(255,179,0,.5);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;margin-bottom:8px">📎 Upload Freight Label (PDF)</button>'
+      + '<div id="schedFreightFileStatus" style="font-size:11px;color:#9AAAC0;margin-bottom:8px;min-height:14px"></div>'
+      + '<input type="text" id="schedFreightLabel" placeholder="…or paste a Drive URL instead" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;padding:10px;font-size:12px;font-family:\'JetBrains Mono\',monospace;background:#000;color:#9AAAC0;border:1px solid rgba(255,255,255,.15);border-radius:8px;outline:none;margin-bottom:8px">'
+      + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#9AAAC0;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="schedAutoPrint" checked style="width:16px;height:16px;cursor:pointer"> Auto-print label on save</label>'
       + '<button onclick="scheduleMarkBooked(\''+esc(orderNumber)+'\',\''+esc(currentBooker)+'\')" style="width:100%;padding:14px;background:linear-gradient(180deg,#00C853,#1A5C1A);color:#fff;border:1.5px solid #00E676;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">✓ Save Booking</button>'
       + '</div>'
     : (alreadyBooked
-        ? '<div style="margin-top:14px;padding:10px 12px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.45);border-radius:10px;font-size:12px;color:#00e676;font-weight:700;text-align:center">✓ Already booked — tap a name to change booker, or Clear to unassign.</div>'
+        ? '<div style="margin-top:14px;padding:10px 12px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.45);border-radius:10px;font-size:12px;color:#00e676;font-weight:700;text-align:center">✓ Already booked — tap a name to change booker, or Clear to unassign.<br><br><button onclick="scheduleReprintFreightLabel(\''+esc(orderNumber)+'\')" style="margin-top:8px;padding:10px 18px;background:rgba(255,179,0,.18);color:#FFB300;border:1px solid #FFB300;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">🖨 Reprint Freight Label</button></div>'
         : '');
 
   panel.innerHTML =
@@ -2708,39 +2733,262 @@ async function scheduleAssignBooker(orderNumber, booker) {
   }
 }
 
+// Pending file capture for the freight-label upload — set by the
+// file picker, consumed (and cleared) by scheduleMarkBooked.
+let _schedPendingFreightFile = null;
+
+function schedFreightFilePicked_(e) {
+  const f = e.target && e.target.files && e.target.files[0];
+  const statusEl = document.getElementById('schedFreightFileStatus');
+  const btnEl = document.getElementById('schedFreightFileBtn');
+  if (!f) { _schedPendingFreightFile = null; return; }
+  const sizeKb = Math.round(f.size / 1024);
+  if (sizeKb > 8000) { // 8MB cap — Apps Script doPost body is bounded
+    if (statusEl) { statusEl.textContent = '⚠ File too large (' + sizeKb + ' KB) — Drive-upload via web app caps at ~8 MB. Try compressing.'; statusEl.style.color = '#ff5252'; }
+    _schedPendingFreightFile = null;
+    return;
+  }
+  _schedPendingFreightFile = f;
+  if (statusEl) { statusEl.textContent = '📎 ' + f.name + ' (' + sizeKb + ' KB) — ready to upload on save'; statusEl.style.color = '#00e676'; }
+  if (btnEl) btnEl.textContent = '✓ ' + f.name + ' — tap to change';
+}
+
+async function _readFileAsBase64_(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function scheduleMarkBooked(orderNumber, booker) {
   const refEl = document.getElementById('schedBookingRef');
   const lblEl = document.getElementById('schedFreightLabel');
+  const autoEl = document.getElementById('schedAutoPrint');
   const bookingRef = refEl ? String(refEl.value || '').trim() : '';
   const labelUrl = lblEl ? String(lblEl.value || '').trim() : '';
+  const autoPrint = autoEl ? !!autoEl.checked : true;
   if (!bookingRef) {
     showToast('Enter a confirmation # before saving');
     if (refEl) refEl.focus();
     return;
   }
+
+  const payload = {
+    orderNumber: orderNumber,
+    booking_ref: bookingRef,
+    booker: booker,
+    auto_print: autoPrint,
+  };
+
+  if (_schedPendingFreightFile) {
+    try {
+      const statusEl = document.getElementById('schedFreightFileStatus');
+      if (statusEl) { statusEl.textContent = 'Reading file…'; statusEl.style.color = '#9AAAC0'; }
+      payload.freight_label_base64 = await _readFileAsBase64_(_schedPendingFreightFile);
+      payload.freight_label_filename = _schedPendingFreightFile.name;
+      payload.freight_label_mime_type = _schedPendingFreightFile.type || 'application/pdf';
+    } catch (err) {
+      showToast('File read error: ' + err.message);
+      return;
+    }
+  } else if (labelUrl) {
+    payload.freight_label_url = labelUrl;
+  }
+
   try {
-    const res = await groundApi('markPackJobBooked', {
-      orderNumber: orderNumber,
-      booking_ref: bookingRef,
-      freight_label_url: labelUrl,
-      booker: booker,
-    });
+    const res = await groundApi('markPackJobBooked', payload);
     if (!res || !res.ok) {
       showToast('Save failed: ' + ((res && res.error) || 'unknown'));
       return;
     }
     const ov = document.getElementById('scheduleBookerOverlay');
     if (ov) ov.remove();
-    showToast('✓ #' + orderNumber + ' booked · ref ' + bookingRef);
+    _schedPendingFreightFile = null;
+    let msg = '✓ #' + orderNumber + ' booked · ref ' + bookingRef;
+    if (res.print && res.print.ok) msg += ' · 🖨 sent to printer';
+    else if (res.print && !res.print.ok) msg += ' · ⚠ print failed (' + (res.print.error || '?') + ')';
+    showToast(msg);
     refreshScheduleTab();
   } catch (err) {
     showToast('Save error: ' + err.message);
   }
 }
 
+// Customer-ready modal — Ken's primary surface. He sees the
+// schedule, taps "⏳ WAIT" on an order, sets it to "✓ CUST" with
+// optional notes ("customer confirmed via email 5/14, OK to ship
+// any day next week").
+function _custReadyDefaultName_() {
+  try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e) { return ''; }
+}
+
+function openCustomerReadyModal(orderNumber, currentReady, currentBy, currentNotes) {
+  const prior = document.getElementById('customerReadyOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'customerReadyOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#1a1a1a;color:#fff;border:1.5px solid rgba(255,255,255,.15);border-radius:14px;padding:20px 18px 16px;max-width:440px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.5);font-family:Helvetica,Arial,sans-serif';
+  panel.innerHTML =
+      '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:var(--text);letter-spacing:.5px;text-transform:uppercase;line-height:1.1;margin-bottom:6px">Customer Ready · #' + esc(orderNumber) + '</div>'
+    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">' + (currentReady ? 'Currently <strong style="color:#3DBEFF">confirmed' + (currentBy ? ' by ' + esc(currentBy) : '') + '</strong>' : 'Not yet confirmed. Set when customer has been reached and is ready to receive the shipment.') + '</div>'
+    + '<div style="font-size:11px;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Confirmed by</div>'
+    + '<input type="text" id="custReadyBy" placeholder="Your name (e.g. Ken)" autocomplete="off" value="' + esc(currentBy || _custReadyDefaultName_()) + '" style="width:100%;padding:10px;font-size:14px;background:#000;color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:8px;outline:none;margin-bottom:10px">'
+    + '<div style="font-size:11px;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Notes (optional)</div>'
+    + '<textarea id="custReadyNotes" rows="3" placeholder="e.g. customer confirmed 5/14 — OK any day next week" style="width:100%;padding:10px;font-size:13px;background:#000;color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:8px;outline:none;margin-bottom:14px;resize:vertical;font-family:inherit">' + esc(currentNotes || '') + '</textarea>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">'
+    +   '<button onclick="setCustomerReady_(\''+esc(orderNumber)+'\',true)" style="padding:14px;background:linear-gradient(180deg,#0099CC,#005577);color:#fff;border:1.5px solid #3DBEFF;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">✓ Customer Ready</button>'
+    +   (currentReady ? '<button onclick="setCustomerReady_(\''+esc(orderNumber)+'\',false)" style="padding:12px;background:rgba(255,82,82,.12);color:#ff5252;border:1px solid rgba(255,82,82,.4);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer">Mark Not Ready</button>' : '')
+    + '</div>'
+    + '<button onclick="document.getElementById(\'customerReadyOverlay\').remove()" style="width:100%;padding:10px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>';
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
+  setTimeout(() => {
+    const inp = document.getElementById('custReadyBy');
+    if (inp && !inp.value) inp.focus();
+    else { const n = document.getElementById('custReadyNotes'); if (n) n.focus(); }
+  }, 80);
+}
+
+async function setCustomerReady_(orderNumber, ready) {
+  const byEl = document.getElementById('custReadyBy');
+  const notesEl = document.getElementById('custReadyNotes');
+  const by = byEl ? String(byEl.value || '').trim() : '';
+  const notes = notesEl ? String(notesEl.value || '').trim() : '';
+  if (ready && !by) {
+    showToast('Enter your name before marking ready');
+    if (byEl) byEl.focus();
+    return;
+  }
+  try {
+    const res = await groundApi('setCustomerReady', {
+      orderNumber: orderNumber,
+      ready: ready,
+      by: by,
+      notes: notes,
+    });
+    if (!res || !res.ok) {
+      showToast('Save failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    const ov = document.getElementById('customerReadyOverlay');
+    if (ov) ov.remove();
+    showToast(ready ? '✓ #' + orderNumber + ' marked ready by ' + by : '#' + orderNumber + ' marked not ready');
+    refreshScheduleTab();
+  } catch (err) {
+    showToast('Save error: ' + err.message);
+  }
+}
+
+async function scheduleReprintFreightLabel(orderNumber) {
+  try {
+    const res = await groundApi('reprintFreightLabel', { orderNumber: orderNumber });
+    if (!res || !res.ok) {
+      showToast('Reprint failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('🖨 Freight label re-queued for #' + orderNumber);
+  } catch (err) {
+    showToast('Reprint error: ' + err.message);
+  }
+}
+
 function _scheduleDayName_(iso) {
   const d = new Date(iso + 'T12:00:00');
   return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+}
+
+// ── Catch-Rate Stats (Norm's ROI dashboard) ──────────────
+// Renders ScanRejections aggregates so Norm can decide whether
+// scan-to-verify is paying for itself. Default: last 30 days,
+// toggleable to 7/14/30/90.
+async function openCatchStats(days) {
+  if (typeof days !== 'number') days = 30;
+  const prior = document.getElementById('catchStatsOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'catchStatsOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;width:100%;max-width:680px;border-radius:18px 18px 0 0;padding:18px 20px 28px;max-height:90vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">Catch-Rate Stats</div>'
+    +   '<button onclick="document.getElementById(\'catchStatsOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:14px">Mistakes scan-to-verify caught that would have shipped wrong without it. Multiply by your reship cost to value the system.</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:14px">'
+    + [7, 14, 30, 90].map(n => '<button onclick="openCatchStats(' + n + ')" style="flex:1;padding:8px;background:' + (n === days ? '#003087' : '#f5f5f5') + ';color:' + (n === days ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">' + n + 'd</button>').join('')
+    + '</div>'
+    + '<div id="catchStatsBody" style="font-size:14px;color:#1a1a1a">Loading…</div>'
+    + '<button onclick="document.getElementById(\'catchStatsOverlay\').remove()" style="width:100%;margin-top:14px;padding:12px;background:#f5f5f5;color:#666;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  const end = new Date();
+  const start = new Date(); start.setDate(end.getDate() - days);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  let res;
+  try {
+    res = await groundApi('getCatchRateStats', { startDate: iso(start), endDate: iso(end) });
+  } catch (err) {
+    document.getElementById('catchStatsBody').innerHTML = '<div style="color:#c33;font-weight:700">Error: ' + esc(err.message || 'unknown') + '</div>';
+    return;
+  }
+  if (!res || !res.ok) {
+    document.getElementById('catchStatsBody').innerHTML = '<div style="color:#c33;font-weight:700">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+
+  const total = res.total || 0;
+  const byKind = res.byKind || {};
+  const byDay = res.byDay || [];
+  const perDay = days ? (total / days).toFixed(2) : '—';
+
+  // Cost-savings ballpark — $200 per catch is Zac's stated floor
+  // (shipping + reputational, per May 2026 conversation).
+  const COST_PER_CATCH_USD = 200;
+  const estSavings = total * COST_PER_CATCH_USD;
+  const estMonthly = days ? Math.round((total / days) * 30 * COST_PER_CATCH_USD) : 0;
+
+  const kindRow = (label, key, color) =>
+    '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0">'
+    + '<span style="font-size:13px;color:#444">' + label + '</span>'
+    + '<span style="font-size:15px;font-weight:900;color:' + color + ';font-family:\'JetBrains Mono\',monospace">' + (byKind[key] || 0) + '</span>'
+    + '</div>';
+
+  // Sparkline as a fixed-width bar chart
+  const maxDay = byDay.reduce((m, d) => Math.max(m, d.total), 0) || 1;
+  const sparkline = byDay.length
+    ? '<div style="display:flex;gap:2px;align-items:flex-end;height:60px;background:#fafafa;padding:8px;border-radius:8px;margin:6px 0 14px">'
+      + byDay.slice(-30).map(d => {
+          const h = Math.max(2, Math.round(d.total / maxDay * 56));
+          return '<div title="' + d.date + ': ' + d.total + '" style="flex:1;height:' + h + 'px;background:#FFB300;border-radius:2px;min-width:4px"></div>';
+        }).join('')
+      + '</div>'
+    : '<div style="background:#fafafa;padding:18px;border-radius:8px;margin:6px 0 14px;text-align:center;color:#888;font-size:13px">No catches in this range — clean run, or scan-to-verify isn\'t catching anything wrong yet.</div>';
+
+  document.getElementById('catchStatsBody').innerHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
+    +   '<div style="background:linear-gradient(135deg,#FFB300,#FF9100);color:#1a1a1a;padding:14px;border-radius:10px"><div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;opacity:.7">Catches · ' + days + 'd</div><div style="font-size:32px;font-weight:900;font-family:\'JetBrains Mono\',monospace;line-height:1;margin-top:4px">' + total + '</div><div style="font-size:11px;font-weight:700;margin-top:4px">≈ ' + perDay + ' / day</div></div>'
+    +   '<div style="background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;padding:14px;border-radius:10px"><div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;opacity:.8">Est. saved (' + days + 'd)</div><div style="font-size:32px;font-weight:900;font-family:\'JetBrains Mono\',monospace;line-height:1;margin-top:4px">$' + estSavings.toLocaleString() + '</div><div style="font-size:11px;font-weight:700;margin-top:4px;opacity:.85">$' + estMonthly.toLocaleString() + '/mo run-rate</div></div>'
+    + '</div>'
+    + '<div style="font-size:11px;color:#888;margin-bottom:8px">At $' + COST_PER_CATCH_USD + ' avg reship cost per wrong-pack (Zac\'s stated floor). Adjust higher to factor reputation/return-handling.</div>'
+    + sparkline
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">By kind</div>'
+    + kindRow('Wrong box (different physical SKU)', 'wrong_box_likely', '#c33')
+    + kindRow('Unknown box (SKU not in rulebook)', 'unknown_box', '#888')
+    + kindRow('Inside-item alias pending approval', 'inside_item_alias_pending', '#FFB300');
 }
 
 // ── Mobile: scrollable date-grouped list (original Phase 1 view) ──
