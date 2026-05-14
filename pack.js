@@ -3043,6 +3043,68 @@ function _scheduleDayName_(iso) {
   return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
 }
 
+// ── Tracking — recent shipments across all sources ────────
+async function openTrackingPanel(opts) {
+  opts = opts || {};
+  const days = Number(opts.days || 14);
+  const source = String(opts.source || 'all');
+  const prior = document.getElementById('trackingOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'trackingOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;width:100%;max-width:720px;max-height:92vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">📦 Tracking</div>'
+    +   '<button onclick="document.getElementById(\'trackingOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:12px">Recent shipments across every source. Tap a tracking number to open the carrier page.</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">'
+    + ['all', 'ground', 'cabinet', 'remake', 'mattress'].map(s => '<button onclick="openTrackingPanel({source:\'' + s + '\',days:' + days + '})" style="flex:1;min-width:60px;padding:7px 4px;background:' + (s === source ? '#003087' : '#f5f5f5') + ';color:' + (s === source ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + s + '</button>').join('')
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:12px">'
+    + [7, 14, 30, 90].map(d => '<button onclick="openTrackingPanel({source:\'' + source + '\',days:' + d + '})" style="flex:1;padding:7px 4px;background:' + (d === days ? '#FFB300' : '#f5f5f5') + ';color:' + (d === days ? '#1a1a1a' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">' + d + 'd</button>').join('')
+    + '</div>'
+    + '<div id="trackingBody" style="min-height:60px">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  let res;
+  try { res = await groundApi('listRecentShipments', { days: days, source: source }); }
+  catch (err) {
+    document.getElementById('trackingBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>';
+    return;
+  }
+  if (!res || !res.ok) {
+    document.getElementById('trackingBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+  const rows = res.shipments || [];
+  if (!rows.length) {
+    document.getElementById('trackingBody').innerHTML = '<div style="padding:24px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:13px">No shipments in this view.</div>';
+    return;
+  }
+
+  const SRC_COLORS = { ground: '#003087', cabinet: '#FFB300', remake: '#FF6B00', mattress: '#9C27B0' };
+  document.getElementById('trackingBody').innerHTML = rows.map(s => {
+    const color = SRC_COLORS[s.source] || '#666';
+    const when = String(s.shipped_at || '').slice(0, 10);
+    const trackingDisplay = s.tracking_number ? esc(s.tracking_number) : '—';
+    const trackingNode = (s.tracking_url && s.tracking_number)
+      ? '<a href="' + esc(s.tracking_url) + '" target="_blank" style="color:#42a5f5;text-decoration:underline;font-family:monospace;font-size:11px">' + trackingDisplay + ' ↗</a>'
+      : '<span style="font-family:monospace;font-size:11px;color:#888">' + trackingDisplay + '</span>';
+    return '<div style="display:grid;grid-template-columns:64px 1fr auto;gap:8px;align-items:center;padding:10px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:6px;font-size:13px">'
+      + '<div><div style="font-size:9px;font-weight:900;color:' + color + ';text-transform:uppercase;letter-spacing:1px">' + esc(s.source_label) + '</div><div style="font-size:10px;color:#999">' + esc(when) + '</div></div>'
+      + '<div><div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">#' + esc(s.order_number) + '</div><div style="font-size:12px;color:#444">' + esc(s.customer_name || '—') + (s.state ? ' · ' + esc(s.state) : '') + '</div></div>'
+      + '<div style="text-align:right">' + (s.carrier ? '<div style="font-size:10px;color:#666;text-transform:uppercase;font-weight:700;letter-spacing:.5px">' + esc(s.carrier) + '</div>' : '') + trackingNode + '</div>'
+      + '</div>';
+  }).join('');
+}
+
 // ── Damage Log (Phase 2 lifecycle UI) ────────────────────
 // View open damage records and walk them through the inspect →
 // parts-order → remake → close lifecycle. Server endpoints
