@@ -3039,7 +3039,10 @@ async function openRemakesPanel(statusFilter) {
     +   '<button onclick="document.getElementById(\'remakesOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px">✕</button>'
     + '</div>'
     + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:12px">Replacement parts to ship to customers. Creating one emails the warehouse and logs to the Remakes tab.</div>'
-    + '<button onclick="openRemakeCreate()" style="width:100%;padding:14px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;margin-bottom:12px;letter-spacing:.5px;text-transform:uppercase">+ New Remake</button>'
+    + '<div style="display:flex;gap:8px;margin-bottom:12px">'
+    +   '<button onclick="openRemakeCreate()" style="flex:1;padding:14px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">+ New Remake</button>'
+    +   '<button onclick="pollRemakeShipments_()" style="padding:14px 18px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap" title="Check ShipStation for newly-shipped remakes">🔄 Check SS</button>'
+    + '</div>'
     + '<div style="display:flex;gap:6px;margin-bottom:12px">'
     + ['open', 'pending', 'ready_to_ship', 'shipped', 'all'].map(s => '<button onclick="openRemakesPanel(\'' + s + '\')" style="flex:1;padding:8px 4px;background:' + (s === statusFilter ? '#003087' : '#f5f5f5') + ';color:' + (s === statusFilter ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + s.replace(/_/g, ' ') + '</button>').join('')
     + '</div>'
@@ -3288,6 +3291,18 @@ async function updateRemakeStatus_(remakeId, newStatus) {
     openRemakesPanel('open');
   } catch (err) {
     showToast('Update error: ' + err.message);
+  }
+}
+
+async function pollRemakeShipments_() {
+  showToast('Checking ShipStation for shipped remakes…');
+  try {
+    const res = await groundApi('pollRemakeShipments', {});
+    if (!res || !res.ok) { showToast('Poll failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Checked ' + (res.checked || 0) + ' · updated ' + (res.updated || 0) + (res.errors && res.errors.length ? ' · ' + res.errors.length + ' error' + (res.errors.length === 1 ? '' : 's') : ''));
+    openRemakesPanel('open');
+  } catch (err) {
+    showToast('Poll error: ' + err.message);
   }
 }
 
