@@ -7290,8 +7290,11 @@ function openBulkMove() {
     + '</div>'
 
     + '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px">Add to Cart (scan or type) *</label>'
-    + '<input type="text" id="bulkMoveInput" placeholder="Scan cabinet barcode or type # + Enter" autocomplete="off" autocorrect="off" autocapitalize="characters" style="width:100%;padding:14px;font-size:16px;font-weight:600;border:2px solid #FF9100;border-radius:8px;outline:none;margin-bottom:6px;-webkit-appearance:none">'
-    + '<div style="font-size:11px;color:#888;margin-bottom:14px">Each entry adds one cabinet to the cart. Wrist scanner trigger works the same as Enter key.</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:6px">'
+    +   '<input type="text" id="bulkMoveInput" placeholder="Scan or type cabinet #" autocomplete="off" autocorrect="off" autocapitalize="characters" inputmode="text" enterkeyhint="enter" style="flex:1;min-width:0;padding:14px;font-size:16px;font-weight:600;border:2px solid #FF9100;border-radius:8px;outline:none;-webkit-appearance:none">'
+    +   '<button id="bulkMoveAddBtn" type="button" onclick="bulkMoveAddCurrentInput_()" style="flex:0 0 auto;padding:14px 18px;background:#FF9100;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">+ Add</button>'
+    + '</div>'
+    + '<div style="font-size:11px;color:#888;margin-bottom:14px">Scan a barcode, type a number then tap <strong>+ Add</strong> (or press Enter / scanner trigger).</div>'
 
     + '<div id="bulkMoveCartHeader" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
     +   '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666">Cart</div>'
@@ -7315,17 +7318,43 @@ function openBulkMove() {
     const inp = document.getElementById('bulkMoveInput');
     if (inp) {
       inp.focus();
+      // Three reinforcing add-to-cart triggers — covers iPad keyboard,
+      // iPhone soft-keyboard quirks (where keydown 'Enter' sometimes
+      // fires before autocapitalize commits the value), and HID wrist
+      // scanners that inject newline / CR characters:
+      //   1. keydown 'Enter' — desktop / iPad / most cases
+      //   2. input event with embedded \n or \r — wrist scanner path
+      //   3. explicit + Add button — guaranteed fallback for Shane's phone
       inp.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          addToBulkMoveCart(inp.value.trim());
+          bulkMoveAddCurrentInput_();
+        }
+      });
+      inp.addEventListener('input', (e) => {
+        const v = inp.value;
+        if (v.indexOf('\n') !== -1 || v.indexOf('\r') !== -1) {
+          // Scanner emitted a newline mid-stream; split + add each.
+          const parts = v.split(/[\n\r]+/).map(s => s.trim()).filter(Boolean);
           inp.value = '';
-          inp.focus();
+          if (parts.length) addToBulkMoveCart(parts.join(','));
         }
       });
     }
     renderBulkMoveCart();
   }, 100);
+}
+
+// Shared add path — used by the + Add button AND the Enter keydown.
+// Reads the live value, adds to cart, clears + refocuses input.
+function bulkMoveAddCurrentInput_() {
+  const inp = document.getElementById('bulkMoveInput');
+  if (!inp) return;
+  const v = String(inp.value || '').trim();
+  if (!v) { showToast('Type or scan a cabinet # first'); return; }
+  addToBulkMoveCart(v);
+  inp.value = '';
+  inp.focus();
 }
 
 function addToBulkMoveCart(raw) {
@@ -7345,6 +7374,11 @@ function addToBulkMoveCart(raw) {
   if (added) {
     FB.scan();
     if (FB.visuals) spawnScorePop('+' + added, '#FF9100');
+    // Explicit toast so Shane on phone sees confirmation even when
+    // haptic + visual-pop aren't apparent (haptic off, scroll position
+    // hides the score-pop, etc.). Includes cart count for context.
+    const cartTotal = bulkMoveCart.length;
+    showToast('✓ Added ' + added + (added === 1 ? '' : ' cabinets') + ' · cart now ' + cartTotal);
   }
   if (skipped && !added) {
     FB.error();
@@ -10723,7 +10757,7 @@ startAutoSync();
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.50</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.51</div>
 
 </body>
 </html>
