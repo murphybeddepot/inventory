@@ -3109,19 +3109,41 @@ function renderTrackingRows_() {
     return;
   }
   const SRC_COLORS = { ground: '#003087', cabinet: '#FFB300', remake: '#FF6B00', mattress: '#9C27B0' };
-  body.innerHTML = filtered.map(s => {
-    const color = SRC_COLORS[s.source] || '#666';
-    const when = String(s.shipped_at || '').slice(0, 10);
-    const trackingDisplay = s.tracking_number ? esc(s.tracking_number) : '—';
-    const trackingNode = (s.tracking_url && s.tracking_number)
-      ? '<a href="' + esc(s.tracking_url) + '" target="_blank" style="color:#42a5f5;text-decoration:underline;font-family:monospace;font-size:11px">' + trackingDisplay + ' ↗</a>'
-      : '<span style="font-family:monospace;font-size:11px;color:#888">' + trackingDisplay + '</span>';
-    return '<div style="display:grid;grid-template-columns:64px 1fr auto;gap:8px;align-items:center;padding:10px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:6px;font-size:13px">'
-      + '<div><div style="font-size:9px;font-weight:900;color:' + color + ';text-transform:uppercase;letter-spacing:1px">' + esc(s.source_label) + '</div><div style="font-size:10px;color:#999">' + esc(when) + '</div></div>'
-      + '<div><div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">#' + esc(s.order_number) + '</div><div style="font-size:12px;color:#444">' + esc(s.customer_name || '—') + (s.state ? ' · ' + esc(s.state) : '') + '</div></div>'
-      + '<div style="text-align:right">' + (s.carrier ? '<div style="font-size:10px;color:#666;text-transform:uppercase;font-weight:700;letter-spacing:.5px">' + esc(s.carrier) + '</div>' : '') + trackingNode + '</div>'
-      + '</div>';
-  }).join('');
+  // Sable: group rows into Today / Yesterday / This Week / Older
+  // so 14 days of shipments aren't one indistinguishable scroll.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today.getTime() - 86400000);
+  const weekAgo = new Date(today.getTime() - 6 * 86400000); // last 7 days incl today
+  const bucket = (iso) => {
+    if (!iso) return 'Older';
+    const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+    if (d >= today) return 'Today';
+    if (d >= yesterday) return 'Yesterday';
+    if (d >= weekAgo) return 'This Week';
+    return 'Older';
+  };
+  const BUCKET_ORDER = ['Today', 'Yesterday', 'This Week', 'Older'];
+  const grouped = { Today: [], Yesterday: [], 'This Week': [], Older: [] };
+  filtered.forEach(s => grouped[bucket(s.shipped_at)].push(s));
+
+  body.innerHTML = BUCKET_ORDER.filter(b => grouped[b].length).map(b =>
+    '<div style="font-size:10px;font-weight:900;color:#888;text-transform:uppercase;letter-spacing:1.5px;margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid #eee">' + b + ' · ' + grouped[b].length + '</div>'
+    + grouped[b].map(s => _renderTrackingRow_(s, SRC_COLORS)).join('')
+  ).join('');
+}
+
+function _renderTrackingRow_(s, SRC_COLORS) {
+  const color = SRC_COLORS[s.source] || '#666';
+  const when = String(s.shipped_at || '').slice(0, 10);
+  const trackingDisplay = s.tracking_number ? esc(s.tracking_number) : '—';
+  const trackingNode = (s.tracking_url && s.tracking_number)
+    ? '<a href="' + esc(s.tracking_url) + '" target="_blank" style="color:#42a5f5;text-decoration:underline;font-family:monospace;font-size:11px">' + trackingDisplay + ' ↗</a>'
+    : '<span style="font-family:monospace;font-size:11px;color:#888">' + trackingDisplay + '</span>';
+  return '<div style="display:grid;grid-template-columns:64px 1fr auto;gap:8px;align-items:center;padding:10px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:6px;font-size:13px">'
+    + '<div><div style="font-size:9px;font-weight:900;color:' + color + ';text-transform:uppercase;letter-spacing:1px">' + esc(s.source_label) + '</div><div style="font-size:10px;color:#999">' + esc(when) + '</div></div>'
+    + '<div><div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">#' + esc(s.order_number) + '</div><div style="font-size:12px;color:#444">' + esc(s.customer_name || '—') + (s.state ? ' · ' + esc(s.state) : '') + '</div></div>'
+    + '<div style="text-align:right">' + (s.carrier ? '<div style="font-size:10px;color:#666;text-transform:uppercase;font-weight:700;letter-spacing:.5px">' + esc(s.carrier) + '</div>' : '') + trackingNode + '</div>'
+    + '</div>';
 }
 
 // ── Damage Log ────────────────────────────────────────────
@@ -3219,10 +3241,19 @@ async function openRemakesPanel(statusFilter) {
     const ssChip = (r.shipstation_order_id && r.shipstation_admin_url)
       ? '<a href="' + esc(r.shipstation_admin_url) + '" target="_blank" style="display:inline-block;padding:1px 8px;background:#003087;color:#fff;border-radius:999px;font-size:10px;font-weight:800;text-decoration:none;margin-left:6px;letter-spacing:.5px">→ SS</a>'
       : (r.shipstation_order_id ? '<span style="display:inline-block;padding:1px 8px;background:#003087;color:#fff;border-radius:999px;font-size:10px;font-weight:800;margin-left:6px;letter-spacing:.5px">SS#' + esc(r.shipstation_order_id) + '</span>' : '');
+    // Sable: stuck-remake indicator — a remake in ready_to_ship for
+    // 5+ days has been ignored. Same threshold as damage stuck check.
+    let stuckChip = '';
+    if ((r.status === 'pending' || r.status === 'ready_to_ship') && r.created_at) {
+      const ageDays = (new Date() - new Date(r.created_at)) / 86400000;
+      if (ageDays >= 5) {
+        stuckChip = '<span style="background:#ff5252;color:#fff;padding:1px 6px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.5px;margin-left:4px">⚠ STUCK ' + Math.round(ageDays) + 'd</span>';
+      }
+    }
     return '<div style="padding:12px;background:#fafafa;border-left:3px solid ' + statusColor + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:4px">'
       +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">' + esc(r.remake_id) + orderRef + ssChip + '</span>'
-      +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + statusColor + '">' + esc(r.status).replace(/_/g, ' ') + rushChip + '</span>'
+      +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + statusColor + '">' + esc(r.status).replace(/_/g, ' ') + stuckChip + rushChip + '</span>'
       + '</div>'
       + '<div style="font-weight:700;color:#1a1a1a">' + esc(r.customer_name) + '</div>'
       + '<div style="font-size:12px;color:#666;margin:4px 0">' + skuList + '</div>'
@@ -3580,7 +3611,7 @@ async function openCatchStats(days) {
           return '<div title="' + d.date + ': ' + d.total + '" style="flex:1;height:' + h + 'px;background:#FFB300;border-radius:2px;min-width:4px"></div>';
         }).join('')
       + '</div>'
-    : '<div style="background:#fafafa;padding:18px;border-radius:8px;margin:6px 0 14px;text-align:center;color:#888;font-size:13px">No catches in this range — clean run, or scan-to-verify isn\'t catching anything wrong yet.</div>';
+    : '<div style="background:linear-gradient(135deg,rgba(0,200,83,.10),rgba(26,92,26,.06));border:1px solid rgba(0,200,83,.30);padding:18px;border-radius:8px;margin:6px 0 14px;text-align:center;color:#1A5C1A;font-size:13px;font-weight:700">✓ Zero catches over the last ' + days + ' days — packers shipped clean.</div>';
 
   document.getElementById('catchStatsBody').innerHTML =
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
