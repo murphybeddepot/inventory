@@ -2572,7 +2572,13 @@ function paintSchedule_(payload) {
   (payload.days || []).forEach(d => {
     Object.keys(d.counts || {}).forEach(k => { carriersUsed[k] = (carriersUsed[k] || 0) + d.counts[k]; });
   });
-  legendEl.innerHTML = carriers
+  // v9.54: stalled summary chip leads the legend if there are any.
+  // Tap → opens a panel listing the stalled orders + their reasons.
+  let stalledChip = '';
+  if (payload.stalled_total && payload.stalled_total > 0) {
+    stalledChip = '<button onclick="openStalledList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#FF5252,#B71C1C);color:#fff;border:1px solid #ff5252;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">⚠ ' + payload.stalled_total + ' STALLED</button>';
+  }
+  legendEl.innerHTML = stalledChip + carriers
     .filter(c => carriersUsed[c.carrier_key])
     .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('');
 
@@ -2619,6 +2625,28 @@ function _scheduleBookerChip_(o, compact) {
   return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\'\',false)" class="amp-btn" style="background:transparent;color:var(--text-dim);border:1px dashed rgba(255,255,255,.25);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Tap to assign a booker">+ ASSIGN</button>';
 }
 
+const SCHEDULE_STALL_LABELS = {
+  past_ship_date: 'PAST',
+  needs_booking: 'BOOK',
+  awaiting_customer_confirm: 'CUST?',
+  missing_instructions: 'NO PDF',
+};
+const SCHEDULE_STALL_DESCRIPTIONS = {
+  past_ship_date: 'Past ship date and not packed yet',
+  needs_booking: 'Ready to ship but no freight booking',
+  awaiting_customer_confirm: 'Within 7 days, customer not yet confirmed',
+  missing_instructions: 'No instructions PDF parsed yet',
+};
+
+function _scheduleStallChip_(o, compact) {
+  if (!o.stalled || !o.stall_reasons || !o.stall_reasons.length) return '';
+  const pad = compact ? '1px 5px' : '2px 7px';
+  const fs = compact ? '9px' : '10px';
+  const label = SCHEDULE_STALL_LABELS[o.stall_reasons[0]] || 'STALL';
+  const title = o.stall_reasons.map(r => SCHEDULE_STALL_DESCRIPTIONS[r] || r).join(' · ');
+  return '<span title="' + esc(title) + '" style="background:rgba(255,82,82,.2);color:#ff5252;border:1px solid #ff5252;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;white-space:nowrap">⚠ ' + esc(label) + (o.stall_reasons.length > 1 ? '+' + (o.stall_reasons.length - 1) : '') + '</span>';
+}
+
 function _scheduleCustomerReadyChip_(o, compact) {
   if (o.source !== 'cabinet') return '';
   const ready = !!o.customer_ready;
@@ -2640,6 +2668,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
   const bookerChip = _scheduleBookerChip_(o, !!opts.compact);
   const custChip = _scheduleCustomerReadyChip_(o, !!opts.compact);
+  const stallChip = _scheduleStallChip_(o, !!opts.compact);
   if (opts.compact) {
     // Desktop grid cell — compact two-line layout to fit a column
     return '<div style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3">'
@@ -2650,7 +2679,7 @@ function _scheduleRenderOrderRow_(o, opts) {
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
       +   (o.status ? '<span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">' + esc(String(o.status).slice(0,14)) + '</span>' : '<span></span>')
-      +   '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' + custChip + bookerChip + '</div>'
+      +   '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' + stallChip + custChip + bookerChip + '</div>'
       + '</div>'
       + '</div>';
   }
@@ -2660,9 +2689,56 @@ function _scheduleRenderOrderRow_(o, opts) {
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
     + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
+    + stallChip
     + custChip
     + bookerChip
     + '</div>';
+}
+
+// Stalled-only filter panel — taps the red "N STALLED" chip in the
+// header. Lists every stalled order grouped by reason so Seth can
+// triage in one sweep.
+function openStalledList() {
+  const cache = _scheduleCache;
+  if (!cache || !cache.days) { showToast('Schedule not loaded yet'); return; }
+  const stalled = [];
+  cache.days.forEach(d => {
+    (d.orders || []).forEach(o => { if (o.stalled) stalled.push(o); });
+  });
+  if (!stalled.length) { showToast('No stalled orders'); return; }
+
+  // Group by primary reason for triage clarity.
+  const byReason = {};
+  stalled.forEach(o => {
+    const r = (o.stall_reasons || ['other'])[0];
+    if (!byReason[r]) byReason[r] = [];
+    byReason[r].push(o);
+  });
+
+  const ov = document.createElement('div');
+  ov.id = 'stalledListOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = Object.keys(byReason).map(r => {
+    const label = SCHEDULE_STALL_DESCRIPTIONS[r] || r;
+    return '<div style="margin-bottom:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;color:#ff5252;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">⚠ ' + esc(label) + ' (' + byReason[r].length + ')</div>'
+      + byReason[r].map(o => '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,82,82,.06);border-left:3px solid #ff5252;border-radius:6px;font-size:13px;color:#fff;margin-bottom:4px">'
+          + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;min-width:60px">#' + esc(o.order_number) + '</span>'
+          + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</span>'
+          + '<span style="font-size:10px;color:#9AAAC0">' + esc(o.ship_date) + '</span>'
+          + '<span style="font-size:9px;color:' + (o.carrier_color || '#888') + ';font-weight:800;letter-spacing:.5px">' + esc(o.carrier_display) + '</span>'
+        + '</div>').join('')
+      + '</div>';
+  }).join('');
+
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#1a1a1a;color:#fff;width:100%;max-width:680px;max-height:85vh;border-radius:14px 14px 0 0;padding:18px 18px 24px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.6);border-top:2px solid #ff5252">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">⚠ ' + stalled.length + ' Stalled</div><button onclick="document.getElementById(\'stalledListOverlay\').remove()" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;padding:0 4px">✕</button></div>'
+    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">Orders flagged for pipeline review — past ship date, missing booking, missing PDF, or waiting on customer confirmation.</div>'
+    + body
+    + '<button onclick="document.getElementById(\'stalledListOverlay\').remove()" style="width:100%;margin-top:8px;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>';
+  document.body.appendChild(ov);
 }
 
 // Booker assignment modal — tap a chip to open. Kim/Seth/Clear + a
