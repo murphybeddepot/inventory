@@ -3463,11 +3463,11 @@ async function paintScheduleDayPlan_(opts) {
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:10px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px">Today\'s Activity</span><span style="font-size:10px;color:var(--text-dim)">' + esc(c.date || '') + (res.cached ? ' · cached' : '') + '</span><button onclick="refreshDayPlan_()" title="Force-refresh (bypass 60s cache)" style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:2px 6px">↻</button></div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
     +   cell('Cab Packed', c.cabinet_packed, '#003087')
-    +   cell('Cab Shipped', c.cabinet_shipped, '#1A5C1A')
+    +   cell('Cab Shipped', c.cabinet_shipped, '#1A5C1A', 'openTrackingPanel({source:\'cabinet\',days:7})')
     +   cell('Booked', c.cabinet_booked, '#FFB300')
     +   cell('Cust OK', c.cabinet_customer_ready, '#3DBEFF', 'openAwaitingCustomerList()')
     +   cell('Gnd Packed', c.ground_packed, '#003087')
-    +   cell('Gnd Shipped', c.ground_shipped, '#1A5C1A')
+    +   cell('Gnd Shipped', c.ground_shipped, '#1A5C1A', 'openTrackingPanel({source:\'ground\',days:7})')
     +   cell('Remakes', c.remakes_created, '#FF6B00', 'openRemakesPanel(\'open\')')
     +   cell('Catches', c.catches, '#c33', 'openCatchStats(7)')
     + '</div>';
