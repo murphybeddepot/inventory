@@ -3069,9 +3069,12 @@ async function openRemakesPanel(statusFilter) {
     const skuList = (r.skus || []).map(s => esc(s.qty + '× ' + s.sku)).join(', ');
     const rushChip = r.priority === 'rush' ? '<span style="background:#ff5252;color:#fff;padding:1px 6px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.5px;margin-left:4px">⚡ RUSH</span>' : '';
     const orderRef = r.original_order_number ? ' · #' + esc(r.original_order_number) : '';
+    const ssChip = (r.shipstation_order_id && r.shipstation_admin_url)
+      ? '<a href="' + esc(r.shipstation_admin_url) + '" target="_blank" style="display:inline-block;padding:1px 8px;background:#003087;color:#fff;border-radius:999px;font-size:10px;font-weight:800;text-decoration:none;margin-left:6px;letter-spacing:.5px">→ SS</a>'
+      : (r.shipstation_order_id ? '<span style="display:inline-block;padding:1px 8px;background:#003087;color:#fff;border-radius:999px;font-size:10px;font-weight:800;margin-left:6px;letter-spacing:.5px">SS#' + esc(r.shipstation_order_id) + '</span>' : '');
     return '<div style="padding:12px;background:#fafafa;border-left:3px solid ' + statusColor + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
-      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">'
-      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">' + esc(r.remake_id) + orderRef + '</span>'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:4px">'
+      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">' + esc(r.remake_id) + orderRef + ssChip + '</span>'
       +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + statusColor + '">' + esc(r.status).replace(/_/g, ' ') + rushChip + '</span>'
       + '</div>'
       + '<div style="font-weight:700;color:#1a1a1a">' + esc(r.customer_name) + '</div>'
@@ -3279,6 +3282,8 @@ async function updateRemakeStatus_(remakeId, newStatus) {
     let msg = '✓ ' + remakeId + ' → ' + newStatus.replace(/_/g, ' ');
     if (res.print && res.print.ok) msg += ' · 🖨 pick slip printed';
     else if (res.print && !res.print.ok) msg += ' · ⚠ print failed';
+    if (res.shipstation && res.shipstation.ok && !res.shipstation.skipped) msg += ' · → SS order #' + (res.shipstation.shipstation_order_id || '?');
+    else if (res.shipstation && !res.shipstation.ok) msg += ' · ⚠ SS create failed';
     showToast(msg);
     openRemakesPanel('open');
   } catch (err) {
