@@ -3069,6 +3069,7 @@ async function openTrackingPanel(opts) {
     + '<div style="display:flex;gap:6px;margin-bottom:12px">'
     + [7, 14, 30, 90].map(d => '<button onclick="openTrackingPanel({source:\'' + source + '\',days:' + d + '})" style="flex:1;padding:7px 4px;background:' + (d === days ? '#FFB300' : '#f5f5f5') + ';color:' + (d === days ? '#1a1a1a' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">' + d + 'd</button>').join('')
     + '</div>'
+    + '<input type="search" id="trackingFilter" placeholder="Filter by order # or customer name…" oninput="renderTrackingRows_()" style="width:100%;padding:10px;font-size:13px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:10px;-webkit-appearance:none">'
     + '<div id="trackingBody" style="min-height:60px">Loading…</div>'
     + '</div>';
   document.body.appendChild(ov);
@@ -3084,13 +3085,31 @@ async function openTrackingPanel(opts) {
     return;
   }
   const rows = res.shipments || [];
+  window._trackingCache = rows;
   if (!rows.length) {
     document.getElementById('trackingBody').innerHTML = '<div style="padding:24px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:13px">No shipments in this view.</div>';
     return;
   }
+  renderTrackingRows_();
+}
 
+function renderTrackingRows_() {
+  const body = document.getElementById('trackingBody');
+  if (!body) return;
+  const rows = window._trackingCache || [];
+  const q = String((document.getElementById('trackingFilter') || {}).value || '').trim().toLowerCase();
+  const filtered = q
+    ? rows.filter(r =>
+        String(r.order_number || '').toLowerCase().includes(q)
+        || String(r.customer_name || '').toLowerCase().includes(q)
+        || String(r.tracking_number || '').toLowerCase().includes(q))
+    : rows;
+  if (!filtered.length) {
+    body.innerHTML = '<div style="padding:18px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:12px">No matches for "' + esc(q) + '".</div>';
+    return;
+  }
   const SRC_COLORS = { ground: '#003087', cabinet: '#FFB300', remake: '#FF6B00', mattress: '#9C27B0' };
-  document.getElementById('trackingBody').innerHTML = rows.map(s => {
+  body.innerHTML = filtered.map(s => {
     const color = SRC_COLORS[s.source] || '#666';
     const when = String(s.shipped_at || '').slice(0, 10);
     const trackingDisplay = s.tracking_number ? esc(s.tracking_number) : '—';
