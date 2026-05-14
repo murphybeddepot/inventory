@@ -3058,6 +3058,7 @@ async function openRemakesPanel(statusFilter) {
       + '<div style="display:flex;gap:6px;margin-top:6px">'
       + (r.status === 'pending' ? '<button onclick="updateRemakeStatus_(\'' + esc(r.remake_id) + '\',\'ready_to_ship\')" style="flex:1;padding:8px;background:rgba(61,190,255,.15);color:#0099CC;border:1px solid #3DBEFF;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Ready to Ship</button>' : '')
       + (r.status === 'ready_to_ship' ? '<button onclick="openRemakeShipModal(\'' + esc(r.remake_id) + '\')" style="flex:1;padding:8px;background:rgba(0,200,83,.15);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Mark Shipped</button>' : '')
+      + (r.status !== 'cancelled' ? '<button onclick="reprintRemakeSlip_(\'' + esc(r.remake_id) + '\')" style="padding:8px 10px;background:rgba(255,179,0,.10);color:#FFB300;border:1px solid #FFB300;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Reprint pick slip">🖨</button>' : '')
       + (r.status !== 'shipped' && r.status !== 'cancelled' ? '<button onclick="updateRemakeStatus_(\'' + esc(r.remake_id) + '\',\'cancelled\')" style="padding:8px 12px;background:rgba(255,82,82,.10);color:#c33;border:1px solid rgba(255,82,82,.4);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Cancel</button>' : '')
       + '</div>'
       + '</div>';
@@ -3174,10 +3175,23 @@ async function updateRemakeStatus_(remakeId, newStatus) {
   try {
     const res = await groundApi('updateRemakeStatus', { remake_id: remakeId, status: newStatus });
     if (!res || !res.ok) { showToast('Update failed: ' + ((res && res.error) || 'unknown')); return; }
-    showToast('✓ ' + remakeId + ' → ' + newStatus.replace(/_/g, ' '));
+    let msg = '✓ ' + remakeId + ' → ' + newStatus.replace(/_/g, ' ');
+    if (res.print && res.print.ok) msg += ' · 🖨 pick slip printed';
+    else if (res.print && !res.print.ok) msg += ' · ⚠ print failed';
+    showToast(msg);
     openRemakesPanel('open');
   } catch (err) {
     showToast('Update error: ' + err.message);
+  }
+}
+
+async function reprintRemakeSlip_(remakeId) {
+  try {
+    const res = await groundApi('printRemakePickSlip', { remake_id: remakeId });
+    if (!res || !res.ok) { showToast('Print failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('🖨 Pick slip queued for ' + remakeId);
+  } catch (err) {
+    showToast('Print error: ' + err.message);
   }
 }
 

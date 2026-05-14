@@ -9521,7 +9521,8 @@ function openSystemStatus() {
     + row('Shared Secret', secretMask, secretConfigured)
     + row('Packer', packer || '— not set —', !!packer)
     + row('Device ID', deviceId.slice(0, 18) || '— none —', !!deviceId)
-    + '<div id="systemStatusServer" style="font-size:11px;color:#888;padding:8px 0 14px;text-align:right;font-family:monospace">server: …</div>'
+    + '<div id="systemStatusServer" style="font-size:11px;color:#888;padding:8px 0 6px;text-align:right;font-family:monospace">server: …</div>'
+    + (ok ? '<div id="systemStatusDayPlan" style="margin:6px 0 14px"></div>' : '')
     + (ok
         ? '<button onclick="openGroundSettingsFromStatus()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px">Edit Settings</button>'
         : '<button onclick="openSetupPinPrompt()" style="width:100%;padding:16px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:900;cursor:pointer;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">🔑 Enter Setup PIN</button>'
@@ -9546,6 +9547,33 @@ function openSystemStatus() {
       const el = document.getElementById('systemStatusServer');
       if (el) { el.textContent = 'server: ⚠ ' + (err.message || 'unreachable'); el.style.color = '#c33'; }
     });
+    // v9.57: Day plan card — fire-and-forget aggregate of today.
+    groundApi('getDayPlan', {}).then(res => {
+      const el = document.getElementById('systemStatusDayPlan');
+      if (!el) return;
+      if (!res || !res.ok) {
+        el.innerHTML = '<div style="font-size:11px;color:#999;text-align:center;padding:8px">Day plan unavailable</div>';
+        return;
+      }
+      const c = res.counts || {};
+      const stat = (label, val, color) =>
+        '<div style="background:' + color + '15;border:1px solid ' + color + '55;border-radius:8px;padding:8px 6px;text-align:center">'
+        + '<div style="font-size:22px;font-weight:900;color:' + color + ';font-family:\'JetBrains Mono\',monospace;line-height:1">' + (val || 0) + '</div>'
+        + '<div style="font-size:9px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">' + label + '</div>'
+        + '</div>';
+      el.innerHTML =
+        '<div style="font-size:10px;font-weight:900;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Today · ' + (c.date || '') + '</div>'
+        + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">'
+        + stat('Cab packed', c.cabinet_packed, '#003087')
+        + stat('Cab shipped', c.cabinet_shipped, '#1A5C1A')
+        + stat('Booked', c.cabinet_booked, '#FFB300')
+        + stat('Cust OK', c.cabinet_customer_ready, '#3DBEFF')
+        + stat('Gnd packed', c.ground_packed, '#003087')
+        + stat('Gnd shipped', c.ground_shipped, '#1A5C1A')
+        + stat('Remakes', c.remakes_created, '#FF6B00')
+        + stat('Catches', c.catches, '#c33')
+        + '</div>';
+    }).catch(() => {});
   } else {
     const el = document.getElementById('systemStatusServer');
     if (el) el.textContent = '';
@@ -10945,7 +10973,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.56"></script>
+<script src="./pack.js?v=9.57"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -10954,7 +10982,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.56</div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.57</div>
 
 </body>
 </html>
