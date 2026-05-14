@@ -1307,6 +1307,9 @@ input::placeholder, textarea::placeholder {
 
 <div id="tab-cabinets" class="panel active">
 
+  <!-- v9.68 cross-tab attention strip: stalled / awaiting customer / open damage -->
+  <div id="cabAttentionStrip" style="display:none;margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap"></div>
+
   <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
   <div class="search-rig" style="margin-bottom:16px">
     <div class="search-rig-label">
@@ -3220,6 +3223,7 @@ function renderCabinets() {
   refreshSyncStatus();
   renderRecentSearches();
   renderActiveSessionBadge();
+  if (typeof renderCabinetAttentionStrip_ === 'function') renderCabinetAttentionStrip_();
   const empty = document.getElementById('cabEmpty');
   const count = document.getElementById('cabCount');
   const recent = document.getElementById('cabRecent');
@@ -10988,7 +10992,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.67"></script>
+<script src="./pack.js?v=9.68"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -10997,7 +11001,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.67</div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.68</div>
 
 </body>
 </html>

@@ -2553,8 +2553,33 @@ async function refreshScheduleTab() {
     }
     _scheduleCache = res;
     try { localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(res)); } catch(e) {}
+    // v9.68 — surface cross-tab attention counts (stalled,
+    // awaiting customer) so Cabinets tab can render them without
+    // re-fetching. Updated every Schedule refresh.
+    try {
+      let awaitingCount = 0;
+      (res.days || []).forEach(d => {
+        (d.orders || []).forEach(o => {
+          if (o.source !== 'cabinet') return;
+          if (o.customer_ready) return;
+          const status = String(o.status || '').toLowerCase();
+          if (status !== '' && status !== 'pending') return;
+          if (!o.ship_date) return;
+          const ship = new Date(o.ship_date + 'T00:00:00');
+          const now = new Date(); now.setHours(0, 0, 0, 0);
+          const diff = (ship - now) / (1000 * 60 * 60 * 24);
+          if (diff >= -1 && diff <= 14) awaitingCount++;
+        });
+      });
+      localStorage.setItem('mbd_attention_v1', JSON.stringify({
+        stalled: res.stalled_total || 0,
+        awaiting: awaitingCount,
+        at: Date.now(),
+      }));
+    } catch(e) {}
     paintSchedule_(res);
     paintScheduleDayPlan_();
+    if (typeof renderCabinetAttentionStrip_ === 'function') renderCabinetAttentionStrip_();
     const totalOrders = (res.days || []).reduce((s, d) => s + d.total, 0);
     if (statusEl) statusEl.textContent = totalOrders + ' order' + (totalOrders === 1 ? '' : 's') + ' across ' + (res.days || []).length + ' day' + ((res.days || []).length === 1 ? '' : 's') + ' · today=' + res.today;
   } catch (err) {
@@ -3080,6 +3105,7 @@ async function openDamageLog(opts) {
   }
 
   const rows = res.records || [];
+  if (typeof _saveDamageOpenCount_ === 'function') _saveDamageOpenCount_(rows);
   if (!rows.length) {
     document.getElementById('damageLogBody').innerHTML = '<div style="padding:24px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:13px">No damage records in this view.</div>';
     return;
@@ -3188,6 +3214,44 @@ function openDamageEdit_(damageId, recordOrJson) {
     + '</div>'
     + '</div>';
   document.body.appendChild(ov);
+}
+
+// v9.68 attention strip on Cabinets — surfaces stalled / awaiting
+// / open damage counts from the most recent Schedule + Damage data
+// in localStorage. Read-only here; Schedule refresh + Damage Log
+// open are responsible for writing.
+function renderCabinetAttentionStrip_() {
+  const el = document.getElementById('cabAttentionStrip');
+  if (!el) return;
+  let attention = { stalled: 0, awaiting: 0, damageOpen: 0 };
+  try { attention = Object.assign(attention, JSON.parse(localStorage.getItem('mbd_attention_v1') || '{}')); } catch(e) {}
+
+  const chips = [];
+  if (attention.stalled > 0) {
+    chips.push('<button onclick="openStalledList()" style="padding:6px 12px;background:linear-gradient(135deg,#FF5252,#B71C1C);color:#fff;border:1px solid #ff5252;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-transform:uppercase">⚠ ' + attention.stalled + ' STALLED</button>');
+  }
+  if (attention.awaiting > 0) {
+    chips.push('<button onclick="openAwaitingCustomerList()" style="padding:6px 12px;background:linear-gradient(135deg,#3DBEFF,#005577);color:#fff;border:1px solid #3DBEFF;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-transform:uppercase">🔔 ' + attention.awaiting + ' AWAITING CUSTOMER</button>');
+  }
+  if (attention.damageOpen > 0) {
+    chips.push('<button onclick="openDamageLog()" style="padding:6px 12px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:1px solid #FF6B00;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-transform:uppercase">🔨 ' + attention.damageOpen + ' OPEN DAMAGE</button>');
+  }
+  if (!chips.length) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = chips.join('');
+}
+
+// Also have Damage Log writeback its open count so renderCabinetAttentionStrip_
+// can use it without re-fetching.
+function _saveDamageOpenCount_(records) {
+  try {
+    const open = (records || []).filter(r => String(r.status || '').trim() !== 'complete').length;
+    const prev = JSON.parse(localStorage.getItem('mbd_attention_v1') || '{}');
+    prev.damageOpen = open;
+    prev.at = Date.now();
+    localStorage.setItem('mbd_attention_v1', JSON.stringify(prev));
+    if (typeof renderCabinetAttentionStrip_ === 'function') renderCabinetAttentionStrip_();
+  } catch(e) {}
 }
 
 async function submitDamageEdit_(damageId) {
