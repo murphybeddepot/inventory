@@ -2630,3 +2630,146 @@ function paintSchedule_(payload) {
     if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, 50);
 }
+
+
+// ──────────────────────────────────────────────────────────────────────
+// LOOKUP TAB — CS-facing order search across all workflows
+// ──────────────────────────────────────────────────────────────────────
+
+function renderLookupTab() {
+  setTimeout(() => {
+    const inp = document.getElementById('lookupInput');
+    if (inp) inp.focus();
+  }, 80);
+}
+
+function handleLookupKey(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    runLookup();
+  }
+}
+
+async function runLookup() {
+  const inp = document.getElementById('lookupInput');
+  const statusEl = document.getElementById('lookupStatus');
+  const resultsEl = document.getElementById('lookupResults');
+  if (!inp) return;
+  const q = String(inp.value || '').trim().replace(/^#/, '');
+  if (!q) { statusEl.textContent = 'Enter an order number'; return; }
+  statusEl.textContent = 'Searching…';
+  resultsEl.innerHTML = '<div style="padding:48px 24px;text-align:center;color:#42a5f5;font-size:18px;font-weight:800"><div style="font-size:36px;margin-bottom:12px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</div></div>';
+  try {
+    const res = await groundApi('lookupOrder', { orderNumber: q });
+    if (!res || !res.ok) {
+      statusEl.textContent = 'Error: ' + ((res && res.error) || 'unknown');
+      resultsEl.innerHTML = '';
+      return;
+    }
+    if (!res.hits || res.hits.length === 0) {
+      statusEl.textContent = 'No matches';
+      resultsEl.innerHTML = '<div style="padding:32px 20px;text-align:center;background:rgba(255,165,0,.08);border:1px dashed rgba(255,165,0,.4);border-radius:10px;color:#FFB300;font-weight:700">No orders found matching <strong>#' + esc(q) + '</strong>.<br><span style="font-weight:500;font-size:12px;color:var(--text-dim);margin-top:6px;display:inline-block">Searched PackingQueue (cabinet) · OrderPack (ground) · MattressDropships · CabinetDamage</span></div>';
+      return;
+    }
+    statusEl.textContent = res.hits.length + ' match' + (res.hits.length === 1 ? '' : 'es') + ' for #' + q;
+    resultsEl.innerHTML = res.hits.map(h => renderLookupHit_(h)).join('');
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+    resultsEl.innerHTML = '';
+  }
+}
+
+function renderLookupHit_(hit) {
+  if (hit.source === 'cabinet')  return renderLookupCabinet_(hit);
+  if (hit.source === 'ground')   return renderLookupGround_(hit);
+  if (hit.source === 'mattress') return renderLookupMattress_(hit);
+  if (hit.source === 'damage')   return renderLookupDamage_(hit);
+  return '<pre style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:11px;color:var(--text)">' + esc(JSON.stringify(hit, null, 2)) + '</pre>';
+}
+
+function _lkFld(label, value, opts) {
+  if (value == null || value === '') return '';
+  const mono = opts && opts.mono ? "font-family:'JetBrains Mono',monospace;" : '';
+  const link = opts && opts.link ? '<a href="' + esc(String(value)) + '" target="_blank" style="color:#42a5f5;text-decoration:underline">open ↗</a>' : esc(String(value));
+  return '<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06)">'
+    + '<div style="flex:0 0 130px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;padding-top:1px">' + label + '</div>'
+    + '<div style="flex:1;font-size:13px;color:var(--text);' + mono + 'word-break:break-word">' + link + '</div>'
+    + '</div>';
+}
+
+function _lkCard(title, accent, badge, body) {
+  return '<div style="background:rgba(255,255,255,.04);border:1px solid ' + accent + '55;border-radius:12px;padding:14px 16px;border-left:4px solid ' + accent + '">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:' + accent + ';letter-spacing:1px;text-transform:uppercase">' + title + '</div>'
+    +   (badge ? '<div style="padding:3px 10px;background:' + accent + '22;color:' + accent + ';border:1px solid ' + accent + '55;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:1.2px;text-transform:uppercase">' + badge + '</div>' : '')
+    + '</div>'
+    + body
+    + '</div>';
+}
+
+function renderLookupCabinet_(h) {
+  const body = ''
+    + _lkFld('Order #', h.order_number, { mono: true })
+    + _lkFld('Customer', h.customer_name)
+    + _lkFld('Address', h.customer_address)
+    + _lkFld('Phone', h.customer_phone)
+    + _lkFld('Ship date', h.ship_date)
+    + _lkFld('Carrier', h.carrier || 'TBD')
+    + _lkFld('Status', h.status)
+    + _lkFld('Task line', h.task_line)
+    + _lkFld('HW packed', h.hardware_packed_at ? (h.hardware_packed_at.slice(0, 16) + ' by ' + (h.hardware_packed_by || '?')) : '—')
+    + _lkFld('Packed', h.packed_at ? (h.packed_at.slice(0, 16) + ' by ' + (h.packed_by || '?')) : '—')
+    + _lkFld('Shipped', h.shipped_at ? h.shipped_at.slice(0, 16) : '—')
+    + _lkFld('Pick list', h.pick_list_pdf_url, { link: true })
+    + _lkFld('Instructions', h.instructions_pdf_url, { link: true })
+    + _lkFld('Shopify', h.shopify_admin_url, { link: true })
+    + _lkFld('Last updated', h.last_updated_at ? h.last_updated_at.slice(0, 16) : '—');
+  return _lkCard('Cabinet / Freight', '#FFB300', h.status, body);
+}
+
+function renderLookupGround_(h) {
+  const pkgRows = (h.packages || []).map(p => '<div style="display:flex;gap:8px;padding:4px 0;font-size:12px"><div style="flex:0 0 40px;color:var(--text-dim);font-weight:700">#' + (p.sequence || '?') + '</div><div style="flex:1;color:var(--text)">' + esc(p.box_sku || '') + (p.label_text ? ' <span style="color:var(--text-dim);font-size:10px">(' + esc(p.label_text) + ')</span>' : '') + '</div><div style="font-family:\'JetBrains Mono\',monospace;color:#FFB300;font-size:11px">' + esc(p.tracking_number || '—') + '</div><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase">' + esc(p.scan_status || '') + '</div></div>').join('');
+  const body = ''
+    + _lkFld('Order #', h.order_number, { mono: true })
+    + _lkFld('V1 order id', h.order_id, { mono: true })
+    + _lkFld('Customer', h.customer_name)
+    + _lkFld('Company', h.company)
+    + _lkFld('State', h.state)
+    + _lkFld('Tags', h.tags)
+    + _lkFld('Priority?', h.has_priority_tag ? '⚡ YES' : '—')
+    + _lkFld('Ship method', h.ship_method)
+    + _lkFld('Pack status', h.pack_status)
+    + _lkFld('Hold reason', h.hold_reason)
+    + _lkFld('Locked by', h.locked_by ? (h.locked_by + (h.locked_at ? ' at ' + String(h.locked_at).slice(0, 16) : '')) : '—')
+    + _lkFld('Master tracking', h.master_tracking, { mono: true })
+    + _lkFld('Pack started', h.pack_started_at ? String(h.pack_started_at).slice(0, 16) : '—')
+    + _lkFld('Pack complete', h.pack_completed_at ? String(h.pack_completed_at).slice(0, 16) : '—')
+    + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—')
+    + (pkgRows ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10)"><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Packages</div>' + pkgRows + '</div>' : '');
+  return _lkCard('Ground', '#663399', h.pack_status, body);
+}
+
+function renderLookupMattress_(h) {
+  const body = ''
+    + _lkFld('Order #', h.order_number, { mono: true })
+    + _lkFld('Mattress SKU', h.mattress_sku, { mono: true })
+    + _lkFld('Customer', h.customer_name)
+    + _lkFld('Address', h.customer_address)
+    + _lkFld('Phone', h.customer_phone)
+    + _lkFld('MF status', h.send_status)
+    + _lkFld('Reply', h.ken_reply_classification)
+    + _lkFld('Ship method', h.ship_method)
+    + _lkFld('Delivery date', h.mf_delivery_date)
+    + _lkFld('Tracking', h.tracking_number, { mono: true })
+    + _lkFld('MF order #', h.mf_order_number, { mono: true })
+    + _lkFld('MBD shipped?', h.mbd_marked_shipped ? '✓ YES' : '—')
+    + _lkFld('Errors', h.error_count ? (h.error_count + ' · ' + (h.last_error || '')) : '—')
+    + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—');
+  return _lkCard('Mattress Dropship', '#00C853', h.send_status, body);
+}
+
+function renderLookupDamage_(h) {
+  const rec = h.record || {};
+  const body = Object.keys(rec).map(k => _lkFld(k.replace(/_/g, ' '), rec[k])).join('');
+  return _lkCard('Damage record', '#ff5252', rec.status, body);
+}

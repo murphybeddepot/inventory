@@ -1025,6 +1025,7 @@ input::placeholder, textarea::placeholder {
   <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')">Ground</button>
   <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()" style="flex:0 0 60px">⋯</button>
   <!-- Hidden / More-menu-only tabs -->
+  <button class="tab-btn" id="tab-lookup-btn" onclick="switchTab('lookup')" style="display:none">Lookup</button>
   <button class="tab-btn" id="tab-prepack-btn" onclick="switchTab('prepack')" style="display:none">Pre-Pack</button>
   <button class="tab-btn" id="tab-pack-btn" onclick="switchTab('pack')" style="display:none">Pack</button>
   <button class="tab-btn" id="tab-schedule-btn" onclick="switchTab('schedule')" style="display:none">Schedule</button>
@@ -1054,6 +1055,14 @@ input::placeholder, textarea::placeholder {
     <div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">More</div>
     <!-- In-development workflow tabs — primary nav has Cabinets+Ground only. -->
+    <button onclick="goToTabFromMore('lookup')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🔍</span>
+      <div style="flex:1">
+        <div>Order Lookup</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Type any order # — see status, carrier, tracking, damage history across all tabs</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="goToTabFromMore('schedule')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📅</span>
       <div style="flex:1">
@@ -1192,6 +1201,19 @@ input::placeholder, textarea::placeholder {
   </div>
   <div id="suggestions"></div>
   <div id="itemCard"></div>
+</div>
+
+<!-- LOOKUP TAB — single-input order search across cabinet/ground/
+     mattress/damage. CS-facing; mobile-first. -->
+<div id="tab-lookup" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">🔍 Order Lookup</div>
+  </div>
+  <div style="margin-bottom:14px">
+    <input type="search" id="lookupInput" placeholder="Order number (e.g. 31875)…" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="numeric" enterkeyhint="search" onkeydown="handleLookupKey(event)" style="width:100%;padding:18px 18px;font-size:22px;font-family:'JetBrains Mono',monospace;background:#000;color:var(--green-bright);border:2px solid var(--border);border-radius:12px;outline:none;letter-spacing:2px;text-align:center">
+  </div>
+  <div id="lookupStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px;text-align:center"></div>
+  <div id="lookupResults" style="display:flex;flex-direction:column;gap:14px"></div>
 </div>
 
 <!-- SCHEDULE TAB — shipping schedule (replaces MBD:FL SHIPMENTS GCal) -->
@@ -2134,7 +2156,7 @@ function showUnmappedBarcode(code) {
 
 // ── TABS ──────────────────────────────────────────
 function switchTab(name) {
-  ['scan','prepack','pack','schedule','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
+  ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
     if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
@@ -2154,7 +2176,7 @@ function switchTab(name) {
   // Primary in production: cabinets + ground only. Everything else lives
   // in the More menu and lights up the ⋯ button when active.
   const moreBtn = document.getElementById('tab-more-btn');
-  const moreOwnedTabs = ['schedule','prepack','pack','items','cycle','barcodes','log','export'];
+  const moreOwnedTabs = ['lookup','schedule','prepack','pack','items','cycle','barcodes','log','export'];
   if (moreBtn) moreBtn.classList.toggle('active', moreOwnedTabs.indexOf(name) >= 0);
   if (name==='export') renderExport();
   if (name==='log') renderLog();
@@ -2162,6 +2184,7 @@ function switchTab(name) {
   if (name==='pack') renderPackTab();
   if (name==='prepack' && typeof renderPrePackTab === 'function') renderPrePackTab();
   if (name==='schedule' && typeof renderScheduleTab === 'function') renderScheduleTab();
+  if (name==='lookup' && typeof renderLookupTab === 'function') renderLookupTab();
   if (name==='cabinets') renderCabinets();
   if (name==='items') renderItems();
   if (name==='cycle') renderCycleTab();
@@ -7530,26 +7553,24 @@ function renderActiveSessionBadge() {
 }
 
 async function openReceiveShipment() {
-  // If there's already an active LOCAL session, jump straight into it.
-  // User can cancel/complete from the session UI to start a new one.
+  // Always hit the server first so cross-device state (cabinets
+  // received on another iPad / phone since this device last opened)
+  // surfaces. The previous short-circuit on local session was the
+  // root cause of Seth's phone showing stale data after Jonah had
+  // received cabinets at the warehouse iPad.
   const existing = getActiveSession();
-  if (existing) {
-    renderReceiveSession();
-    return;
-  }
   // v69: try to auto-load this week's expected list from the server
   // (parsed Monday morning from the ARCH invoice email). If a session
   // is available, start it directly — no photo/paste needed. Otherwise
   // fall back to the manual setup modal.
+  let serverSession = null;
   if (GROUND_ORCH_URL) {
-    showToast('Looking for this week\'s auto-loaded list…');
+    showToast('Syncing receive list across devices…');
     try {
       const resp = await groundApi('getActiveReceiveSession', {});
       if (resp && resp.ok && resp.session && resp.session.cabinets && resp.session.cabinets.length > 0) {
-        autoStartReceiveFromServerSession(resp.session);
-        return;
-      }
-      if (resp && !resp.ok) {
+        serverSession = resp.session;
+      } else if (resp && !resp.ok) {
         const err = String(resp.error || '');
         if (/unauthor/i.test(err)) {
           showToast('⚠ Unauthorized — set Shared Secret in Ground Settings');
@@ -7561,10 +7582,114 @@ async function openReceiveShipment() {
       }
     } catch (e) {
       console.warn('getActiveReceiveSession failed:', e);
-      showToast('⚠ Could not reach server — manual setup');
+      showToast('⚠ Could not reach server — using local cache');
     }
   }
+
+  if (serverSession) {
+    // If local session matches server's session_id, MERGE server's
+    // per-cabinet state into the local session (server is authoritative
+    // for received/location/etc; local keeps UI helpers like defaultLoc).
+    // Otherwise replace local entirely.
+    if (existing && existing.serverSessionId === serverSession.session_id) {
+      mergeServerSessionIntoLocal_(existing, serverSession);
+      saveReceiveSessions();
+      renderReceiveSession();
+      const doneCount = existing.cabinets.filter(c => c.received).length;
+      showToast('✓ Synced — ' + doneCount + ' received across devices');
+      return;
+    }
+    autoStartReceiveFromServerSession(serverSession);
+    return;
+  }
+
+  // No server session — fall back to existing local if any
+  if (existing) {
+    renderReceiveSession();
+    showToast('No server session — showing local');
+    return;
+  }
   showReceiveSetup();
+}
+
+// Merge server's per-cabinet state into an existing local session.
+// Server is authoritative for received / location / receivedAt /
+// receivedBy / damaged / committedAt (committedAt is set when another
+// device "Save & Closed"). Local keeps the in-progress UI state.
+function mergeServerSessionIntoLocal_(localSession, serverSession) {
+  const serverByNum = {};
+  (serverSession.cabinets || []).forEach(sc => {
+    const num = typeof sc === 'string' ? sc : sc.num;
+    if (num) serverByNum[normCab(num)] = sc;
+  });
+  // Update existing local cabinets with server state
+  localSession.cabinets.forEach(lc => {
+    const sc = serverByNum[normCab(lc.num)];
+    if (!sc || typeof sc === 'string') return;
+    // Server wins on received/location/etc — that's the cross-device truth.
+    lc.received = !!sc.received;
+    if (sc.location) lc.location = sc.location;
+    if (sc.received_at) lc.receivedAt = sc.received_at;
+    if (sc.received_by) lc.receivedBy = sc.received_by;
+    if (sc.added_manually) lc.addedManually = true;
+    if (sc.damaged) lc.damaged = true;
+    if (sc.received && sc.received_at && !lc.serverSyncedAt) {
+      lc.serverSyncedAt = sc.received_at;
+    }
+    if (sc.received) lc.committedAt = sc.received_at || lc.committedAt || '';
+  });
+  // Append server-only cabinets (manually added on another device)
+  Object.keys(serverByNum).forEach(num => {
+    const sc = serverByNum[num];
+    if (typeof sc === 'string') return;
+    if (localSession.cabinets.find(lc => normCab(lc.num) === num)) return;
+    localSession.cabinets.push({
+      num: sc.num,
+      received: !!sc.received,
+      location: sc.location || '',
+      receivedAt: sc.received_at || '',
+      receivedBy: sc.received_by || '',
+      addedManually: !!sc.added_manually,
+      damaged: !!sc.damaged,
+      serverSyncedAt: sc.received ? (sc.received_at || nowStamp()) : '',
+      committedAt: sc.received ? (sc.received_at || '') : '',
+    });
+  });
+}
+
+// Per-cabinet auto-sync to server. Fires whenever a cabinet's received
+// state changes (toggle, mark-in-place, location edit) so any other
+// device opening the same session sees the change immediately.
+// Fire-and-forget; failures fall back to the bulk save-on-close path.
+function pushSingleCabinetToServer_(session, cab) {
+  if (!session || !session.serverSessionId || !GROUND_ORCH_URL || !cab) return;
+  groundApi('commitReceiveProgress', {
+    sessionId: session.serverSessionId,
+    cabinets: [{
+      num: cab.num,
+      received: !!cab.received,
+      location: cab.location || session.defaultLoc || '',
+      received_at: cab.receivedAt || '',
+      received_by: cab.receivedBy || session.person || '',
+      added_manually: !!cab.addedManually,
+      damaged: !!cab.damaged,
+    }],
+  }).then(resp => {
+    if (resp && resp.ok) {
+      cab.serverSyncedAt = nowStamp();
+      try { saveReceiveSessions(); } catch(e) {}
+      // Only re-render if the modal is still open AND the user isn't
+      // mid-edit on an input (avoid clobbering keystrokes).
+      const focused = document.activeElement;
+      if (!focused || (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA')) {
+        if (getActiveSession() && document.getElementById('receiveDefaultLoc')) {
+          renderReceiveSession();
+        }
+      }
+    }
+  }).catch(err => {
+    console.warn('pushSingleCabinetToServer_ error:', err);
+  });
 }
 
 function autoStartReceiveFromServerSession(s) {
@@ -7960,7 +8085,13 @@ function renderReceiveSession() {
       +   (isDone && c.location
           ? '<div style="font-size:15px;font-weight:700;margin-top:5px;margin-left:48px">'
               + (c.alreadyInPlace ? '✓ Already at 📍 ' : '📍 ')
-              + esc(c.location) + '</div>'
+              + esc(c.location)
+              + (c.committedAt
+                  ? ' <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:999px;letter-spacing:.5px;text-transform:uppercase;margin-left:6px">✓ In Inventory</span>'
+                  : (c.serverSyncedAt
+                      ? ' <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:999px;letter-spacing:.5px;text-transform:uppercase;margin-left:6px">☁ Synced</span>'
+                      : ' <span style="font-size:11px;font-weight:700;background:rgba(255,193,7,.85);color:#1a1a1a;padding:2px 8px;border-radius:999px;letter-spacing:.5px;text-transform:uppercase;margin-left:6px">Syncing…</span>'))
+              + '</div>'
           : (alreadyExists ? '<div style="font-size:13px;color:#8B4000;margin-top:5px;margin-left:48px;font-weight:700">⚠ Already at '+esc(existing.location||'?')+' · tap to mark in place</div>' : ''))
       + '</div>'
       + (isDone
@@ -8029,12 +8160,15 @@ function renderReceiveSession() {
     + '<button onclick="addUnexpectedCabinet()" style="width:100%;padding:12px;background:#fff;color:#FF6B00;border:1.5px dashed #FF6B00;border-radius:10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-top:8px;margin-bottom:14px">+ Add Unexpected Cabinet (notifies manager)</button>'
 
     + (done > 0
-        ? '<button onclick="commitReceiveSession()" style="width:100%;padding:16px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-bottom:8px">✓ Save Progress ('+done+' received)</button>'
-        : '<div style="padding:14px;background:#f5f5f5;border-radius:10px;text-align:center;color:#444;font-size:13px;font-weight:600;margin-bottom:8px">Tap a cabinet row above to mark it received.</div>')
+        ? '<div style="display:flex;gap:8px;margin-bottom:8px">'
+          + '<button onclick="commitReceiveSession()" style="flex:1;padding:16px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">✓ Save to Inventory ('+done+')</button>'
+          + '<button onclick="saveAndCloseReceiveSession()" style="flex:1;padding:16px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">✓ Save &amp; Close</button>'
+          + '</div>'
+        : '<div style="padding:14px;background:#f5f5f5;border-radius:10px;text-align:center;color:#444;font-size:13px;font-weight:600;margin-bottom:8px">Tap a cabinet row above to mark it received. Each tap auto-syncs to other devices.</div>')
 
     + '<div style="display:flex;gap:8px;margin-bottom:8px">'
     +   '<button onclick="closeCabModal()" style="flex:1;padding:12px;background:#fff;color:#444;border:1.5px solid #999;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Pause / Close</button>'
-    +   '<button onclick="completeReceiveSession()" style="flex:1;padding:12px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">✓ Complete</button>'
+    +   '<button onclick="completeReceiveSession()" style="flex:1;padding:12px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">✓ Complete Shipment</button>'
     + '</div>'
 
     + '<button onclick="cancelReceiveSession()" style="width:100%;padding:8px;background:#fff;color:#8B0000;border:none;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline">✕ Cancel this shipment</button>';
@@ -8084,6 +8218,23 @@ function markAllInPlace() {
   });
   if (!count) { showToast('Nothing to mark'); return; }
   saveReceiveSessions();
+  // Bulk push these to server so other devices see them.
+  if (session.serverSessionId && GROUND_ORCH_URL) {
+    const justMarked = session.cabinets.filter(c => c.alreadyInPlace && c.receivedAt === ts);
+    groundApi('commitReceiveProgress', {
+      sessionId: session.serverSessionId,
+      cabinets: justMarked.map(c => ({
+        num: c.num, received: true, location: c.location || '',
+        received_at: c.receivedAt, received_by: c.receivedBy || '',
+        added_manually: !!c.addedManually, damaged: !!c.damaged,
+      })),
+    }).then(resp => {
+      if (resp && resp.ok) {
+        justMarked.forEach(c => { c.serverSyncedAt = nowStamp(); });
+        saveReceiveSessions();
+      }
+    }).catch(() => {});
+  }
   FB.success();
   if (FB.visuals) spawnScorePop('+' + count, '#003087');
   showToast('✓ ' + count + ' confirmed in place');
@@ -8137,6 +8288,7 @@ function toggleReceiveCabinet(idx) {
     }
   }
   saveReceiveSessions();
+  pushSingleCabinetToServer_(session, c);
   renderReceiveSession();
 }
 
@@ -8150,6 +8302,7 @@ function editReceiveCabinetLocation(idx) {
   if (!newLoc.trim()) return;
   c.location = newLoc.trim();
   saveReceiveSessions();
+  pushSingleCabinetToServer_(session, c);
   renderReceiveSession();
 }
 
@@ -8240,6 +8393,17 @@ function commitReceiveSession() {
   }
   renderCabinets();
   renderReceiveSession(); // refresh the modal showing the new state
+}
+
+// Save current progress to local inventory AND close the modal. Doesn't
+// end the session — it stays active and can be reopened later (this
+// device or another) to keep receiving. Cross-device sync per cabinet
+// already ran on each toggle, so the server state is already current.
+function saveAndCloseReceiveSession() {
+  commitReceiveSession();
+  // commitReceiveSession re-renders the session UI which would re-open
+  // the modal. Close after a tick so the user sees the toast first.
+  setTimeout(() => closeCabModal(), 200);
 }
 
 // Mark the session as complete and close it. Auto-saves any uncommitted
@@ -10554,12 +10718,12 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.45"></script>
+<script src="./pack.js?v=9.47"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
      bottom-corner so it doesn't compete with content. -->
-<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.45</div>
+<div style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;pointer-events:none;z-index:9990;border:1px solid rgba(255,255,255,.15)">v9.47</div>
 
 </body>
 </html>
