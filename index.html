@@ -9581,22 +9581,26 @@ function openSystemStatus() {
           return;
         }
         const c = res.counts || {};
-        const stat = (label, val, color) =>
-          '<div style="background:' + color + '15;border:1px solid ' + color + '55;border-radius:8px;padding:8px 6px;text-align:center">'
-          + '<div style="font-size:22px;font-weight:900;color:' + color + ';font-family:\'JetBrains Mono\',monospace;line-height:1">' + (val || 0) + '</div>'
-          + '<div style="font-size:9px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">' + label + '</div>'
-          + '</div>';
+        const stat = (label, val, color, onClick) => {
+          const tag = onClick ? 'button' : 'div';
+          const cursor = onClick ? 'cursor:pointer;' : '';
+          const click = onClick ? ' onclick="document.getElementById(\'systemStatusOverlay\').remove();' + onClick + '"' : '';
+          return '<' + tag + click + ' style="background:' + color + '15;border:1px solid ' + color + '55;border-radius:8px;padding:8px 6px;text-align:center;' + cursor + (onClick ? 'color:inherit;font:inherit;' : '') + '">'
+            + '<div style="font-size:22px;font-weight:900;color:' + color + ';font-family:\'JetBrains Mono\',monospace;line-height:1">' + (val || 0) + '</div>'
+            + '<div style="font-size:9px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">' + label + '</div>'
+            + '</' + tag + '>';
+        };
         el.innerHTML =
           '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-size:10px;font-weight:900;color:#888;text-transform:uppercase;letter-spacing:1px">Today · ' + (c.date || '') + (res.cached ? ' · cached' : '') + '</span><button onclick="window._sysStatusRefreshDayPlan(true)" title="Force-refresh (bypass 60s cache)" style="margin-left:auto;background:transparent;border:none;color:#888;font-size:13px;cursor:pointer;padding:2px 6px">↻</button></div>'
         + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">'
         + stat('Cab packed', c.cabinet_packed, '#003087')
-        + stat('Cab shipped', c.cabinet_shipped, '#1A5C1A')
+        + stat('Cab shipped', c.cabinet_shipped, '#1A5C1A', 'openTrackingPanel({source:\'cabinet\',days:7})')
         + stat('Booked', c.cabinet_booked, '#FFB300')
-        + stat('Cust OK', c.cabinet_customer_ready, '#3DBEFF')
+        + stat('Cust OK', c.cabinet_customer_ready, '#3DBEFF', 'openAwaitingCustomerList()')
         + stat('Gnd packed', c.ground_packed, '#003087')
-        + stat('Gnd shipped', c.ground_shipped, '#1A5C1A')
-        + stat('Remakes', c.remakes_created, '#FF6B00')
-        + stat('Catches', c.catches, '#c33')
+        + stat('Gnd shipped', c.ground_shipped, '#1A5C1A', 'openTrackingPanel({source:\'ground\',days:7})')
+        + stat('Remakes', c.remakes_created, '#FF6B00', 'openRemakesPanel(\'open\')')
+        + stat('Catches', c.catches, '#c33', 'openCatchStats(7)')
         + '</div>';
       }).catch(() => {});
     };
@@ -11000,7 +11004,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.71"></script>
+<script src="./pack.js?v=9.72"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11009,7 +11013,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.71</div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.72</div>
 
 </body>
 </html>
