@@ -3658,8 +3658,37 @@ function renderLookupCabinet_(h) {
     + _lkFld('Pick list', h.pick_list_pdf_url, { link: true })
     + _lkFld('Instructions', h.instructions_pdf_url, { link: true })
     + _lkFld('Shopify', h.shopify_admin_url, { link: true })
-    + _lkFld('Last updated', h.last_updated_at ? h.last_updated_at.slice(0, 16) : '—');
+    + _lkFld('Last updated', h.last_updated_at ? h.last_updated_at.slice(0, 16) : '—')
+    + _lookupRemakeBtn_(h);
   return _lkCard('Cabinet / Freight', '#FFB300', h.status, body);
+}
+
+function _lookupRemakeBtn_(h) {
+  const payload = encodeURIComponent(JSON.stringify({
+    customer_name: h.customer_name || '',
+    customer_phone: h.customer_phone || '',
+    ship_address: h.customer_address || h.shipping_address || '',
+    original_order_number: h.order_number || '',
+  }));
+  return '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)"><button onclick="openRemakeCreateFromLookup(\'' + payload + '\')" style="width:100%;padding:10px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🔧 Create Remake from this Order</button></div>';
+}
+
+// Pre-fills the Remake create modal with customer info from the
+// looked-up order. Saves CS a copy-paste step.
+function openRemakeCreateFromLookup(encoded) {
+  let prefill = {};
+  try { prefill = JSON.parse(decodeURIComponent(encoded)); } catch (e) {}
+  openRemakeCreate();
+  setTimeout(() => {
+    const f = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    f('rmkCustName', prefill.customer_name);
+    f('rmkCustPhone', prefill.customer_phone);
+    f('rmkShipAddr', prefill.ship_address);
+    f('rmkOrigOrder', prefill.original_order_number);
+    // Focus the SKU input — that's the only thing CS still needs to fill in
+    const skuInp = document.querySelector('.rmkSkuRow .rmkSkuSku');
+    if (skuInp) skuInp.focus();
+  }, 120);
 }
 
 function renderLookupGround_(h) {
