@@ -2554,6 +2554,7 @@ async function refreshScheduleTab() {
     _scheduleCache = res;
     try { localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(res)); } catch(e) {}
     paintSchedule_(res);
+    paintScheduleDayPlan_();
     const totalOrders = (res.days || []).reduce((s, d) => s + d.total, 0);
     if (statusEl) statusEl.textContent = totalOrders + ' order' + (totalOrders === 1 ? '' : 's') + ' across ' + (res.days || []).length + ' day' + ((res.days || []).length === 1 ? '' : 's') + ' · today=' + res.today;
   } catch (err) {
@@ -2578,7 +2579,28 @@ function paintSchedule_(payload) {
   if (payload.stalled_total && payload.stalled_total > 0) {
     stalledChip = '<button onclick="openStalledList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#FF5252,#B71C1C);color:#fff;border:1px solid #ff5252;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">⚠ ' + payload.stalled_total + ' STALLED</button>';
   }
-  legendEl.innerHTML = stalledChip + carriers
+  // v9.58: awaiting-customer chip — Ken's at-a-glance count of
+  // orders he still needs to confirm. Counted client-side from the
+  // existing payload (any cabinet order with !customer_ready and
+  // status=pending and ship within ~14 days).
+  let awaitingChip = '';
+  let awaitingCount = 0;
+  (payload.days || []).forEach(d => {
+    (d.orders || []).forEach(o => {
+      if (o.source !== 'cabinet') return;
+      if (o.customer_ready) return;
+      const status = String(o.status || '').toLowerCase();
+      if (status !== '' && status !== 'pending') return;
+      const ship = new Date(o.ship_date + 'T00:00:00');
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const diff = (ship - now) / (1000 * 60 * 60 * 24);
+      if (diff >= -1 && diff <= 14) awaitingCount++;
+    });
+  });
+  if (awaitingCount > 0) {
+    awaitingChip = '<button onclick="openAwaitingCustomerList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#3DBEFF,#005577);color:#fff;border:1px solid #3DBEFF;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">🔔 ' + awaitingCount + ' AWAITING CUSTOMER</button>';
+  }
+  legendEl.innerHTML = stalledChip + awaitingChip + carriers
     .filter(c => carriersUsed[c.carrier_key])
     .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('');
 
@@ -3063,6 +3085,85 @@ async function openRemakesPanel(statusFilter) {
       + '</div>'
       + '</div>';
   }).join('');
+}
+
+// Render today's totals at the top of Schedule. Fire-and-forget,
+// stays hidden if the fetch fails or returns nothing.
+async function paintScheduleDayPlan_() {
+  const el = document.getElementById('scheduleDayPlan');
+  if (!el) return;
+  let res;
+  try { res = await groundApi('getDayPlan', {}); }
+  catch (e) { return; }
+  if (!res || !res.ok || !res.counts) return;
+  const c = res.counts;
+  const totalActivity = (c.cabinet_packed || 0) + (c.cabinet_shipped || 0) + (c.cabinet_booked || 0)
+    + (c.ground_packed || 0) + (c.ground_shipped || 0) + (c.remakes_created || 0) + (c.catches || 0);
+  if (totalActivity === 0) { el.style.display = 'none'; return; }
+  const cell = (label, val, color) =>
+    '<div style="background:rgba(255,255,255,.04);border:1px solid ' + color + '44;border-radius:8px;padding:6px 4px;text-align:center;min-width:62px">'
+    + '<div style="font-size:20px;font-weight:900;color:' + color + ';font-family:\'JetBrains Mono\',monospace;line-height:1">' + (val || 0) + '</div>'
+    + '<div style="font-size:9px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-top:3px">' + label + '</div>'
+    + '</div>';
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:10px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px">Today\'s Activity</span><span style="font-size:10px;color:var(--text-dim)">' + esc(c.date || '') + '</span></div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +   cell('Cab Packed', c.cabinet_packed, '#003087')
+    +   cell('Cab Shipped', c.cabinet_shipped, '#1A5C1A')
+    +   cell('Booked', c.cabinet_booked, '#FFB300')
+    +   cell('Cust OK', c.cabinet_customer_ready, '#3DBEFF')
+    +   cell('Gnd Packed', c.ground_packed, '#003087')
+    +   cell('Gnd Shipped', c.ground_shipped, '#1A5C1A')
+    +   cell('Remakes', c.remakes_created, '#FF6B00')
+    +   cell('Catches', c.catches, '#c33')
+    + '</div>';
+}
+
+// Awaiting-customer panel — Ken's primary triage list.
+function openAwaitingCustomerList() {
+  const cache = _scheduleCache;
+  if (!cache || !cache.days) { showToast('Schedule not loaded yet'); return; }
+  const items = [];
+  cache.days.forEach(d => {
+    (d.orders || []).forEach(o => {
+      if (o.source !== 'cabinet') return;
+      if (o.customer_ready) return;
+      const status = String(o.status || '').toLowerCase();
+      if (status !== '' && status !== 'pending') return;
+      const ship = new Date(o.ship_date + 'T00:00:00');
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const diff = (ship - now) / (1000 * 60 * 60 * 24);
+      if (diff >= -1 && diff <= 14) items.push({ o, diff });
+    });
+  });
+  if (!items.length) { showToast('Nothing awaiting customer confirmation'); return; }
+  items.sort((a, b) => a.diff - b.diff);
+
+  const ov = document.createElement('div');
+  ov.id = 'awaitingCustOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const rows = items.map(({ o, diff }) => {
+    const urg = diff < 0 ? 'OVERDUE' : (diff <= 2 ? Math.round(diff) + 'd' : Math.round(diff) + 'd');
+    const urgColor = diff < 0 ? '#ff5252' : (diff <= 2 ? '#FFB300' : '#3DBEFF');
+    return '<div onclick="document.getElementById(\'awaitingCustOverlay\').remove();openCustomerReadyModal(\'' + esc(o.order_number) + '\',false,\'\',\'\')" style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(61,190,255,.06);border-left:3px solid #3DBEFF;border-radius:6px;font-size:13px;color:#fff;margin-bottom:4px;cursor:pointer">'
+      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;min-width:60px">#' + esc(o.order_number) + '</span>'
+      + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</span>'
+      + '<span style="font-size:10px;color:#9AAAC0">' + esc(o.ship_date) + '</span>'
+      + '<span style="font-size:10px;font-weight:900;color:' + urgColor + '">' + esc(urg) + '</span>'
+      + '<span style="color:#3DBEFF;font-size:18px;font-weight:900">›</span>'
+      + '</div>';
+  }).join('');
+
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#1a1a1a;color:#fff;width:100%;max-width:680px;max-height:85vh;border-radius:14px 14px 0 0;padding:18px 18px 24px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.6);border-top:2px solid #3DBEFF">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">🔔 ' + items.length + ' Awaiting Customer</div><button onclick="document.getElementById(\'awaitingCustOverlay\').remove()" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;padding:0 4px">✕</button></div>'
+    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">Cabinet orders shipping within 14 days that haven\'t been confirmed with the customer yet. Tap a row to mark ready.</div>'
+    + rows
+    + '<button onclick="document.getElementById(\'awaitingCustOverlay\').remove()" style="width:100%;margin-top:8px;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>';
+  document.body.appendChild(ov);
 }
 
 function openRemakeCreate() {
