@@ -3106,11 +3106,15 @@ async function paintScheduleDayPlan_() {
   const totalActivity = (c.cabinet_packed || 0) + (c.cabinet_shipped || 0) + (c.cabinet_booked || 0)
     + (c.ground_packed || 0) + (c.ground_shipped || 0) + (c.remakes_created || 0) + (c.catches || 0);
   if (totalActivity === 0) { el.style.display = 'none'; return; }
-  const cell = (label, val, color) =>
-    '<div style="background:rgba(255,255,255,.04);border:1px solid ' + color + '44;border-radius:8px;padding:6px 4px;text-align:center;min-width:62px">'
-    + '<div style="font-size:20px;font-weight:900;color:' + color + ';font-family:\'JetBrains Mono\',monospace;line-height:1">' + (val || 0) + '</div>'
-    + '<div style="font-size:9px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-top:3px">' + label + '</div>'
-    + '</div>';
+  const cell = (label, val, color, onClick) => {
+    const tag = onClick ? 'button' : 'div';
+    const cursor = onClick ? 'cursor:pointer;' : '';
+    const click = onClick ? ' onclick="' + onClick + '"' : '';
+    return '<' + tag + click + ' style="background:rgba(255,255,255,.04);border:1px solid ' + color + '44;border-radius:8px;padding:6px 4px;text-align:center;min-width:62px;' + cursor + (onClick ? 'color:inherit;font:inherit;' : '') + '">'
+      + '<div style="font-size:20px;font-weight:900;color:' + color + ';font-family:\'JetBrains Mono\',monospace;line-height:1">' + (val || 0) + '</div>'
+      + '<div style="font-size:9px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-top:3px">' + label + '</div>'
+      + '</' + tag + '>';
+  };
   el.style.display = 'block';
   el.innerHTML =
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:10px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px">Today\'s Activity</span><span style="font-size:10px;color:var(--text-dim)">' + esc(c.date || '') + '</span></div>'
@@ -3118,11 +3122,11 @@ async function paintScheduleDayPlan_() {
     +   cell('Cab Packed', c.cabinet_packed, '#003087')
     +   cell('Cab Shipped', c.cabinet_shipped, '#1A5C1A')
     +   cell('Booked', c.cabinet_booked, '#FFB300')
-    +   cell('Cust OK', c.cabinet_customer_ready, '#3DBEFF')
+    +   cell('Cust OK', c.cabinet_customer_ready, '#3DBEFF', 'openAwaitingCustomerList()')
     +   cell('Gnd Packed', c.ground_packed, '#003087')
     +   cell('Gnd Shipped', c.ground_shipped, '#1A5C1A')
-    +   cell('Remakes', c.remakes_created, '#FF6B00')
-    +   cell('Catches', c.catches, '#c33')
+    +   cell('Remakes', c.remakes_created, '#FF6B00', 'openRemakesPanel(\'open\')')
+    +   cell('Catches', c.catches, '#c33', 'openCatchStats(7)')
     + '</div>';
 }
 
