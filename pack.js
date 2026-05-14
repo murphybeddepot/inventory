@@ -2521,7 +2521,10 @@ async function printPrePackLabel(orderNumber) {
 // ──────────────────────────────────────────────────────────────────────
 
 let _scheduleCache = null;
+let _scheduleShowWeekends = false;
+let _scheduleWeekOffset = 0;
 const SCHEDULE_CACHE_KEY = 'mbd_schedule_cache_v1';
+const SCHEDULE_DESKTOP_BREAKPOINT_PX = 820;
 
 function renderScheduleTab() {
   try {
@@ -2563,6 +2566,7 @@ function paintSchedule_(payload) {
   const listEl = document.getElementById('scheduleDayList');
   if (!legendEl || !listEl) return;
 
+  // ── Legend (shared) ──
   const carriers = payload.carriers || [];
   const carriersUsed = {};
   (payload.days || []).forEach(d => {
@@ -2577,13 +2581,53 @@ function paintSchedule_(payload) {
     return;
   }
 
+  // Branch on viewport width — desktop gets a calendar grid, mobile
+  // gets the scrollable list. The breakpoint covers iPad portrait
+  // (~768px is too tight for a 5-column grid) and goes desktop at
+  // typical laptop widths.
+  const isDesktop = window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT_PX;
+  if (isDesktop) {
+    paintScheduleDesktopGrid_(payload, listEl);
+  } else {
+    paintScheduleMobileList_(payload, listEl);
+  }
+}
+
+// Shared: format a single order row inside a day cell.
+function _scheduleRenderOrderRow_(o, opts) {
+  opts = opts || {};
+  const computed = o.ship_date_computed ? ' <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">EST</span>' : '';
+  const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
+  if (opts.compact) {
+    // Desktop grid cell — compact two-line layout to fit a column
+    return '<div style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3">'
+      + '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">'
+      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">#' + esc(o.order_number) + '</span>'
+      +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</span>'
+      + '</div>'
+      + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
+      + (o.status ? '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-top:1px">' + esc(String(o.status).slice(0,14)) + '</div>' : '')
+      + '</div>';
+  }
+  // Mobile / list layout — single-line row
+  return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px">'
+    + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">#' + esc(o.order_number) + '</div>'
+    + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
+    + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
+    + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
+    + '</div>';
+}
+
+function _scheduleDayName_(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+}
+
+// ── Mobile: scrollable date-grouped list (original Phase 1 view) ──
+function paintScheduleMobileList_(payload, listEl) {
   const today = payload.today;
   const isPast = (iso) => iso < today;
   const isToday = (iso) => iso === today;
-  const dayName = (iso) => {
-    const d = new Date(iso + 'T12:00:00');
-    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
-  };
 
   listEl.innerHTML = payload.days.map(d => {
     const past = isPast(d.date);
@@ -2596,40 +2640,129 @@ function paintSchedule_(payload) {
     const top = d.orders.filter(o => o.source !== 'ground');
     const bottom = d.orders.filter(o => o.source === 'ground');
 
-    const renderRow = (o) => {
-      const computed = o.ship_date_computed ? ' <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">EST</span>' : '';
-      const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
-      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px">'
-        + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">#' + esc(o.order_number) + '</div>'
-        + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
-        + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
-        + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
-        + '</div>';
-    };
-
     return '<div id="sched-day-' + d.date + '" style="padding:12px 14px;background:' + bgAccent + ';border:1px solid ' + accent + '55;border-radius:12px;' + dimStyle + '">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
       +   '<div style="display:flex;align-items:baseline;gap:10px">'
       +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;color:' + accent + '">' + esc(d.date.slice(5)) + '</div>'
-      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">' + dayName(d.date) + '</div>'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">' + _scheduleDayName_(d.date) + '</div>'
       +     todayChip
       +   '</div>'
       +   '<div style="font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:.5px">'
       +     d.total + ' · ' + (d.freight_count ? d.freight_count + ' freight ' : '') + (d.mattress_count ? '· ' + d.mattress_count + ' mattress ' : '') + (d.ground_count ? '· ' + d.ground_count + ' ground' : '')
       +   '</div>'
       + '</div>'
-      + (top.length ? '<div style="display:flex;flex-direction:column;gap:4px">' + top.map(renderRow).join('') + '</div>' : '')
-      + (bottom.length ? '<div style="margin-top:' + (top.length ? '8' : '0') + 'px;padding-top:' + (top.length ? '8' : '0') + 'px;' + (top.length ? 'border-top:1px dashed rgba(255,255,255,.10);' : '') + 'display:flex;flex-direction:column;gap:4px">' + '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:2px">Ground</div>' + bottom.map(renderRow).join('') + '</div>' : '')
+      + (top.length ? '<div style="display:flex;flex-direction:column;gap:4px">' + top.map(o => _scheduleRenderOrderRow_(o, { compact: false })).join('') + '</div>' : '')
+      + (bottom.length ? '<div style="margin-top:' + (top.length ? '8' : '0') + 'px;padding-top:' + (top.length ? '8' : '0') + 'px;' + (top.length ? 'border-top:1px dashed rgba(255,255,255,.10);' : '') + 'display:flex;flex-direction:column;gap:4px">' + '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:2px">Ground</div>' + bottom.map(o => _scheduleRenderOrderRow_(o, { compact: false })).join('') + '</div>' : '')
       + (top.length === 0 && bottom.length === 0 ? '<div style="padding:12px;text-align:center;color:var(--text-dim);font-size:12px">(no orders)</div>' : '')
       + '</div>';
   }).join('');
 
-  // Auto-scroll today's card into view.
   setTimeout(() => {
     const t = document.getElementById('sched-day-' + today);
     if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, 50);
 }
+
+// ── Desktop: one-week calendar grid (Mon-Fri by default, toggle to Sun-Sat) ──
+function paintScheduleDesktopGrid_(payload, listEl) {
+  const today = payload.today;
+  const todayDate = new Date(today + 'T12:00:00');
+  // Anchor on Monday of the active week. JS Date.getDay(): 0=Sun..6=Sat.
+  // Monday offset = (day === 0 ? -6 : 1 - day)
+  const dow = todayDate.getDay();
+  const mondayOffset = (dow === 0 ? -6 : 1 - dow);
+  const monday = new Date(todayDate);
+  monday.setDate(monday.getDate() + mondayOffset + _scheduleWeekOffset * 7);
+
+  const dayCount = _scheduleShowWeekends ? 7 : 5;
+  const startOffset = _scheduleShowWeekends ? -1 : 0; // include Sun before Monday when weekends shown
+  const weekDates = [];
+  for (let i = 0; i < dayCount; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + startOffset + i);
+    const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    weekDates.push(iso);
+  }
+
+  // Build index of payload days by date
+  const daysByDate = {};
+  (payload.days || []).forEach(d => { daysByDate[d.date] = d; });
+
+  const weekStartIso = weekDates[0];
+  const weekEndIso = weekDates[weekDates.length - 1];
+  const weekRangeLabel = weekStartIso.slice(5) + ' – ' + weekEndIso.slice(5);
+  const isCurrentWeek = _scheduleWeekOffset === 0;
+
+  // Toolbar: week nav + show-weekends toggle
+  const toolbar = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:10px">'
+    + '<div style="display:flex;align-items:center;gap:8px">'
+    +   '<button onclick="scheduleWeekShift(-1)" class="amp-btn" style="padding:6px 12px;font-size:13px">‹ Prev</button>'
+    +   '<button onclick="scheduleWeekShift(0)" class="amp-btn ' + (isCurrentWeek ? 'go' : '') + '" style="padding:6px 12px;font-size:13px">This week</button>'
+    +   '<button onclick="scheduleWeekShift(1)" class="amp-btn" style="padding:6px 12px;font-size:13px">Next ›</button>'
+    +   '<div style="margin-left:12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:var(--text);letter-spacing:.5px">' + weekRangeLabel + '</div>'
+    + '</div>'
+    + '<label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--text-dim);cursor:pointer;text-transform:uppercase;letter-spacing:.5px">'
+    +   '<input type="checkbox" onchange="scheduleToggleWeekends(this.checked)" ' + (_scheduleShowWeekends ? 'checked' : '') + ' style="cursor:pointer;width:16px;height:16px;accent-color:#00e676">'
+    +   'Show weekends'
+    + '</label>'
+    + '</div>';
+
+  // Day columns
+  const cellWidthPct = 100 / dayCount;
+  const cells = weekDates.map(iso => {
+    const d = daysByDate[iso];
+    const isToday = iso === today;
+    const isPast = iso < today;
+    const accent = isToday ? '#00e676' : (isPast ? '#666' : '#FFB300');
+    const bgAccent = isToday ? 'rgba(0,230,118,.10)' : 'rgba(255,255,255,.03)';
+    const dimStyle = isPast ? 'opacity:.65' : '';
+    const dayLabel = _scheduleDayName_(iso);
+    const total = d ? d.total : 0;
+    const top = d ? d.orders.filter(o => o.source !== 'ground') : [];
+    const bottom = d ? d.orders.filter(o => o.source === 'ground') : [];
+    const todayBadge = isToday ? '<span style="padding:1px 7px;background:#00e676;color:#000;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-left:4px">Today</span>' : '';
+    const isWeekend = dayLabel === 'Sat' || dayLabel === 'Sun';
+    const weekendChip = isWeekend ? '<span style="font-size:9px;color:#ff9800;font-weight:700;letter-spacing:1px;margin-left:4px">WKND</span>' : '';
+
+    return '<div style="flex:1 1 ' + cellWidthPct + '%;min-width:0;padding:10px;background:' + bgAccent + ';border:1px solid ' + accent + '44;border-radius:10px;' + dimStyle + ';display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 320px);overflow-y:auto">'
+      + '<div style="border-bottom:1px solid rgba(255,255,255,.10);padding-bottom:6px;margin-bottom:4px">'
+      +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px">'
+      +     '<div><span style="font-family:\'JetBrains Mono\',monospace;font-size:15px;font-weight:900;color:' + accent + '">' + iso.slice(5) + '</span>'
+      +     ' <span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:800;color:var(--text);letter-spacing:.8px;text-transform:uppercase">' + dayLabel + '</span>' + todayBadge + weekendChip + '</div>'
+      +     '<span style="font-size:11px;font-weight:700;color:var(--text-dim)">' + total + '</span>'
+      +   '</div>'
+      + '</div>'
+      + (top.length ? top.map(o => _scheduleRenderOrderRow_(o, { compact: true })).join('') : '')
+      + (bottom.length
+          ? (top.length ? '<div style="font-size:8px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-top:4px;padding-top:4px;border-top:1px dashed rgba(255,255,255,.10)">Ground</div>' : '<div style="font-size:8px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px">Ground</div>')
+              + bottom.map(o => _scheduleRenderOrderRow_(o, { compact: true })).join('')
+          : '')
+      + (total === 0 ? '<div style="padding:14px 8px;text-align:center;color:var(--text-dim);font-size:10px;font-style:italic;opacity:.6">no orders</div>' : '')
+      + '</div>';
+  }).join('');
+
+  listEl.innerHTML = toolbar
+    + '<div style="display:flex;gap:8px;align-items:stretch;flex-wrap:nowrap">' + cells + '</div>';
+}
+
+function scheduleWeekShift(delta) {
+  if (delta === 0) _scheduleWeekOffset = 0;
+  else _scheduleWeekOffset += delta;
+  if (_scheduleCache) paintSchedule_(_scheduleCache);
+}
+
+function scheduleToggleWeekends(show) {
+  _scheduleShowWeekends = !!show;
+  if (_scheduleCache) paintSchedule_(_scheduleCache);
+}
+
+// Re-paint on viewport size change (e.g., laptop rotated, window resized).
+window.addEventListener('resize', () => {
+  if (!_scheduleCache) return;
+  const panel = document.getElementById('tab-schedule');
+  if (!panel || !panel.classList.contains('active')) return;
+  paintSchedule_(_scheduleCache);
+});
 
 
 // ──────────────────────────────────────────────────────────────────────
