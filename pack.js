@@ -2593,11 +2593,33 @@ function paintSchedule_(payload) {
   }
 }
 
+// Booker roster — Kim does most freight booking (VA), Seth oversees.
+// Kim first because she's the default-most-common assignee.
+const SCHEDULE_BOOKER_ROSTER = ['Kim', 'Seth'];
+
+function _scheduleBookerChip_(o, compact) {
+  // Only freight (cabinet) orders get a booker chip — ground auto-ships,
+  // mattress dropship has its own MFRM workflow.
+  if (o.source !== 'cabinet') return '';
+  const booker = String(o.booker || '').trim();
+  const booked = !!o.booked_at;
+  const pad = compact ? '1px 6px' : '2px 8px';
+  const fs = compact ? '9px' : '10px';
+  if (booked) {
+    return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',true)" class="amp-btn" style="background:rgba(0,230,118,.18);color:#00e676;border:1px solid #00e676;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Booked. Tap to view/edit.">✓ ' + esc(booker || 'booked') + '</button>';
+  }
+  if (booker) {
+    return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',false)" class="amp-btn" style="background:rgba(255,179,0,.18);color:#FFB300;border:1px solid #FFB300;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Assigned. Tap to reassign or mark booked.">👤 ' + esc(booker) + '</button>';
+  }
+  return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\'\',false)" class="amp-btn" style="background:transparent;color:var(--text-dim);border:1px dashed rgba(255,255,255,.25);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Tap to assign a booker">+ ASSIGN</button>';
+}
+
 // Shared: format a single order row inside a day cell.
 function _scheduleRenderOrderRow_(o, opts) {
   opts = opts || {};
   const computed = o.ship_date_computed ? ' <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">EST</span>' : '';
   const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
+  const bookerChip = _scheduleBookerChip_(o, !!opts.compact);
   if (opts.compact) {
     // Desktop grid cell — compact two-line layout to fit a column
     return '<div style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3">'
@@ -2606,16 +2628,66 @@ function _scheduleRenderOrderRow_(o, opts) {
       +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</span>'
       + '</div>'
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
-      + (o.status ? '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-top:1px">' + esc(String(o.status).slice(0,14)) + '</div>' : '')
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
+      +   (o.status ? '<span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">' + esc(String(o.status).slice(0,14)) + '</span>' : '<span></span>')
+      +   bookerChip
+      + '</div>'
       + '</div>';
   }
   // Mobile / list layout — single-line row
-  return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px">'
+  return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap">'
     + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">#' + esc(o.order_number) + '</div>'
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
     + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
+    + bookerChip
     + '</div>';
+}
+
+// Booker assignment modal — tap a chip to open. Kim/Seth/Clear, plus
+// optional Mark Booked field for confirmation #.
+function openScheduleBookerModal(orderNumber, currentBooker, alreadyBooked) {
+  const prior = document.getElementById('scheduleBookerOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'scheduleBookerOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#1a1a1a;color:#fff;border:1.5px solid rgba(255,255,255,.15);border-radius:14px;padding:20px 18px 16px;max-width:420px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.5);font-family:Helvetica,Arial,sans-serif';
+  panel.innerHTML =
+      '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:var(--text);letter-spacing:.5px;text-transform:uppercase;line-height:1.1;margin-bottom:6px">Booker · Order #' + esc(orderNumber) + '</div>'
+    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">' + (currentBooker ? 'Currently assigned: <strong style="color:#FFB300">' + esc(currentBooker) + '</strong>' + (alreadyBooked ? ' · <span style="color:#00e676">✓ booked</span>' : '') : 'Unassigned. Tap a name to claim.') + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">'
+    +   SCHEDULE_BOOKER_ROSTER.map(name => {
+          const active = name === currentBooker;
+          return '<button onclick="scheduleAssignBooker(\''+esc(orderNumber)+'\',\''+esc(name)+'\')" class="amp-btn ' + (active ? 'go' : '') + '" style="padding:14px;font-size:16px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;background:' + (active ? 'linear-gradient(135deg,#FFB300,#FF9100)' : 'rgba(255,255,255,.06)') + ';color:' + (active ? '#1a1a1a' : 'var(--text)') + ';border:1px solid ' + (active ? '#FFB300' : 'rgba(255,255,255,.20)') + ';border-radius:10px;cursor:pointer">' + (active ? '✓ ' : '') + '👤 ' + esc(name) + '</button>';
+        }).join('')
+    + '</div>'
+    + '<div style="display:flex;gap:8px">'
+    +   (currentBooker ? '<button onclick="scheduleAssignBooker(\''+esc(orderNumber)+'\',\'\')" style="flex:1;padding:12px;background:rgba(255,82,82,.12);color:#ff5252;border:1px solid rgba(255,82,82,.4);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer">Clear</button>' : '')
+    +   '<button onclick="document.getElementById(\'scheduleBookerOverlay\').remove()" style="flex:1;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>';
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
+}
+
+async function scheduleAssignBooker(orderNumber, booker) {
+  const ov = document.getElementById('scheduleBookerOverlay');
+  if (ov) ov.remove();
+  try {
+    const res = await groundApi('setPackJobBooker', { orderNumber: orderNumber, booker: booker });
+    if (!res || !res.ok) {
+      showToast('Booker update failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast(booker ? '✓ ' + booker + ' on #' + orderNumber : 'Cleared booker on #' + orderNumber);
+    // Re-fetch the schedule so the chip updates.
+    refreshScheduleTab();
+  } catch (err) {
+    showToast('Booker update error: ' + err.message);
+  }
 }
 
 function _scheduleDayName_(iso) {
