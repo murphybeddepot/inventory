@@ -2617,9 +2617,23 @@ function _scheduleBookerChip_(o, compact) {
   if (booker) {
     return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',false)" class="amp-btn" style="background:rgba(255,179,0,.18);color:#FFB300;border:1px solid #FFB300;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Assigned. Tap to reassign or mark booked.">👤 ' + esc(booker) + '</button>';
   }
-  // Gate the "+ ASSIGN" prompt on customer-ready — Kim shouldn't be
-  // booking freight on orders Ken hasn't confirmed yet.
-  if (o.customer_ready === false || o.customer_ready === undefined || o.customer_ready === '') {
+  // Gate the "+ ASSIGN" prompt on customer-ready, but only for
+  // pending orders shipping within 14 days. Older / further-out
+  // rows default to allowing booking so we don't regress Kim's
+  // workflow on orders that pre-date the customer_ready column.
+  // Status is the backstop: if the order is already in pack flow,
+  // customer-readiness is implicitly resolved.
+  const shipIso = String(o.ship_date || '');
+  const status = String(o.status || '').toLowerCase();
+  const pending = status === '' || status === 'pending';
+  let imminent = false;
+  if (shipIso) {
+    const ship = new Date(shipIso + 'T00:00:00');
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const diffDays = (ship - now) / (1000 * 60 * 60 * 24);
+    imminent = diffDays <= 14;
+  }
+  if (!o.customer_ready && pending && imminent) {
     return '<button onclick="event.stopPropagation();openCustomerReadyModal(\''+esc(o.order_number)+'\',false,\'\',\'\')" class="amp-btn" style="background:transparent;color:#9AAAC0;border:1px dashed rgba(154,170,192,.4);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer not yet confirmed. Tap to mark ready.">⏳ WAIT</button>';
   }
   return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\'\',false)" class="amp-btn" style="background:transparent;color:var(--text-dim);border:1px dashed rgba(255,255,255,.25);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Tap to assign a booker">+ ASSIGN</button>';
