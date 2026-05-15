@@ -4247,7 +4247,39 @@ function _lookupRemakeBtn_(h) {
     ship_address: h.customer_address || h.shipping_address || '',
     original_order_number: h.order_number || '',
   }));
-  return '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)"><button onclick="openRemakeCreateFromLookup(\'' + payload + '\')" style="width:100%;padding:10px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🔧 Create Remake from this Order</button></div>';
+  return '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10);display:flex;gap:6px;flex-wrap:wrap">'
+    + _lookupSendTrackingBtn_(h)
+    + '<button onclick="openRemakeCreateFromLookup(\'' + payload + '\')" style="flex:1;min-width:160px;padding:10px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🔧 Create Remake</button>'
+    + '</div>';
+}
+
+// v10.0: send-tracking mailto: link. Pre-composes an email in the
+// user's mail app with the customer's tracking info. CS reviews +
+// sends from their own mailbox so the personal touch is preserved
+// (and we don't write to JS2 status — just open the compose).
+function _lookupSendTrackingBtn_(h) {
+  const tn = String(h.master_tracking || h.tracking_number || '').trim();
+  const email = String(h.customer_email || '').trim();
+  // Only show when there's something tangible to send
+  if (!email && !tn) return '';
+  const tnUrl = tn ? _trackingUrlClient_(tn, '') : '';
+  const subj = 'Your Murphy Bed Depot order #' + (h.order_number || '') + ' has shipped';
+  const lines = [];
+  lines.push('Hi ' + (h.customer_name || 'there') + ',');
+  lines.push('');
+  lines.push('Your order #' + (h.order_number || '') + ' has shipped!');
+  if (tn) {
+    lines.push('');
+    lines.push('Tracking number: ' + tn);
+    if (tnUrl) lines.push('Track here: ' + tnUrl);
+  }
+  lines.push('');
+  lines.push('Please be prepared to inspect each part within the first 72 hours of arrival and let us know if anything looks off.');
+  lines.push('');
+  lines.push('Thanks for choosing Murphy Bed Depot!');
+  lines.push('Murphy Bed Depot · (904) 823-9255');
+  const mailto = 'mailto:' + encodeURIComponent(email) + '?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(lines.join('\n'));
+  return '<a href="' + esc(mailto) + '" style="flex:1;min-width:160px;padding:10px;background:linear-gradient(135deg,#003087,#001f5c);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;text-decoration:none;text-align:center;display:inline-block;line-height:1.2" title="Compose tracking email in your mail app">✉ Send Tracking</a>';
 }
 
 // Pre-fills the Remake create modal with customer info from the
