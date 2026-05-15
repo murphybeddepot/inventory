@@ -3987,6 +3987,49 @@ function renderLookupTab() {
     const inp = document.getElementById('lookupInput');
     if (inp) inp.focus();
   }, 80);
+  // v9.98: render recent searches if no current query
+  renderLookupRecent_();
+}
+
+const LOOKUP_RECENT_KEY = 'mbd_lookup_recent_v1';
+const LOOKUP_RECENT_MAX = 8;
+
+function _saveLookupRecent_(query, hitCount) {
+  try {
+    let recent = JSON.parse(localStorage.getItem(LOOKUP_RECENT_KEY) || '[]');
+    if (!Array.isArray(recent)) recent = [];
+    // Drop any prior entry with the same query (we'll re-add at top)
+    recent = recent.filter(r => String(r.q || '').toLowerCase() !== String(query).toLowerCase());
+    recent.unshift({ q: query, n: hitCount, at: new Date().toISOString() });
+    if (recent.length > LOOKUP_RECENT_MAX) recent.length = LOOKUP_RECENT_MAX;
+    localStorage.setItem(LOOKUP_RECENT_KEY, JSON.stringify(recent));
+  } catch (e) {}
+}
+
+function renderLookupRecent_() {
+  const resultsEl = document.getElementById('lookupResults');
+  if (!resultsEl) return;
+  // Only render when no current results showing
+  if (resultsEl.querySelector('div')) return;
+  let recent = [];
+  try { recent = JSON.parse(localStorage.getItem(LOOKUP_RECENT_KEY) || '[]'); } catch (e) {}
+  if (!Array.isArray(recent) || !recent.length) return;
+  resultsEl.innerHTML =
+    '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-weight:700">Recent searches</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px">'
+    + recent.map(r => {
+        const t = new Date(r.at);
+        const age = Math.round((Date.now() - t.getTime()) / 60000);
+        const ageStr = age < 1 ? 'now' : age < 60 ? age + 'm' : Math.round(age / 60) + 'h';
+        return '<button onclick="rerunLookup_(\'' + esc(r.q) + '\')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.15);border-radius:999px;font-size:12px;color:var(--text);cursor:pointer;font-family:inherit"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(r.q) + '</span><span style="font-size:10px;color:var(--text-dim)">' + r.n + '·' + ageStr + '</span></button>';
+      }).join('')
+    + '</div>';
+}
+
+function rerunLookup_(q) {
+  const inp = document.getElementById('lookupInput');
+  if (inp) inp.value = q;
+  runLookup();
 }
 
 function handleLookupKey(event) {
@@ -4023,6 +4066,8 @@ async function runLookup() {
     }
     statusEl.textContent = res.hits.length + ' match' + (res.hits.length === 1 ? '' : 'es') + ' for #' + q;
     resultsEl.innerHTML = res.hits.map(h => renderLookupHit_(h)).join('');
+    // v9.98: save successful searches for the recent-searches strip
+    _saveLookupRecent_(q, res.hits.length);
   } catch (err) {
     statusEl.textContent = 'Error: ' + err.message;
     resultsEl.innerHTML = '';
