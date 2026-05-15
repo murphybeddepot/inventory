@@ -4037,6 +4037,71 @@ function renderLookupHit_(hit) {
   return '<pre style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:11px;color:var(--text)">' + esc(JSON.stringify(hit, null, 2)) + '</pre>';
 }
 
+// v9.96: order activity timeline. Takes any Lookup hit and composes
+// a chronological event list from its timestamps. Pure client-side
+// — uses fields already in the lookupOrder response.
+function _lkTimeline_(hit) {
+  if (!hit) return '';
+  const events = [];
+  const push = (ts, label, icon, color) => {
+    if (!ts) return;
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return;
+    events.push({ ts: d, label: label, icon: icon || '·', color: color || 'var(--text-dim)' });
+  };
+  // Cabinet (PackingQueue) timestamps
+  if (hit.source === 'cabinet') {
+    push(hit.ingested_at, 'Ingested from pick-list email', '📥', '#42a5f5');
+    push(hit.hardware_packed_at, 'Hardware pre-packed' + (hit.hardware_packed_by ? ' by ' + hit.hardware_packed_by : ''), '🔧', '#FFB300');
+    push(hit.started_at, 'Pack started' + (hit.started_by ? ' by ' + hit.started_by : ''), '▶', '#FF9100');
+    push(hit.checker_started_at, 'Checker started' + (hit.checker_started_by ? ' by ' + hit.checker_started_by : ''), '🔍', '#ab47bc');
+    push(hit.packed_at, 'Packed' + (hit.packed_by ? ' by ' + hit.packed_by : ''), '✓', '#00C853');
+    push(hit.booked_at, 'Freight booked' + (hit.booking_ref ? ' · ' + hit.booking_ref : '') + (hit.booker ? ' by ' + hit.booker : ''), '📦', '#FFB300');
+    push(hit.shipped_at, 'Shipped', '🚚', '#1A5C1A');
+    push(hit.customer_ready_at, 'Customer confirmed ready' + (hit.customer_ready_by ? ' by ' + hit.customer_ready_by : ''), '🔔', '#3DBEFF');
+    push(hit.instructions_printed_at, 'Instructions printed', '🖨', '#42a5f5');
+  }
+  if (hit.source === 'ground') {
+    push(hit.order_date, 'Order placed', '📥', '#42a5f5');
+    push(hit.locked_at, 'Locked' + (hit.locked_by ? ' by ' + hit.locked_by : ''), '🔒', '#FF9100');
+    push(hit.pack_started_at, 'Pack started', '▶', '#FF9100');
+    push(hit.pack_completed_at, 'Pack complete', '✓', '#00C853');
+  }
+  if (hit.source === 'mattress') {
+    push(hit.created_at, 'Order received', '📥', '#42a5f5');
+    push(hit.send_at, 'MFRM notified', '📧', '#FFB300');
+    push(hit.reply_received_at, 'MFRM replied' + (hit.ken_reply_classification ? ' (' + hit.ken_reply_classification + ')' : ''), '↩', '#9C27B0');
+    push(hit.mf_delivery_date ? hit.mf_delivery_date + 'T12:00:00' : '', 'MF delivery date', '🚚', '#1A5C1A');
+  }
+  if (hit.source === 'damage' && hit.record) {
+    push(hit.record.reported_at, 'Damage reported' + (hit.record.reported_by ? ' by ' + hit.record.reported_by : ''), '🚫', '#c33');
+    push(hit.record.parts_due_date ? hit.record.parts_due_date + 'T12:00:00' : '', 'Parts due', '⏳', '#FFB300');
+    push(hit.record.remake_received_at, 'Remake received', '↩', '#42a5f5');
+    push(hit.record.closed_at, 'Damage closed', '✓', '#0a8a3f');
+  }
+  if (!events.length) return '';
+  // Sort newest first — CS scans top-down for "what's the latest"
+  events.sort((a, b) => b.ts - a.ts);
+  const fmt = (d) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return mm + '/' + dd + ' ' + hh + ':' + mi;
+  };
+  return '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)">'
+    + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700">Activity</div>'
+    + events.map(e =>
+        '<div style="display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:12px;color:var(--text)">'
+        + '<span style="font-size:14px;line-height:1">' + e.icon + '</span>'
+        + '<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);font-size:11px;min-width:84px">' + fmt(e.ts) + '</span>'
+        + '<span style="color:' + e.color + ';flex:1">' + esc(e.label) + '</span>'
+        + '</div>'
+      ).join('')
+    + '</div>';
+}
+
 // v9.94: mirror of server-side _trackingUrlFor_ for client-side
 // inference. Used by Lookup to turn tracking numbers into clickable
 // carrier links. Falls back to Google search if shape unrecognized.
@@ -4110,6 +4175,7 @@ function renderLookupCabinet_(h) {
     + _lkFld('Instructions', h.instructions_pdf_url, { link: true })
     + _lkFld('Shopify', h.shopify_admin_url, { link: true })
     + _lkFld('Last updated', h.last_updated_at ? h.last_updated_at.slice(0, 16) : '—')
+    + _lkTimeline_(h)
     + _lookupRemakeBtn_(h);
   return _lkCard('Cabinet / Freight', '#FFB300', h.status, body);
 }
@@ -4181,7 +4247,8 @@ function renderLookupGround_(h) {
     + _lkFld('Pack started', h.pack_started_at ? String(h.pack_started_at).slice(0, 16) : '—')
     + _lkFld('Pack complete', h.pack_completed_at ? String(h.pack_completed_at).slice(0, 16) : '—')
     + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—')
-    + (pkgRows ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10)"><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Packages</div>' + pkgRows + '</div>' : '');
+    + (pkgRows ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10)"><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Packages</div>' + pkgRows + '</div>' : '')
+    + _lkTimeline_(h);
   return _lkCard('Ground', '#663399', h.pack_status, body);
 }
 
@@ -4200,12 +4267,14 @@ function renderLookupMattress_(h) {
     + _lkFld('MF order #', h.mf_order_number, { mono: true })
     + _lkFld('MBD shipped?', h.mbd_marked_shipped ? '✓ YES' : '—')
     + _lkFld('Errors', h.error_count ? (h.error_count + ' · ' + (h.last_error || '')) : '—')
-    + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—');
+    + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—')
+    + _lkTimeline_(h);
   return _lkCard('Mattress Dropship', '#00C853', h.send_status, body);
 }
 
 function renderLookupDamage_(h) {
   const rec = h.record || {};
-  const body = Object.keys(rec).map(k => _lkFld(k.replace(/_/g, ' '), rec[k])).join('');
+  const body = Object.keys(rec).map(k => _lkFld(k.replace(/_/g, ' '), rec[k])).join('')
+    + _lkTimeline_(h);
   return _lkCard('Damage record', '#ff5252', rec.status, body);
 }
