@@ -9977,13 +9977,49 @@ async function setupPinSubmit() {
     const ss = document.getElementById('systemStatusOverlay');
     if (ss) ss.remove();
     if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
-    if (typeof showToast === 'function') showToast('✓ Bedrock configured — ready to go');
+    if (typeof showToast === 'function') showToast('✓ Bedrock configured — enter your name to finish');
     if (typeof refreshGroundQueue === 'function') refreshGroundQueue();
+    // v9.89: prompt for packer name immediately so a fresh device
+    // doesn't need a second trip through Ground Settings before
+    // anything is identified. Skip if packer name already set
+    // (a device re-claiming via PIN, e.g. for credential rotation).
+    const existingPacker = (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e){ return ''; } })();
+    if (!existingPacker) {
+      setTimeout(openPackerNamePrompt, 250);
+    }
   } catch (e) {
     const err = document.getElementById('setupPinError');
     if (err) err.textContent = e.message || 'Network error';
     if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit'; }
   }
+}
+
+// v9.89: post-PIN prompt for packer name. First impression after
+// setup completes — make it feel completed, not half-done.
+function openPackerNamePrompt() {
+  const ov = document.createElement('div');
+  ov.id = 'packerNamePromptOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML =
+    '<div style="background:#fff;border-radius:20px;padding:22px;max-width:360px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.4)">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px">Who\'s using this device?</div>'
+    + '<div style="font-size:12px;color:#666;text-align:center;margin-bottom:14px">Your name gets stamped on every scan + receive — Jonah / Zoe / Shane / Jessica / Ken / Kim / Seth / etc.</div>'
+    + '<input type="text" id="packerNameInput" placeholder="Your first name" autocapitalize="words" autocomplete="given-name" style="width:100%;padding:14px;font-size:18px;border:1.5px solid #ccc;border-radius:10px;outline:none;text-align:center;margin-bottom:14px" onkeydown="if(event.key===\'Enter\')submitPackerName()">'
+    + '<button onclick="submitPackerName()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Save</button>'
+    + '<button onclick="document.getElementById(\'packerNamePromptOverlay\').remove()" style="width:100%;padding:10px;background:transparent;color:#666;border:none;font-size:13px;font-weight:700;cursor:pointer">Skip for now</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const inp = document.getElementById('packerNameInput'); if (inp) inp.focus(); }, 120);
+}
+function submitPackerName() {
+  const inp = document.getElementById('packerNameInput');
+  const name = inp ? String(inp.value || '').trim() : '';
+  if (!name) { showToast('Enter your name'); if (inp) inp.focus(); return; }
+  groundPackerName = name;
+  try { localStorage.setItem('mbd_ground_packer', name); } catch(e) {}
+  const ov = document.getElementById('packerNamePromptOverlay');
+  if (ov) ov.remove();
+  showToast('✓ Welcome ' + name + ' — ready to pack');
 }
 
 // ── API wrapper ──────────────────────────────────────────
@@ -11381,7 +11417,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.88<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.89<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 
 </body>
 </html>
