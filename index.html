@@ -9680,9 +9680,6 @@ async function runGhostOrdersDiag() {
   lines.push('V1 order numbers:');
   lines.push('  ' + (v1Nums.join(', ') || '(none)'));
   lines.push('');
-  lines.push('Queue order numbers:');
-  lines.push('  ' + (qNums.join(', ') || '(none)'));
-  lines.push('');
   lines.push('In V1 but filtered out (cabinet/hold/ignored):');
   lines.push('  ' + (inV1Not.join(', ') || '(none)'));
   lines.push('');
@@ -9690,9 +9687,28 @@ async function runGhostOrdersDiag() {
     lines.push('⚠ In queue but NOT in V1 (bug — would need server fix):');
     lines.push('  ' + inQNot.join(', '));
   } else {
-    lines.push('✓ Every queue row is in V1 awaiting. If iPad shows more,');
-    lines.push('  it\'s localStorage cache — hit ⟳ Refresh on Ground.');
+    lines.push('✓ Every queue row is in V1 awaiting.');
   }
+  lines.push('');
+  lines.push('── Queue row detail ──');
+  (res.queue_orders || []).forEach(o => {
+    lines.push('');
+    lines.push('Order #' + o.order_number + '  (V1 orderId=' + o.order_id + ')');
+    lines.push('  Customer: ' + (o.customer_name || '(none)') + '   State: ' + (o.state || '?'));
+    lines.push('  Items: ' + (o.items || []).join(', '));
+    if (o.v1) {
+      lines.push('  V1 status: ' + (o.v1.orderStatus || '(none)'));
+      lines.push('  V1 orderDate: ' + (o.v1.orderDate || '?').slice(0, 10) + '   modify: ' + String(o.v1.modifyDate || '?').slice(0, 10));
+      lines.push('  V1 storeId: ' + (o.v1.storeId || '?') + '   source: ' + (o.v1.source || '?'));
+      lines.push('  V1 customerEmail: ' + (o.v1.customerEmail || '(none)'));
+      lines.push('  V1 paymentMethod: ' + (o.v1.paymentMethod || '(none)') + '   total: $' + (o.v1.orderTotal || 0));
+      lines.push('  V1 tagIds: ' + ((o.v1.tagIds || []).join(',') || '(none)'));
+      lines.push('  V1 customField1: ' + (o.v1.customField1 || '(none)'));
+      lines.push('  V1 shipTo.company: ' + (o.v1.shipTo_company || '(none)'));
+    } else {
+      lines.push('  (no V1 match found — would be a bug)');
+    }
+  });
   el.textContent = lines.join('\n');
 }
 
@@ -11119,7 +11135,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.76</div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.77</div>
 
 </body>
 </html>
