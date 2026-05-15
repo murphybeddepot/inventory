@@ -2644,6 +2644,7 @@ async function refreshScheduleTab() {
       localStorage.setItem('mbd_attention_v1', JSON.stringify({
         stalled: res.stalled_total || 0,
         awaiting: awaitingCount,
+        holds: res.holds_total || 0,
         at: Date.now(),
       }));
     } catch(e) {}
@@ -3168,6 +3169,15 @@ async function openHoldsPanel(opts) {
     const dateStr = String(h.held_at || h.order_date || h.ship_date || '').slice(0, 10);
     const itemsList = (h.items || []).map(i => esc(i.qty + '× ' + i.sku)).join(', ');
     const total = h.order_total ? '<span style="color:#1A5C1A;font-weight:700">$' + Number(h.order_total).toLocaleString() + '</span>' : '';
+    // Resume action — only for orderpack_hold (calls resumeOrderFromHold).
+    // Beacon-held orders need clearing in ShipStation first (Bedrock can't
+    // override Beacon directly). PackingQueue cabinet holds — manager
+    // would use the existing cabinet flow.
+    const resumeBtn = (h.kind === 'orderpack_hold' && h.order_id)
+      ? '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:6px 12px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-top:8px">↩ Resume to queue</button>'
+      : (h.kind === 'beacon_hold'
+          ? '<div style="font-size:10px;color:#9C27B0;margin-top:6px;font-weight:700">↪ Clear in ShipStation (Beacon)</div>'
+          : '');
     return '<div style="padding:12px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
       +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">#' + esc(h.order_number) + '</span> ' + total + '</div>'
@@ -3178,8 +3188,21 @@ async function openHoldsPanel(opts) {
       + (itemsList ? '<div style="font-size:12px;color:#666;margin-top:4px">' + itemsList + '</div>' : '')
       + '<div style="font-size:11px;color:#888;font-style:italic;margin-top:6px">' + esc(h.hold_reason || '(no reason)') + '</div>'
       + (dateStr ? '<div style="font-size:10px;color:#aaa;margin-top:3px;font-family:monospace">' + dateStr + '</div>' : '')
+      + resumeBtn
       + '</div>';
   }).join('');
+}
+
+async function resumeHoldFromPanel_(orderId, orderNumber) {
+  if (!confirm('Resume #' + orderNumber + ' to the Ground queue?')) return;
+  try {
+    const res = await groundApi('resumeOrderFromHold', { orderId: Number(orderId) });
+    if (!res || !res.ok) { showToast('Resume failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ #' + orderNumber + ' resumed');
+    openHoldsPanel();
+  } catch (err) {
+    showToast('Resume error: ' + err.message);
+  }
 }
 
 // ── Tracking — recent shipments across all sources ────────
@@ -3304,7 +3327,7 @@ const _DAMAGE_UI_LIVES_IN_INDEX_HTML_ = true;
 function renderCabinetAttentionStrip_() {
   const el = document.getElementById('cabAttentionStrip');
   if (!el) return;
-  let attention = { stalled: 0, awaiting: 0 };
+  let attention = { stalled: 0, awaiting: 0, holds: 0 };
   try { attention = Object.assign(attention, JSON.parse(localStorage.getItem('mbd_attention_v1') || '{}')); } catch(e) {}
 
   const chips = [];
@@ -3313,6 +3336,9 @@ function renderCabinetAttentionStrip_() {
   }
   if (attention.awaiting > 0) {
     chips.push('<button onclick="openAwaitingCustomerList()" style="padding:6px 12px;background:linear-gradient(135deg,#3DBEFF,#005577);color:#fff;border:1px solid #3DBEFF;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-transform:uppercase">🔔 ' + attention.awaiting + ' AWAITING CUSTOMER</button>');
+  }
+  if (attention.holds > 0) {
+    chips.push('<button onclick="openHoldsPanel()" style="padding:6px 12px;background:linear-gradient(135deg,#9C27B0,#4A148C);color:#fff;border:1px solid #9C27B0;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-transform:uppercase">🚦 ' + attention.holds + ' ON HOLD</button>');
   }
   // Note: open-damage chip dropped in v9.73 — damage UI lives
   // inline in index.html and doesn't write a count to localStorage.
