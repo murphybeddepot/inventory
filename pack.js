@@ -3327,11 +3327,35 @@ const _DAMAGE_UI_LIVES_IN_INDEX_HTML_ = true;
 // / open damage counts from the most recent Schedule + Damage data
 // in localStorage. Read-only here; Schedule refresh + Damage Log
 // open are responsible for writing.
+// v9.86: total attention count for the version-pill red badge so
+// any tab shows the global "something needs attention" signal.
+function _attentionTotal_(a) {
+  return (a.stalled || 0) + (a.awaiting || 0) + (a.holds || 0) + (a.damageOpen || 0);
+}
+function _refreshVersionPillBadge_() {
+  const badge = document.getElementById('versionPillBadge');
+  if (!badge) return;
+  let attention = { stalled: 0, awaiting: 0, holds: 0, damageOpen: 0 };
+  try { attention = Object.assign(attention, JSON.parse(localStorage.getItem('mbd_attention_v1') || '{}')); } catch(e) {}
+  const total = _attentionTotal_(attention);
+  if (total > 0) {
+    badge.style.display = 'inline-block';
+    badge.textContent = total > 99 ? '99+' : String(total);
+  } else {
+    badge.style.display = 'none';
+  }
+}
+// Refresh badge every minute and on visibility change so the iPad
+// updates the dot without manual refresh.
+setInterval(_refreshVersionPillBadge_, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _refreshVersionPillBadge_(); });
+
 function renderCabinetAttentionStrip_() {
   const el = document.getElementById('cabAttentionStrip');
   if (!el) return;
   let attention = { stalled: 0, awaiting: 0, holds: 0, damageOpen: 0 };
   try { attention = Object.assign(attention, JSON.parse(localStorage.getItem('mbd_attention_v1') || '{}')); } catch(e) {}
+  _refreshVersionPillBadge_(); // any localStorage update also refreshes the pill badge
 
   const chips = [];
   if (attention.stalled > 0) {
