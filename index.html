@@ -431,7 +431,8 @@ body::before {
   font-size: 18px;
   font-weight: 900;
   letter-spacing: 2px;
-  padding: 12px 0;
+  padding: 14px 0;
+  min-height: 44px;
   background: linear-gradient(180deg, #1B1410 0%, #0E0907 100%);
   color: var(--text-dim);
   border: 1.5px solid var(--brass-dim);
@@ -1315,8 +1316,9 @@ input::placeholder, textarea::placeholder {
 
 <div id="tab-cabinets" class="panel active">
 
-  <!-- v9.68 cross-tab attention strip: stalled / awaiting customer / open damage -->
-  <div id="cabAttentionStrip" style="display:none;margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap"></div>
+  <!-- v9.68 cross-tab attention strip: stalled / awaiting customer / open damage
+       v9.75: transition fade so it doesn't jolt the page when populated -->
+  <div id="cabAttentionStrip" style="display:none;margin-bottom:12px;gap:6px;flex-wrap:wrap;transition:opacity .25s ease-out"></div>
 
   <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
   <div class="search-rig" style="margin-bottom:16px">
@@ -1324,9 +1326,9 @@ input::placeholder, textarea::placeholder {
       <span style="display:flex;align-items:center;gap:8px"><span class="brass-led"></span>FIND A CABINET</span>
       <span style="display:flex;gap:4px">
         <button onclick="openCabinetCameraScan()" type="button" class="keep-dark-text" title="Open camera to scan a barcode or take a photo"
-          style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;padding:8px 16px;font-size:14px;font-weight:900;letter-spacing:1.2px;cursor:pointer;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 -1px 2px rgba(0,0,0,.4);text-transform:uppercase;font-family:'Barlow Condensed','Barlow',sans-serif;min-height:36px">CAMERA</button>
+          style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;padding:8px 16px;font-size:14px;font-weight:900;letter-spacing:1.2px;cursor:pointer;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 -1px 2px rgba(0,0,0,.4);text-transform:uppercase;font-family:'Barlow Condensed','Barlow',sans-serif;min-height:44px">CAMERA</button>
         <button id="cabKeypadToggle" onclick="toggleCabKeypad()" type="button" class="keep-dark-text" title="Switch to typing on the iOS keyboard"
-          style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;padding:8px 16px;font-size:14px;font-weight:900;letter-spacing:1.2px;cursor:pointer;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 -1px 2px rgba(0,0,0,.4);text-transform:uppercase;font-family:'Barlow Condensed','Barlow',sans-serif;min-height:36px">TYPE</button>
+          style="background:linear-gradient(180deg,#E4E7EC,#989EA7);border:1px solid #2A2A2A;color:#1a1a1a;padding:8px 16px;font-size:14px;font-weight:900;letter-spacing:1.2px;cursor:pointer;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 -1px 2px rgba(0,0,0,.4);text-transform:uppercase;font-family:'Barlow Condensed','Barlow',sans-serif;min-height:44px">TYPE</button>
       </span>
     </div>
     <input type="text" id="cabSearchInput" placeholder="—————"
@@ -2579,6 +2581,36 @@ function showToast(msg) {
   t.textContent=msg; t.classList.add('show');
   clearTimeout(t._tid);
   t._tid=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+// v9.75 Tav: scan-rejection toast should look distinctly bad — red,
+// big, undeniable. Used by Ground when recordPackageScanned rejects
+// a scan that doesn't require manager approval. Auto-dismisses at
+// 4s instead of the toast's 2.2s; haptic + error beep fire too.
+function showRejectionBanner(title, detail) {
+  let el = document.getElementById('rejectionBanner');
+  if (el) el.remove();
+  el = document.createElement('div');
+  el.id = 'rejectionBanner';
+  el.style.cssText =
+    'position:fixed;left:14px;right:14px;top:14px;z-index:10000;'
+    + 'background:linear-gradient(180deg,#FF5252,#B71C1C);color:#fff;'
+    + 'padding:18px 20px;border:3px solid #fff;border-radius:14px;'
+    + 'box-shadow:0 8px 32px rgba(0,0,0,.45),0 0 0 4px rgba(255,82,82,.35);'
+    + 'font-family:\'Barlow Condensed\',Arial,sans-serif;'
+    + 'animation:rejectionShake .35s ease-out';
+  el.innerHTML =
+    '<div style="font-size:28px;font-weight:900;letter-spacing:1px;text-transform:uppercase;line-height:1.1">⛔ ' + (title || 'Scan Rejected') + '</div>'
+    + (detail ? '<div style="font-size:15px;font-weight:700;margin-top:6px;opacity:.95;font-family:\'Helvetica\',Arial,sans-serif">' + detail + '</div>' : '');
+  document.body.appendChild(el);
+  if (typeof FB !== 'undefined') { try { FB.error && FB.error(); } catch(e) {} }
+  setTimeout(() => { if (el && el.parentNode) el.remove(); }, 4000);
+}
+if (!document.getElementById('rejectionShakeStyle')) {
+  const s = document.createElement('style');
+  s.id = 'rejectionShakeStyle';
+  s.textContent = '@keyframes rejectionShake{0%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}100%{transform:translateX(0)}}';
+  document.head.appendChild(s);
 }
 
 // ── ITEM CARD ─────────────────────────────────────
@@ -10695,6 +10727,7 @@ async function onGroundBoxScanned(scannedCode) {
   let targetIdx = groundCurrentOrder.packages.findIndex(
     p => !p.scanned && String(p.box_sku) === String(scannedCode)
   );
+  const exactMatch = targetIdx !== -1; // v9.75 — flag for optimistic UI
   if (targetIdx === -1) {
     targetIdx = groundCurrentOrder.packages.findIndex(p => !p.scanned);
   }
@@ -10704,6 +10737,20 @@ async function onGroundBoxScanned(scannedCode) {
   }
   const target = groundCurrentOrder.packages[targetIdx];
 
+  // v9.75 Indigo: optimistic UI. When the scanned code exactly matches
+  // an unscanned outer box's SKU, mark it scanned + render immediately
+  // — packer sees the green check before the network round-trip.
+  // Server still validates; on rejection we roll back and show the
+  // loud red banner. Inside-items / alias / unknown stay network-first
+  // since we can't predict the right affected_sequence client-side.
+  let optimisticApplied = false;
+  if (exactMatch) {
+    target.scanned = true;
+    optimisticApplied = true;
+    renderGroundPackBoxes();
+    FB.success && FB.success();
+  }
+
   try {
     const data = await groundApi('recordScan', {
       orderId: groundCurrentOrder.orderId,
@@ -10712,12 +10759,16 @@ async function onGroundBoxScanned(scannedCode) {
     });
 
     if (!data.ok && data.requires_manager_approval) {
+      // Roll back optimistic mark — manager needs to approve first.
+      if (optimisticApplied) { target.scanned = false; renderGroundPackBoxes(); }
       showManagerApprovalDialog(data, scannedCode, target);
       return;
     }
 
     if (!data.ok) {
-      showToast('Scan rejected: ' + (data.error || 'unknown'));
+      // Roll back optimistic mark + show loud red banner.
+      if (optimisticApplied) { target.scanned = false; renderGroundPackBoxes(); }
+      showRejectionBanner('Scan Rejected', data.error || 'Unknown');
       return;
     }
 
@@ -10767,7 +10818,9 @@ async function onGroundBoxScanned(scannedCode) {
       setTimeout(() => printGroundLabel(printIdx), 400);
     }
   } catch (e) {
-    showToast('Network error: ' + e.message);
+    // Roll back optimistic mark on network error.
+    if (optimisticApplied) { target.scanned = false; renderGroundPackBoxes(); }
+    showRejectionBanner('Network Error', e.message);
   }
 }
 
@@ -11004,7 +11057,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.74"></script>
+<script src="./pack.js?v=9.75"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11013,7 +11066,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.74</div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.75</div>
 
 </body>
 </html>
