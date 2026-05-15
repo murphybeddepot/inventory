@@ -89,8 +89,34 @@ function paintPackQueue_(rows, fromCache) {
     list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">Today\'s pack list is empty.<br><span style="font-size:12px">Tap <strong>+ Add to List</strong> above to load today\'s orders by ship date.</span></div>';
     return;
   }
-  rows.forEach(r => {
-    list.appendChild(renderPackCard_(r));
+  // v9.80 same day-bucket pattern as Pre-Pack — anchors the active
+  // list by ship date so cross-day Pack lists don't read as a blob.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const weekOut = new Date(today.getTime() + 7 * 86400000);
+  const bucketOf = (iso) => {
+    if (!iso) return 'No Date';
+    const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+    if (d < today) return 'Past';
+    if (d < tomorrow) return 'Today';
+    if (d < new Date(today.getTime() + 2 * 86400000)) return 'Tomorrow';
+    if (d < weekOut) return 'This Week';
+    return 'Later';
+  };
+  const BUCKET_ORDER = ['Past', 'Today', 'Tomorrow', 'This Week', 'Later', 'No Date'];
+  const BUCKET_ACCENT = { Past: '#ff5252', Today: '#00e676', Tomorrow: '#FFB300', 'This Week': '#42a5f5', Later: '#9e9e9e', 'No Date': '#666' };
+  const grouped = { Past: [], Today: [], Tomorrow: [], 'This Week': [], Later: [], 'No Date': [] };
+  rows.forEach(r => grouped[bucketOf(r.ship_date)].push(r));
+  BUCKET_ORDER.forEach(bucket => {
+    if (!grouped[bucket].length) return;
+    const accent = BUCKET_ACCENT[bucket];
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'display:flex;align-items:center;gap:10px;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid ' + accent + '40';
+    hdr.innerHTML =
+      '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:' + accent + ';letter-spacing:1.5px;text-transform:uppercase">' + bucket + '</span>'
+      + '<span style="font-size:11px;color:var(--text-dim);font-weight:700">' + grouped[bucket].length + ' order' + (grouped[bucket].length === 1 ? '' : 's') + '</span>';
+    list.appendChild(hdr);
+    grouped[bucket].forEach(r => list.appendChild(renderPackCard_(r)));
   });
   if (fromCache) {
     const tag = document.createElement('div');
@@ -126,11 +152,13 @@ function renderPackCard_(r) {
     ? '<span style="color:#00e676;font-weight:700" title="HW box prepped by '+esc(String(r.hardware_packed_by||''))+'">· 🔧 HW READY</span>'
     : '<span style="color:#ff9800;font-weight:700" title="Hardware pre-pack pending — see Pre-Pack tab">· 🔧 HW PENDING</span>';
 
-  // Status chip line text
+  // Status chip line text. Roo: truncate long device ids so they
+  // don't blow out the chip width on phones (16-char cap).
+  const truncName = (s) => { const v = String(s || ''); return v.length > 16 ? v.slice(0, 16) + '…' : v; };
   let stateLine = '';
-  if (status === 'in_progress') stateLine = packerMine ? 'YOU\'RE PACKING' : 'PACKING — ' + (r.started_by || 'other');
+  if (status === 'in_progress') stateLine = packerMine ? 'YOU\'RE PACKING' : 'PACKING — ' + truncName(r.started_by || 'other');
   else if (status === 'ready_for_check') stateLine = 'READY FOR CHECKER';
-  else if (status === 'checking') stateLine = checkerMine ? 'YOU\'RE CHECKING' : 'CHECKING — ' + (r.checker_started_by || 'other');
+  else if (status === 'checking') stateLine = checkerMine ? 'YOU\'RE CHECKING' : 'CHECKING — ' + truncName(r.checker_started_by || 'other');
   else if (status === 'packed') stateLine = 'PACKED — AWAITING SHIP';
 
   const isSelected = _packBulkSelection.has(String(r.order_number));
@@ -2011,7 +2039,39 @@ function paintPrePackQueue_(rows, fromCache) {
     list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No hardware to pre-pack in this horizon.<br><span style="font-size:12px">Switch to <strong>All</strong> or <strong>Tomorrow</strong> to see upcoming jobs.</span></div>';
     return;
   }
-  rows.forEach(r => { list.appendChild(renderPrePackCard_(r)); });
+  // v9.80 Sable+Tav: group by ship-date bucket (Today / Tomorrow /
+  // This Week / Later) so Zoe can anchor scanning by day, not just
+  // scroll a flat list. Bucket headers use the same vocabulary as
+  // the Tracking view.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const weekOut = new Date(today.getTime() + 7 * 86400000);
+  const bucketOf = (iso) => {
+    if (!iso) return 'No Date';
+    const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+    if (d < today) return 'Past';
+    if (d < tomorrow) return 'Today';
+    if (d < new Date(today.getTime() + 2 * 86400000)) return 'Tomorrow';
+    if (d < weekOut) return 'This Week';
+    return 'Later';
+  };
+  const BUCKET_ORDER = ['Past', 'Today', 'Tomorrow', 'This Week', 'Later', 'No Date'];
+  const BUCKET_ACCENT = { Past: '#ff5252', Today: '#00e676', Tomorrow: '#FFB300', 'This Week': '#42a5f5', Later: '#9e9e9e', 'No Date': '#666' };
+  const grouped = { Past: [], Today: [], Tomorrow: [], 'This Week': [], Later: [], 'No Date': [] };
+  rows.forEach(r => grouped[bucketOf(r.ship_date)].push(r));
+
+  BUCKET_ORDER.forEach(bucket => {
+    if (!grouped[bucket].length) return;
+    const hdr = document.createElement('div');
+    const accent = BUCKET_ACCENT[bucket];
+    hdr.style.cssText = 'display:flex;align-items:center;gap:10px;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid ' + accent + '40';
+    hdr.innerHTML =
+      '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:' + accent + ';letter-spacing:1.5px;text-transform:uppercase">' + bucket + '</span>'
+      + '<span style="font-size:11px;color:var(--text-dim);font-weight:700">' + grouped[bucket].length + ' order' + (grouped[bucket].length === 1 ? '' : 's') + '</span>';
+    list.appendChild(hdr);
+    grouped[bucket].forEach(r => list.appendChild(renderPrePackCard_(r)));
+  });
+
   if (fromCache) {
     const tag = document.createElement('div');
     tag.style.cssText = 'font-size:10px;color:var(--text-dim);text-align:center;margin-top:6px;opacity:.6';
@@ -2048,6 +2108,15 @@ function renderPrePackCard_(r) {
     ? ('✓ HW READY · ' + esc(String(r.hardware_packed_by || '').slice(0, 14)))
     : (scannedTotal > 0 ? 'IN PROGRESS · ' + scannedTotal + '/' + hwTotalQty : 'PENDING');
 
+  // v9.80 Sable: thin progress bar under the state chip — at-a-glance
+  // "how close to done" without parsing 3/14 each card.
+  const progressPct = (!hwReady && hwTotalQty > 0)
+    ? Math.min(100, Math.round((scannedTotal / hwTotalQty) * 100))
+    : (hwReady ? 100 : 0);
+  const progressBar = (scannedTotal > 0 || hwReady)
+    ? '<div style="margin-top:6px;height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden"><div style="height:100%;width:' + progressPct + '%;background:' + accent + ';transition:width .25s ease"></div></div>'
+    : '';
+
   card.innerHTML = `
     <div style="flex:0 0 96px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:16px">
       <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;color:var(--text-dim);text-transform:uppercase">Ship</div>
@@ -2061,6 +2130,7 @@ function renderPrePackCard_(r) {
         <span style="color:var(--text-dim)">· ${hwSkuCount} HW SKU${hwSkuCount===1?'':'s'} · ${hwTotalQty} pc${hwTotalQty===1?'':'s'}</span>
         <span style="margin-left:auto;padding:3px 10px;font-size:12px;font-weight:900;letter-spacing:1.2px;background:${accent}22;color:${accent};border:1px solid ${accent}55;border-radius:999px">${stateLabel}</span>
       </div>
+      ${progressBar}
     </div>
     <div style="color:var(--text-dim);font-size:20px">›</div>
   `;
