@@ -9576,6 +9576,8 @@ function openSystemStatus() {
     + row('Device ID', deviceId.slice(0, 18) || '— none —', !!deviceId)
     + '<div id="systemStatusServer" style="font-size:11px;color:#888;padding:8px 0 6px;text-align:right;font-family:monospace">server: …</div>'
     + (ok ? '<div id="systemStatusDayPlan" style="margin:6px 0 14px"></div>' : '')
+    + (ok ? '<button onclick="runGhostOrdersDiag()" style="width:100%;padding:10px;background:#fff;color:#FFB300;border:1.5px solid #FFB300;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;margin-bottom:10px;letter-spacing:.5px;text-transform:uppercase">🔍 Diagnose Ground Queue vs ShipStation</button>' : '')
+    + (ok ? '<div id="systemStatusDiag" style="font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:0;margin-bottom:10px;max-height:280px;overflow-y:auto;display:none;white-space:pre-wrap;word-break:break-word"></div>' : '')
     + (ok
         ? '<button onclick="openGroundSettingsFromStatus()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px">Edit Settings</button>'
         : '<button onclick="openSetupPinPrompt()" style="width:100%;padding:16px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:900;cursor:pointer;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">🔑 Enter Setup PIN</button>'
@@ -9641,6 +9643,57 @@ function openSystemStatus() {
     const el = document.getElementById('systemStatusServer');
     if (el) el.textContent = '';
   }
+}
+
+// v9.76: Diagnostic to compare Ground queue (post-filter) vs V1
+// awaiting from inside the System Status modal. Used to triage
+// "ghost orders" that look stuck on the iPad but aren't actually
+// in ShipStation awaiting.
+async function runGhostOrdersDiag() {
+  const el = document.getElementById('systemStatusDiag');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.padding = '10px 12px';
+  el.textContent = 'Running diagnostic…';
+  let res;
+  try {
+    res = await groundApi('diagGroundQueueVsV1', {});
+  } catch (err) {
+    el.style.color = '#c33';
+    el.textContent = 'Error: ' + (err.message || 'unknown');
+    return;
+  }
+  if (!res || !res.ok) {
+    el.style.color = '#c33';
+    el.textContent = 'Error: ' + ((res && res.error) || 'unknown');
+    return;
+  }
+  el.style.color = '#1a1a1a';
+  const v1Nums = (res.v1_orders || []).map(o => o.orderNumber).sort();
+  const qNums = (res.queue_orders || []).map(o => o.order_number).sort();
+  const inV1Not = (res.in_v1_but_not_queue || []).sort();
+  const inQNot = (res.in_queue_but_not_v1 || []).sort();
+  const lines = [];
+  lines.push('V1 awaiting count: ' + res.v1_total);
+  lines.push('Queue count:       ' + res.queue_total);
+  lines.push('');
+  lines.push('V1 order numbers:');
+  lines.push('  ' + (v1Nums.join(', ') || '(none)'));
+  lines.push('');
+  lines.push('Queue order numbers:');
+  lines.push('  ' + (qNums.join(', ') || '(none)'));
+  lines.push('');
+  lines.push('In V1 but filtered out (cabinet/hold/ignored):');
+  lines.push('  ' + (inV1Not.join(', ') || '(none)'));
+  lines.push('');
+  if (inQNot.length) {
+    lines.push('⚠ In queue but NOT in V1 (bug — would need server fix):');
+    lines.push('  ' + inQNot.join(', '));
+  } else {
+    lines.push('✓ Every queue row is in V1 awaiting. If iPad shows more,');
+    lines.push('  it\'s localStorage cache — hit ⟳ Refresh on Ground.');
+  }
+  el.textContent = lines.join('\n');
 }
 
 function openGroundSettingsFromStatus() {
@@ -11066,7 +11119,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.75</div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.76</div>
 
 </body>
 </html>
