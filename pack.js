@@ -3490,8 +3490,12 @@ async function paintScheduleDayPlan_(opts) {
       + '</' + tag + '>';
   };
   el.style.display = 'block';
+  const savedToday = c.est_saved_today_usd || 0;
+  const savedChip = savedToday > 0
+    ? '<span style="margin-left:6px;padding:1px 8px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.5px">+$' + savedToday.toLocaleString() + ' saved</span>'
+    : '';
   el.innerHTML =
-    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:10px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px">Today\'s Activity</span><span style="font-size:10px;color:var(--text-dim)">' + esc(c.date || '') + (res.cached ? ' · cached' : '') + '</span><button onclick="refreshDayPlan_()" title="Force-refresh (bypass 60s cache)" style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:2px 6px">↻</button></div>'
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:10px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px">Today\'s Activity</span><span style="font-size:10px;color:var(--text-dim)">' + esc(c.date || '') + (res.cached ? ' · cached' : '') + '</span>' + savedChip + '<button onclick="refreshDayPlan_()" title="Force-refresh (bypass 60s cache)" style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:2px 6px">↻</button></div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
     +   cell('Cab Packed', c.cabinet_packed, '#003087')
     +   cell('Cab Shipped', c.cabinet_shipped, '#1A5C1A', 'openTrackingPanel({source:\'cabinet\',days:7})')
