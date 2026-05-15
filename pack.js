@@ -4037,6 +4037,21 @@ function renderLookupHit_(hit) {
   return '<pre style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:11px;color:var(--text)">' + esc(JSON.stringify(hit, null, 2)) + '</pre>';
 }
 
+// v9.94: mirror of server-side _trackingUrlFor_ for client-side
+// inference. Used by Lookup to turn tracking numbers into clickable
+// carrier links. Falls back to Google search if shape unrecognized.
+function _trackingUrlClient_(tracking, carrier) {
+  if (!tracking) return '';
+  const t = String(tracking).trim();
+  const c = String(carrier || '').toLowerCase();
+  if (c.indexOf('fedex') !== -1) return 'https://www.fedex.com/fedextrack/?trknbr=' + encodeURIComponent(t);
+  if (c.indexOf('ups') !== -1) return 'https://www.ups.com/track?tracknum=' + encodeURIComponent(t);
+  if (c.indexOf('usps') !== -1 || c.indexOf('stamps') !== -1) return 'https://tools.usps.com/go/TrackConfirmAction?qtc_tLabels1=' + encodeURIComponent(t);
+  if (/^1Z[0-9A-Z]{16}$/i.test(t)) return 'https://www.ups.com/track?tracknum=' + encodeURIComponent(t);
+  if (/^\d{12,22}$/.test(t)) return 'https://www.fedex.com/fedextrack/?trknbr=' + encodeURIComponent(t);
+  return 'https://www.google.com/search?q=' + encodeURIComponent(t + ' tracking');
+}
+
 function _lkFld(label, value, opts) {
   if (value == null || value === '') return '';
   const mono = opts && opts.mono ? "font-family:'JetBrains Mono',monospace;" : '';
@@ -4128,7 +4143,28 @@ function openRemakeCreateFromLookup(encoded) {
 }
 
 function renderLookupGround_(h) {
-  const pkgRows = (h.packages || []).map(p => '<div style="display:flex;gap:8px;padding:4px 0;font-size:12px"><div style="flex:0 0 40px;color:var(--text-dim);font-weight:700">#' + (p.sequence || '?') + '</div><div style="flex:1;color:var(--text)">' + esc(p.box_sku || '') + (p.label_text ? ' <span style="color:var(--text-dim);font-size:10px">(' + esc(p.label_text) + ')</span>' : '') + '</div><div style="font-family:\'JetBrains Mono\',monospace;color:#FFB300;font-size:11px">' + esc(p.tracking_number || '—') + '</div><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase">' + esc(p.scan_status || '') + '</div></div>').join('');
+  // v9.94: per-package tracking now renders as a carrier link.
+  const pkgRows = (h.packages || []).map(p => {
+    const tn = String(p.tracking_number || '').trim();
+    const tnUrl = tn ? _trackingUrlClient_(tn, p.carrier || '') : '';
+    const tnHtml = tn
+      ? (tnUrl
+          ? '<a href="' + esc(tnUrl) + '" target="_blank" onclick="event.stopPropagation()" style="font-family:\'JetBrains Mono\',monospace;color:#FFB300;font-size:11px;text-decoration:underline">' + esc(tn) + ' ↗</a>'
+          : '<span style="font-family:\'JetBrains Mono\',monospace;color:#FFB300;font-size:11px">' + esc(tn) + '</span>')
+      : '<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);font-size:11px">—</span>';
+    return '<div style="display:flex;gap:8px;padding:4px 0;font-size:12px">'
+      + '<div style="flex:0 0 40px;color:var(--text-dim);font-weight:700">#' + (p.sequence || '?') + '</div>'
+      + '<div style="flex:1;color:var(--text)">' + esc(p.box_sku || '') + (p.label_text ? ' <span style="color:var(--text-dim);font-size:10px">(' + esc(p.label_text) + ')</span>' : '') + '</div>'
+      + tnHtml
+      + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase">' + esc(p.scan_status || '') + '</div>'
+      + '</div>';
+  }).join('');
+  // Master tracking → carrier link, opens in new tab.
+  const masterTr = String(h.master_tracking || '').trim();
+  const masterTrUrl = masterTr ? _trackingUrlClient_(masterTr, '') : '';
+  const masterTrFld = masterTr
+    ? '<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06)"><div style="flex:0 0 130px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;padding-top:1px">Master tracking</div><div style="flex:1;font-size:13px;color:var(--text);font-family:\'JetBrains Mono\',monospace;word-break:break-word"><a href="' + esc(masterTrUrl) + '" target="_blank" style="color:#42a5f5;text-decoration:underline">' + esc(masterTr) + ' ↗</a><button onclick="_lkCopy_(this,\'' + esc(masterTr) + '\')" title="Copy" style="background:transparent;border:1px solid rgba(255,255,255,.15);color:var(--text-dim);font-size:10px;padding:1px 7px;border-radius:5px;cursor:pointer;margin-left:6px;font-weight:700">📋</button></div></div>'
+    : '';
   const body = ''
     + _lkFld('Order #', h.order_number, { mono: true })
     + _lkFld('V1 order id', h.order_id, { mono: true })
@@ -4141,7 +4177,7 @@ function renderLookupGround_(h) {
     + _lkFld('Pack status', h.pack_status)
     + _lkFld('Hold reason', h.hold_reason)
     + _lkFld('Locked by', h.locked_by ? (h.locked_by + (h.locked_at ? ' at ' + String(h.locked_at).slice(0, 16) : '')) : '—')
-    + _lkFld('Master tracking', h.master_tracking, { mono: true })
+    + masterTrFld
     + _lkFld('Pack started', h.pack_started_at ? String(h.pack_started_at).slice(0, 16) : '—')
     + _lkFld('Pack complete', h.pack_completed_at ? String(h.pack_completed_at).slice(0, 16) : '—')
     + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—')
