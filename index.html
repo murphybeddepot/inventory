@@ -6833,12 +6833,30 @@ function cabPickPerson(btn, targetId) {
 
 // Default Apps Script web app URL — hard-wired so devices sync without setup.
 // Can still be overridden via Settings (saved override wins over this default).
-const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzVbS4Ofd3ScWvzyw5FUtCk5rtYx61GcNFB8GFdsnlB33WnDJssPj8L8LF66w8dGKCt/exec';
+// v9.88 fix: this points at the **MBD Fulfillment Notifier** project
+// (scriptId 109yQi...) which is the project that actually handles
+// {type:'cabinetSync'} / {type:'itemsSync'} POSTs — not the
+// orchestrator. Pointing at the orchestrator caused 'Sync failed:
+// Unauthorized' on Jonah's phone after PIN provisioning because the
+// orchestrator's auth gate rejects un-secret'd payloads before the
+// dispatcher sees them. The Notifier has no auth gate by design.
+// If we ever consolidate the two scripts into one, this URL goes
+// back to the orchestrator AND auth needs adding to cabinetSync.
+const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbw3fT2XeFyTkgo2AT0UoXNEs1jwrFCBit7D7Uubmp7H-NlReV8vwa-Bn9oMjC8soH6n/exec';
 
 let cabSyncUrl = DEFAULT_SYNC_URL;
 try {
   const saved = localStorage.getItem('mbd_sync_url');
-  if (saved) cabSyncUrl = saved;
+  // v9.88 migration: if a device has the OLD (broken) saved override
+  // pointing at the orchestrator deployment, clear it so the new
+  // DEFAULT_SYNC_URL takes effect. Otherwise Jonah's phone keeps
+  // hitting orchestrator → Unauthorized forever.
+  const BAD_OLD_URL = 'https://script.google.com/macros/s/AKfycbzVbS4Ofd3ScWvzyw5FUtCk5rtYx61GcNFB8GFdsnlB33WnDJssPj8L8LF66w8dGKCt/exec';
+  if (saved === BAD_OLD_URL) {
+    try { localStorage.removeItem('mbd_sync_url'); } catch(e) {}
+  } else if (saved) {
+    cabSyncUrl = saved;
+  }
 } catch(e) {}
 // Auto-sync is on by default (so a fresh device starts syncing immediately
 // without requiring a trip to Settings). Users can disable in Settings.
@@ -6896,6 +6914,11 @@ async function syncCabinetsNow(silent) {
       body: JSON.stringify({
         type: 'cabinetSync',
         cabinets: cabinets,
+        // v9.88: include GROUND_SECRET so the orchestrator's auth
+        // gate (which doesn't recognize `type:`-keyed requests) lets
+        // this through. Was the cause of Jonah's "Sync failed:
+        // Unauthorized" after PIN provisioning.
+        secret: (typeof GROUND_SECRET !== 'undefined') ? GROUND_SECRET : '',
       }),
     });
 
@@ -6982,6 +7005,8 @@ async function syncItemsNow(silent) {
       body: JSON.stringify({
         type: 'itemsSync',
         items: items,
+        // v9.88: include GROUND_SECRET for auth gate (same fix as cabinet sync).
+        secret: (typeof GROUND_SECRET !== 'undefined') ? GROUND_SECRET : '',
       }),
     });
 
@@ -11347,7 +11372,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.87"></script>
+<script src="./pack.js?v=9.88"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11356,7 +11381,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.87<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.88<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 
 </body>
 </html>
