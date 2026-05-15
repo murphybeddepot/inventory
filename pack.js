@@ -3117,6 +3117,49 @@ async function scheduleReprintFreightLabel(orderNumber) {
   }
 }
 
+// v10.4: export the currently-loaded schedule as a CSV download.
+// Pure client-side from _scheduleCache — no server call, no risk.
+// Kim books freight and sometimes wants the week in a spreadsheet.
+function exportScheduleCsv_() {
+  const cache = _scheduleCache;
+  if (!cache || !cache.days || !cache.days.length) {
+    showToast('No schedule loaded — tap Refresh first');
+    return;
+  }
+  const rows = [['Ship Date', 'Source', 'Order #', 'Customer', 'State', 'Carrier', 'Status', 'Booker', 'Booking Ref', 'Customer Ready', 'Stalled Reasons']];
+  cache.days.forEach(d => {
+    (d.orders || []).forEach(o => {
+      rows.push([
+        o.ship_date || '',
+        o.source || '',
+        o.order_number || '',
+        o.customer_name || '',
+        o.state || '',
+        o.carrier_display || o.carrier_key || '',
+        o.status || '',
+        o.booker || '',
+        o.booking_ref || '',
+        o.customer_ready ? 'YES' : '',
+        (o.stall_reasons || []).join('; '),
+      ]);
+    });
+  });
+  const csv = rows.map(r => r.map(cell => {
+    const s = String(cell == null ? '' : cell);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(',')).join('\r\n');
+  const today = (cache.today || new Date().toISOString().slice(0, 10));
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'bedrock-schedule-' + today + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+  showToast('✓ Exported ' + (rows.length - 1) + ' orders to CSV');
+}
+
 function _scheduleDayName_(iso) {
   const d = new Date(iso + 'T12:00:00');
   return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
