@@ -47,6 +47,8 @@ function renderPackTab() {
 async function refreshPackQueue() {
   const statusEl = document.getElementById('packQueueStatus');
   statusEl.textContent = 'Loading…';
+  // v9.99: parallel Day Plan paint into the Pack tab strip.
+  paintDayPlanInto_('packDayPlan');
   // Only show the big loading card if we don't have a cached list to
   // show — otherwise the cache paints first and the user sees the
   // small "Loading…" status as a quiet refresh indicator, which is
@@ -2017,6 +2019,9 @@ async function refreshPrePackQueue() {
   const statusEl = document.getElementById('prePackQueueStatus');
   statusEl.textContent = 'Loading…';
   renderPrePackLoadingState_('Loading ' + _prePackHorizon + ' queue…');
+  // v9.99: paint Day Plan strip in parallel (fire-and-forget — server
+  // cache means it's usually a no-op after the first tab visit).
+  paintDayPlanInto_('prePackDayPlan');
   try {
     const res = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
     if (!res || !res.ok) {
@@ -3475,15 +3480,25 @@ async function openRemakesPanel(statusFilter) {
 }
 
 function refreshDayPlan_() {
-  paintScheduleDayPlan_({ forceRefresh: true });
+  // v9.99: refresh all three strips (Schedule + Pre-Pack + Pack) so a
+  // tap on any strip's ↻ button surfaces fresh data on every tab.
+  paintDayPlanInto_('scheduleDayPlan', { forceRefresh: true });
+  paintDayPlanInto_('prePackDayPlan', { forceRefresh: true });
+  paintDayPlanInto_('packDayPlan', { forceRefresh: true });
   showToast('Refreshing day plan…');
 }
 
 // Render today's totals at the top of Schedule. Fire-and-forget,
 // stays hidden if the fetch fails or returns nothing.
+// v9.99: refactored to accept a target element so Pre-Pack and Pack
+// tabs can render the same strip via paintDayPlanInto_().
 async function paintScheduleDayPlan_(opts) {
+  return paintDayPlanInto_('scheduleDayPlan', opts);
+}
+
+async function paintDayPlanInto_(targetElId, opts) {
   opts = opts || {};
-  const el = document.getElementById('scheduleDayPlan');
+  const el = document.getElementById(targetElId);
   if (!el) return;
   let res;
   const payload = opts.forceRefresh ? { no_cache: true } : {};
