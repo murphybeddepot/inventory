@@ -9754,6 +9754,7 @@ function openSystemStatus() {
     + '<div id="systemStatusServer" style="font-size:11px;color:#888;padding:8px 0 6px;text-align:right;font-family:monospace">server: …</div>'
     + (ok ? '<div id="systemStatusDayPlan" style="margin:6px 0 14px"></div>' : '')
     + (ok ? '<div id="systemStatusIssues" style="margin-bottom:10px"></div>' : '')
+    + (ok ? '<div id="systemStatusReleases" style="margin-bottom:10px"></div>' : '')
     + (ok ? '<div style="display:flex;gap:6px;margin-bottom:10px"><button onclick="runHealthCheck_()" style="flex:1;padding:10px;background:#fff;color:#00C853;border:1.5px solid #00C853;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🩺 Health Check</button><button onclick="runGhostOrdersDiag()" style="flex:1;padding:10px;background:#fff;color:#FFB300;border:1.5px solid #FFB300;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🔍 Ghost Orders</button></div>' : '')
     + (ok ? '<div id="systemStatusDiag" style="font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:0;margin-bottom:10px;max-height:280px;overflow-y:auto;display:none;white-space:pre-wrap;word-break:break-word"></div>' : '')
     + (ok
@@ -9783,6 +9784,8 @@ function openSystemStatus() {
     // v9.85: render local issue ring buffer (synchronous read from
     // localStorage; no network call needed).
     renderSystemStatusIssues_();
+    // v10.1: fetch + render recent releases (the BedrockReleases tab)
+    renderSystemStatusReleases_();
     // v9.57: Day plan card — fire-and-forget aggregate of today.
     // v9.66: shares the no_cache escape-hatch + cached indicator with
     // the Schedule strip via window._sysStatusRefreshDayPlan.
@@ -10024,6 +10027,97 @@ async function copyIssueReport_() {
   } catch (e) {
     showToast('Clipboard blocked — open localStorage manually');
   }
+}
+
+// v10.1: render recent releases (Bedrock changelog) in System Status.
+// Pulls from listReleases endpoint. Most-recent first.
+async function renderSystemStatusReleases_() {
+  const el = document.getElementById('systemStatusReleases');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:11px;color:#999;padding:6px">Loading releases…</div>';
+  let res;
+  try { res = await groundApi('listReleases', { limit: 6 }); }
+  catch (e) { el.innerHTML = ''; return; }
+  if (!res || !res.ok || !res.releases || !res.releases.length) {
+    el.innerHTML = '';
+    return;
+  }
+  const DEPLOY_BG = { DEV: '#FF910022', STABLE: '#00C85322', BACKFILL: '#88888822' };
+  const DEPLOY_FG = { DEV: '#FF9100', STABLE: '#0a8a3f', BACKFILL: '#666' };
+  el.innerHTML =
+    '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px">'
+    + '<span style="font-size:10px;font-weight:900;color:#666;text-transform:uppercase;letter-spacing:1px">What\'s new (' + res.releases.length + ')</span>'
+    + '<button onclick="openReleasesPanel_()" style="background:transparent;border:none;color:#42a5f5;font-size:11px;font-weight:700;cursor:pointer;padding:2px 4px">See all →</button>'
+    + '</div>'
+    + res.releases.map(r => {
+        const t = new Date(r.released_at);
+        const when = (t.getMonth() + 1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+        const dep = String(r.deployment || '').toUpperCase();
+        const depPill = '<span style="background:' + (DEPLOY_BG[dep] || '#88888822') + ';color:' + (DEPLOY_FG[dep] || '#666') + ';padding:1px 6px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px;margin-right:6px">' + dep + '</span>';
+        const verPill = r.version ? '<span style="font-family:\'JetBrains Mono\',monospace;color:#003087;font-weight:900;margin-right:6px">' + r.version.replace(/[<>&"]/g,'') + '</span>' : '';
+        return '<div style="font-size:11px;padding:5px 8px;background:rgba(0,0,0,.03);border-radius:4px;margin-bottom:3px;line-height:1.3">'
+          + depPill + verPill
+          + '<span style="color:#888;font-family:monospace;font-size:10px;margin-right:6px">' + when + '</span>'
+          + '<span style="color:#1a1a1a">' + (r.subject || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])) + '</span>'
+          + '</div>';
+      }).join('');
+}
+
+// v10.1: full "See all" releases panel.
+async function openReleasesPanel_(opts) {
+  opts = opts || {};
+  const filter = String(opts.deployment || 'all');
+  const prior = document.getElementById('releasesPanelOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'releasesPanelOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10001;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;width:100%;max-width:720px;max-height:92vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">📜 Bedrock Releases</div>'
+    +   '<button onclick="document.getElementById(\'releasesPanelOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666;margin-bottom:12px">Every meaningful deploy. DEV = auto-advance on push. STABLE = manual promotion. Tap any row to see the full description.</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:12px">'
+    + ['all','STABLE','DEV','BACKFILL'].map(k => '<button onclick="openReleasesPanel_({deployment:\'' + k + '\'})" style="flex:1;padding:7px 4px;background:' + (k === filter ? '#003087' : '#f5f5f5') + ';color:' + (k === filter ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase">' + k + '</button>').join('')
+    + '</div>'
+    + '<div id="releasesPanelBody" style="min-height:60px">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const body = { limit: 100 };
+  if (filter !== 'all') body.deployment = filter;
+  let res;
+  try { res = await groundApi('listReleases', body); }
+  catch (err) { document.getElementById('releasesPanelBody').innerHTML = '<div style="color:#c33;padding:12px">Error: ' + esc(err.message) + '</div>'; return; }
+  if (!res || !res.ok || !res.releases || !res.releases.length) {
+    document.getElementById('releasesPanelBody').innerHTML = '<div style="color:#888;padding:18px;text-align:center;font-size:13px">No releases in this view.</div>';
+    return;
+  }
+  const DEPLOY_BG = { DEV: '#FF910022', STABLE: '#00C85322', BACKFILL: '#88888822' };
+  const DEPLOY_FG = { DEV: '#FF9100', STABLE: '#0a8a3f', BACKFILL: '#666' };
+  document.getElementById('releasesPanelBody').innerHTML = res.releases.map(r => {
+    const t = new Date(r.released_at);
+    const when = (t.getMonth() + 1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+    const dep = String(r.deployment || '').toUpperCase();
+    const tags = String(r.tags || '').split(',').filter(Boolean);
+    const tagPills = tags.map(t => '<span style="background:rgba(0,0,0,.05);padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700;color:#666;margin-right:3px">' + t + '</span>').join('');
+    const escSubj = (r.subject || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+    const escBody = (r.body || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+    return '<details style="padding:8px 10px;background:#fafafa;border-radius:6px;margin-bottom:4px;font-size:12px">'
+      + '<summary style="cursor:pointer;list-style:none">'
+      +   '<span style="background:' + (DEPLOY_BG[dep] || '#88888822') + ';color:' + (DEPLOY_FG[dep] || '#666') + ';padding:1px 6px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px;margin-right:6px">' + dep + '</span>'
+      +   (r.version ? '<span style="font-family:\'JetBrains Mono\',monospace;color:#003087;font-weight:900;margin-right:6px">' + r.version + '</span>' : '')
+      +   '<span style="color:#888;font-family:monospace;font-size:10px;margin-right:6px">' + when + '</span>'
+      +   '<span style="color:#1a1a1a">' + escSubj + '</span>'
+      +   (tags.length ? '<br><span style="margin-left:0;margin-top:3px;display:inline-block">' + tagPills + '</span>' : '')
+      + '</summary>'
+      + (escBody ? '<pre style="white-space:pre-wrap;word-break:break-word;font-size:11px;color:#444;margin:8px 0 0;font-family:inherit;line-height:1.5">' + escBody + '</pre>' : '')
+      + (r.commit_sha ? '<div style="font-size:10px;color:#aaa;margin-top:4px;font-family:monospace">' + r.commit_sha + ' · ' + (r.author || '?') + '</div>' : '')
+      + '</details>';
+  }).join('');
 }
 
 function openGroundSettingsFromStatus() {
@@ -11552,7 +11646,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.0"></script>
+<script src="./pack.js?v=10.1"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11561,7 +11655,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.0<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
