@@ -8870,7 +8870,35 @@ function damageRecordCardHtml_(r) {
     +     '<label style="font-weight:700;color:#444;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Parts due</label>'
     +     '<input type="date" value="'+esc(partsDue)+'" onchange="updateDamageField(\''+safeId+'\',\'parts_due_date\',this.value)" style="padding:7px 10px;border:1.5px solid #ccc;border-radius:6px;font-size:13px;font-weight:600;background:#fff">'
     +   '</div>'
+    // v9.91: link from damage record to Remake creation. When the
+    // damage path concludes 'customer needs a replacement', this
+    // button pre-fills the Remake form with cabinet # + notes.
+    +   '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed #eee">'
+    +     '<button onclick="openRemakeFromDamage_(\''+safeId+'\','+JSON.stringify(JSON.stringify({cabinet_num: r.cabinet_num, notes: r.notes, damage_id: r.damage_id, reported_by: r.reported_by})).replace(/"/g,'&quot;')+')" style="width:100%;padding:10px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🔧 Create Remake from this damage</button>'
+    +   '</div>'
     + '</div>';
+}
+
+// v9.91: open the Remake create modal pre-filled with damage
+// context — cabinet #, reported-by name, original notes go into
+// the reason field. CS still adds the SKU + customer info.
+function openRemakeFromDamage_(damageId, payload) {
+  let p = {};
+  try { p = JSON.parse(String(payload).replace(/&quot;/g, '"')); } catch(e) {}
+  if (typeof openRemakeCreate === 'function') openRemakeCreate();
+  setTimeout(() => {
+    const reasonEl = document.getElementById('rmkReason');
+    if (reasonEl) {
+      const lines = [];
+      if (p.cabinet_num) lines.push('Damage on cabinet ' + p.cabinet_num);
+      if (p.damage_id) lines.push('Damage ID: ' + p.damage_id);
+      if (p.reported_by) lines.push('Reported by: ' + p.reported_by);
+      if (p.notes) lines.push('Notes: ' + p.notes);
+      reasonEl.value = lines.join(' · ');
+    }
+    const skuInp = document.querySelector('.rmkSkuRow .rmkSkuSku');
+    if (skuInp) skuInp.focus();
+  }, 120);
 }
 
 const DAMAGE_STATUSES = [
@@ -11492,7 +11520,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.90<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.91<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 
 </body>
 </html>
