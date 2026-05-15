@@ -2277,6 +2277,7 @@ function paintPrePackDetail_(row) {
       ${hwReady ? '<button onclick="printPrePackLabel(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px;font-size:14px">🖨 Reprint Label</button>' : ''}
       <button onclick="confirmResetHardwareScans('${esc(row.order_number)}')" class="amp-btn" style="padding:14px;font-size:14px">↺ Reset Scans</button>
     </div>
+    ${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" class="amp-btn" style="display:block;text-align:center;text-decoration:none;margin-top:10px;padding:12px;font-size:13px" title="Open the full pick list to cross-reference hardware">📄 Open Full Pick List PDF</a>' : ''}
   `;
   setTimeout(() => {
     const inp = document.getElementById('prePackScanInput');
