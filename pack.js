@@ -111,7 +111,10 @@ function paintPackQueue_(rows, fromCache) {
     if (!grouped[bucket].length) return;
     const accent = BUCKET_ACCENT[bucket];
     const hdr = document.createElement('div');
-    hdr.style.cssText = 'display:flex;align-items:center;gap:10px;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid ' + accent + '40';
+    // v9.84: position:sticky so the bucket header floats while
+    // its cards scroll. background must be opaque enough to mask
+    // cards passing behind.
+    hdr.style.cssText = 'position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;margin:14px 0 6px;padding:8px 10px 8px 4px;background:var(--bg);border-bottom:1px solid ' + accent + '40;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)';
     hdr.innerHTML =
       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:' + accent + ';letter-spacing:1.5px;text-transform:uppercase">' + bucket + '</span>'
       + '<span style="font-size:11px;color:var(--text-dim);font-weight:700">' + grouped[bucket].length + ' order' + (grouped[bucket].length === 1 ? '' : 's') + '</span>';
@@ -2064,7 +2067,7 @@ function paintPrePackQueue_(rows, fromCache) {
     if (!grouped[bucket].length) return;
     const hdr = document.createElement('div');
     const accent = BUCKET_ACCENT[bucket];
-    hdr.style.cssText = 'display:flex;align-items:center;gap:10px;margin:14px 0 6px;padding-bottom:6px;border-bottom:1px solid ' + accent + '40';
+    hdr.style.cssText = 'position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;margin:14px 0 6px;padding:8px 10px 8px 4px;background:var(--bg);border-bottom:1px solid ' + accent + '40;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)';
     hdr.innerHTML =
       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:' + accent + ';letter-spacing:1.5px;text-transform:uppercase">' + bucket + '</span>'
       + '<span style="font-size:11px;color:var(--text-dim);font-weight:700">' + grouped[bucket].length + ' order' + (grouped[bucket].length === 1 ? '' : 's') + '</span>';
@@ -3995,11 +3998,32 @@ function renderLookupHit_(hit) {
 function _lkFld(label, value, opts) {
   if (value == null || value === '') return '';
   const mono = opts && opts.mono ? "font-family:'JetBrains Mono',monospace;" : '';
-  const link = opts && opts.link ? '<a href="' + esc(String(value)) + '" target="_blank" style="color:#42a5f5;text-decoration:underline">open ↗</a>' : esc(String(value));
+  const strVal = String(value);
+  const link = opts && opts.link ? '<a href="' + esc(strVal) + '" target="_blank" style="color:#42a5f5;text-decoration:underline">open ↗</a>' : esc(strVal);
+  // v9.84: copy-to-clipboard button on CS-relevant fields. Activated
+  // via opts.copy=true OR auto-detected by label match for the
+  // common cases (tracking, email, phone, address, order numbers).
+  const wantCopy = (opts && opts.copy) || /tracking|email|phone|address|order #|customer|v1 order id|company/i.test(String(label));
+  const copyBtn = wantCopy
+    ? '<button onclick="_lkCopy_(this,\'' + esc(strVal.replace(/'/g, '\\\'')) + '\')" title="Copy" style="background:transparent;border:1px solid rgba(255,255,255,.15);color:var(--text-dim);font-size:10px;padding:1px 7px;border-radius:5px;cursor:pointer;margin-left:6px;font-weight:700">📋</button>'
+    : '';
   return '<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06)">'
     + '<div style="flex:0 0 130px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;padding-top:1px">' + label + '</div>'
-    + '<div style="flex:1;font-size:13px;color:var(--text);' + mono + 'word-break:break-word">' + link + '</div>'
+    + '<div style="flex:1;font-size:13px;color:var(--text);' + mono + 'word-break:break-word;display:flex;align-items:flex-start">' + '<span style="flex:1">' + link + '</span>' + copyBtn + '</div>'
     + '</div>';
+}
+
+async function _lkCopy_(btn, value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    const orig = btn.innerHTML;
+    btn.innerHTML = '✓';
+    btn.style.color = '#00e676';
+    btn.style.borderColor = '#00e676';
+    setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; btn.style.borderColor = ''; }, 1200);
+  } catch (e) {
+    showToast('Copy failed (browser blocked)');
+  }
 }
 
 function _lkCard(title, accent, badge, body) {
