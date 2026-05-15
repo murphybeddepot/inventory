@@ -1251,7 +1251,7 @@ input::placeholder, textarea::placeholder {
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">🔍 Order Lookup</div>
   </div>
   <div style="margin-bottom:14px">
-    <input type="search" id="lookupInput" placeholder="Order number (e.g. 31875)…" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="numeric" enterkeyhint="search" onkeydown="handleLookupKey(event)" style="width:100%;padding:18px 18px;font-size:22px;font-family:'JetBrains Mono',monospace;background:#000;color:var(--green-bright);border:2px solid var(--border);border-radius:12px;outline:none;letter-spacing:2px;text-align:center">
+    <input type="search" id="lookupInput" placeholder="Order # or customer name…" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" onkeydown="handleLookupKey(event)" style="width:100%;padding:18px 18px;font-size:22px;font-family:'JetBrains Mono',monospace;background:#000;color:var(--green-bright);border:2px solid var(--border);border-radius:12px;outline:none;letter-spacing:2px;text-align:center">
   </div>
   <div id="lookupStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px;text-align:center"></div>
   <div id="lookupResults" style="display:flex;flex-direction:column;gap:14px"></div>
@@ -8725,10 +8725,20 @@ async function refreshDamageLog() {
     const records = resp.records || [];
     // Update opener badge with open count
     const badge = document.getElementById('damageLogBadge');
+    const openCount = records.filter(r => String(r.status||'').trim() !== 'complete').length;
     if (badge) {
-      const openCount = records.filter(r => String(r.status||'').trim() !== 'complete').length;
       badge.textContent = openCount > 0 ? '(' + openCount + ' open)' : '';
     }
+    // v9.83: write open-damage count to localStorage so Cabinets'
+    // attention strip can surface a 🔨 N OPEN DAMAGE chip without
+    // re-fetching. Mirrors the holds piggyback from v9.82.
+    try {
+      const prev = JSON.parse(localStorage.getItem('mbd_attention_v1') || '{}');
+      prev.damageOpen = openCount;
+      prev.at = Date.now();
+      localStorage.setItem('mbd_attention_v1', JSON.stringify(prev));
+      if (typeof renderCabinetAttentionStrip_ === 'function') renderCabinetAttentionStrip_();
+    } catch(e) {}
     if (records.length === 0) {
       body.innerHTML = '<div style="text-align:center;color:#666;padding:40px 10px;font-size:14px">'+(includeComplete?'No damage records.':'No open damage records. 🎉')+'</div>';
       return;
@@ -11185,7 +11195,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.82"></script>
+<script src="./pack.js?v=9.83"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11194,7 +11204,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.82</div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.83</div>
 
 </body>
 </html>

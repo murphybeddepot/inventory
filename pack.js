@@ -3327,7 +3327,7 @@ const _DAMAGE_UI_LIVES_IN_INDEX_HTML_ = true;
 function renderCabinetAttentionStrip_() {
   const el = document.getElementById('cabAttentionStrip');
   if (!el) return;
-  let attention = { stalled: 0, awaiting: 0, holds: 0 };
+  let attention = { stalled: 0, awaiting: 0, holds: 0, damageOpen: 0 };
   try { attention = Object.assign(attention, JSON.parse(localStorage.getItem('mbd_attention_v1') || '{}')); } catch(e) {}
 
   const chips = [];
@@ -3340,9 +3340,9 @@ function renderCabinetAttentionStrip_() {
   if (attention.holds > 0) {
     chips.push('<button onclick="openHoldsPanel()" style="padding:6px 12px;background:linear-gradient(135deg,#9C27B0,#4A148C);color:#fff;border:1px solid #9C27B0;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-transform:uppercase">🚦 ' + attention.holds + ' ON HOLD</button>');
   }
-  // Note: open-damage chip dropped in v9.73 — damage UI lives
-  // inline in index.html and doesn't write a count to localStorage.
-  // Re-add when the existing refreshDamageLog gets a write-back hook.
+  if (attention.damageOpen > 0) {
+    chips.push('<button onclick="openDamageLog()" style="padding:6px 12px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:1px solid #FF6B00;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-transform:uppercase">🔨 ' + attention.damageOpen + ' OPEN DAMAGE</button>');
+  }
   if (!chips.length) { el.style.display = 'none'; return; }
   el.style.display = 'flex';
   el.innerHTML = chips.join('');
@@ -3969,7 +3969,11 @@ async function runLookup() {
     }
     if (!res.hits || res.hits.length === 0) {
       statusEl.textContent = 'No matches';
-      resultsEl.innerHTML = '<div style="padding:32px 20px;text-align:center;background:rgba(255,165,0,.08);border:1px dashed rgba(255,165,0,.4);border-radius:10px;color:#FFB300;font-weight:700">No orders found matching <strong>#' + esc(q) + '</strong>.<br><span style="font-weight:500;font-size:12px;color:var(--text-dim);margin-top:6px;display:inline-block">Searched PackingQueue (cabinet) · OrderPack (ground) · MattressDropships · CabinetDamage</span></div>';
+      const isName = !/^\d+$/.test(q);
+      const tip = isName
+        ? 'Names are matched as substrings (case-insensitive). Try part of the last name only, or try the order number.'
+        : 'Double-check the order number. You can also search by customer name.';
+      resultsEl.innerHTML = '<div style="padding:32px 20px;text-align:center;background:rgba(255,165,0,.08);border:1px dashed rgba(255,165,0,.4);border-radius:10px;color:#FFB300;font-weight:700">No orders found matching <strong>' + esc(q) + '</strong>.<br><span style="font-weight:500;font-size:12px;color:var(--text-dim);margin-top:6px;display:inline-block">' + tip + '</span><br><span style="font-weight:500;font-size:11px;color:var(--text-dim);opacity:.7;margin-top:4px;display:inline-block">Searched: PackingQueue · OrderPack · MattressDropships · CabinetDamage</span></div>';
       return;
     }
     statusEl.textContent = res.hits.length + ' match' + (res.hits.length === 1 ? '' : 'es') + ' for #' + q;
