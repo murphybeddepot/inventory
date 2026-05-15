@@ -9685,7 +9685,7 @@ function openSystemStatus() {
     + '<div id="systemStatusServer" style="font-size:11px;color:#888;padding:8px 0 6px;text-align:right;font-family:monospace">server: …</div>'
     + (ok ? '<div id="systemStatusDayPlan" style="margin:6px 0 14px"></div>' : '')
     + (ok ? '<div id="systemStatusIssues" style="margin-bottom:10px"></div>' : '')
-    + (ok ? '<button onclick="runGhostOrdersDiag()" style="width:100%;padding:10px;background:#fff;color:#FFB300;border:1.5px solid #FFB300;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;margin-bottom:10px;letter-spacing:.5px;text-transform:uppercase">🔍 Diagnose Ground Queue vs ShipStation</button>' : '')
+    + (ok ? '<div style="display:flex;gap:6px;margin-bottom:10px"><button onclick="runHealthCheck_()" style="flex:1;padding:10px;background:#fff;color:#00C853;border:1.5px solid #00C853;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🩺 Health Check</button><button onclick="runGhostOrdersDiag()" style="flex:1;padding:10px;background:#fff;color:#FFB300;border:1.5px solid #FFB300;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🔍 Ghost Orders</button></div>' : '')
     + (ok ? '<div id="systemStatusDiag" style="font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:0;margin-bottom:10px;max-height:280px;overflow-y:auto;display:none;white-space:pre-wrap;word-break:break-word"></div>' : '')
     + (ok
         ? '<button onclick="openGroundSettingsFromStatus()" style="width:100%;padding:14px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px">Edit Settings</button>'
@@ -9821,6 +9821,81 @@ async function runGhostOrdersDiag() {
       lines.push('  (no V1 match found — would be a bug)');
     }
   });
+  el.textContent = lines.join('\n');
+}
+
+// v9.90: end-to-end health check from inside System Status. Probes
+// each external dependency Bedrock relies on so issues surface
+// proactively, not after a packer hits them.
+async function runHealthCheck_() {
+  const el = document.getElementById('systemStatusDiag');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.padding = '10px 12px';
+  el.textContent = 'Running health check…';
+  const lines = [];
+  const probe = async (name, fn) => {
+    try {
+      const startMs = Date.now();
+      const r = await fn();
+      const dur = Date.now() - startMs;
+      const ok = r && r.ok !== false;
+      lines.push((ok ? '✓ ' : '⚠ ') + name + '  (' + dur + 'ms)' + (r && r.note ? ' — ' + r.note : ''));
+    } catch (err) {
+      lines.push('✗ ' + name + ' — ' + (err.message || 'unknown'));
+    }
+    el.textContent = lines.join('\n');
+  };
+
+  await probe('Orchestrator reachable + auth', async () => {
+    const r = await groundApi('getQueue', { limit: 1 });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no response');
+    return { ok: true, note: 'queue=' + ((r.queue || []).length) };
+  });
+  await probe('Day Plan endpoint', async () => {
+    const r = await groundApi('getDayPlan', {});
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no response');
+    const c = r.counts || {};
+    return { ok: true, note: 'cab packed=' + (c.cabinet_packed || 0) + ' shipped=' + (c.cabinet_shipped || 0) };
+  });
+  await probe('Schedule endpoint', async () => {
+    const r = await groundApi('listScheduleByDateRange', {});
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no response');
+    return { ok: true, note: 'days=' + ((r.days || []).length) + ' stalled=' + (r.stalled_total || 0) };
+  });
+  await probe('Holds endpoint', async () => {
+    const r = await groundApi('listHolds', {});
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no response');
+    return { ok: true, note: r.total + ' on hold' };
+  });
+  await probe('Issues endpoint', async () => {
+    const r = await groundApi('listIssues', { limit: 1 });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no response');
+    return { ok: true, note: r.total + ' recent issues server-side' };
+  });
+  // Cabinet sync probe — uses cabSyncUrl, NOT orchestrator
+  await probe('Cabinet sync URL (Notifier project)', async () => {
+    if (!cabSyncUrl) throw new Error('cabSyncUrl not configured');
+    const resp = await fetch(cabSyncUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ type: 'cabinetSync', cabinets: [], secret: GROUND_SECRET || '' }),
+    });
+    const data = await resp.json();
+    if (!data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + resp.status);
+    return { ok: true, note: 'returned ' + ((data.cabinets || []).length) + ' cabinets' };
+  });
+  await probe('Local localStorage usage', async () => {
+    let bytes = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      bytes += (k + (localStorage.getItem(k) || '')).length;
+    }
+    return { ok: true, note: Math.round(bytes / 1024) + ' KB used' };
+  });
+
+  lines.push('');
+  lines.push('Done. If anything failed, copy report (above) for diagnosis.');
   el.textContent = lines.join('\n');
 }
 
@@ -11417,7 +11492,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.89<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.90<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 
 </body>
 </html>
