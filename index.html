@@ -9508,7 +9508,33 @@ updateHfStatus();
 // but stale/missing values were silently making the iPad call the wrong
 // deployment. Any future deployment-URL change requires bumping this
 // constant and pushing a new release of the HTML.
-const DEFAULT_GROUND_ORCH_URL = 'https://script.google.com/macros/s/AKfycbzVbS4Ofd3ScWvzyw5FUtCk5rtYx61GcNFB8GFdsnlB33WnDJssPj8L8LF66w8dGKCt/exec';
+//
+// v9.95: introduced ?dev=1 flag for the staging deployment so Zac can
+// test changes before they reach Jonah's phone. The flag is sticky:
+// once set in localStorage, the device stays on dev. Append ?dev=0 to
+// the URL to switch back to stable.
+const STABLE_GROUND_ORCH_URL = 'https://script.google.com/macros/s/AKfycbzVbS4Ofd3ScWvzyw5FUtCk5rtYx61GcNFB8GFdsnlB33WnDJssPj8L8LF66w8dGKCt/exec';
+const DEV_GROUND_ORCH_URL    = 'https://script.google.com/macros/s/AKfycbxRWGc8U4Q9upNJayYDdOh1Wbveamaob8I2tnK_pnVutACZMv86g3f6QV4PN0L2KKH2/exec';
+// Read sticky dev mode from localStorage first, then allow URL param
+// to flip it. ?dev=1 turns dev on (and persists). ?dev=0 turns it off.
+// When the flag flips, we also overwrite the cached `mbd_ground_orch_url`
+// override — otherwise a previously-saved override would keep pointing
+// at the wrong deployment.
+let DEV_MODE_ON = false;
+try {
+  DEV_MODE_ON = localStorage.getItem('mbd_dev_mode') === '1';
+  const urlDev = new URLSearchParams(location.search).get('dev');
+  if (urlDev === '1' && !DEV_MODE_ON) {
+    DEV_MODE_ON = true;
+    localStorage.setItem('mbd_dev_mode', '1');
+    localStorage.setItem('mbd_ground_orch_url', DEV_GROUND_ORCH_URL);
+  } else if (urlDev === '0' && DEV_MODE_ON) {
+    DEV_MODE_ON = false;
+    localStorage.removeItem('mbd_dev_mode');
+    localStorage.setItem('mbd_ground_orch_url', STABLE_GROUND_ORCH_URL);
+  }
+} catch(e) {}
+const DEFAULT_GROUND_ORCH_URL = DEV_MODE_ON ? DEV_GROUND_ORCH_URL : STABLE_GROUND_ORCH_URL;
 
 // Settings stored in localStorage
 let GROUND_ORCH_URL = DEFAULT_GROUND_ORCH_URL;
@@ -9718,7 +9744,8 @@ function openSystemStatus() {
     + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">System Status</div>'
     + '<div style="font-size:13px;color:' + (ok ? '#0a8a3f' : '#c33') + ';font-weight:700;margin-bottom:12px">' + (ok ? '✓ Ready' : '⚠ Setup needed') + '</div>'
     + row('Bedrock', ver, true)
-    + row('Orchestrator URL', urlShort, urlConfigured)
+    + row('Orchestrator URL', urlShort + (DEV_MODE_ON ? ' (DEV)' : ''), urlConfigured)
+    + (DEV_MODE_ON ? '<div style="font-size:11px;color:#FF9100;background:rgba(255,145,0,.10);border:1px solid rgba(255,145,0,.30);padding:6px 10px;border-radius:6px;margin:6px 0 4px;text-align:center;font-weight:700">🧪 DEV MODE — this device hits the staging deployment. Append <code>?dev=0</code> to the URL to switch back.</div>' : '')
     + row('Shared Secret', secretMask, secretConfigured)
     + row('Packer', packer || '— not set —', !!packer)
     + row('Device ID', deviceId.slice(0, 18) || '— none —', !!deviceId)
@@ -11523,7 +11550,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=9.94"></script>
+<script src="./pack.js?v=9.95"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11532,7 +11559,18 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.94<span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v9.95<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<script>
+  // v9.95: light up the DEV chip on the version pill when we're on
+  // the dev orchestrator URL. Lets Zac (and anyone else) see at a
+  // glance that this device is hitting the staging deployment.
+  if (typeof DEV_MODE_ON !== 'undefined' && DEV_MODE_ON) {
+    document.addEventListener('DOMContentLoaded', () => {
+      const chip = document.getElementById('devModeChip');
+      if (chip) chip.style.display = 'inline-block';
+    });
+  }
+</script>
 
 </body>
 </html>
