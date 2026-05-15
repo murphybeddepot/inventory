@@ -3113,6 +3113,75 @@ function _scheduleDayName_(iso) {
   return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
 }
 
+// ── Holds — orders blocked from packing ──────────────────
+// CS-facing view of every order currently held: Beacon-Hold V1
+// orders (fraud / shipping-rules flag), OrderPack pack_status=Hold
+// rows (manual-hide via the ⋯ button or breakdown-time auto-hold),
+// PackingQueue cabinet-side holds. Jessica uses this to chase down
+// what needs attention so held orders aren't invisible.
+async function openHoldsPanel(opts) {
+  opts = opts || {};
+  const kindFilter = String(opts.kind || 'all');
+  const prior = document.getElementById('holdsOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'holdsOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;width:100%;max-width:720px;max-height:92vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">🚦 Holds</div>'
+    +   '<button onclick="document.getElementById(\'holdsOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:12px">Orders blocked from the active pack queues. Beacon = fraud / shipping-rules flag. Manual = hidden via ⋯ button. Cabinet = freight pack hold.</div>'
+    + '<div id="holdsFilters" style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">'
+    + ['all', 'beacon_hold', 'orderpack_hold', 'packingqueue_hold'].map(k =>
+        '<button onclick="openHoldsPanel({kind:\'' + k + '\'})" style="flex:1;min-width:60px;padding:7px 4px;background:' + (k === kindFilter ? '#003087' : '#f5f5f5') + ';color:' + (k === kindFilter ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + (k === 'all' ? 'All' : k === 'beacon_hold' ? 'Beacon' : k === 'orderpack_hold' ? 'Ground' : 'Cabinet') + '</button>').join('')
+    + '</div>'
+    + '<div id="holdsBody" style="min-height:60px">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  let res;
+  try { res = await groundApi('listHolds', {}); }
+  catch (err) {
+    document.getElementById('holdsBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>';
+    return;
+  }
+  if (!res || !res.ok) {
+    document.getElementById('holdsBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+  const rows = (res.holds || []).filter(r => kindFilter === 'all' || r.kind === kindFilter);
+  if (!rows.length) {
+    document.getElementById('holdsBody').innerHTML = '<div style="padding:24px;text-align:center;color:#0a8a3f;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">✓ No orders on hold in this view.</div>';
+    return;
+  }
+
+  const KIND_COLORS = { beacon_hold: '#9C27B0', orderpack_hold: '#FF6B00', packingqueue_hold: '#FFB300' };
+  const KIND_LABELS = { beacon_hold: 'BEACON', orderpack_hold: 'GROUND', packingqueue_hold: 'CABINET' };
+  document.getElementById('holdsBody').innerHTML = rows.map(h => {
+    const color = KIND_COLORS[h.kind] || '#666';
+    const dateStr = String(h.held_at || h.order_date || h.ship_date || '').slice(0, 10);
+    const itemsList = (h.items || []).map(i => esc(i.qty + '× ' + i.sku)).join(', ');
+    const total = h.order_total ? '<span style="color:#1A5C1A;font-weight:700">$' + Number(h.order_total).toLocaleString() + '</span>' : '';
+    return '<div style="padding:12px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+      +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">#' + esc(h.order_number) + '</span> ' + total + '</div>'
+      +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + color + '">' + KIND_LABELS[h.kind] + '</span>'
+      + '</div>'
+      + '<div style="font-weight:700;color:#1a1a1a">' + esc(h.customer_name || '—') + (h.state ? ' · ' + esc(h.state) : '') + '</div>'
+      + (h.customer_email ? '<div style="font-size:12px;color:#666">' + esc(h.customer_email) + '</div>' : '')
+      + (itemsList ? '<div style="font-size:12px;color:#666;margin-top:4px">' + itemsList + '</div>' : '')
+      + '<div style="font-size:11px;color:#888;font-style:italic;margin-top:6px">' + esc(h.hold_reason || '(no reason)') + '</div>'
+      + (dateStr ? '<div style="font-size:10px;color:#aaa;margin-top:3px;font-family:monospace">' + dateStr + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+
 // ── Tracking — recent shipments across all sources ────────
 async function openTrackingPanel(opts) {
   opts = opts || {};
