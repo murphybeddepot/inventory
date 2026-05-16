@@ -2904,9 +2904,13 @@ function _scheduleRenderOrderRow_(o, opts) {
   const bookerChip = _scheduleBookerChip_(o, !!opts.compact);
   const custChip = _scheduleCustomerReadyChip_(o, !!opts.compact);
   const stallChip = _scheduleStallChip_(o, !!opts.compact);
+  // v10.11 pass 3: row tap → Lookup for this order (full address,
+  // items, phone, activity timeline). Chips all stopPropagation so
+  // they keep their own actions. Mirrors the Tracking v9.93 pattern.
+  const rowTap = ' onclick="jumpToLookup_(\'' + esc(o.order_number) + '\')" title="Tap for full order detail"';
   if (opts.compact) {
     // Desktop grid cell — compact two-line layout to fit a column
-    return '<div style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3">'
+    return '<div' + rowTap + ' style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3;cursor:pointer">'
       + '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">'
       +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">#' + esc(o.order_number) + '</span>'
       +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</span>'
@@ -2919,7 +2923,7 @@ function _scheduleRenderOrderRow_(o, opts) {
       + '</div>';
   }
   // Mobile / list layout — single-line row
-  return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap">'
+  return '<div' + rowTap + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap;cursor:pointer">'
     + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">#' + esc(o.order_number) + '</div>'
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
     + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
