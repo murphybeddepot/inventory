@@ -2935,6 +2935,23 @@ function _scheduleCustomerReadyChip_(o, compact) {
   return ''; // unconfirmed → the booker chip already shows "⏳ WAIT" which itself opens this modal
 }
 
+// v10.14 pass 6: intra-day actionability rank. Within a day, float
+// the rows that need a human now to the top; sink the done ones.
+//   0 stalled (needs triage)  1 bookable now (customer-ready, unbooked)
+//   2 awaiting customer (can't book yet)  3 booked (done)
+// Applied only to the freight group; ground auto-ships and keeps its
+// own grouping. Array.sort is stable in modern Safari/Chrome so
+// same-rank orders keep the server's order.
+function _scheduleActionRank_(o) {
+  if (o.stalled) return 0;
+  if (!o.booked_at && o.customer_ready) return 1;
+  if (!o.booked_at) return 2;
+  return 3;
+}
+function _scheduleSortFreight_(arr) {
+  return arr.slice().sort((a, b) => _scheduleActionRank_(a) - _scheduleActionRank_(b));
+}
+
 // Shared: format a single order row inside a day cell.
 function _scheduleRenderOrderRow_(o, opts) {
   opts = opts || {};
@@ -4055,7 +4072,7 @@ function paintScheduleMobileList_(payload, listEl) {
     const bgAccent = todayFlag ? 'rgba(0,230,118,.10)' : 'rgba(255,255,255,.03)';
     const todayChip = todayFlag ? '<span style="padding:2px 10px;background:#00e676;color:#000;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase">Today</span>' : '';
 
-    const top = d.orders.filter(o => o.source !== 'ground');
+    const top = _scheduleSortFreight_(d.orders.filter(o => o.source !== 'ground'));
     const bottom = d.orders.filter(o => o.source === 'ground');
     // v10.9 Kim: freight booked-rollup so the day shows remaining
     // booking work at a glance. Only freight (cabinet) needs booking.
@@ -4184,7 +4201,7 @@ function paintScheduleDesktopGrid_(payload, listEl) {
     const dimStyle = isPast ? 'opacity:.65' : '';
     const dayLabel = _scheduleDayName_(iso);
     const total = d ? d.total : 0;
-    const top = d ? d.orders.filter(o => o.source !== 'ground') : [];
+    const top = d ? _scheduleSortFreight_(d.orders.filter(o => o.source !== 'ground')) : [];
     const bottom = d ? d.orders.filter(o => o.source === 'ground') : [];
     const todayBadge = isToday ? '<span style="padding:1px 7px;background:#00e676;color:#000;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-left:4px">Today</span>' : '';
     const isWeekend = dayLabel === 'Sat' || dayLabel === 'Sun';
