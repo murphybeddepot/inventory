@@ -2867,20 +2867,18 @@ function paintSchedule_(payloadRaw) {
   // orders he still needs to confirm. Counted client-side from the
   // existing payload (any cabinet order with !customer_ready and
   // status=pending and ship within ~14 days).
+  // v10.18 pass 10 (correctness): count from the FULL cache via the
+  // shared predicate so this chip agrees with the filter-bar pill
+  // and openAwaitingCustomerList. It previously recomputed over the
+  // FILTERED payload, so the count wrongly shrank whenever a view
+  // filter was active — chip said 2, tapping it showed 7. Now
+  // matches the stalled chip (server total carried through
+  // unfiltered) and the pass-9 "to book" chip.
   let awaitingChip = '';
   let awaitingCount = 0;
-  (payload.days || []).forEach(d => {
-    (d.orders || []).forEach(o => {
-      if (o.source !== 'cabinet') return;
-      if (o.customer_ready) return;
-      const status = String(o.status || '').toLowerCase();
-      if (status !== '' && status !== 'pending') return;
-      const ship = new Date(o.ship_date + 'T00:00:00');
-      const now = new Date(); now.setHours(0, 0, 0, 0);
-      const diff = (ship - now) / (1000 * 60 * 60 * 24);
-      if (diff >= -1 && diff <= 14) awaitingCount++;
-    });
-  });
+  ((_scheduleCache && _scheduleCache.days) || []).forEach(d => (d.orders || []).forEach(o => {
+    if (_scheduleOrderMatchesMode_(o, 'awaiting_customer')) awaitingCount++;
+  }));
   if (awaitingCount > 0) {
     awaitingChip = '<button onclick="openAwaitingCustomerList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#3DBEFF,#005577);color:#fff;border:1px solid #3DBEFF;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">🔔 ' + awaitingCount + ' AWAITING CUSTOMER</button>';
   }
