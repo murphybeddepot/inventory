@@ -2905,6 +2905,15 @@ const SCHEDULE_STALL_LABELS = {
   awaiting_customer_confirm: 'CUST?',
   missing_instructions: 'NO PDF',
 };
+// v10.15 pass 7: readable labels for roomy (mobile/list) rows — the
+// 4-char codes above only fit the dense desktop grid columns. Touch
+// users never see the hover `title`, so the reason must be on-chip.
+const SCHEDULE_STALL_LABELS_FULL = {
+  past_ship_date: 'PAST DUE',
+  needs_booking: 'NEEDS BOOKING',
+  awaiting_customer_confirm: 'NEEDS CUSTOMER',
+  missing_instructions: 'NO INSTRUCTIONS',
+};
 const SCHEDULE_STALL_DESCRIPTIONS = {
   past_ship_date: 'Past ship date and not packed yet',
   needs_booking: 'Ready to ship but no freight booking',
@@ -2916,9 +2925,16 @@ function _scheduleStallChip_(o, compact) {
   if (!o.stalled || !o.stall_reasons || !o.stall_reasons.length) return '';
   const pad = compact ? '1px 5px' : '2px 7px';
   const fs = compact ? '9px' : '10px';
-  const label = SCHEDULE_STALL_LABELS[o.stall_reasons[0]] || 'STALL';
+  // Compact desktop grid keeps the terse code to fit columns; roomy
+  // list/mobile rows show the readable phrase so touch users (no
+  // hover tooltip) get the actual reason without tapping.
+  const map = compact ? SCHEDULE_STALL_LABELS : SCHEDULE_STALL_LABELS_FULL;
+  const label = map[o.stall_reasons[0]] || 'STALLED';
   const title = o.stall_reasons.map(r => SCHEDULE_STALL_DESCRIPTIONS[r] || r).join(' · ');
-  return '<span title="' + esc(title) + '" style="background:rgba(255,82,82,.2);color:#ff5252;border:1px solid #ff5252;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;white-space:nowrap">⚠ ' + esc(label) + (o.stall_reasons.length > 1 ? '+' + (o.stall_reasons.length - 1) : '') + '</span>';
+  // Tappable → stalled triage panel (was an inert span; the header's
+  // ⚠ STALLED chip already opens this — match that). stopPropagation
+  // so it doesn't also fire the row→Lookup tap from pass 3.
+  return '<button onclick="event.stopPropagation();openStalledList()" title="' + esc(title) + '" style="background:rgba(255,82,82,.2);color:#ff5252;border:1px solid #ff5252;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;white-space:nowrap;cursor:pointer;flex:0 0 auto">⚠ ' + esc(label) + (o.stall_reasons.length > 1 ? ' +' + (o.stall_reasons.length - 1) : '') + '</button>';
 }
 
 function _scheduleCustomerReadyChip_(o, compact) {
