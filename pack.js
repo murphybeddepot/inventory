@@ -2805,7 +2805,16 @@ function _scheduleCustomerReadyChip_(o, compact) {
 // Shared: format a single order row inside a day cell.
 function _scheduleRenderOrderRow_(o, opts) {
   opts = opts || {};
-  const computed = o.ship_date_computed ? ' <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px">EST</span>' : '';
+  // v10.9 Sable: estimated-vs-confirmed must be unmistakable. A
+  // computed ground date (order_date + 2 biz days heuristic) is a
+  // GUESS — amber "EST" pill. A real offered date (pick-list ship
+  // date, MF delivery date) or a booked freight order is locked —
+  // green "✓" so Kim/Ken can triage at a glance.
+  const computed = o.ship_date_computed
+    ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(255,179,0,.22);color:#FFB300;border:1px solid rgba(255,179,0,.55);padding:0 4px;border-radius:3px;vertical-align:middle">EST</span>'
+    : (o.booked_at
+        ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="Freight booked — date locked">✓</span>'
+        : '');
   const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
   const bookerChip = _scheduleBookerChip_(o, !!opts.compact);
   const custChip = _scheduleCustomerReadyChip_(o, !!opts.compact);
@@ -3911,13 +3920,20 @@ function paintScheduleMobileList_(payload, listEl) {
 
     const top = d.orders.filter(o => o.source !== 'ground');
     const bottom = d.orders.filter(o => o.source === 'ground');
+    // v10.9 Kim: freight booked-rollup so the day shows remaining
+    // booking work at a glance. Only freight (cabinet) needs booking.
+    const freightOrders = d.orders.filter(o => o.source === 'cabinet');
+    const freightBooked = freightOrders.filter(o => o.booked_at).length;
+    const bookRollup = freightOrders.length
+      ? '<span style="margin-left:8px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.5px;background:' + (freightBooked >= freightOrders.length ? 'rgba(0,200,83,.18);color:#00e676' : 'rgba(255,179,0,.18);color:#FFB300') + '" title="freight orders booked / total">' + freightBooked + '/' + freightOrders.length + ' booked</span>'
+      : '';
 
     return '<div id="sched-day-' + d.date + '" style="padding:12px 14px;background:' + bgAccent + ';border:1px solid ' + accent + '55;border-radius:12px;' + dimStyle + '">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
-      +   '<div style="display:flex;align-items:baseline;gap:10px">'
+      +   '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">'
       +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;color:' + accent + '">' + esc(d.date.slice(5)) + '</div>'
       +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">' + _scheduleDayName_(d.date) + '</div>'
-      +     todayChip
+      +     todayChip + bookRollup
       +   '</div>'
       +   '<div style="font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:.5px">'
       +     d.total + ' · ' + (d.freight_count ? d.freight_count + ' freight ' : '') + (d.mattress_count ? '· ' + d.mattress_count + ' mattress ' : '') + (d.ground_count ? '· ' + d.ground_count + ' ground' : '')
@@ -3995,13 +4011,19 @@ function paintScheduleDesktopGrid_(payload, listEl) {
     const todayBadge = isToday ? '<span style="padding:1px 7px;background:#00e676;color:#000;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-left:4px">Today</span>' : '';
     const isWeekend = dayLabel === 'Sat' || dayLabel === 'Sun';
     const weekendChip = isWeekend ? '<span style="font-size:9px;color:#ff9800;font-weight:700;letter-spacing:1px;margin-left:4px">WKND</span>' : '';
+    // v10.9 Kim: per-day freight booked rollup in the grid header.
+    const gFreight = d ? d.orders.filter(o => o.source === 'cabinet') : [];
+    const gBooked = gFreight.filter(o => o.booked_at).length;
+    const gRollup = gFreight.length
+      ? '<span style="font-size:9px;font-weight:900;padding:0 5px;border-radius:999px;background:' + (gBooked >= gFreight.length ? 'rgba(0,200,83,.18);color:#00e676' : 'rgba(255,179,0,.18);color:#FFB300') + '" title="freight booked / total">' + gBooked + '/' + gFreight.length + '</span>'
+      : '';
 
     return '<div style="flex:1 1 ' + cellWidthPct + '%;min-width:0;padding:10px;background:' + bgAccent + ';border:1px solid ' + accent + '44;border-radius:10px;' + dimStyle + ';display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 320px);overflow-y:auto">'
       + '<div style="border-bottom:1px solid rgba(255,255,255,.10);padding-bottom:6px;margin-bottom:4px">'
       +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px">'
       +     '<div><span style="font-family:\'JetBrains Mono\',monospace;font-size:15px;font-weight:900;color:' + accent + '">' + iso.slice(5) + '</span>'
       +     ' <span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:800;color:var(--text);letter-spacing:.8px;text-transform:uppercase">' + dayLabel + '</span>' + todayBadge + weekendChip + '</div>'
-      +     '<span style="font-size:11px;font-weight:700;color:var(--text-dim)">' + total + '</span>'
+      +     '<span style="font-size:11px;font-weight:700;color:var(--text-dim);display:flex;align-items:center;gap:4px">' + gRollup + total + '</span>'
       +   '</div>'
       + '</div>'
       + (top.length ? top.map(o => _scheduleRenderOrderRow_(o, { compact: true })).join('') : '')
