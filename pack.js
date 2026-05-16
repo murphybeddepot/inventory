@@ -2705,12 +2705,25 @@ function setScheduleViewMode(mode) {
   if (_scheduleCache) paintSchedule_(_scheduleCache);
 }
 
-// Apply the active view-mode filter to a payload, returning a
-// shallow-cloned payload with filtered days (empty days dropped).
+// v10.12 pass 4: ephemeral order-find (NOT persisted — a stale filter
+// on next load would hide orders confusingly). Survives the 60s
+// auto-refresh because the box is render-once; resets on page reload.
+let _scheduleFindQuery = '';
+
+function _scheduleOrderMatchesFind_(o) {
+  if (!_scheduleFindQuery) return true;
+  const q = _scheduleFindQuery.toLowerCase();
+  return String(o.order_number || '').toLowerCase().indexOf(q) !== -1
+      || String(o.customer_name || '').toLowerCase().indexOf(q) !== -1;
+}
+
+// Apply the active view-mode filter + find query to a payload,
+// returning a shallow-cloned payload with filtered days (empty days
+// dropped). Both compose: find narrows within the active view mode.
 function _applyScheduleViewFilter_(payload) {
-  if (_scheduleViewMode === 'all') return payload;
+  if (_scheduleViewMode === 'all' && !_scheduleFindQuery) return payload;
   const days = (payload.days || []).map(d => {
-    const orders = (d.orders || []).filter(o => _scheduleOrderMatchesMode_(o, _scheduleViewMode));
+    const orders = (d.orders || []).filter(o => _scheduleOrderMatchesMode_(o, _scheduleViewMode) && _scheduleOrderMatchesFind_(o));
     if (!orders.length) return null;
     const fd = Object.assign({}, d, { orders: orders, total: orders.length });
     fd.freight_count = orders.filter(o => o.source === 'cabinet').length;
@@ -2744,6 +2757,40 @@ function _renderScheduleFilterBar_(payload) {
   }).join('');
 }
 
+// Render-once so typing never loses focus on the 60s auto-refresh
+// or a view-mode tap. Only the count span + Clear visibility mutate
+// after first render; the <input> node itself is never replaced.
+function _renderScheduleFindBox_() {
+  const box = document.getElementById('scheduleFindBox');
+  if (!box) return;
+  if (box.querySelector('#scheduleFindInput')) { _updateScheduleFindCount_(); return; }
+  box.innerHTML = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+    + '<input id="scheduleFindInput" type="search" inputmode="search" autocomplete="off" placeholder="Find order # or customer…" oninput="setScheduleFindQuery(this.value)" style="flex:1;min-width:160px;max-width:340px;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:var(--text);font-size:14px">'
+    + '<span id="scheduleFindCount" style="font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:.5px"></span>'
+    + '<button id="scheduleFindClear" onclick="var i=document.getElementById(\'scheduleFindInput\');if(i)i.value=\'\';setScheduleFindQuery(\'\');" style="display:none;padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer">Clear</button>'
+    + '</div>';
+  _updateScheduleFindCount_();
+}
+
+function _updateScheduleFindCount_() {
+  const el = document.getElementById('scheduleFindCount');
+  if (!el) return;
+  if (!_scheduleFindQuery) { el.textContent = ''; return; }
+  let n = 0;
+  const c = _scheduleCache;
+  if (c && c.days) c.days.forEach(d => (d.orders || []).forEach(o => {
+    if (_scheduleOrderMatchesMode_(o, _scheduleViewMode) && _scheduleOrderMatchesFind_(o)) n++;
+  }));
+  el.textContent = n === 0 ? 'no matches' : (n === 1 ? '1 match' : n + ' matches');
+}
+
+function setScheduleFindQuery(v) {
+  _scheduleFindQuery = String(v || '').trim();
+  const clr = document.getElementById('scheduleFindClear');
+  if (clr) clr.style.display = _scheduleFindQuery ? '' : 'none';
+  if (_scheduleCache) paintSchedule_(_scheduleCache);
+}
+
 function paintSchedule_(payloadRaw) {
   const legendEl = document.getElementById('scheduleLegend');
   const listEl = document.getElementById('scheduleDayList');
@@ -2751,6 +2798,7 @@ function paintSchedule_(payloadRaw) {
   // Filter bar reflects the FULL payload's counts; the grid/list
   // below render the FILTERED payload.
   _renderScheduleFilterBar_(payloadRaw);
+  _renderScheduleFindBox_();
   const payload = _applyScheduleViewFilter_(payloadRaw);
 
   // ── Legend (shared) ──
