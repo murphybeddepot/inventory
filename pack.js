@@ -2884,7 +2884,18 @@ function paintSchedule_(payloadRaw) {
   if (awaitingCount > 0) {
     awaitingChip = '<button onclick="openAwaitingCustomerList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#3DBEFF,#005577);color:#fff;border:1px solid #3DBEFF;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">🔔 ' + awaitingCount + ' AWAITING CUSTOMER</button>';
   }
-  legendEl.innerHTML = stalledChip + awaitingChip + carriers
+  // v10.17 pass 9: Kim's "to book" chip. Counted from the FULL cache
+  // (not the filtered payload) so it always shows the true total and
+  // matches openNeedsBookingList's contents regardless of active view.
+  let bookChip = '';
+  let bookCount = 0;
+  ((_scheduleCache && _scheduleCache.days) || []).forEach(d => (d.orders || []).forEach(o => {
+    if (_scheduleOrderMatchesMode_(o, 'needs_booking')) bookCount++;
+  }));
+  if (bookCount > 0) {
+    bookChip = '<button onclick="openNeedsBookingList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#FFB300,#995c00);color:#1a1a1a;border:1px solid #FFB300;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">📋 ' + bookCount + ' TO BOOK</button>';
+  }
+  legendEl.innerHTML = stalledChip + awaitingChip + bookChip + carriers
     .filter(c => carriersUsed[c.carrier_key])
     .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('');
 
@@ -3115,6 +3126,62 @@ function openStalledList() {
     + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">Orders flagged for pipeline review — past ship date, missing booking, missing PDF, or waiting on customer confirmation.</div>'
     + body
     + '<button onclick="document.getElementById(\'stalledListOverlay\').remove()" style="width:100%;margin-top:8px;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+// v10.17 pass 9: Kim's flat "to book" worklist. The calendar shows
+// WHEN; Kim's actual job is WHAT to book now, and she books by
+// carrier in one portal session — so group by carrier, sort each
+// group by ship date (most urgent first). Mirrors openStalledList /
+// openAwaitingCustomerList (the Seth / Ken panels); this is the
+// missing third. Tapping a row jumps straight to the booker modal.
+function openNeedsBookingList() {
+  const cache = _scheduleCache;
+  if (!cache || !cache.days) { showToast('Schedule not loaded yet'); return; }
+  const need = [];
+  cache.days.forEach(d => (d.orders || []).forEach(o => {
+    if (_scheduleOrderMatchesMode_(o, 'needs_booking')) need.push(o);
+  }));
+  if (!need.length) { showToast('Nothing to book — all freight is booked'); return; }
+
+  const byCarrier = {};
+  need.forEach(o => {
+    const c = o.carrier_display || 'TBD';
+    if (!byCarrier[c]) byCarrier[c] = [];
+    byCarrier[c].push(o);
+  });
+  // Carrier groups alphabetical; within a carrier, soonest ship first.
+  const carrierNames = Object.keys(byCarrier).sort();
+  carrierNames.forEach(c => byCarrier[c].sort((a, b) => String(a.ship_date).localeCompare(String(b.ship_date))));
+
+  const ov = document.createElement('div');
+  ov.id = 'needsBookingOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = carrierNames.map(c => {
+    const color = (byCarrier[c][0] && byCarrier[c][0].carrier_color) || '#FFB300';
+    return '<div style="margin-bottom:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:' + color + ';text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">' + esc(c) + ' (' + byCarrier[c].length + ')</div>'
+      + byCarrier[c].map(o => {
+          const cust = o.customer_ready ? '' : '<span style="font-size:9px;font-weight:900;color:#3DBEFF;letter-spacing:.5px;margin-left:6px" title="Customer not yet confirmed">CUST?</span>';
+          const stall = o.stalled ? '<span style="font-size:9px;font-weight:900;color:#ff5252;letter-spacing:.5px;margin-left:6px">⚠</span>' : '';
+          const tap = "document.getElementById('needsBookingOverlay').remove();openScheduleBookerModal('" + esc(o.order_number) + "','" + esc(o.booker || '') + "',false)";
+          return '<div onclick="' + tap + '" style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:rgba(255,179,0,.07);border-left:3px solid ' + color + ';border-radius:6px;font-size:13px;color:#fff;margin-bottom:4px;cursor:pointer" title="Tap to assign / mark booked">'
+            + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;min-width:60px">#' + esc(o.order_number) + '</span>'
+            + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + cust + stall + '</span>'
+            + '<span style="font-size:10px;color:#9AAAC0;white-space:nowrap">' + esc(o.ship_date) + '</span>'
+            + (o.booker ? '<span style="font-size:9px;color:#FFB300;font-weight:800;letter-spacing:.5px;white-space:nowrap" title="Assigned booker">👤 ' + esc(o.booker) + '</span>' : '')
+          + '</div>';
+        }).join('')
+      + '</div>';
+  }).join('');
+
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#1a1a1a;color:#fff;width:100%;max-width:680px;max-height:85vh;border-radius:14px 14px 0 0;padding:18px 18px 24px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.6);border-top:2px solid #FFB300">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">📋 ' + need.length + ' To Book</div><button onclick="document.getElementById(\'needsBookingOverlay\').remove()" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;padding:0 4px">✕</button></div>'
+    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">Freight not yet booked, grouped by carrier so you can book a whole portal session at once. Soonest ship date first. <span style="color:#3DBEFF">CUST?</span> = customer not yet confirmed.</div>'
+    + body
+    + '<button onclick="document.getElementById(\'needsBookingOverlay\').remove()" style="width:100%;margin-top:8px;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
     + '</div>';
   document.body.appendChild(ov);
 }
