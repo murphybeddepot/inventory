@@ -2605,7 +2605,48 @@ let _scheduleWeekOffset = 0;
 const SCHEDULE_CACHE_KEY = 'mbd_schedule_cache_v1';
 const SCHEDULE_DESKTOP_BREAKPOINT_PX = 820;
 
+// v10.16 pass 8: "changed since you last looked" delta. Schedule is a
+// monitoring surface checked many times a day with no client auto-
+// refresh — every render is an intentional open or post-write. We
+// snapshot each order's actionable state and flag NEW / UPD on the
+// next intentional render so Kim/Seth don't have to re-scan the whole
+// horizon to find what moved. Pure client-side, persisted across app
+// reloads via localStorage; zero server/JS2 involvement.
+const SCHEDULE_SEEN_KEY = 'mbd_sched_seen';
+let _schedulePrevSnap = null;
+
+function _scheduleSnap_(payload) {
+  const m = {};
+  (payload && payload.days || []).forEach(d => (d.orders || []).forEach(o => {
+    const on = String(o.order_number || '');
+    if (!on) return;
+    // Cabinet: track the three bits that matter for action. Ground/
+    // mattress have no booked/ready/stall semantics — presence only,
+    // so they can flag NEW but never a spurious UPD.
+    m[on] = o.source === 'cabinet'
+      ? 'b' + (o.booked_at ? 1 : 0) + 'r' + (o.customer_ready ? 1 : 0) + 's' + (o.stalled ? 1 : 0)
+      : '-';
+  }));
+  return m;
+}
+
+function _scheduleStampChanges_(payload) {
+  const prev = _schedulePrevSnap;
+  const hasPrev = prev && Object.keys(prev).length > 0;
+  const cur = _scheduleSnap_(payload);
+  (payload && payload.days || []).forEach(d => (d.orders || []).forEach(o => {
+    const on = String(o.order_number || '');
+    if (!hasPrev || !on) { o._chg = ''; return; }
+    if (!(on in prev)) o._chg = 'new';
+    else if (prev[on] !== '-' && prev[on] !== cur[on]) o._chg = 'upd';
+    else o._chg = '';
+  }));
+}
+
 function renderScheduleTab() {
+  try {
+    _schedulePrevSnap = JSON.parse(localStorage.getItem(SCHEDULE_SEEN_KEY) || 'null');
+  } catch(e) { _schedulePrevSnap = null; }
   try {
     const cached = JSON.parse(localStorage.getItem(SCHEDULE_CACHE_KEY) || 'null');
     if (cached && cached.days) {
@@ -2632,6 +2673,15 @@ async function refreshScheduleTab() {
     }
     _scheduleCache = res;
     try { localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(res)); } catch(e) {}
+    // Diff vs the last-seen snapshot, stamp _chg on each order, then
+    // advance the baseline. Done AFTER the cache persist so the
+    // stored copy stays free of transient _chg flags.
+    _scheduleStampChanges_(res);
+    try {
+      const snap = _scheduleSnap_(res);
+      _schedulePrevSnap = snap;
+      localStorage.setItem(SCHEDULE_SEEN_KEY, JSON.stringify(snap));
+    } catch(e) {}
     // v9.68 — surface cross-tab attention counts (stalled,
     // awaiting customer) so Cabinets tab can render them without
     // re-fetching. Updated every Schedule refresh.
@@ -2982,6 +3032,14 @@ function _scheduleRenderOrderRow_(o, opts) {
         ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="Freight booked — date locked">✓</span>'
         : '');
   const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
+  // v10.16 pass 8: delta pill — NEW (appeared since last look) /
+  // UPD (booked/customer-ready/stalled state moved). Cleared once
+  // this render becomes the new baseline, so it self-extinguishes.
+  const chgPill = o._chg === 'new'
+    ? '<span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:#00e676;color:#0a0a0a;padding:0 4px;border-radius:3px;margin-right:4px;vertical-align:middle" title="New since you last viewed">NEW</span>'
+    : (o._chg === 'upd'
+        ? '<span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:#3DBEFF;color:#0a0a0a;padding:0 4px;border-radius:3px;margin-right:4px;vertical-align:middle" title="Booking / customer-ready / stall state changed since you last viewed">UPD</span>'
+        : '');
   const bookerChip = _scheduleBookerChip_(o, !!opts.compact);
   const custChip = _scheduleCustomerReadyChip_(o, !!opts.compact);
   const stallChip = _scheduleStallChip_(o, !!opts.compact);
@@ -2993,7 +3051,7 @@ function _scheduleRenderOrderRow_(o, opts) {
     // Desktop grid cell — compact two-line layout to fit a column
     return '<div' + rowTap + ' style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3;cursor:pointer">'
       + '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">'
-      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">#' + esc(o.order_number) + '</span>'
+      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">' + chgPill + '#' + esc(o.order_number) + '</span>'
       +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</span>'
       + '</div>'
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
@@ -3005,7 +3063,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   }
   // Mobile / list layout — single-line row
   return '<div' + rowTap + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap;cursor:pointer">'
-    + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">#' + esc(o.order_number) + '</div>'
+    + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">' + chgPill + '#' + esc(o.order_number) + '</div>'
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
     + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
