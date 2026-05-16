@@ -4118,6 +4118,41 @@ function paintScheduleDesktopGrid_(payload, listEl) {
   const weekRangeLabel = weekStartIso.slice(5) + ' – ' + weekEndIso.slice(5);
   const isCurrentWeek = _scheduleWeekOffset === 0;
 
+  // v10.13 pass 5: week-overview jump strip. The current 1-week grid
+  // hides the rest of the ~21-day horizon behind blind Prev/Next.
+  // Bucket the (already filtered) payload by week-offset so users see
+  // where the workload sits and jump straight to it. Pure client-side.
+  const baseMonday = new Date(todayDate);
+  baseMonday.setDate(baseMonday.getDate() + mondayOffset); // offset-0 Monday
+  const baseMondayMs = baseMonday.getTime();
+  function _weekOffsetForIso_(iso) {
+    const dd = new Date(iso + 'T12:00:00');
+    const wd = dd.getDay();
+    const mo2 = (wd === 0 ? -6 : 1 - wd);
+    const m = new Date(dd); m.setDate(m.getDate() + mo2);
+    m.setHours(12, 0, 0, 0);
+    return Math.round((m.getTime() - baseMondayMs) / (7 * 86400000));
+  }
+  const weekBuckets = {};
+  (payload.days || []).forEach(d => {
+    const off = _weekOffsetForIso_(d.date);
+    weekBuckets[off] = (weekBuckets[off] || 0) + (d.total || 0);
+  });
+  weekBuckets[_scheduleWeekOffset] = weekBuckets[_scheduleWeekOffset] || 0; // active week always shown
+  const weekOffsets = Object.keys(weekBuckets).map(Number).sort((a, b) => a - b);
+  const weekJumpStrip = weekOffsets.map(off => {
+    const wm = new Date(baseMonday); wm.setDate(wm.getDate() + off * 7);
+    const we = new Date(wm); we.setDate(we.getDate() + 4); // Mon–Fri label
+    const lbl = (wm.getMonth() + 1) + '/' + wm.getDate() + '–' + (we.getMonth() + 1) + '/' + we.getDate();
+    const active = off === _scheduleWeekOffset;
+    const n = weekBuckets[off];
+    const tag = off === 0 ? 'This wk' : (off === 1 ? 'Next wk' : lbl);
+    return '<button onclick="scheduleJumpToWeek(' + off + ')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.3px;cursor:pointer;white-space:nowrap;border:1px solid ' + (active ? '#00e676;background:#00e676;color:#0a0a0a' : 'rgba(255,255,255,.18);background:rgba(255,255,255,.04);color:var(--text-dim)') + '" title="' + lbl + '">'
+      + esc(tag)
+      + '<span style="font-size:10px;font-weight:900;padding:0 5px;border-radius:999px;background:' + (active ? 'rgba(0,0,0,.18)' : (n ? 'rgba(255,179,0,.20);color:#FFB300' : 'rgba(255,255,255,.06)')) + '">' + n + '</span>'
+      + '</button>';
+  }).join('');
+
   // Toolbar: week nav + show-weekends toggle
   const toolbar = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:10px">'
     + '<div style="display:flex;align-items:center;gap:8px">'
@@ -4130,7 +4165,13 @@ function paintScheduleDesktopGrid_(payload, listEl) {
     +   '<input type="checkbox" onchange="scheduleToggleWeekends(this.checked)" ' + (_scheduleShowWeekends ? 'checked' : '') + ' style="cursor:pointer;width:16px;height:16px;accent-color:#00e676">'
     +   'Show weekends'
     + '</label>'
-    + '</div>';
+    + '</div>'
+    + (weekOffsets.length > 1
+        ? '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">'
+            + '<span style="font-size:10px;font-weight:800;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-right:2px">Jump</span>'
+            + weekJumpStrip
+          + '</div>'
+        : '');
 
   // Day columns
   const cellWidthPct = 100 / dayCount;
@@ -4179,6 +4220,11 @@ function paintScheduleDesktopGrid_(payload, listEl) {
 function scheduleWeekShift(delta) {
   if (delta === 0) _scheduleWeekOffset = 0;
   else _scheduleWeekOffset += delta;
+  if (_scheduleCache) paintSchedule_(_scheduleCache);
+}
+
+function scheduleJumpToWeek(off) {
+  _scheduleWeekOffset = off;
   if (_scheduleCache) paintSchedule_(_scheduleCache);
 }
 
