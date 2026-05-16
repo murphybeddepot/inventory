@@ -2667,10 +2667,91 @@ async function refreshScheduleTab() {
   }
 }
 
-function paintSchedule_(payload) {
+// v10.10 pass 2: view-mode filter. Turns the read-everything board
+// into each role's work queue. Sticky in localStorage so a device
+// stays in the mode its user works in (Kim → needs_booking).
+let _scheduleViewMode = 'all';
+try { _scheduleViewMode = localStorage.getItem('mbd_sched_view') || 'all'; } catch(e) {}
+
+const SCHEDULE_VIEW_MODES = [
+  { key: 'all',              label: 'All',              color: '#9AAAC0' },
+  { key: 'needs_booking',    label: 'Needs Booking',    color: '#FFB300' },
+  { key: 'awaiting_customer',label: 'Awaiting Customer', color: '#3DBEFF' },
+  { key: 'stalled',          label: 'Stalled',          color: '#FF5252' },
+];
+
+function _scheduleOrderMatchesMode_(o, mode) {
+  if (mode === 'all') return true;
+  if (mode === 'stalled') return !!o.stalled;
+  if (mode === 'needs_booking') {
+    return o.source === 'cabinet' && !o.booked_at;
+  }
+  if (mode === 'awaiting_customer') {
+    if (o.source !== 'cabinet' || o.customer_ready) return false;
+    const st = String(o.status || '').toLowerCase();
+    if (st !== '' && st !== 'pending') return false;
+    if (!o.ship_date) return false;
+    const ship = new Date(o.ship_date + 'T00:00:00');
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const diff = (ship - now) / 86400000;
+    return diff >= -1 && diff <= 14;
+  }
+  return true;
+}
+
+function setScheduleViewMode(mode) {
+  _scheduleViewMode = mode;
+  try { localStorage.setItem('mbd_sched_view', mode); } catch(e) {}
+  if (_scheduleCache) paintSchedule_(_scheduleCache);
+}
+
+// Apply the active view-mode filter to a payload, returning a
+// shallow-cloned payload with filtered days (empty days dropped).
+function _applyScheduleViewFilter_(payload) {
+  if (_scheduleViewMode === 'all') return payload;
+  const days = (payload.days || []).map(d => {
+    const orders = (d.orders || []).filter(o => _scheduleOrderMatchesMode_(o, _scheduleViewMode));
+    if (!orders.length) return null;
+    const fd = Object.assign({}, d, { orders: orders, total: orders.length });
+    fd.freight_count = orders.filter(o => o.source === 'cabinet').length;
+    fd.ground_count = orders.filter(o => o.source === 'ground').length;
+    fd.mattress_count = orders.filter(o => o.source === 'mattress').length;
+    fd.counts = {};
+    orders.forEach(o => { const k = o.carrier_key || 'unassigned'; fd.counts[k] = (fd.counts[k] || 0) + 1; });
+    return fd;
+  }).filter(Boolean);
+  return Object.assign({}, payload, { days: days });
+}
+
+function _renderScheduleFilterBar_(payload) {
+  const bar = document.getElementById('scheduleFilterBar');
+  if (!bar) return;
+  // Per-mode counts so each pill shows how many it'd surface.
+  const counts = { all: 0, needs_booking: 0, awaiting_customer: 0, stalled: 0 };
+  (payload.days || []).forEach(d => (d.orders || []).forEach(o => {
+    counts.all++;
+    if (_scheduleOrderMatchesMode_(o, 'needs_booking')) counts.needs_booking++;
+    if (_scheduleOrderMatchesMode_(o, 'awaiting_customer')) counts.awaiting_customer++;
+    if (_scheduleOrderMatchesMode_(o, 'stalled')) counts.stalled++;
+  }));
+  bar.innerHTML = SCHEDULE_VIEW_MODES.map(m => {
+    const active = m.key === _scheduleViewMode;
+    const n = counts[m.key];
+    return '<button onclick="setScheduleViewMode(\'' + m.key + '\')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.5px;cursor:pointer;text-transform:uppercase;border:1px solid ' + m.color + (active ? ';background:' + m.color + ';color:#0a0a0a' : '88;background:transparent;color:' + m.color) + '">'
+      + esc(m.label)
+      + '<span style="font-size:10px;font-weight:900;opacity:.85;background:rgba(0,0,0,' + (active ? '.18' : '0') + ');padding:0 5px;border-radius:999px">' + n + '</span>'
+      + '</button>';
+  }).join('');
+}
+
+function paintSchedule_(payloadRaw) {
   const legendEl = document.getElementById('scheduleLegend');
   const listEl = document.getElementById('scheduleDayList');
   if (!legendEl || !listEl) return;
+  // Filter bar reflects the FULL payload's counts; the grid/list
+  // below render the FILTERED payload.
+  _renderScheduleFilterBar_(payloadRaw);
+  const payload = _applyScheduleViewFilter_(payloadRaw);
 
   // ── Legend (shared) ──
   const carriers = payload.carriers || [];
@@ -2710,7 +2791,11 @@ function paintSchedule_(payload) {
     .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('');
 
   if (!payload.days || !payload.days.length) {
-    listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No orders scheduled in this window.</div>';
+    const modeLabel = (SCHEDULE_VIEW_MODES.find(m => m.key === _scheduleViewMode) || {}).label || '';
+    const msg = _scheduleViewMode === 'all'
+      ? 'No orders scheduled in this window.'
+      : '✓ Nothing in <strong>' + esc(modeLabel) + '</strong> right now.<br><span style="font-size:12px">Tap <strong>All</strong> above to see the full schedule.</span>';
+    listEl.innerHTML = '<div style="padding:24px;text-align:center;color:' + (_scheduleViewMode === 'all' ? 'var(--text-dim)' : '#0a8a3f') + ';background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">' + msg + '</div>';
     return;
   }
 
