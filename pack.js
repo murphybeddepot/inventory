@@ -2734,11 +2734,10 @@ function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
   if (mode === 'stalled') return !!o.stalled;
   if (mode === 'needs_booking') {
-    // v10.19 Phase 1: JS2-sourced upstream orders are horizon-
-    // visibility only — they aren't pick-listed yet, so they're
-    // NOT freight-bookable. Excluding them keeps Kim's "to book"
-    // worklist/chip from flooding with weeks of upstream pipeline.
-    if (o.js2_sourced) return false;
+    // Calendar/JS2-sourced rows are committed-schedule visibility,
+    // not Bedrock freight-booking actionable — exclude so Kim's
+    // "to book" worklist/chip isn't flooded by the calendar feed.
+    if (o.cal_sourced || o.js2_sourced) return false;
     return o.source === 'cabinet' && !o.booked_at;
   }
   if (mode === 'awaiting_customer') {
@@ -3046,17 +3045,21 @@ function _scheduleRenderOrderRow_(o, opts) {
         ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="Freight booked — date locked">✓</span>'
         : '');
   const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
-  // v10.19 Phase 1: JS2-sourced rows (upstream pipeline beyond the
-  // ≤7-day pick-list window). Distinct pill so this date source is
-  // never confused with freight-booked (✓) or ground-heuristic
-  // (EST): green "CONFIRMED" when JS2 status is locked (Customer
-  // Ready / Jurgen calendar), amber "PLANNED" when provisional
-  // (Shipping Confirmation Form / In Production — date can move).
-  const js2Pill = o.js2_sourced
-    ? (o.js2_tier === 'locked'
-        ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — offered date confirmed">JS2 ✓ CONFIRMED</span>'
-        : ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(255,179,0,.22);color:#FFB300;border:1px solid rgba(255,179,0,.55);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — planned, date may still move">JS2 ~ PLANNED</span>')
-    : '';
+  // v10.20: source pill — distinguishes the schedule date's origin
+  // so it's never confused with freight-booked (✓) or ground
+  // heuristic (EST).
+  //  • cal_sourced  → green "✓ CONFIRMED" (operational calendar —
+  //    the churn-resistant committed source).
+  //  • js2_sourced  → legacy JS2 path, dormant now but kept for the
+  //    future "Offered" lifecycle layer (green CONFIRMED / amber
+  //    PLANNED by tier).
+  const js2Pill = o.cal_sourced
+    ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="On the operational calendar' + (o.cal_name ? ' (' + esc(o.cal_name) + ')' : '') + (o.cal_label ? ' — ' + esc(o.cal_label) : '') + '">✓ CONFIRMED</span>'
+    : (o.js2_sourced
+        ? (o.js2_tier === 'locked'
+            ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — offered date confirmed">JS2 ✓ CONFIRMED</span>'
+            : ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(255,179,0,.22);color:#FFB300;border:1px solid rgba(255,179,0,.55);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — planned, date may still move">JS2 ~ PLANNED</span>')
+        : '');
   // v10.16 pass 8: delta pill — NEW (appeared since last look) /
   // UPD (booked/customer-ready/stalled state moved). Cleared once
   // this render becomes the new baseline, so it self-extinguishes.
