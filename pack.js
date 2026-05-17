@@ -3063,6 +3063,11 @@ function _scheduleRenderOrderRow_(o, opts) {
             ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — offered date confirmed">JS2 ✓ CONFIRMED</span>'
             : ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(255,179,0,.22);color:#FFB300;border:1px solid rgba(255,179,0,.55);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — planned, date may still move">JS2 ~ PLANNED</span>')
         : '');
+  // v10.22 enrich: a calendar-confirmed order reads "CONFIRMED"
+  // even if its underlying PackingQueue status is still pending —
+  // display-only (doesn't touch o.status, so filters/sort/stall
+  // logic are unaffected).
+  const statusText = o.cal_sourced ? 'CONFIRMED' : String(o.status || '');
   // v10.16 pass 8: delta pill — NEW (appeared since last look) /
   // UPD (booked/customer-ready/stalled state moved). Cleared once
   // this render becomes the new baseline, so it self-extinguishes.
@@ -3087,7 +3092,7 @@ function _scheduleRenderOrderRow_(o, opts) {
       + '</div>'
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
-      +   (o.status ? '<span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">' + esc(String(o.status).slice(0,14)) + '</span>' : '<span></span>')
+      +   (statusText ? '<span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">' + esc(statusText.slice(0,14)) + '</span>' : '<span></span>')
       +   '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' + stallChip + custChip + bookerChip + '</div>'
       + '</div>'
       + '</div>';
@@ -3097,7 +3102,7 @@ function _scheduleRenderOrderRow_(o, opts) {
     + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">' + chgPill + '#' + esc(o.order_number) + '</div>'
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
     + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + '</div>'
-    + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
+    + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(statusText.slice(0,12)) + '</div>'
     + stallChip
     + custChip
     + bookerChip
