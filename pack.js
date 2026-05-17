@@ -3068,6 +3068,11 @@ function _scheduleRenderOrderRow_(o, opts) {
   // display-only (doesn't touch o.status, so filters/sort/stall
   // logic are unaffected).
   const statusText = o.cal_sourced ? 'CONFIRMED' : String(o.status || '');
+  // v10.24: calendar alert (e.g. "ND WG PAY" = customer upgraded
+  // to White Glove but the WG invoice is unpaid — a ship blocker).
+  const alertPill = o.cal_alert
+    ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:#B71C1C;color:#fff;border:1px solid #ff5252;padding:0 4px;border-radius:3px;vertical-align:middle" title="' + esc(o.cal_alert) + '">⚠ WG UNPAID</span>'
+    : '';
   // v10.16 pass 8: delta pill — NEW (appeared since last look) /
   // UPD (booked/customer-ready/stalled state moved). Cleared once
   // this render becomes the new baseline, so it self-extinguishes.
@@ -3088,7 +3093,7 @@ function _scheduleRenderOrderRow_(o, opts) {
     return '<div' + rowTap + ' style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3;cursor:pointer">'
       + '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">'
       +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">' + chgPill + '#' + esc(o.order_number) + '</span>'
-      +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + '</span>'
+      +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + '</span>'
       + '</div>'
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
@@ -3101,7 +3106,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   return '<div' + rowTap + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap;cursor:pointer">'
     + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">' + chgPill + '#' + esc(o.order_number) + '</div>'
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
-    + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + '</div>'
+    + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(statusText.slice(0,12)) + '</div>'
     + stallChip
     + custChip
