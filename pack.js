@@ -2605,6 +2605,28 @@ let _scheduleWeekOffset = 0;
 const SCHEDULE_CACHE_KEY = 'mbd_schedule_cache_v1';
 const SCHEDULE_DESKTOP_BREAKPOINT_PX = 820;
 
+// The stalled / awaiting / to-book panels are reachable from the
+// Cabinets attention strip without ever opening the Schedule tab,
+// so _scheduleCache can be null there (Zac: "5 stalled → schedule
+// not loaded"). Resolve it from memory → localStorage → a live
+// fetch so those panels work from anywhere.
+async function _ensureScheduleCache_() {
+  if (_scheduleCache && _scheduleCache.days) return _scheduleCache;
+  try {
+    const c = JSON.parse(localStorage.getItem(SCHEDULE_CACHE_KEY) || 'null');
+    if (c && c.days) { _scheduleCache = c; return c; }
+  } catch (e) {}
+  try {
+    const res = await groundApi('listScheduleByDateRange', {});
+    if (res && res.ok && res.days) {
+      _scheduleCache = res;
+      try { localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(res)); } catch (e) {}
+      return res;
+    }
+  } catch (e) {}
+  return null;
+}
+
 // v10.16 pass 8: "changed since you last looked" delta. Schedule is a
 // monitoring surface checked many times a day with no client auto-
 // refresh — every render is an intentional open or post-write. We
@@ -3121,9 +3143,9 @@ function _scheduleRenderOrderRow_(o, opts) {
 // Stalled-only filter panel — taps the red "N STALLED" chip in the
 // header. Lists every stalled order grouped by reason so Seth can
 // triage in one sweep.
-function openStalledList() {
-  const cache = _scheduleCache;
-  if (!cache || !cache.days) { showToast('Schedule not loaded yet'); return; }
+async function openStalledList() {
+  const cache = await _ensureScheduleCache_();
+  if (!cache || !cache.days) { showToast('Schedule data unavailable — check connection'); return; }
   const stalled = [];
   cache.days.forEach(d => {
     (d.orders || []).forEach(o => { if (o.stalled) stalled.push(o); });
@@ -3170,9 +3192,9 @@ function openStalledList() {
 // group by ship date (most urgent first). Mirrors openStalledList /
 // openAwaitingCustomerList (the Seth / Ken panels); this is the
 // missing third. Tapping a row jumps straight to the booker modal.
-function openNeedsBookingList() {
-  const cache = _scheduleCache;
-  if (!cache || !cache.days) { showToast('Schedule not loaded yet'); return; }
+async function openNeedsBookingList() {
+  const cache = await _ensureScheduleCache_();
+  if (!cache || !cache.days) { showToast('Schedule data unavailable — check connection'); return; }
   const need = [];
   cache.days.forEach(d => (d.orders || []).forEach(o => {
     if (_scheduleOrderMatchesMode_(o, 'needs_booking')) need.push(o);
@@ -3996,9 +4018,9 @@ async function paintDayPlanInto_(targetElId, opts) {
 }
 
 // Awaiting-customer panel — Ken's primary triage list.
-function openAwaitingCustomerList() {
-  const cache = _scheduleCache;
-  if (!cache || !cache.days) { showToast('Schedule not loaded yet'); return; }
+async function openAwaitingCustomerList() {
+  const cache = await _ensureScheduleCache_();
+  if (!cache || !cache.days) { showToast('Schedule data unavailable — check connection'); return; }
   const items = [];
   cache.days.forEach(d => {
     (d.orders || []).forEach(o => {

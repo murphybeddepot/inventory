@@ -9805,10 +9805,18 @@ function openSystemStatus() {
 
   const ov = document.createElement('div');
   ov.id = 'systemStatusOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;overscroll-behavior:contain';
+  // iOS scroll-chaining fix (Zac: popup scrolls the page behind it
+  // on mobile, can't reach the close): lock body scroll while open,
+  // restore on ANY close path (backdrop tap or ✕ → both hit
+  // ov.remove on the same node).
+  const _prevBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  const _origOvRemove = ov.remove.bind(ov);
+  ov.remove = function () { document.body.style.overflow = _prevBodyOverflow; _origOvRemove(); };
   ov.onclick = () => ov.remove();
   ov.innerHTML =
-    '<div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 24px;max-height:90vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
+    '<div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 24px;max-height:90vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
     + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
     + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">System Status</div>'
     + '<div style="font-size:13px;color:' + (ok ? '#0a8a3f' : '#c33') + ';font-weight:700;margin-bottom:12px">' + (ok ? '✓ Ready' : '⚠ Setup needed') + '</div>'
@@ -10157,15 +10165,18 @@ async function openReleasesPanel_(opts) {
   const body = { limit: 100 };
   if (filter !== 'all') body.deployment = filter;
   let res;
+  // The panel can be closed (overlay removed) before this async
+  // resolves — guard every body access so it can't null-crash.
+  const _rpb = () => document.getElementById('releasesPanelBody');
   try { res = await groundApi('listReleases', body); }
-  catch (err) { document.getElementById('releasesPanelBody').innerHTML = '<div style="color:#c33;padding:12px">Error: ' + esc(err.message) + '</div>'; return; }
+  catch (err) { const e = _rpb(); if (e) e.innerHTML = '<div style="color:#c33;padding:12px">Error: ' + esc(err.message) + '</div>'; return; }
   if (!res || !res.ok || !res.releases || !res.releases.length) {
-    document.getElementById('releasesPanelBody').innerHTML = '<div style="color:#888;padding:18px;text-align:center;font-size:13px">No releases in this view.</div>';
+    const e = _rpb(); if (e) e.innerHTML = '<div style="color:#888;padding:18px;text-align:center;font-size:13px">No releases in this view.</div>';
     return;
   }
   const DEPLOY_BG = { DEV: '#FF910022', STABLE: '#00C85322', BACKFILL: '#88888822' };
   const DEPLOY_FG = { DEV: '#FF9100', STABLE: '#0a8a3f', BACKFILL: '#666' };
-  document.getElementById('releasesPanelBody').innerHTML = res.releases.map(r => {
+  const _rpbHtml = res.releases.map(r => {
     const t = new Date(r.released_at);
     const when = (t.getMonth() + 1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
     const dep = String(r.deployment || '').toUpperCase();
@@ -10185,6 +10196,7 @@ async function openReleasesPanel_(opts) {
       + (r.commit_sha ? '<div style="font-size:10px;color:#aaa;margin-top:4px;font-family:monospace">' + r.commit_sha + ' · ' + (r.author || '?') + '</div>' : '')
       + '</details>';
   }).join('');
+  { const e = _rpb(); if (e) e.innerHTML = _rpbHtml; }
 }
 
 function openGroundSettingsFromStatus() {
@@ -11713,7 +11725,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.39"></script>
+<script src="./pack.js?v=10.40"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11722,7 +11734,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.39<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.40<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
