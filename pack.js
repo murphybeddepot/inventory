@@ -2897,9 +2897,10 @@ function paintSchedule_(payloadRaw) {
   if (bookCount > 0) {
     bookChip = '<button onclick="openNeedsBookingList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#FFB300,#995c00);color:#1a1a1a;border:1px solid #FFB300;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">📋 ' + bookCount + ' TO BOOK</button>';
   }
+  const carrierEditBtn = '<button onclick="openCarrierEditor()" title="Edit carriers + colors" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.3);border-radius:999px;font-size:11px;font-weight:800;color:var(--text-dim);letter-spacing:.5px;cursor:pointer">✎ Carriers</button>';
   legendEl.innerHTML = stalledChip + awaitingChip + bookChip + carriers
     .filter(c => carriersUsed[c.carrier_key])
-    .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('');
+    .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('') + carrierEditBtn;
 
   if (!payload.days || !payload.days.length) {
     const modeLabel = (SCHEDULE_VIEW_MODES.find(m => m.key === _scheduleViewMode) || {}).label || '';
@@ -3214,6 +3215,82 @@ function openNeedsBookingList() {
     + '<button onclick="document.getElementById(\'needsBookingOverlay\').remove()" style="width:100%;margin-top:8px;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
     + '</div>';
   document.body.appendChild(ov);
+}
+
+// ── Carrier editor ───────────────────────────────────────────
+// Edit carrier display name + color + active. Persists to the
+// Rulebook 'carriers' tab via the manager-PIN-gated saveCarriers
+// endpoint; the Schedule reads colors from there.
+let _carrierEditorRows = [];
+
+function _hexForPicker_(c) {
+  c = String(c || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#666666';
+}
+
+async function openCarrierEditor() {
+  const prior = document.getElementById('carrierEditorOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'carrierEditorOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#1a1a1a;color:#fff;width:100%;max-width:680px;max-height:88vh;border-radius:14px 14px 0 0;padding:18px 18px 24px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.6);border-top:2px solid #888"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">Carriers</div><button onclick="document.getElementById(\'carrierEditorOverlay\').remove()" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;padding:0 4px">✕</button></div><div id="carrierEditorBody" style="font-size:13px;color:#9AAAC0;padding:24px;text-align:center">Loading…</div></div>';
+  document.body.appendChild(ov);
+  try {
+    const res = await groundApi('listCarriers', {});
+    if (!res || !res.ok) { const b = document.getElementById('carrierEditorBody'); if (b) b.textContent = 'Error: ' + ((res && res.error) || 'unknown'); return; }
+    _carrierEditorRows = res.carriers || [];
+    _renderCarrierEditor_();
+  } catch (e) {
+    const b = document.getElementById('carrierEditorBody'); if (b) b.textContent = 'Error: ' + e.message;
+  }
+}
+
+function _renderCarrierEditor_() {
+  const b = document.getElementById('carrierEditorBody');
+  if (!b) return;
+  const rowsHtml = _carrierEditorRows.map((c, i) =>
+    '<div style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid rgba(255,255,255,.07)">'
+    + '<input type="color" id="ced_color_' + i + '" value="' + _hexForPicker_(c.color) + '" style="width:34px;height:30px;padding:0;border:1px solid #444;border-radius:6px;background:transparent;cursor:pointer">'
+    + '<input type="text" id="ced_name_' + i + '" value="' + esc(String(c.display_name || '')) + '" style="flex:1;min-width:0;padding:7px 9px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:13px">'
+    + '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#667;min-width:92px;text-align:right" title="carrier_key (not editable)">' + esc(String(c.carrier_key || '')) + '</span>'
+    + '<label style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#9AAAC0;text-transform:uppercase;letter-spacing:.5px;cursor:pointer"><input type="checkbox" id="ced_active_' + i + '" ' + (c.active !== false ? 'checked' : '') + ' style="width:15px;height:15px;accent-color:#00e676">On</label>'
+    + '</div>'
+  ).join('');
+  b.style.cssText = '';
+  b.innerHTML =
+    '<div style="font-size:12px;color:#9AAAC0;margin-bottom:10px">Edit name + color, toggle active. Colors drive the Schedule legend, row borders & labels. Saving requires the manager PIN.</div>'
+    + rowsHtml
+    + '<div style="margin-top:14px;padding-top:12px;border-top:1px dashed rgba(255,255,255,.18)"><div style="font-size:11px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Add carrier</div>'
+    + '<div style="display:flex;align-items:center;gap:8px">'
+    + '<input type="color" id="ced_add_color" value="#666666" style="width:34px;height:30px;padding:0;border:1px solid #444;border-radius:6px;background:transparent;cursor:pointer">'
+    + '<input type="text" id="ced_add_name" placeholder="Display name (e.g. Old Dominion)" style="flex:1;min-width:0;padding:7px 9px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:13px">'
+    + '<input type="text" id="ced_add_key" placeholder="key e.g. old_dominion" style="width:160px;padding:7px 9px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px;font-family:\'JetBrains Mono\',monospace">'
+    + '</div></div>'
+    + '<button onclick="saveCarrierEdits_()" style="width:100%;margin-top:16px;padding:13px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;letter-spacing:.5px;cursor:pointer">Save (Manager PIN)</button>';
+}
+
+async function saveCarrierEdits_() {
+  const pin = promptManagerPin_('save carriers');
+  if (!pin) return;
+  const val = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
+  const edits = _carrierEditorRows.map((c, i) => ({
+    carrier_key: c.carrier_key,
+    display_name: val('ced_name_' + i),
+    color: val('ced_color_' + i),
+    active: !!(document.getElementById('ced_active_' + i) || {}).checked,
+  }));
+  const adds = [];
+  const ak = val('ced_add_key'), an = val('ced_add_name'), ac = val('ced_add_color');
+  if (ak && an) adds.push({ carrier_key: ak, display_name: an, color: ac });
+  try {
+    const res = await groundApi('saveCarriers', { manager_pin: pin, edits: edits, adds: adds });
+    if (!res || !res.ok) { showToast('Save failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Carriers saved' + (res.touched ? ' (' + res.touched.length + ')' : ''));
+    const ov = document.getElementById('carrierEditorOverlay'); if (ov) ov.remove();
+    if (typeof refreshScheduleTab === 'function') refreshScheduleTab();
+  } catch (e) { showToast('Save error: ' + e.message); }
 }
 
 // Booker assignment modal — tap a chip to open. Kim/Seth/Clear + a
