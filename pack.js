@@ -4590,7 +4590,7 @@ async function runLookup() {
       const tip = isName
         ? 'Names are matched as substrings (case-insensitive). Try part of the last name only, or try the order number.'
         : 'Double-check the order number. You can also search by customer name.';
-      resultsEl.innerHTML = '<div style="padding:32px 20px;text-align:center;background:rgba(255,165,0,.08);border:1px dashed rgba(255,165,0,.4);border-radius:10px;color:#FFB300;font-weight:700">No orders found matching <strong>' + esc(q) + '</strong>.<br><span style="font-weight:500;font-size:12px;color:var(--text-dim);margin-top:6px;display:inline-block">' + tip + '</span><br><span style="font-weight:500;font-size:11px;color:var(--text-dim);opacity:.7;margin-top:4px;display:inline-block">Searched: PackingQueue · OrderPack · MattressDropships · CabinetDamage</span></div>';
+      resultsEl.innerHTML = '<div style="padding:32px 20px;text-align:center;background:rgba(255,165,0,.08);border:1px dashed rgba(255,165,0,.4);border-radius:10px;color:#FFB300;font-weight:700">No orders found matching <strong>' + esc(q) + '</strong>.<br><span style="font-weight:500;font-size:12px;color:var(--text-dim);margin-top:6px;display:inline-block">' + tip + '</span><br><span style="font-weight:500;font-size:11px;color:var(--text-dim);opacity:.7;margin-top:4px;display:inline-block">Searched: PackingQueue · OrderPack · MattressDropships · CabinetDamage · Calendar</span></div>';
       return;
     }
     statusEl.textContent = res.hits.length + ' match' + (res.hits.length === 1 ? '' : 'es') + ' for #' + q;
@@ -4608,7 +4608,28 @@ function renderLookupHit_(hit) {
   if (hit.source === 'ground')   return renderLookupGround_(hit);
   if (hit.source === 'mattress') return renderLookupMattress_(hit);
   if (hit.source === 'damage')   return renderLookupDamage_(hit);
+  if (hit.source === 'calendar') return renderLookupCalendar_(hit);
   return '<pre style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:11px;color:var(--text)">' + esc(JSON.stringify(hit, null, 2)) + '</pre>';
+}
+
+// Calendar-sourced order (on the operational calendar but not yet
+// in PackingQueue) — closes the tap-row→Lookup dead-end.
+function renderLookupCalendar_(h) {
+  const hpl = (lab, on) => '<span style="font-weight:900;color:' + (on ? '#00e676' : '#5a6472') + '">' + lab + '</span>';
+  return '<div style="background:rgba(0,200,83,.06);border:1px solid rgba(0,230,118,.35);border-radius:12px;padding:16px 18px;margin-bottom:12px">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+    +   '<span style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;color:var(--text)">#' + esc(String(h.order_number || '')) + '</span>'
+    +   '<span style="font-size:11px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.18);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:2px 8px;border-radius:999px">✓ ON CALENDAR</span>'
+    +   '<span style="font-size:12px;color:var(--text-dim)">' + esc(String(h.calendar_name || h.tab || '')) + '</span>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;color:var(--text)">'
+    +   '<span style="color:var(--text-dim)">Ship date</span><span style="font-weight:700">' + esc(String(h.ship_date || '—')) + '</span>'
+    +   '<span style="color:var(--text-dim)">Carrier</span><span style="font-weight:700">' + esc(String(h.carrier || 'TBD')) + '</span>'
+    +   '<span style="color:var(--text-dim)">Fulfillment</span><span style="font-weight:900;letter-spacing:1px">' + hpl('H', h.h) + ' ' + hpl('P', h.p) + ' ' + hpl('L', h.l) + ' <span style="font-weight:400;color:var(--text-dim);font-size:11px">(picklist · packed · labels)</span></span>'
+    +   '<span style="color:var(--text-dim)">Calendar entry</span><span style="font-size:12px">' + esc(String(h.label || '')) + '</span>'
+    + '</div>'
+    + '<div style="margin-top:10px;font-size:11px;color:var(--text-dim);font-style:italic">Not yet in PackingQueue — full pack/scan detail appears once the pick-list email lands.</div>'
+    + '</div>';
 }
 
 // v9.96: order activity timeline. Takes any Lookup hit and composes
