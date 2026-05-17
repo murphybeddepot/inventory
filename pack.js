@@ -2734,6 +2734,11 @@ function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
   if (mode === 'stalled') return !!o.stalled;
   if (mode === 'needs_booking') {
+    // v10.19 Phase 1: JS2-sourced upstream orders are horizon-
+    // visibility only — they aren't pick-listed yet, so they're
+    // NOT freight-bookable. Excluding them keeps Kim's "to book"
+    // worklist/chip from flooding with weeks of upstream pipeline.
+    if (o.js2_sourced) return false;
     return o.source === 'cabinet' && !o.booked_at;
   }
   if (mode === 'awaiting_customer') {
@@ -3041,6 +3046,17 @@ function _scheduleRenderOrderRow_(o, opts) {
         ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="Freight booked — date locked">✓</span>'
         : '');
   const priority = o.has_priority_tag ? ' <span style="font-size:9px;color:#ff5252;letter-spacing:1px;font-weight:900">⚡PRI</span>' : '';
+  // v10.19 Phase 1: JS2-sourced rows (upstream pipeline beyond the
+  // ≤7-day pick-list window). Distinct pill so this date source is
+  // never confused with freight-booked (✓) or ground-heuristic
+  // (EST): green "CONFIRMED" when JS2 status is locked (Customer
+  // Ready / Jurgen calendar), amber "PLANNED" when provisional
+  // (Shipping Confirmation Form / In Production — date can move).
+  const js2Pill = o.js2_sourced
+    ? (o.js2_tier === 'locked'
+        ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — offered date confirmed">JS2 ✓ CONFIRMED</span>'
+        : ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(255,179,0,.22);color:#FFB300;border:1px solid rgba(255,179,0,.55);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — planned, date may still move">JS2 ~ PLANNED</span>')
+    : '';
   // v10.16 pass 8: delta pill — NEW (appeared since last look) /
   // UPD (booked/customer-ready/stalled state moved). Cleared once
   // this render becomes the new baseline, so it self-extinguishes.
@@ -3061,7 +3077,7 @@ function _scheduleRenderOrderRow_(o, opts) {
     return '<div' + rowTap + ' style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3;cursor:pointer">'
       + '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">'
       +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">' + chgPill + '#' + esc(o.order_number) + '</span>'
-      +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</span>'
+      +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + '</span>'
       + '</div>'
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
@@ -3074,7 +3090,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   return '<div' + rowTap + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap;cursor:pointer">'
     + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">' + chgPill + '#' + esc(o.order_number) + '</div>'
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
-    + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + '</div>'
+    + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(String(o.status).slice(0,12)) + '</div>'
     + stallChip
     + custChip
