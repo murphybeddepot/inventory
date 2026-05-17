@@ -2933,13 +2933,16 @@ function _scheduleBookerChip_(o, compact) {
   if (o.source !== 'cabinet') return '';
   const booker = String(o.booker || '').trim();
   const booked = !!o.booked_at;
+  // No amp-btn class on these tiny chips — its ::before/::after
+  // brass-rivet circles crowd/muddy text at chip size (Zac flagged
+  // 2026-05-17). Fully inline-styled; class only added the rivets.
   const pad = compact ? '1px 6px' : '2px 8px';
   const fs = compact ? '9px' : '10px';
   if (booked) {
-    return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',true)" class="amp-btn" style="background:rgba(0,230,118,.18);color:#00e676;border:1px solid #00e676;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Booked. Tap to view/edit.">✓ ' + esc(booker || 'booked') + '</button>';
+    return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',true)" style="background:rgba(0,230,118,.18);color:#00e676;border:1px solid #00e676;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Booked. Tap to view/edit.">✓ ' + esc(booker || 'booked') + '</button>';
   }
   if (booker) {
-    return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',false)" class="amp-btn" style="background:rgba(255,179,0,.18);color:#FFB300;border:1px solid #FFB300;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Assigned. Tap to reassign or mark booked.">👤 ' + esc(booker) + '</button>';
+    return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\''+esc(booker)+'\',false)" style="background:rgba(255,179,0,.18);color:#FFB300;border:1px solid #FFB300;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Assigned. Tap to reassign or mark booked.">👤 ' + esc(booker) + '</button>';
   }
   // Gate the "+ ASSIGN" prompt on customer-ready, but only for
   // pending orders shipping within 14 days. Older / further-out
@@ -2958,9 +2961,9 @@ function _scheduleBookerChip_(o, compact) {
     imminent = diffDays <= 14;
   }
   if (!o.customer_ready && pending && imminent) {
-    return '<button onclick="event.stopPropagation();openCustomerReadyModal(\''+esc(o.order_number)+'\',false,\'\',\'\')" class="amp-btn" style="background:transparent;color:#9AAAC0;border:1px dashed rgba(154,170,192,.4);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer not yet confirmed. Tap to mark ready.">⏳ WAIT</button>';
+    return '<button onclick="event.stopPropagation();openCustomerReadyModal(\''+esc(o.order_number)+'\',false,\'\',\'\')" style="background:transparent;color:#9AAAC0;border:1px dashed rgba(154,170,192,.4);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer not yet confirmed. Tap to mark ready.">⏳ WAIT</button>';
   }
-  return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\'\',false)" class="amp-btn" style="background:transparent;color:var(--text-dim);border:1px dashed rgba(255,255,255,.25);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Tap to assign a booker">+ ASSIGN</button>';
+  return '<button onclick="event.stopPropagation();openScheduleBookerModal(\''+esc(o.order_number)+'\',\'\',false)" style="background:transparent;color:var(--text-dim);border:1px dashed rgba(255,255,255,.25);padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Tap to assign a booker">+ ASSIGN</button>';
 }
 
 const SCHEDULE_STALL_LABELS = {
@@ -3010,7 +3013,7 @@ function _scheduleCustomerReadyChip_(o, compact) {
   const fs = compact ? '9px' : '10px';
   const onclick = 'event.stopPropagation();openCustomerReadyModal(\''+esc(o.order_number)+'\',' + (ready ? 'true' : 'false') + ',\''+esc(by)+'\',\''+esc(notes)+'\')';
   if (ready) {
-    return '<button onclick="' + onclick + '" class="amp-btn" style="background:rgba(0,180,255,.15);color:#3DBEFF;border:1px solid #3DBEFF;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer confirmed ready' + (by ? ' by ' + esc(by) : '') + '. Tap to edit.">✓ CUST</button>';
+    return '<button onclick="' + onclick + '" style="background:rgba(0,180,255,.15);color:#3DBEFF;border:1px solid #3DBEFF;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer confirmed ready' + (by ? ' by ' + esc(by) : '') + '. Tap to edit.">✓ CUST</button>';
   }
   return ''; // unconfirmed → the booker chip already shows "⏳ WAIT" which itself opens this modal
 }
