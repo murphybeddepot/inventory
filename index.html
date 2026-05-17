@@ -2307,6 +2307,70 @@ function switchTab(name) {
   if (name!=='scan' && camActive) stopCamera();
 }
 
+// ── Back-button / history navigation (Zac 2026-05-17) ──────────
+// Bedrock is an SPA; the device Back button used to do nothing /
+// exit the PWA. This adds history so Back closes an open overlay,
+// else returns to the previous tab, and never strands the user
+// mid-shift. Implemented as a NON-INVASIVE wrapper — the original
+// switchTab (which Cabinets + every tab rely on) is untouched;
+// we only add history bookkeeping around it. Does not change
+// normal tab-tap behavior at all; only the Back press is new.
+(function () {
+  if (!window.history || !history.pushState) return;
+  var _origSwitchTab = window.switchTab;
+  var _navStack = [];
+  var _curTab = 'cabinets';            // landing tab (#tab-cabinets-btn.active)
+  var _suppress = false;               // re-entrancy guard for popstate-driven switches
+  window.switchTab = function (name) {
+    _origSwitchTab(name);
+    if (_suppress || name === _curTab) return;
+    _navStack.push(_curTab);
+    if (_navStack.length > 50) _navStack.shift();
+    _curTab = name;
+    try { history.pushState({ bedrockNav: 'tab', tab: name }, ''); } catch (e) {}
+  };
+  function _isOpen(el) {
+    if (!el) return false;
+    var cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+  function _topOverlay() {
+    // Dynamic modals are <div id="...Overlay"> appended to body;
+    // moreMenuOverlay is a persistent element toggled via display.
+    var ovs = Array.prototype.slice.call(document.querySelectorAll('[id$="Overlay"]'));
+    var open = ovs.filter(_isOpen);
+    return open.length ? open[open.length - 1] : null;
+  }
+  function _closeOverlay(el) {
+    if (!el) return false;
+    if (el.id === 'moreMenuOverlay') { el.style.display = 'none'; return true; }
+    if (typeof el.remove === 'function' && el.parentNode === document.body) { el.remove(); return true; }
+    el.style.display = 'none';
+    return true;
+  }
+  try { history.replaceState({ bedrockNav: 'root', tab: _curTab }, ''); } catch (e) {}
+  window.addEventListener('popstate', function () {
+    // 1) An open modal? Back closes it; re-push so we stay in-app.
+    var ov = _topOverlay();
+    if (ov && _closeOverlay(ov)) {
+      try { history.pushState({ bedrockNav: 'tab', tab: _curTab }, ''); } catch (e) {}
+      return;
+    }
+    // 2) Else pop to the previous tab (original switchTab, no re-push).
+    if (_navStack.length) {
+      var prev = _navStack.pop();
+      _suppress = true;
+      try { _origSwitchTab(prev); _curTab = prev; } finally { _suppress = false; }
+      try { history.pushState({ bedrockNav: 'tab', tab: prev }, ''); } catch (e) {}
+      return;
+    }
+    // 3) At root — keep them in Bedrock (don't fall out mid-shift).
+    try { history.pushState({ bedrockNav: 'root', tab: _curTab }, ''); } catch (e) {}
+  });
+})();
+
 function openMoreMenu() {
   const ov = document.getElementById('moreMenuOverlay');
   if (ov) ov.style.display = 'block';
@@ -11649,7 +11713,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.33"></script>
+<script src="./pack.js?v=10.34"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -11658,7 +11722,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.33<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.34<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
