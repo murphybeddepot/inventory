@@ -2919,10 +2919,11 @@ function paintSchedule_(payloadRaw) {
   if (bookCount > 0) {
     bookChip = '<button onclick="openNeedsBookingList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#FFB300,#995c00);color:#1a1a1a;border:1px solid #FFB300;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">📋 ' + bookCount + ' TO BOOK</button>';
   }
-  const carrierEditBtn = '<button onclick="openCarrierEditor()" title="Edit carriers + colors" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.3);border-radius:999px;font-size:11px;font-weight:800;color:var(--text-dim);letter-spacing:.5px;cursor:pointer">✎ Carriers</button>';
+  const adminBtns = '<button onclick="openCarrierEditor()" title="Edit carriers + colors" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.3);border-radius:999px;font-size:11px;font-weight:800;color:var(--text-dim);letter-spacing:.5px;cursor:pointer">✎ Carriers</button>'
+    + '<button onclick="openFreightDefaultsEditor()" title="Edit freight weights/dims/links by SKU" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;margin-left:6px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.3);border-radius:999px;font-size:11px;font-weight:800;color:var(--text-dim);letter-spacing:.5px;cursor:pointer">✎ Freight</button>';
   legendEl.innerHTML = stalledChip + awaitingChip + bookChip + carriers
     .filter(c => carriersUsed[c.carrier_key])
-    .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('') + carrierEditBtn;
+    .map(c => '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid ' + c.color + '55;border-radius:999px;font-size:11px;font-weight:700;color:' + c.color + ';letter-spacing:.5px"><span style="width:9px;height:9px;background:' + c.color + ';border-radius:50%;box-shadow:0 0 6px ' + c.color + '88"></span>' + esc(c.display_name) + ' · ' + carriersUsed[c.carrier_key] + '</span>').join('') + adminBtns;
 
   if (!payload.days || !payload.days.length) {
     const modeLabel = (SCHEDULE_VIEW_MODES.find(m => m.key === _scheduleViewMode) || {}).label || '';
@@ -3315,6 +3316,82 @@ async function saveCarrierEdits_() {
     showToast('✓ Carriers saved' + (res.touched ? ' (' + res.touched.length + ')' : ''));
     const ov = document.getElementById('carrierEditorOverlay'); if (ov) ov.remove();
     if (typeof refreshScheduleTab === 'function') refreshScheduleTab();
+  } catch (e) { showToast('Save error: ' + e.message); }
+}
+
+// ── Freight-defaults editor (P1.4) ───────────────────────────
+// Search a SKU → edit weight/dims/parts/class/links → save
+// (manager-PIN). Writes to Supabase freight_defaults. Dataset is
+// ~749+ rows so it's search-driven, never list-all.
+let _freightEditorRows = [];
+
+function openFreightDefaultsEditor() {
+  const prior = document.getElementById('freightDefEditorOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'freightDefEditorOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#1a1a1a;color:#fff;width:100%;max-width:760px;max-height:88vh;border-radius:14px 14px 0 0;padding:18px 18px 24px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 24px rgba(0,0,0,.6);border-top:2px solid #888">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">Freight Defaults</div><button onclick="document.getElementById(\'freightDefEditorOverlay\').remove()" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;padding:0 4px">✕</button></div>'
+    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:10px">Search a SKU (≥2 chars), edit weight / dims / parts / class / links, Save (manager PIN). Writes to the Bedrock store (Supabase) — overrides the sheet.</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:12px"><input type="text" id="fde_q" placeholder="SKU search (e.g. QBOAZ)" oninput="_fdeSearchDebounced_()" style="flex:1;padding:9px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:14px"></div>'
+    + '<div id="fde_results" style="font-size:13px;color:#9AAAC0">Type a SKU to search…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const i = document.getElementById('fde_q'); if (i) i.focus(); }, 80);
+}
+
+let _fdeTimer = null;
+function _fdeSearchDebounced_() {
+  clearTimeout(_fdeTimer);
+  _fdeTimer = setTimeout(_fdeSearch_, 320);
+}
+
+async function _fdeSearch_() {
+  const q = (document.getElementById('fde_q') || {}).value || '';
+  const box = document.getElementById('fde_results');
+  if (!box) return;
+  if (q.trim().length < 2) { box.textContent = 'Type ≥2 chars of a SKU…'; return; }
+  box.textContent = 'Searching…';
+  try {
+    const res = await groundApi('listFreightDefaults', { q: q, limit: 60 });
+    const b2 = document.getElementById('fde_results');
+    if (!b2) return;
+    if (!res || !res.ok) { b2.textContent = 'Error: ' + ((res && res.error) || 'unknown'); return; }
+    _freightEditorRows = res.rows || [];
+    if (!_freightEditorRows.length) { b2.innerHTML = '<div style="padding:14px;color:#888">No SKUs match.</div>'; return; }
+    const num = (v) => (v == null ? '' : v);
+    b2.innerHTML = '<div style="font-size:11px;color:#667;margin-bottom:6px">' + _freightEditorRows.length + ' match' + (_freightEditorRows.length === 1 ? '' : 'es') + ' · source: ' + esc(res.source || '?') + '</div>'
+      + _freightEditorRows.map((r, i) =>
+        '<div style="border-bottom:1px solid rgba(255,255,255,.07);padding:8px 4px">'
+        + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;font-size:12px;color:#fff;margin-bottom:5px">' + esc(String(r.sku)) + '</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+        + ['weightLbs:Wt(lb)', 'heightIn:H', 'lengthIn:L', 'widthIn:W', 'parts:#Parts'].map(p => { const [k, lab] = p.split(':'); return '<label style="font-size:10px;color:#9AAAC0">' + lab + ' <input type="number" id="fde_' + k + '_' + i + '" value="' + num(r[k]) + '" style="width:64px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'; }).join('')
+        + '<label style="font-size:10px;color:#9AAAC0">Class <input type="text" id="fde_freightClass_' + i + '" value="' + esc(num(r.freightClass)) + '" placeholder="auto" style="width:54px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'
+        + '<button onclick="_fdeSave_(' + i + ')" style="padding:6px 12px;border-radius:7px;border:none;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;font-size:12px;font-weight:900;cursor:pointer">Save</button>'
+        + '</div></div>'
+      ).join('');
+  } catch (e) {
+    const b3 = document.getElementById('fde_results'); if (b3) b3.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function _fdeSave_(i) {
+  const r = _freightEditorRows[i];
+  if (!r) return;
+  const pin = promptManagerPin_('save freight default');
+  if (!pin) return;
+  const v = (k) => { const el = document.getElementById('fde_' + k + '_' + i); return el ? el.value : ''; };
+  try {
+    const res = await groundApi('saveFreightDefault', {
+      manager_pin: pin, sku: r.sku,
+      weightLbs: v('weightLbs'), heightIn: v('heightIn'), lengthIn: v('lengthIn'),
+      widthIn: v('widthIn'), parts: v('parts'), freightClass: v('freightClass'),
+      fileLink: r.fileLink || '', pdfUrl: r.pdfUrl || '',
+    });
+    if (!res || !res.ok) { showToast('Save failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Saved ' + r.sku);
   } catch (e) { showToast('Save error: ' + e.message); }
 }
 
