@@ -10151,25 +10151,72 @@ function renderSystemStatusIssues_() {
   if (!el) return;
   let issues = [];
   try { issues = JSON.parse(localStorage.getItem(BEDROCK_ISSUES_KEY) || '[]'); } catch(e) {}
+  const KIND_COLORS = { js_error: '#c33', unhandled_promise: '#c33', fetch_error: '#ff6b00', server_error: '#FFB300', manual_report: '#9C27B0' };
+  let deviceHtml;
   if (!Array.isArray(issues) || !issues.length) {
-    el.innerHTML = '<div style="font-size:11px;color:#0a8a3f;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.30);border-radius:8px;padding:8px 10px;font-weight:700">✓ No recent issues on this device</div>';
+    deviceHtml = '<div style="font-size:11px;color:#0a8a3f;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.30);border-radius:8px;padding:8px 10px;font-weight:700">✓ No recent issues on this device</div>';
+  } else {
+    const show = issues.slice(0, 5);
+    deviceHtml =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><div style="font-size:10px;font-weight:900;color:#666;text-transform:uppercase;letter-spacing:1px">This device (' + issues.length + ')</div><button onclick="copyIssueReport_()" style="padding:2px 8px;background:transparent;border:1px solid #ccc;color:#666;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer">📋 Copy report</button></div>'
+      + show.map(i => {
+          const color = KIND_COLORS[i.kind] || '#666';
+          const t = new Date(i.reported_at);
+          const when = t.getMonth() + 1 + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+          return '<div onclick="alert(' + JSON.stringify(JSON.stringify(i, null, 2)).replace(/"/g, '&quot;') + ')" style="font-size:11px;padding:6px 8px;background:rgba(0,0,0,.03);border-left:2px solid ' + color + ';border-radius:4px;margin-bottom:3px;cursor:pointer;overflow:hidden">'
+            + '<span style="color:' + color + ';font-weight:900;font-size:9px;text-transform:uppercase;letter-spacing:.5px;margin-right:6px">' + i.kind + '</span>'
+            + '<span style="color:#888;font-family:monospace;font-size:10px;margin-right:6px">' + when + '</span>'
+            + '<span style="color:#1a1a1a">' + (i.title || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])) + '</span>'
+            + '</div>';
+        }).join('')
+      + (issues.length > 5 ? '<div style="font-size:10px;color:#999;text-align:center;margin-top:4px;font-style:italic">… ' + (issues.length - 5) + ' more</div>' : '');
+  }
+  // v10.97: this device's localStorage view misses the cross-device
+  // clustering that actually tells you what's breaking (e.g. 9×
+  // "No Drive PDF" on one order across devices). Append a swallow-
+  // safe fleet-wide rollup from the server's listIssues so Seth/Zac
+  // get that triage signal in-app instead of needing curl.
+  el.innerHTML = deviceHtml + '<div id="ssFleetIssues" style="margin-top:10px"></div>';
+  _loadFleetIssues_();
+}
+
+async function _loadFleetIssues_() {
+  const fe = document.getElementById('ssFleetIssues');
+  if (!fe) return;
+  fe.innerHTML = '<div style="font-size:10px;color:#999;padding:4px">Loading fleet-wide issues…</div>';
+  let res;
+  try { res = await groundApi('listIssues', { limit: 60 }); }
+  catch (e) { fe.innerHTML = ''; return; } // swallow — device view still shown
+  const rows = (res && (res.issues || res.rows)) || [];
+  if (!res || !res.ok || !rows.length) {
+    fe.innerHTML = '<div style="font-size:11px;color:#0a8a3f;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.30);border-radius:8px;padding:8px 10px;font-weight:700">✓ No recent issues across the fleet</div>';
     return;
   }
-  const show = issues.slice(0, 5);
+  // Group by title (the cluster signal). Track count + newest ts +
+  // representative kind.
+  const groups = {};
+  rows.forEach(r => {
+    const key = String(r.title || r.kind || 'unknown').slice(0, 90);
+    const g = groups[key] || (groups[key] = { n: 0, kind: r.kind || '', newest: '', title: key });
+    g.n++;
+    const ts = String(r.reported_at || '');
+    if (ts > g.newest) g.newest = ts;
+  });
+  const sorted = Object.values(groups).sort((a, b) => b.n - a.n).slice(0, 8);
   const KIND_COLORS = { js_error: '#c33', unhandled_promise: '#c33', fetch_error: '#ff6b00', server_error: '#FFB300', manual_report: '#9C27B0' };
-  el.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><div style="font-size:10px;font-weight:900;color:#666;text-transform:uppercase;letter-spacing:1px">Recent issues (' + issues.length + ')</div><button onclick="copyIssueReport_()" style="padding:2px 8px;background:transparent;border:1px solid #ccc;color:#666;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer">📋 Copy report</button></div>'
-    + show.map(i => {
-        const color = KIND_COLORS[i.kind] || '#666';
-        const t = new Date(i.reported_at);
-        const when = t.getMonth() + 1 + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
-        return '<div onclick="alert(' + JSON.stringify(JSON.stringify(i, null, 2)).replace(/"/g, '&quot;') + ')" style="font-size:11px;padding:6px 8px;background:rgba(0,0,0,.03);border-left:2px solid ' + color + ';border-radius:4px;margin-bottom:3px;cursor:pointer;overflow:hidden">'
-          + '<span style="color:' + color + ';font-weight:900;font-size:9px;text-transform:uppercase;letter-spacing:.5px;margin-right:6px">' + i.kind + '</span>'
-          + '<span style="color:#888;font-family:monospace;font-size:10px;margin-right:6px">' + when + '</span>'
-          + '<span style="color:#1a1a1a">' + (i.title || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])) + '</span>'
+  const esc2 = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  fe.innerHTML =
+    '<div style="font-size:10px;font-weight:900;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Across all devices · last ' + rows.length + ', grouped</div>'
+    + sorted.map(g => {
+        const color = KIND_COLORS[g.kind] || '#666';
+        const t = g.newest ? new Date(g.newest) : null;
+        const when = t ? (t.getMonth() + 1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') : '';
+        return '<div style="font-size:11px;padding:6px 8px;background:rgba(0,0,0,.03);border-left:2px solid ' + color + ';border-radius:4px;margin-bottom:3px;display:flex;gap:8px;align-items:baseline">'
+          + '<span style="flex:0 0 auto;font-weight:900;color:' + color + ';min-width:26px;text-align:right">' + g.n + '×</span>'
+          + '<span style="flex:1;color:#1a1a1a;overflow:hidden">' + esc2(g.title) + '</span>'
+          + (when ? '<span style="flex:0 0 auto;color:#999;font-family:monospace;font-size:9px">' + when + '</span>' : '')
           + '</div>';
-      }).join('')
-    + (issues.length > 5 ? '<div style="font-size:10px;color:#999;text-align:center;margin-top:4px;font-style:italic">… ' + (issues.length - 5) + ' more</div>' : '');
+      }).join('');
 }
 
 async function copyIssueReport_() {
@@ -12022,7 +12069,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.96<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.97<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
