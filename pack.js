@@ -3348,32 +3348,67 @@ function _fdeSearchDebounced_() {
   _fdeTimer = setTimeout(_fdeSearch_, 320);
 }
 
+// "Add «query» as a new SKU" — server saveFreightDefault is an
+// upsert keyed on sku, so creating is just a blank editable row.
+// Lets the manager capture an unmapped SKU on the spot (the
+// "ask + remember unmapped SKUs" need) without waiting on a
+// migration/suggester.
+function _fdeAddNew_() {
+  const q = ((document.getElementById('fde_q') || {}).value || '').trim().toUpperCase();
+  if (q.length < 2) { showToast('Type the full SKU first (≥2 chars)'); return; }
+  if (_freightEditorRows.some(r => String(r.sku).toUpperCase() === q)) { showToast('Already listed — edit it below'); return; }
+  _freightEditorRows.unshift({ sku: q, weightLbs: '', heightIn: '', lengthIn: '', widthIn: '', parts: '', freightClass: '', fileLink: '', pdfUrl: '', source: 'new' });
+  _fdeRender_('manual-add');
+}
+
+function _fdeAddBtn_() {
+  return '<button onclick="_fdeAddNew_()" style="padding:6px 12px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#cfe;font-size:12px;font-weight:800;cursor:pointer">➕ Add this SKU as new</button>';
+}
+
+function _fdeRender_(source) {
+  const b2 = document.getElementById('fde_results');
+  if (!b2) return;
+  if (!_freightEditorRows.length) {
+    b2.innerHTML = '<div style="padding:14px;color:#888">No SKUs match. ' + _fdeAddBtn_() + '</div>';
+    return;
+  }
+  const num = (v) => (v == null ? '' : v);
+  b2.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px"><div style="font-size:11px;color:#667">' + _freightEditorRows.length + ' row' + (_freightEditorRows.length === 1 ? '' : 's') + ' · source: ' + esc(source || '?') + '</div>' + _fdeAddBtn_() + '</div>'
+    + _freightEditorRows.map((r, i) =>
+      '<div style="border-bottom:1px solid rgba(255,255,255,.07);padding:8px 4px">'
+      + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;font-size:12px;color:' + (r.source === 'new' ? '#7CFFB2' : '#fff') + ';margin-bottom:5px">' + esc(String(r.sku)) + (r.source === 'new' ? '  · NEW' : '') + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+      + ['weightLbs:Wt(lb)', 'heightIn:H', 'lengthIn:L', 'widthIn:W', 'parts:#Parts'].map(p => { const [k, lab] = p.split(':'); return '<label style="font-size:10px;color:#9AAAC0">' + lab + ' <input type="number" id="fde_' + k + '_' + i + '" value="' + num(r[k]) + '" style="width:64px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'; }).join('')
+      + '<label style="font-size:10px;color:#9AAAC0">Class <input type="text" id="fde_freightClass_' + i + '" value="' + esc(num(r.freightClass)) + '" placeholder="auto" style="width:54px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'
+      + '<button onclick="_fdeSave_(' + i + ')" style="padding:6px 12px;border-radius:7px;border:none;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;font-size:12px;font-weight:900;cursor:pointer">Save</button>'
+      + '</div></div>'
+    ).join('');
+}
+
+let _fdeSearchToken = 0;
 async function _fdeSearch_() {
   const q = (document.getElementById('fde_q') || {}).value || '';
   const box = document.getElementById('fde_results');
   if (!box) return;
   if (q.trim().length < 2) { box.textContent = 'Type ≥2 chars of a SKU…'; return; }
-  box.textContent = 'Searching…';
+  const myToken = ++_fdeSearchToken;
+  box.innerHTML = '<div style="padding:10px;color:#9AAAC0">Searching… &nbsp; ' + _fdeAddBtn_() + '</div>';
+  const watchdog = setTimeout(() => {
+    if (myToken !== _fdeSearchToken) return;
+    const b = document.getElementById('fde_results');
+    if (b) b.innerHTML = '<div style="padding:12px;color:#E8A33D">Search timed out (server slow). <button onclick="_fdeSearch_()" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#fff;font-size:12px;cursor:pointer">Retry</button> &nbsp; ' + _fdeAddBtn_() + '</div>';
+  }, 9000);
   try {
     const res = await groundApi('listFreightDefaults', { q: q, limit: 60 });
-    const b2 = document.getElementById('fde_results');
-    if (!b2) return;
-    if (!res || !res.ok) { b2.textContent = 'Error: ' + ((res && res.error) || 'unknown'); return; }
+    clearTimeout(watchdog);
+    if (myToken !== _fdeSearchToken) return; // a newer keystroke superseded this
+    if (!res || !res.ok) { const be = document.getElementById('fde_results'); if (be) be.innerHTML = '<div style="padding:12px;color:#E8657A">Error: ' + esc((res && res.error) || 'unknown') + ' &nbsp; ' + _fdeAddBtn_() + '</div>'; return; }
     _freightEditorRows = res.rows || [];
-    if (!_freightEditorRows.length) { b2.innerHTML = '<div style="padding:14px;color:#888">No SKUs match.</div>'; return; }
-    const num = (v) => (v == null ? '' : v);
-    b2.innerHTML = '<div style="font-size:11px;color:#667;margin-bottom:6px">' + _freightEditorRows.length + ' match' + (_freightEditorRows.length === 1 ? '' : 'es') + ' · source: ' + esc(res.source || '?') + '</div>'
-      + _freightEditorRows.map((r, i) =>
-        '<div style="border-bottom:1px solid rgba(255,255,255,.07);padding:8px 4px">'
-        + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;font-size:12px;color:#fff;margin-bottom:5px">' + esc(String(r.sku)) + '</div>'
-        + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
-        + ['weightLbs:Wt(lb)', 'heightIn:H', 'lengthIn:L', 'widthIn:W', 'parts:#Parts'].map(p => { const [k, lab] = p.split(':'); return '<label style="font-size:10px;color:#9AAAC0">' + lab + ' <input type="number" id="fde_' + k + '_' + i + '" value="' + num(r[k]) + '" style="width:64px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'; }).join('')
-        + '<label style="font-size:10px;color:#9AAAC0">Class <input type="text" id="fde_freightClass_' + i + '" value="' + esc(num(r.freightClass)) + '" placeholder="auto" style="width:54px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'
-        + '<button onclick="_fdeSave_(' + i + ')" style="padding:6px 12px;border-radius:7px;border:none;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;font-size:12px;font-weight:900;cursor:pointer">Save</button>'
-        + '</div></div>'
-      ).join('');
+    _fdeRender_(res.source);
   } catch (e) {
-    const b3 = document.getElementById('fde_results'); if (b3) b3.textContent = 'Error: ' + e.message;
+    clearTimeout(watchdog);
+    if (myToken !== _fdeSearchToken) return;
+    const b3 = document.getElementById('fde_results'); if (b3) b3.innerHTML = '<div style="padding:12px;color:#E8657A">Error: ' + esc(e.message) + ' &nbsp; ' + _fdeAddBtn_() + '</div>';
   }
 }
 
@@ -3392,6 +3427,7 @@ async function _fdeSave_(i) {
     });
     if (!res || !res.ok) { showToast('Save failed: ' + ((res && res.error) || 'unknown')); return; }
     showToast('✓ Saved ' + r.sku);
+    if (r.source === 'new') { r.source = 'manual'; _fdeRender_('manual-add'); }
   } catch (e) { showToast('Save error: ' + e.message); }
 }
 
