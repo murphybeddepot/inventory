@@ -3372,6 +3372,16 @@ function _fdeRender_(source) {
   const capped = _freightEditorRows.length >= 200;
   b2.innerHTML = (capped ? '<div style="background:#3a2a00;border:1px solid #E8A33D;color:#FFD27A;font-size:11px;padding:6px 9px;border-radius:6px;margin-bottom:6px">⚠ Showing the first 200 matches (max). Some variants may be hidden — type more of the SKU (e.g. add the size/color or <b>V2</b>) to narrow it.</div>' : '')
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px"><div style="font-size:11px;color:#667">' + _freightEditorRows.length + ' row' + (_freightEditorRows.length === 1 ? '' : 's') + (capped ? '+' : '') + ' · source: ' + esc(source || '?') + '</div>' + _fdeAddBtn_() + '</div>'
+    + '<div style="background:rgba(80,120,255,.10);border:1px solid rgba(120,150,255,.35);border-radius:8px;padding:8px 10px;margin-bottom:10px">'
+    +   '<div style="font-size:10px;color:#9DB4FF;font-weight:800;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px">Bulk-apply to all ' + _freightEditorRows.length + ' shown <span style="color:#667;font-weight:400;text-transform:none">— height left per-row; blank = don\'t change</span></div>'
+    +   '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+    +     '<label style="font-size:10px;color:#9AAAC0">L <input type="number" id="fde_bulk_L" placeholder="91" style="width:60px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'
+    +     '<label style="font-size:10px;color:#9AAAC0">W <input type="number" id="fde_bulk_W" placeholder="35" style="width:60px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'
+    +     '<label style="font-size:10px;color:#9AAAC0">Class <input type="text" id="fde_bulk_C" placeholder="auto" style="width:54px;padding:5px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);color:#fff;font-size:12px"></label>'
+    +     '<button onclick="_fdeBulkApply_()" style="padding:6px 12px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#cfe;font-size:12px;font-weight:800;cursor:pointer">Apply to all ' + _freightEditorRows.length + '</button>'
+    +     '<button onclick="_fdeBulkSave_()" style="padding:6px 12px;border-radius:7px;border:none;background:linear-gradient(135deg,#2962FF,#0D2B8C);color:#fff;font-size:12px;font-weight:900;cursor:pointer">💾 Save all ' + _freightEditorRows.length + ' (PIN)</button>'
+    +   '</div>'
+    + '</div>'
     + _freightEditorRows.map((r, i) =>
       '<div style="border-bottom:1px solid rgba(255,255,255,.07);padding:8px 4px">'
       + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;font-size:12px;color:' + (r.source === 'new' ? '#7CFFB2' : '#fff') + ';margin-bottom:5px">' + esc(String(r.sku)) + (r.source === 'new' ? '  · NEW' : '') + '</div>'
@@ -3427,6 +3437,63 @@ async function _fdeSave_(i) {
     showToast('✓ Saved ' + r.sku);
     if (r.source === 'new') { r.source = 'manual'; _fdeRender_('manual-add'); }
   } catch (e) { showToast('Save error: ' + e.message); }
+}
+
+// Harvest the current per-row input values into _freightEditorRows
+// so individual tweaks + bulk-applied values both persist on save.
+function _fdeHarvestRows_() {
+  _freightEditorRows.forEach((r, i) => {
+    ['weightLbs', 'heightIn', 'lengthIn', 'widthIn', 'parts', 'freightClass'].forEach(k => {
+      const el = document.getElementById('fde_' + k + '_' + i);
+      if (el) r[k] = el.value === '' ? '' : el.value;
+    });
+  });
+}
+
+// Bulk-apply L / W / Class to every shown row (Zac: "edit all at
+// once … all that contain pbcab to 91×35, height variable"). Blank
+// bulk field = leave that dimension alone. Height never touched.
+function _fdeBulkApply_() {
+  _fdeHarvestRows_(); // keep any manual per-row edits already typed
+  const L = (document.getElementById('fde_bulk_L') || {}).value;
+  const W = (document.getElementById('fde_bulk_W') || {}).value;
+  const C = (document.getElementById('fde_bulk_C') || {}).value;
+  if ((L == null || L === '') && (W == null || W === '') && (C == null || C === '')) {
+    showToast('Enter L, W, or Class to bulk-apply'); return;
+  }
+  _freightEditorRows.forEach(r => {
+    if (L !== '' && L != null) r.lengthIn = L;
+    if (W !== '' && W != null) r.widthIn = W;
+    if (C !== '' && C != null) r.freightClass = C;
+  });
+  _fdeRender_('bulk-applied (unsaved)');
+  showToast('Applied to ' + _freightEditorRows.length + ' rows — review, then 💾 Save all');
+}
+
+// One PIN, one round trip: upsert every shown row's current values.
+async function _fdeBulkSave_() {
+  _fdeHarvestRows_();
+  const n = _freightEditorRows.length;
+  if (!n) return;
+  if (!confirm('Save all ' + n + ' shown SKUs to the freight store? This overwrites their weight/dims/class with what\'s shown.')) return;
+  const pin = promptManagerPin_('bulk-save ' + n + ' freight defaults');
+  if (!pin) return;
+  showToast('Saving ' + n + ' rows…');
+  try {
+    const res = await groundApi('saveFreightDefaultsBulk', {
+      manager_pin: pin,
+      rows: _freightEditorRows.map(r => ({
+        sku: r.sku, weightLbs: r.weightLbs, heightIn: r.heightIn,
+        lengthIn: r.lengthIn, widthIn: r.widthIn, parts: r.parts,
+        freightClass: r.freightClass, fileLink: r.fileLink || '', pdfUrl: r.pdfUrl || '',
+      })),
+    });
+    if (!res) { showToast('Bulk save: no response'); return; }
+    if (res.error && res.upserted == null) { showToast('Bulk save failed: ' + res.error); return; }
+    _freightEditorRows.forEach(r => { if (r.source === 'new') r.source = 'manual'; });
+    _fdeRender_('saved');
+    showToast('✓ Saved ' + (res.upserted || 0) + '/' + n + (res.failed ? ' · ' + res.failed + ' failed' : ''));
+  } catch (e) { showToast('Bulk save error: ' + e.message); }
 }
 
 // Booker assignment modal — tap a chip to open. Kim/Seth/Clear + a
