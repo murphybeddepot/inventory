@@ -3373,7 +3373,9 @@ function _fdeRender_(source) {
     return;
   }
   const num = (v) => (v == null ? '' : v);
-  b2.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px"><div style="font-size:11px;color:#667">' + _freightEditorRows.length + ' row' + (_freightEditorRows.length === 1 ? '' : 's') + ' · source: ' + esc(source || '?') + '</div>' + _fdeAddBtn_() + '</div>'
+  const capped = _freightEditorRows.length >= 200;
+  b2.innerHTML = (capped ? '<div style="background:#3a2a00;border:1px solid #E8A33D;color:#FFD27A;font-size:11px;padding:6px 9px;border-radius:6px;margin-bottom:6px">⚠ Showing the first 200 matches (max). Some variants may be hidden — type more of the SKU (e.g. add the size/color or <b>V2</b>) to narrow it.</div>' : '')
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px"><div style="font-size:11px;color:#667">' + _freightEditorRows.length + ' row' + (_freightEditorRows.length === 1 ? '' : 's') + (capped ? '+' : '') + ' · source: ' + esc(source || '?') + '</div>' + _fdeAddBtn_() + '</div>'
     + _freightEditorRows.map((r, i) =>
       '<div style="border-bottom:1px solid rgba(255,255,255,.07);padding:8px 4px">'
       + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;font-size:12px;color:' + (r.source === 'new' ? '#7CFFB2' : '#fff') + ';margin-bottom:5px">' + esc(String(r.sku)) + (r.source === 'new' ? '  · NEW' : '') + '</div>'
@@ -3399,7 +3401,7 @@ async function _fdeSearch_() {
     if (b) b.innerHTML = '<div style="padding:12px;color:#E8A33D">Search timed out (server slow). <button onclick="_fdeSearch_()" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#fff;font-size:12px;cursor:pointer">Retry</button> &nbsp; ' + _fdeAddBtn_() + '</div>';
   }, 9000);
   try {
-    const res = await groundApi('listFreightDefaults', { q: q, limit: 60 });
+    const res = await groundApi('listFreightDefaults', { q: q, limit: 200 });
     clearTimeout(watchdog);
     if (myToken !== _fdeSearchToken) return; // a newer keystroke superseded this
     if (!res || !res.ok) { const be = document.getElementById('fde_results'); if (be) be.innerHTML = '<div style="padding:12px;color:#E8657A">Error: ' + esc((res && res.error) || 'unknown') + ' &nbsp; ' + _fdeAddBtn_() + '</div>'; return; }
