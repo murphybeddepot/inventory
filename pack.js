@@ -4320,7 +4320,9 @@ function addRemakeSkuRow_() {
   container.appendChild(tmp.firstChild);
 }
 
+let _remakeSubmitting = false;
 async function submitRemakeCreate() {
+  if (_remakeSubmitting) { showToast('Creating remake… one moment'); return; }
   const by = (document.getElementById('rmkBy') || {}).value || '';
   const origOrder = (document.getElementById('rmkOrigOrder') || {}).value || '';
   const custName = (document.getElementById('rmkCustName') || {}).value || '';
@@ -4343,6 +4345,7 @@ async function submitRemakeCreate() {
   if (!shipAddr.trim()) { showToast('Enter ship address'); document.getElementById('rmkShipAddr').focus(); return; }
   if (!skus.length) { showToast('Add at least one SKU'); return; }
 
+  _remakeSubmitting = true;
   try {
     const res = await groundApi('createRemake', {
       created_by: by.trim(),
@@ -4362,6 +4365,8 @@ async function submitRemakeCreate() {
     openRemakesPanel('open');
   } catch (err) {
     showToast('Create error: ' + err.message);
+  } finally {
+    _remakeSubmitting = false;
   }
 }
 
