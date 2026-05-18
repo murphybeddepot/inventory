@@ -11150,6 +11150,44 @@ async function callStartPackAndRender(orderRow) {
   }
 }
 
+// v10.100 (Zac): manager-PIN check-off — mark a box / inside item
+// packed without a physical scan or typing. PIN-gated server-side
+// (managerCheckOffPackage → verifyManagerPin) so it isn't a packer
+// bypass. Persists via the same path a real scan uses, so the
+// completePack gate accepts it. insideIdx null = whole box.
+async function managerCheckOff(idx, insideIdx) {
+  const p = (groundCurrentOrder && groundCurrentOrder.packages || [])[idx];
+  if (!p) { showToast('Box not found'); return; }
+  const what = (insideIdx == null)
+    ? ('Box ' + p.sequence + ' (' + (p.box_sku || '') + ')')
+    : ('item ' + (((p.inside_items || [])[insideIdx] || {}).sku || ('#' + insideIdx)) + ' in Box ' + p.sequence);
+  const pin = window.prompt('Manager PIN to check off ' + what + ' without scanning:\n\n(Use only when scanning genuinely can\'t be done — no barcode, or this order ships fewer boxes than listed.)');
+  if (pin == null) return;
+  const cleanPin = String(pin).trim();
+  if (!cleanPin) { showToast('PIN required'); return; }
+  try {
+    const payload = {
+      orderId: groundCurrentOrder.orderId,
+      sequence: p.sequence,
+      manager_pin: cleanPin,
+      by: (typeof groundPackerName !== 'undefined' && groundPackerName) || '',
+    };
+    if (insideIdx != null) payload.insideIdx = insideIdx;
+    const res = await groundApi('managerCheckOffPackage', payload);
+    if (!res || !res.ok) { showToast(res && res.error === 'Invalid manager PIN' ? '✗ Invalid manager PIN' : ('Check-off failed: ' + ((res && res.error) || 'unknown'))); return; }
+    // Mirror server truth into local state, then re-render.
+    if (insideIdx == null) {
+      p.scanned = true;
+    } else if (Array.isArray(p.inside_items) && p.inside_items[insideIdx]) {
+      p.inside_items[insideIdx].scanned = true;
+    }
+    showToast('✓ ' + what + ' checked off by manager');
+    renderGroundPackBoxes();
+  } catch (e) {
+    showToast('Check-off error: ' + e.message);
+  }
+}
+
 function renderGroundPackBoxes() {
   const list = document.getElementById('groundPackBoxList');
   list.innerHTML = '';
@@ -11246,6 +11284,17 @@ function renderGroundPackBoxes() {
       }
     }
     const skuColor = '#00E676';
+    // v10.100 (Zac): manager-PIN check-off for a box scanning can't
+    // cover (no barcode, or breakdown made N boxes but the order
+    // ships fewer — e.g. 31204). PIN-gated so it's not a packer
+    // bypass. Only shown while the box is still unscanned.
+    const boxMgrBtn = !isScanned
+      ? '<button onclick="managerCheckOff(' + idx + ',null)" class="no-dark keep-dark-text" '
+        + 'style="padding:10px 12px;background:rgba(124,58,237,.18);color:#C4B5FD;'
+        + '-webkit-text-fill-color:#C4B5FD;border:1.5px solid #7C3AED;border-radius:8px;'
+        + 'font-size:11px;font-weight:900;cursor:pointer;flex-shrink:0;letter-spacing:.3px" '
+        + 'title="Manager: mark this box packed without scanning (PIN required)">✓ MGR</button>'
+      : '';
     // Top row: outer info + print button
     const topRow = '<div style="display:flex;align-items:center;gap:14px">'
       + checkBox
@@ -11255,6 +11304,7 @@ function renderGroundPackBoxes() {
       +   '<div style="font-size:13px;color:#E8EDF4;margin-top:5px;font-weight:700">' + p.weight_lb + ' lb · ' + p.length_in + '×' + p.width_in + '×' + p.height_in + '"</div>'
       +   (p.tracking_number ? '<div style="font-size:12px;font-family:monospace;color:#FFB300;margin-top:3px;font-weight:800;letter-spacing:.5px">' + escapeHtml(p.tracking_number) + '</div>' : '')
       + '</div>'
+      + boxMgrBtn
       + printButton
       + '</div>';
     // Amber callout for box-specific packing protocol (e.g. HLR77/82
@@ -11267,13 +11317,20 @@ function renderGroundPackBoxes() {
     // Inside-items sub-list, only when there ARE inside items.
     let insideHtml = '';
     if (insideItems.length > 0) {
-      const itemRows = insideItems.map(it => {
+      const itemRows = insideItems.map((it, iidx) => {
         const itemScanned = !!it.scanned;
         const dot = itemScanned
           ? '<div style="width:18px;height:18px;background:#00E676;color:#000;-webkit-text-fill-color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;flex-shrink:0">✓</div>'
           : '<div style="width:18px;height:18px;background:transparent;border:2px solid #5C7390;border-radius:50%;flex-shrink:0"></div>';
         const itemSkuColor = itemScanned ? '#00E676' : '#9AAAC0';
         const itemDecoration = itemScanned ? '' : ';opacity:.85';
+        const itemMgrBtn = !itemScanned
+          ? '<button onclick="managerCheckOff(' + idx + ',' + iidx + ')" class="no-dark keep-dark-text" '
+            + 'style="padding:5px 9px;background:rgba(124,58,237,.18);color:#C4B5FD;'
+            + '-webkit-text-fill-color:#C4B5FD;border:1px solid #7C3AED;border-radius:6px;'
+            + 'font-size:10px;font-weight:900;cursor:pointer;flex-shrink:0;letter-spacing:.3px" '
+            + 'title="Manager: mark this item packed without scanning (PIN required)">✓ MGR</button>'
+          : '';
         return '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;'
           + 'background:rgba(0,0,0,.25);border:1px solid rgba(154,170,192,.18);border-radius:6px' + itemDecoration + '">'
           +   dot
@@ -11281,6 +11338,7 @@ function renderGroundPackBoxes() {
           +     '<div style="font-size:14px;font-weight:900;color:' + itemSkuColor + ';-webkit-text-fill-color:' + itemSkuColor + ';font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.5px;line-height:1.1">' + escapeHtml(it.sku || '') + '</div>'
           +     (it.label_text ? '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px;font-weight:600">' + escapeHtml(it.label_text) + '</div>' : '')
           +   '</div>'
+          +   itemMgrBtn
           + '</div>';
       }).join('');
       insideHtml = '<div style="display:flex;flex-direction:column;gap:6px;padding-left:48px;border-top:1px dashed rgba(154,170,192,.2);padding-top:10px">'
@@ -12069,7 +12127,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.99<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.100<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
