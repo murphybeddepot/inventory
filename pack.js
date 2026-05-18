@@ -3644,7 +3644,15 @@ async function scheduleMarkBooked(orderNumber, booker) {
   }
 
   try {
-    const res = await groundApi('markPackJobBooked', payload);
+    let res = await groundApi('markPackJobBooked', payload);
+    if (res && res.already_booked) {
+      const ok = confirm('⚠ Order ' + orderNumber + ' is already booked:\n  ref ' +
+        (res.existing_booking_ref || '?') + (res.existing_booker ? ' · by ' + res.existing_booker : '') +
+        '\n\nReplace it with ref ' + bookingRef + '?');
+      if (!ok) { showToast('Kept existing booking ' + (res.existing_booking_ref || '')); return; }
+      payload.force = true;
+      res = await groundApi('markPackJobBooked', payload);
+    }
     if (!res || !res.ok) {
       showToast('Save failed: ' + ((res && res.error) || 'unknown'));
       return;
