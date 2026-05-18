@@ -4429,9 +4429,12 @@ function openRemakeShipModal(remakeId) {
   document.body.appendChild(ov);
 }
 
+let _remakeShipping = false;
 async function submitRemakeShip(remakeId) {
+  if (_remakeShipping) { showToast('Marking shipped… one moment'); return; }
   const carrier = String((document.getElementById('rmkShipCarrier') || {}).value || '').trim();
   const tracking = String((document.getElementById('rmkShipTracking') || {}).value || '').trim();
+  _remakeShipping = true;
   try {
     const res = await groundApi('updateRemakeStatus', {
       remake_id: remakeId,
@@ -4445,6 +4448,8 @@ async function submitRemakeShip(remakeId) {
     openRemakesPanel('open');
   } catch (err) {
     showToast('Save error: ' + err.message);
+  } finally {
+    _remakeShipping = false;
   }
 }
 
