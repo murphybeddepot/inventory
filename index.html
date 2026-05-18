@@ -11142,7 +11142,20 @@ function renderGroundPackBoxes() {
         + itemRows
         + '</div>';
     }
-    row.innerHTML = topRow + packNotesHtml + insideHtml;
+    // SAMPLES colors-to-pack sheet (Zac 2026-05-18): packing the
+    // right melamine colors is a manual process with no scan system.
+    // Give the packer a one-tap printable color pick-list. Packer-
+    // controlled button (NOT auto-printed on the label path — that
+    // class of auto-side-effect caused the 2026-05-18 incident).
+    var _isSamplesBox = /SAMPLE/i.test(String(p.box_sku || '')) && insideItems.length > 0;
+    var colorsBtnHtml = _isSamplesBox
+      ? '<button onclick="printSamplesColorsSheet(' + idx + ')" class="no-dark keep-dark-text" '
+        + 'style="margin-top:4px;padding:12px 14px;background:linear-gradient(135deg,#7C3AED,#4C1D95);'
+        + 'color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid #A78BFA;border-radius:8px;'
+        + 'font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;min-height:44px;'
+        + 'box-shadow:0 0 14px rgba(124,58,237,.35)">🎨 Print Colors to Pack (' + insideItems.length + ')</button>'
+      : '';
+    row.innerHTML = topRow + packNotesHtml + insideHtml + colorsBtnHtml;
     list.appendChild(row);
   });
 
@@ -11152,6 +11165,56 @@ function renderGroundPackBoxes() {
   });
   document.getElementById('groundPackScanRow').style.display = allReady ? 'none' : '';
   document.getElementById('groundPackCompleteBtn').style.display = allReady ? '' : 'none';
+}
+
+// SAMPLES colors-to-pack printable sheet (Zac 2026-05-18). Packer
+// taps it → popup with a big checkbox pick-list of the melamine
+// colors for this box. No barcodes/scan (intentionally — manual
+// process). Mirrors the proven kanban popup-print pattern.
+function printSamplesColorsSheet(idx) {
+  const p = (groundCurrentOrder && groundCurrentOrder.packages || [])[idx];
+  if (!p) { showToast('Box not found'); return; }
+  const colors = (Array.isArray(p.inside_items) ? p.inside_items : [])
+    .map(it => String(it.label_text || it.sku || '').trim())
+    .filter(Boolean);
+  if (!colors.length) { showToast('No colors listed on this box'); return; }
+  const on = (document.getElementById('groundPackOrderNum') || {}).textContent || '';
+  const cust = (document.getElementById('groundPackCustomer') || {}).textContent || '';
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Pop-up blocked — allow pop-ups to print the colors sheet'); return; }
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const rows = colors.map((c, i) =>
+    '<div class="row"><div class="bx"></div><div class="n">' + (i + 1) + '</div>'
+    + '<div class="c">' + esc(c) + '</div></div>').join('');
+  w.document.write(''
+    + '<!doctype html><html><head><meta charset="utf-8"><title>SAMPLES ' + esc(on) + ' — colors</title>'
+    + '<style>'
+    +   '@page { size: letter; margin: 0.5in; }'
+    +   '* { box-sizing: border-box; }'
+    +   'body { font-family: \'Barlow Condensed\', Arial, sans-serif; margin: 0; color:#000; background:#fff; }'
+    +   '.toolbar { padding:12px 16px; background:#f0f0f0; border-bottom:1px solid #ccc; display:flex; gap:12px; font-family:Arial,sans-serif; font-size:13px; }'
+    +   '.toolbar button { padding:8px 16px; background:#4C1D95; color:#fff; border:none; border-radius:6px; font-weight:700; cursor:pointer; }'
+    +   '.wrap { padding: 0.2in 0.3in; }'
+    +   '.hdr { font-size:30pt; font-weight:900; letter-spacing:1px; text-transform:uppercase; border-bottom:3px solid #000; padding-bottom:6px; }'
+    +   '.sub { font-size:14pt; margin-top:6px; font-family:Arial,sans-serif; }'
+    +   '.sub b { font-size:18pt; }'
+    +   '.cnt { margin-top:10px; font-size:13pt; font-weight:900; font-family:Arial,sans-serif; }'
+    +   '.row { display:flex; align-items:center; gap:14px; padding:10px 0; border-bottom:1px dashed #999; }'
+    +   '.bx { width:30px; height:30px; border:3px solid #000; border-radius:4px; flex-shrink:0; }'
+    +   '.n { width:30px; font-size:14pt; font-weight:900; color:#666; font-family:Arial,sans-serif; }'
+    +   '.c { font-size:24pt; font-weight:900; letter-spacing:.5px; }'
+    +   '@media print { .toolbar { display:none; } }'
+    + '</style></head><body>'
+    + '<div class="toolbar"><button onclick="window.print()">🖨 Print</button>'
+    +   '<button onclick="window.close()">Close</button>'
+    +   '<span style="align-self:center;color:#666">No barcodes — check each color off as you pack it.</span></div>'
+    + '<div class="wrap">'
+    +   '<div class="hdr">Samples · Pack These Colors</div>'
+    +   '<div class="sub">Order <b>' + esc(on) + '</b>' + (cust ? ' &nbsp;·&nbsp; ' + esc(cust) : '') + '</div>'
+    +   '<div class="cnt">' + colors.length + ' color' + (colors.length === 1 ? '' : 's') + ' — Box ' + esc(p.sequence) + '</div>'
+    +   '<div style="margin-top:10px">' + rows + '</div>'
+    + '</div></body></html>');
+  w.document.close();
 }
 
 async function printGroundLabel(idx) {
@@ -11805,7 +11868,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.86<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.87<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
