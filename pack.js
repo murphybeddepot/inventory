@@ -5215,7 +5215,19 @@ function _lkFld(label, value, opts) {
   if (value == null || value === '') return '';
   const mono = opts && opts.mono ? "font-family:'JetBrains Mono',monospace;" : '';
   const strVal = String(value);
-  const link = opts && opts.link ? '<a href="' + esc(strVal) + '" target="_blank" style="color:#42a5f5;text-decoration:underline">open ↗</a>' : esc(strVal);
+  // v10.94 (CS persona): the #1 CS action on a Lookup hit is calling
+  // the customer about "where's my order". Any Phone field becomes a
+  // tap-to-call tel: link (live on the iPad/phone CS uses; an inert
+  // styled span on desktop). Copy button is preserved below.
+  const _telDigits = /phone/i.test(String(label)) ? strVal.replace(/[^\d+]/g, '') : '';
+  let link;
+  if (opts && opts.link) {
+    link = '<a href="' + esc(strVal) + '" target="_blank" style="color:#42a5f5;text-decoration:underline">open ↗</a>';
+  } else if (_telDigits.replace(/\D/g, '').length >= 7) {
+    link = '<a href="tel:' + esc(_telDigits) + '" style="color:#42a5f5;text-decoration:underline;font-weight:700" title="Tap to call">' + esc(strVal) + ' 📞</a>';
+  } else {
+    link = esc(strVal);
+  }
   // v9.84: copy-to-clipboard button on CS-relevant fields. Activated
   // via opts.copy=true OR auto-detected by label match for the
   // common cases (tracking, email, phone, address, order numbers).
