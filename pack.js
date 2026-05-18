@@ -798,20 +798,16 @@ async function claimPackCheck(orderNumber) {
 }
 
 async function releasePackCheck(orderNumber) {
-  if (!confirm('Release the check on order ' + orderNumber + '? Status goes back to "ready for check".')) return;
+  if (!confirm('Release the check on order ' + orderNumber + '? Status goes back to "ready for check" so another checker can pick it up.')) return;
   try {
-    // No dedicated server endpoint yet; revert by clearing checker fields
-    // via resetPackCheckScans and then status flip. For MVP, just leave the
-    // status at 'checking' and clear scans — the user can resume or another
-    // device can take over by setting status manually if needed.
-    const res = await groundApi('resetPackCheckScans', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
+    const res = await groundApi('releasePackCheckJob', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
     if (!res || !res.ok) {
       showToast('Release failed: ' + ((res && res.error) || 'unknown'));
       return;
     }
-    showToast('Check scans cleared — close the order to release');
+    showToast('Released — order ' + orderNumber + ' is back to "ready for check"');
+    if (typeof closePackDetail === 'function') closePackDetail();
     await refreshPackQueue();
-    openPackDetail(orderNumber);
   } catch (err) {
     showToast('Release error: ' + err.message);
   }
