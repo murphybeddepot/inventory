@@ -4811,7 +4811,7 @@ async function runLookup() {
       const isName = !/^\d+$/.test(q);
       const tip = isName
         ? 'Names are matched as substrings (case-insensitive). Try part of the last name only, or try the order number.'
-        : 'Double-check the order number. You can also search by customer name.';
+        : 'If this order was placed recently it may not be here yet — Ground orders take ~1–2 hrs to import and cabinet orders ingest after the pick-list email. So "not here" usually means "still processing," not "lost." Otherwise double-check the number or search by customer name.';
       resultsEl.innerHTML = '<div style="padding:32px 20px;text-align:center;background:rgba(255,165,0,.08);border:1px dashed rgba(255,165,0,.4);border-radius:10px;color:#FFB300;font-weight:700">No orders found matching <strong>' + esc(q) + '</strong>.<br><span style="font-weight:500;font-size:12px;color:var(--text-dim);margin-top:6px;display:inline-block">' + tip + '</span><br><span style="font-weight:500;font-size:11px;color:var(--text-dim);opacity:.7;margin-top:4px;display:inline-block">Searched: PackingQueue · OrderPack · MattressDropships · CabinetDamage · Calendar</span></div>';
       return;
     }
