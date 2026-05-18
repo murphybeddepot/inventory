@@ -4827,6 +4827,9 @@ async function runLookup() {
     }
     statusEl.textContent = res.hits.length + ' match' + (res.hits.length === 1 ? '' : 'es') + ' for #' + q;
     resultsEl.innerHTML = res.hits.map(h => renderLookupHit_(h)).join('');
+    // P3: progressively upgrade timelines to the order_events spine
+    // where it has data (fire-and-forget; falls back to scavenger).
+    _lkUpgradeTimelines_(res.hits);
     // v9.98: save successful searches for the recent-searches strip
     _saveLookupRecent_(q, res.hits.length);
   } catch (err) {
@@ -4929,18 +4932,25 @@ function _lkTimeline_(hit) {
     push(hit.record.remake_received_at, 'Remake received', '↩', '#42a5f5');
     push(hit.record.closed_at, 'Damage closed', '✓', '#0a8a3f');
   }
-  if (!events.length) return '';
-  // Sort newest first — CS scans top-down for "what's the latest"
+  // P3: wrap in an addressable container so the post-render async
+  // upgrade can swap in the order_events timeline. The scavenged
+  // events below are the FALLBACK (today's behavior) shown until
+  // (and unless) the spine returns events for this order — zero
+  // regression: if the spine is empty/inactive the fallback stays.
+  const _oid = String((hit && (hit.order_number || hit.order_id
+    || (hit.record && hit.record.order_number))) || '').trim();
+  const _wrap = (inner) => '<div class="lk-tl" data-oid="' + esc(_oid) + '">' + inner + '</div>';
+  if (!events.length) return _oid ? _wrap('') : '';
   events.sort((a, b) => b.ts - a.ts);
   const fmt = (d) => {
-    const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     const hh = String(d.getHours()).padStart(2, '0');
     const mi = String(d.getMinutes()).padStart(2, '0');
     return mm + '/' + dd + ' ' + hh + ':' + mi;
   };
-  return '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)">'
+  return _wrap(
+    '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)">'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700">Activity</div>'
     + events.map(e =>
         '<div style="display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:12px;color:var(--text)">'
@@ -4949,7 +4959,93 @@ function _lkTimeline_(hit) {
         + '<span style="color:' + e.color + ';flex:1">' + esc(e.label) + '</span>'
         + '</div>'
       ).join('')
+    + '</div>');
+}
+
+// P3 — order_events presentation (one table; replaces the per-
+// source push() ladder once the spine is the source).
+const _LK_EVENT_PRES = {
+  'order.imported':    { icon: '📥', color: '#42a5f5', label: 'Order imported' },
+  'pack.started':      { icon: '▶',  color: '#FF9100', label: 'Pack started' },
+  'pack.completed':    { icon: '✓',  color: '#00C853', label: 'Packed' },
+  'checker.passed':    { icon: '🔍', color: '#ab47bc', label: 'Checker passed' },
+  'label.created':     { icon: '🏷️', color: '#42a5f5', label: 'Label created' },
+  'freight.booked':    { icon: '📦', color: '#FFB300', label: 'Freight booked' },
+  'tracking.observed': { icon: '🚚', color: '#1A5C1A', label: 'Tracking observed' },
+  'shipped':           { icon: '🚚', color: '#1A5C1A', label: 'Shipped' },
+  'delivered':         { icon: '🏁', color: '#0a8a3f', label: 'Delivered' },
+  'hold.set':          { icon: '⏸', color: '#c33',    label: 'Hold set' },
+  'hold.cleared':      { icon: '▶',  color: '#00C853', label: 'Hold cleared' },
+  'cs.note':           { icon: '📝', color: '#3DBEFF', label: 'CS note' },
+};
+
+function _lkRenderSpineEvents_(oid, events) {
+  const fmt = (s) => {
+    const d = new Date(s); if (isNaN(d.getTime())) return '';
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return mm + '/' + dd + ' ' + hh + ':' + mi;
+  };
+  const sorted = events.slice().sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  const row = (e) => {
+    const p = _LK_EVENT_PRES[e.type] || { icon: '·', color: 'var(--text-dim)', label: e.type };
+    const pl = e.payload || {};
+    let extra = '';
+    if (e.type === 'cs.note' && pl.note) extra = ' — ' + pl.note;
+    else if (e.type === 'freight.booked') extra = (pl.carrier ? ' · ' + pl.carrier : '') + (pl.booking_ref ? ' #' + pl.booking_ref : '');
+    else if (e.type === 'label.created') extra = (pl.carrier ? ' · ' + pl.carrier : '') + (pl.cost ? ' · $' + pl.cost : '');
+    else if (e.type === 'tracking.observed' || e.type === 'shipped') extra = pl.tracking_number ? ' · ' + pl.tracking_number : '';
+    const who = pl._actor ? ' (' + pl._actor + ')' : '';
+    return '<div style="display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:12px;color:var(--text)">'
+      + '<span style="font-size:14px;line-height:1">' + p.icon + '</span>'
+      + '<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);font-size:11px;min-width:84px">' + fmt(e.ts) + '</span>'
+      + '<span style="color:' + p.color + ';flex:1">' + esc(p.label + extra + who) + '</span>'
+      + '</div>';
+  };
+  return '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+    +   '<span style="font-size:10px;color:#3DBEFF;text-transform:uppercase;letter-spacing:1.5px;font-weight:700">Activity · live spine</span>'
+    +   '<button onclick="_lkAddCsNote_(\'' + esc(oid) + '\')" style="background:rgba(61,190,255,.12);color:#3DBEFF;border:1px solid rgba(61,190,255,.4);border-radius:6px;font-size:11px;font-weight:800;padding:4px 10px;min-height:34px;cursor:pointer">➕ Note</button>'
+    + '</div>'
+    + sorted.map(row).join('')
     + '</div>';
+}
+
+// Post-render progressive upgrade: swap the scavenged fallback for
+// the order_events timeline where the spine has data. Fire-and-
+// forget; any failure leaves the fallback intact (zero regression).
+async function _lkUpgradeTimelines_(hits) {
+  const seen = {};
+  for (const h of (hits || [])) {
+    const oid = String((h && (h.order_number || h.order_id
+      || (h.record && h.record.order_number))) || '').trim();
+    if (!oid || seen[oid]) continue;
+    seen[oid] = true;
+    try {
+      const res = await groundApi('orderTimeline', { order_number: oid, order_id: oid });
+      if (!res || !res.ok || !res.events || !res.events.length) continue;
+      document.querySelectorAll('.lk-tl[data-oid="' + (window.CSS && CSS.escape ? CSS.escape(oid) : oid) + '"]')
+        .forEach((el) => { el.innerHTML = _lkRenderSpineEvents_(oid, res.events); });
+    } catch (e) { /* keep fallback */ }
+  }
+}
+
+async function _lkAddCsNote_(oid) {
+  const note = (prompt('Add a CS note to order ' + oid + ' (logged to the order timeline):') || '').trim();
+  if (!note) return;
+  try {
+    const by = (localStorage.getItem('mbd_ground_packer') || '').trim();
+    const res = await groundApi('addCsNote', { order_id: oid, note: note, by: by });
+    if (!res || !res.ok) { showToast('Note not saved: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Note added');
+    const r2 = await groundApi('orderTimeline', { order_number: oid, order_id: oid });
+    if (r2 && r2.ok && r2.events) {
+      document.querySelectorAll('.lk-tl[data-oid="' + (window.CSS && CSS.escape ? CSS.escape(oid) : oid) + '"]')
+        .forEach((el) => { el.innerHTML = _lkRenderSpineEvents_(oid, r2.events); });
+    }
+  } catch (e) { showToast('Note error: ' + e.message); }
 }
 
 // v9.94: mirror of server-side _trackingUrlFor_ for client-side
