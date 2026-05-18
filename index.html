@@ -5768,6 +5768,28 @@ try {
   }
 } catch(e) {}
 
+// v10.91 (task #62, Zac): the map was localStorage-only — per
+// device. Pull the shared layout from the orchestrator at boot so an
+// edit on any iPad shows on all of them. Swallow-safe: any miss /
+// error leaves the localStorage copy in place (never blanks the map).
+let _whLayoutServerLoaded = false;
+async function loadWarehouseLayoutFromServer_() {
+  if (_whLayoutServerLoaded) return;
+  if (typeof groundApi !== 'function' || typeof GROUND_ORCH_URL === 'undefined' || !GROUND_ORCH_URL) return;
+  try {
+    const data = await groundApi('getWarehouseLayout');
+    if (data && data.ok && data.layout && Array.isArray(data.layout.aisles) && data.layout.aisles.length) {
+      warehouseLayout = { aisles: data.layout.aisles };
+      try { localStorage.setItem('mbd_warehouse_layout', JSON.stringify(warehouseLayout)); } catch(e) {}
+      if (typeof renderCabinets === 'function') { try { renderCabinets(); } catch(e) {} }
+      const ci = document.getElementById('cabSearchInput');
+      if (ci && ci.value && typeof renderCabResult === 'function') { try { renderCabResult(ci.value); } catch(e) {} }
+    }
+    _whLayoutServerLoaded = true;
+  } catch(e) { /* swallow — localStorage fallback already applied */ }
+}
+document.addEventListener('DOMContentLoaded', () => { setTimeout(loadWarehouseLayoutFromServer_, 1500); });
+
 // Parse a location like "007.005" or "7.5" into { aisle, bay } strings.
 function parseLocation(loc) {
   if (!loc) return null;
@@ -9190,7 +9212,7 @@ function toggleAdminTools() {
 // ── EDIT WAREHOUSE MAP LAYOUT ────────────────────────────────────────────────
 function editWarehouseLayout() {
   const body =
-    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">The warehouse map shows on every cabinet result. Each aisle has its own position, depth, and bay range.</div>'
+    '<div style="font-size:13px;color:#444;margin-bottom:14px;line-height:1.5">The warehouse map shows on every cabinet result. Each aisle has its own position, depth, and bay range. <strong>Save Layout</strong> now syncs to <strong>every device</strong>. <strong>Reset</strong> only reverts <em>this</em> device — the shared layout stays until someone Saves.</div>'
 
     + '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#8B4000;line-height:1.5">'
     + '<strong>Default layout:</strong> Building 150\' wide × 167\' deep. Aisles 001-004 on left (6\' deep racks for frame boxes). Office at 50\'-75\'. Aisles 005-006 are short (5 bays each), 007-012 run full depth (4\' deep racks for cabinets).'
@@ -9254,7 +9276,18 @@ function saveWarehouseLayout() {
   warehouseLayout = { aisles: parsed };
   try { localStorage.setItem('mbd_warehouse_layout', JSON.stringify(warehouseLayout)); } catch(e) {}
   closeCabModal();
-  showToast('✓ Map layout saved');
+  // v10.91: also push to the orchestrator so every other device
+  // picks it up. Local save already succeeded above, so a server
+  // failure is non-fatal — just tell the user it didn't sync.
+  const _whBy = (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e){ return ''; } })();
+  if (typeof groundApi === 'function' && GROUND_ORCH_URL) {
+    showToast('Saving map to all devices…');
+    groundApi('setWarehouseLayout', { aisles: parsed, by: _whBy })
+      .then(r => { showToast((r && r.ok) ? '✓ Map saved — synced to all devices' : ('✓ Saved on this device · server rejected: ' + ((r && r.error) || 'unknown'))); })
+      .catch(() => showToast('✓ Saved on this device (offline — re-save when online to sync)'));
+  } else {
+    showToast('✓ Map layout saved (this device)');
+  }
   renderCabResult(document.getElementById('cabSearchInput').value);
   renderCabinets();
 }
@@ -11934,7 +11967,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.90<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.91<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
