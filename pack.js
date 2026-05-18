@@ -4826,12 +4826,35 @@ async function runLookup() {
 }
 
 function renderLookupHit_(hit) {
-  if (hit.source === 'cabinet')  return renderLookupCabinet_(hit);
-  if (hit.source === 'ground')   return renderLookupGround_(hit);
-  if (hit.source === 'mattress') return renderLookupMattress_(hit);
-  if (hit.source === 'damage')   return renderLookupDamage_(hit);
-  if (hit.source === 'calendar') return renderLookupCalendar_(hit);
-  return '<pre style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:11px;color:var(--text)">' + esc(JSON.stringify(hit, null, 2)) + '</pre>';
+  let body;
+  if (hit.source === 'cabinet')       body = renderLookupCabinet_(hit);
+  else if (hit.source === 'ground')   body = renderLookupGround_(hit);
+  else if (hit.source === 'mattress') body = renderLookupMattress_(hit);
+  else if (hit.source === 'damage')   body = renderLookupDamage_(hit);
+  else if (hit.source === 'calendar') body = renderLookupCalendar_(hit);
+  else body = '<pre style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:11px;color:var(--text)">' + esc(JSON.stringify(hit, null, 2)) + '</pre>';
+  return body + _lkEmailLink_(hit);
+}
+
+// One-tap "find the email thread for this order" — opens Gmail
+// searching the order # + customer (+ email if known). Pragmatic
+// first slice of "pull customer/order email into Bedrock for CS":
+// instant context now, zero risk, no ingestion pipeline. Source-
+// agnostic so every Lookup result gets it.
+function _lkEmailLink_(h) {
+  const on = String((h && h.order_number) || '').trim();
+  const nm = String((h && h.customer_name) || '').trim();
+  const em = String((h && h.customer_email) || '').trim();
+  if (!on && !nm && !em) return '';
+  const parts = [];
+  if (on) parts.push('"' + on + '"');
+  if (em) parts.push(em);
+  else if (nm) parts.push('"' + nm + '"');
+  const q = encodeURIComponent(parts.join(' OR '));
+  const url = 'https://mail.google.com/mail/u/0/#search/' + q;
+  return '<div style="margin:-4px 0 12px;display:flex;flex-wrap:wrap;gap:8px">'
+    + '<a href="' + url + '" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:8px 16px;background:rgba(66,165,245,.12);color:#42a5f5;border:1px solid rgba(66,165,245,.4);border-radius:8px;font-size:13px;font-weight:800">📧 Email thread for this order</a>'
+    + '</div>';
 }
 
 // Calendar-sourced order (on the operational calendar but not yet
