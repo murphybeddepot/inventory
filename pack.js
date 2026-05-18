@@ -3761,7 +3761,26 @@ function _fxRender_() {
     +   '<input id="fxState_" placeholder="ST" maxlength="2" value="' + esc(d.state || '') + '" style="flex:0 0 56px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px;text-transform:uppercase">'
     +   '<input id="fxZip" placeholder="ZIP" value="' + esc(d.zip || '') + '" style="flex:0 0 90px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
     + '</div>'
-    + '<button onclick="_fxGetQuote_()" id="fxQuoteBtn" style="width:100%;padding:13px;background:linear-gradient(180deg,#1A5BE0,#003087);color:#fff;border:1.5px solid #3B82F6;border-radius:9px;font-size:15px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">↻ Get FedEx Quote</button>';
+    + '<button onclick="_fxGetQuote_()" id="fxQuoteBtn" style="width:100%;padding:13px;background:linear-gradient(180deg,#1A5BE0,#003087);color:#fff;border:1.5px solid #3B82F6;border-radius:9px;font-size:15px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">↻ Get FedEx Quote</button>'
+    + '<details id="fxManualWrap"' + (_fxState.needsDims ? ' open' : '') + ' style="margin-top:10px">'
+    +   '<summary style="cursor:pointer;font-size:12px;color:#FFB300;font-weight:800">'
+    +     (_fxState.needsDims ? '⚠ SKUs not in freight table — enter the shipment manually' : '＋ Manual shipment (if SKUs aren’t in the freight table)')
+    +   '</summary>'
+    +   '<div style="padding:10px 0 2px">'
+    +     (_fxState.needsDims ? '<div style="font-size:11px;color:#FFB300;margin-bottom:6px">Unmapped: ' + esc((_fxState.needsDims || []).join(', ')) + '. Enter total pallet weight + dims to rate the whole shipment.</div>' : '')
+    +     '<div style="display:flex;gap:6px;margin-bottom:6px">'
+    +       '<input id="fxMWt" type="number" inputmode="decimal" placeholder="Total wt (lb)" value="' + esc((_fxState.manual && _fxState.manual.weightLbs) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +       '<input id="fxMHU" type="number" inputmode="numeric" placeholder="# pallets" value="' + esc((_fxState.manual && _fxState.manual.handlingUnits) || '1') + '" style="flex:0 0 92px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +     '</div>'
+    +     '<div style="display:flex;gap:6px;margin-bottom:6px">'
+    +       '<input id="fxML" type="number" inputmode="decimal" placeholder="L in" value="' + esc((_fxState.manual && _fxState.manual.lengthIn) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +       '<input id="fxMW" type="number" inputmode="decimal" placeholder="W in" value="' + esc((_fxState.manual && _fxState.manual.widthIn) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +       '<input id="fxMH" type="number" inputmode="decimal" placeholder="H in" value="' + esc((_fxState.manual && _fxState.manual.heightIn) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +       '<input id="fxMC" type="text" placeholder="class (auto)" value="' + esc((_fxState.manual && _fxState.manual.freightClass) || '') + '" style="flex:0 0 96px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +     '</div>'
+    +     '<div style="font-size:10px;color:#6b7685">Leave class blank → computed from density (weight ÷ ft³). Dims default to a 48×40×48 pallet if blank.</div>'
+    +   '</div>'
+    + '</details>';
 
   if (_fxState.quotes && _fxState.quotes.length) {
     html += '<div style="margin-top:14px;font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Quotes — net + discount breakdown</div>';
@@ -3810,20 +3829,41 @@ function _fxReadDest_() {
   return { street: g('fxStreet').trim(), city: g('fxCity').trim(), state: g('fxState_').trim().toUpperCase(), zip: g('fxZip').trim() };
 }
 
+function _fxReadManual_() {
+  const g = id => String((document.getElementById(id) || {}).value || '').trim();
+  const wt = Number(g('fxMWt')) || 0;
+  if (wt <= 0) return null;
+  return {
+    weightLbs: wt,
+    handlingUnits: Number(g('fxMHU')) || 1,
+    lengthIn: Number(g('fxML')) || 0,
+    widthIn: Number(g('fxMW')) || 0,
+    heightIn: Number(g('fxMH')) || 0,
+    freightClass: g('fxMC'),
+  };
+}
+
 async function _fxGetQuote_() {
   const btn = document.getElementById('fxQuoteBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Rating…'; }
   _fxState.dest = _fxReadDest_();
+  _fxState.manual = _fxReadManual_();
   if (!_fxState.dest.zip) { showToast('ZIP required to rate'); if (btn) { btn.disabled = false; btn.textContent = '↻ Get FedEx Quote'; } return; }
   try {
-    const res = await groundApi('fedexQuoteOrder', { orderNumber: _fxState.orderNumber, destination: _fxState.dest });
+    const payload = { orderNumber: _fxState.orderNumber, destination: _fxState.dest };
+    if (_fxState.manual) payload.manualShipment = _fxState.manual;
+    const res = await groundApi('fedexQuoteOrder', payload);
     if (!res || !res.ok) {
+      if (res && res.needs_dims && res.needs_dims.length) _fxState.needsDims = res.needs_dims;
       const why = (res && (res.error || (res.needs_dims && ('Unmapped SKUs: ' + res.needs_dims.join(', '))))) || 'rate failed';
+      _fxState.quotes = [];
+      _fxRender_();
       const rr = document.getElementById('fxResult');
-      if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(255,82,82,.1);border:1px solid #ff5252;border-radius:8px;color:#ff8a8a;font-size:12px">' + esc(why) + '</div>';
+      if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(255,82,82,.1);border:1px solid #ff5252;border-radius:8px;color:#ff8a8a;font-size:12px">' + esc(why) + (res && res.needs_dims ? '<br><br>Open “Manual shipment” above and enter total weight + dims, then Get Quote again.' : '') + '</div>';
       if (btn) { btn.disabled = false; btn.textContent = '↻ Get FedEx Quote'; }
       return;
     }
+    _fxState.needsDims = null;
     _fxState.quotes = res.quotes || [];
     if (res.context) _fxState.ctx = res.context;
     _fxState.selected = '';
@@ -3848,12 +3888,14 @@ async function _fxBook_() {
   const btn = document.getElementById('fxBookBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Booking…'; }
   try {
-    const res = await groundApi('fedexBookOrder', {
+    const bookPayload = {
       orderNumber: _fxState.orderNumber,
       serviceType: _fxState.selected,
       destination: _fxState.dest,
       confirm: 'BOOK-CONFIRMED',
-    });
+    };
+    if (_fxState.manual) bookPayload.manualShipment = _fxState.manual;
+    const res = await groundApi('fedexBookOrder', bookPayload);
     const rr = document.getElementById('fxResult');
     if (!res || !res.ok) {
       if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(255,82,82,.1);border:1px solid #ff5252;border-radius:8px;color:#ff8a8a;font-size:12px">Book failed: ' + esc((res && res.error) || 'unknown') + '</div>';
@@ -3878,13 +3920,15 @@ async function _fxPickup_() {
   if (!date) { showToast('Pick a ready date'); return; }
   if (!confirm('Schedule a FedEx pickup on ' + date + ' (close ' + close + ')?\n\nSeparate from the booking. An uncancelled pickup can incur a charge.')) return;
   try {
-    const res = await groundApi('fedexPickupOrder', {
+    const puPayload = {
       orderNumber: _fxState.orderNumber,
       readyDate: date,
       closeTime: close.length === 5 ? close + ':00' : close,
       serviceType: _fxState.selected,
       confirm: 'PICKUP-CONFIRMED',
-    });
+    };
+    if (_fxState.manual) puPayload.manualShipment = _fxState.manual;
+    const res = await groundApi('fedexPickupOrder', puPayload);
     const rr = document.getElementById('fxResult');
     if (!res || !res.ok) { if (rr) rr.innerHTML = '<div style="padding:10px;color:#ff8a8a;font-size:12px">Pickup failed: ' + esc((res && res.error) || 'unknown') + '</div>'; return; }
     if (res.simulated) { if (rr) rr.innerHTML = '<div style="padding:10px;color:#FFB300;font-size:12px;font-weight:700">Pickup SIMULATED (' + esc(res.why || '') + ')</div>'; return; }
