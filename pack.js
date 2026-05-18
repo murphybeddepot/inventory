@@ -3859,7 +3859,7 @@ async function openHoldsPanel(opts) {
     // override Beacon directly). PackingQueue cabinet holds — manager
     // would use the existing cabinet flow.
     const resumeBtn = (h.kind === 'orderpack_hold' && h.order_id)
-      ? '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:6px 12px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-top:8px">↩ Resume to queue</button>'
+      ? '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center">↩ Resume to queue</button>'
       : (h.kind === 'beacon_hold'
           ? '<div style="font-size:10px;color:#9C27B0;margin-top:6px;font-weight:700">↪ Clear in ShipStation (Beacon)</div>'
           : '');
