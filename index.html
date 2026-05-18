@@ -10948,6 +10948,59 @@ async function createLabelsForCurrentOrder() {
   await callStartPackAndRender(groundPendingOrder);
 }
 
+// v10.90 (task #61): the orchestrator returns the RAW structured
+// holds array (objects {kind:'unknown_sku',sku,item_name,quantity}
+// for SKUs with no rulebook rule, plus plain strings for sizing
+// holds). The old renderer did escapeHtml(obj) → literal
+// "[object Object]" — the client twin of the server bug fixed in
+// v10.85, and it left the packer/Seth with nothing to act on.
+// Now: unknown-SKU holds render as an actionable card with a
+// one-tap "Copy rulebook request" so Seth pastes Zac an exact,
+// fill-in-the-dims request instead of hand-transcribing.
+var _groundHoldRequests = [];
+function _renderGroundHold_(holdArr, orderNum) {
+  _groundHoldRequests = [];
+  return (holdArr || []).map(function (h) {
+    if (h && typeof h === 'object' && h.kind === 'unknown_sku') {
+      var sku = String(h.sku || '?');
+      var nm = String(h.item_name || '');
+      var qty = Number(h.quantity) || 1;
+      var idx = _groundHoldRequests.push({ sku: sku, name: nm, qty: qty, order: String(orderNum || '') }) - 1;
+      return '<div style="background:rgba(255,255,255,.55);border:1.5px solid #C9A55B;border-radius:8px;padding:12px;margin-bottom:8px">'
+        + '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;opacity:.8;margin-bottom:4px">No packaging rule for this SKU</div>'
+        + '<div style="font-size:18px;font-weight:900;font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.5px">' + escapeHtml(sku) + '</div>'
+        + (nm ? '<div style="font-size:13px;margin-top:2px;opacity:.85">' + escapeHtml(nm) + '</div>' : '')
+        + '<div style="font-size:12px;margin-top:2px;opacity:.75">Qty ' + qty + '</div>'
+        + '<button onclick="copyRulebookRequest_(' + idx + ')" style="margin-top:10px;padding:10px 14px;background:#7A4E00;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.4px">📋 Copy rulebook request</button>'
+        + '</div>';
+    }
+    var txt = (h && typeof h === 'object') ? String(h.message || h.reason || h.note || JSON.stringify(h)) : String(h);
+    return '<div style="margin-bottom:6px">• ' + escapeHtml(txt) + '</div>';
+  }).join('');
+}
+function copyRulebookRequest_(idx) {
+  var r = _groundHoldRequests[idx];
+  if (!r) return;
+  var msg = 'Bedrock rulebook request — order #' + r.order + '\n'
+    + 'SKU: ' + r.sku + '\n'
+    + 'Item: ' + (r.name || '(name not in V1)') + '\n'
+    + 'Qty on this order: ' + r.qty + '\n'
+    + 'Needs: box dims (L x W x H, inches) + weight (lb) so it can pack.\n'
+    + 'Dims: ____ x ____ x ____   Weight: ____ lb\n'
+    + '(Single simple-box SKU → self-parented + one boxes row, like HLR77.)';
+  var done = function () { showToast('📋 Rulebook request copied — paste to Zac/Slack'); };
+  var fail = function () { showToast('Copy failed — long-press to select manually'); };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(msg).then(done, fail);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = msg; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta); done();
+    }
+  } catch (e) { fail(); }
+}
+
 async function callStartPackAndRender(orderRow) {
   try {
     const data = await groundApi('startPack', {
@@ -10961,7 +11014,7 @@ async function callStartPackAndRender(orderRow) {
 
     if (data.hold && data.hold.length > 0) {
       document.getElementById('groundHoldReasons').innerHTML =
-        data.hold.map(h => '• ' + escapeHtml(h)).join('<br>');
+        _renderGroundHold_(data.hold, data.orderNumber || (orderRow && orderRow.order_number) || '');
       showGroundView('hold');
       return;
     }
@@ -11881,7 +11934,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.89<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.90<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
