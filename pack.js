@@ -3034,6 +3034,27 @@ function _scheduleStallChip_(o, compact) {
   return '<button onclick="event.stopPropagation();openStalledList()" title="' + esc(title) + '" style="background:rgba(255,82,82,.2);color:#ff5252;border:1px solid #ff5252;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;white-space:nowrap;cursor:pointer;flex:0 0 auto">⚠ ' + esc(label) + (o.stall_reasons.length > 1 ? ' +' + (o.stall_reasons.length - 1) : '') + '</button>';
 }
 
+// v10.88 (Zac): the Customer-Ready notes field can carry a structured
+// "[HOLD:YYYY-MM-DD]" token meaning "customer confirmed BUT asked us
+// to hold the order until this date" — distinct from a plain confirm
+// that means ship-ASAP. Token is authored client-side in the
+// Customer-Ready modal and round-trips through the existing notes
+// string (no server/JS2 schema change — Offered-Date/Hold history
+// proper is still JS2 col G/V territory, deferred to the spine).
+var _CUST_HOLD_RE_ = /\[HOLD:(\d{4})-(\d{2})-(\d{2})\]/;
+function _parseCustReadyHold_(notes) {
+  const m = _CUST_HOLD_RE_.exec(String(notes || ''));
+  return m ? { iso: m[1] + '-' + m[2] + '-' + m[3], y: +m[1], mo: +m[2], d: +m[3] } : null;
+}
+function _stripHoldToken_(notes) {
+  return String(notes || '').replace(_CUST_HOLD_RE_, '').replace(/\s{2,}/g, ' ').trim();
+}
+function _fmtHoldDate_(h) {
+  if (!h) return '';
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return MON[(h.mo - 1) % 12] + ' ' + h.d;
+}
+
 function _scheduleCustomerReadyChip_(o, compact) {
   if (o.source !== 'cabinet') return '';
   const ready = !!o.customer_ready;
@@ -3043,6 +3064,13 @@ function _scheduleCustomerReadyChip_(o, compact) {
   const fs = compact ? '9px' : '10px';
   const onclick = 'event.stopPropagation();openCustomerReadyModal(\''+esc(o.order_number)+'\',' + (ready ? 'true' : 'false') + ',\''+esc(by)+'\',\''+esc(notes)+'\')';
   if (ready) {
+    const hold = _parseCustReadyHold_(notes);
+    if (hold) {
+      const clean = _stripHoldToken_(notes);
+      const tip = 'Customer confirmed' + (by ? ' by ' + esc(by) : '')
+        + ' — HOLD until ' + esc(hold.iso) + (clean ? ' · ' + esc(clean) : '') + '. Tap to edit.';
+      return '<button onclick="' + onclick + '" style="background:rgba(255,179,0,.18);color:#FFB300;border:1px solid #FFB300;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="' + tip + '">⏸ HOLD → ' + esc(_fmtHoldDate_(hold)) + '</button>';
+    }
     return '<button onclick="' + onclick + '" style="background:rgba(0,180,255,.15);color:#3DBEFF;border:1px solid #3DBEFF;padding:' + pad + ';font-size:' + fs + ';font-weight:900;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:0;flex:0 0 auto" title="Customer confirmed ready' + (by ? ' by ' + esc(by) : '') + '. Tap to edit.">✓ CUST</button>';
   }
   return ''; // unconfirmed → the booker chip already shows "⏳ WAIT" which itself opens this modal
@@ -3734,6 +3762,11 @@ function _custReadyDefaultName_() {
 function openCustomerReadyModal(orderNumber, currentReady, currentBy, currentNotes) {
   const prior = document.getElementById('customerReadyOverlay');
   if (prior) prior.remove();
+  // Pull any structured [HOLD:date] token out so the date shows in
+  // its own picker and the notes box stays clean prose; re-encoded
+  // on save in setCustomerReady_.
+  const _hold = _parseCustReadyHold_(currentNotes);
+  const _cleanNotes = _stripHoldToken_(currentNotes);
   const ov = document.createElement('div');
   ov.id = 'customerReadyOverlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
@@ -3746,7 +3779,12 @@ function openCustomerReadyModal(orderNumber, currentReady, currentBy, currentNot
     + '<div style="font-size:11px;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Confirmed by</div>'
     + '<input type="text" id="custReadyBy" placeholder="Your name (e.g. Ken)" autocomplete="off" value="' + esc(currentBy || _custReadyDefaultName_()) + '" style="width:100%;padding:10px;font-size:14px;background:#000;color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:8px;outline:none;margin-bottom:10px">'
     + '<div style="font-size:11px;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Notes (optional)</div>'
-    + '<textarea id="custReadyNotes" rows="3" placeholder="e.g. customer confirmed 5/14 — OK any day next week" style="width:100%;padding:10px;font-size:13px;background:#000;color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:8px;outline:none;margin-bottom:14px;resize:vertical;font-family:inherit">' + esc(currentNotes || '') + '</textarea>'
+    + '<textarea id="custReadyNotes" rows="3" placeholder="e.g. customer confirmed 5/14 — OK any day next week" style="width:100%;padding:10px;font-size:13px;background:#000;color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:8px;outline:none;margin-bottom:14px;resize:vertical;font-family:inherit">' + esc(_cleanNotes || '') + '</textarea>'
+    + '<div style="font-size:11px;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Hold until <span style="text-transform:none;letter-spacing:0">(optional — customer asked to delay to this date)</span></div>'
+    + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">'
+    +   '<input type="date" id="custReadyHold" value="' + esc(_hold ? _hold.iso : '') + '" style="flex:1;padding:10px;font-size:14px;background:#000;color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:8px;outline:none;font-family:inherit">'
+    +   '<button type="button" onclick="var e=document.getElementById(\'custReadyHold\');if(e)e.value=\'\'" style="padding:10px 12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Clear</button>'
+    + '</div>'
     + '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">'
     +   '<button onclick="setCustomerReady_(\''+esc(orderNumber)+'\',true)" style="padding:14px;background:linear-gradient(180deg,#0099CC,#005577);color:#fff;border:1.5px solid #3DBEFF;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">✓ Customer Ready</button>'
     +   (currentReady ? '<button onclick="setCustomerReady_(\''+esc(orderNumber)+'\',false)" style="padding:12px;background:rgba(255,82,82,.12);color:#ff5252;border:1px solid rgba(255,82,82,.4);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer">Mark Not Ready</button>' : '')
@@ -3765,7 +3803,13 @@ async function setCustomerReady_(orderNumber, ready) {
   const byEl = document.getElementById('custReadyBy');
   const notesEl = document.getElementById('custReadyNotes');
   const by = byEl ? String(byEl.value || '').trim() : '';
-  const notes = notesEl ? String(notesEl.value || '').trim() : '';
+  // Re-encode the structured hold token: strip any stray one the
+  // user may have typed, then prepend the date picker's value so the
+  // notes string stays the single round-tripped source of truth.
+  const holdEl = document.getElementById('custReadyHold');
+  const holdIso = holdEl && /^\d{4}-\d{2}-\d{2}$/.test(String(holdEl.value || '')) ? holdEl.value : '';
+  const cleanNotes = _stripHoldToken_(notesEl ? String(notesEl.value || '') : '');
+  const notes = (holdIso ? '[HOLD:' + holdIso + '] ' : '') + cleanNotes;
   if (ready && !by) {
     showToast('Enter your name before marking ready');
     if (byEl) byEl.focus();
