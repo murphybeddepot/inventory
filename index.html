@@ -11365,7 +11365,33 @@ async function printGroundLabel(idx) {
 
   // Fallback path: open Drive PDF in new tab for AirPrint.
   if (!fallbackUrl) {
-    showToast('No label PDF available');
+    // v10.93 (evidence: 9× "No Drive PDF" retries on one order in the
+    // issue log). startPack didn't persist a label PDF for this box —
+    // the old code just flashed a 1s toast and returned, so the packer
+    // re-tapped Print forever with no way out. Give a real recovery:
+    // re-run startPack via the EXISTING idempotency-guarded path
+    // (v10.83 — returns existing labels with NO recharge; only
+    // generates if they truly never got made). This is the same
+    // thing reopening the order from the queue does — not a new
+    // money action.
+    const on = (groundCurrentOrder && groundCurrentOrder.orderNumber) || '';
+    const go = confirm(
+      'Label PDF missing for Box ' + p.sequence + (on ? ' (order ' + on + ')' : '') + '.\n\n'
+      + 'startPack didn\'t finish generating this label.\n\n'
+      + 'Tap OK to re-run label generation for this order.\n'
+      + 'This is SAFE: if labels were already bought you will NOT be '
+      + 'charged again (it just reloads them). It only buys labels if '
+      + 'they were never created.\n\n'
+      + 'Cancel = do nothing (then tap Back and reopen the order, or '
+      + 'send Zac this order #).');
+    if (go && groundPendingOrder) {
+      const le = document.getElementById('groundPackLoading');
+      if (le) { le.textContent = 'Re-running label generation…'; le.style.display = 'block'; }
+      document.getElementById('groundPackBoxesSection').style.display = 'none';
+      await callStartPackAndRender(groundPendingOrder);
+    } else if (go && !groundPendingOrder) {
+      showToast('Can\'t auto-retry here — tap Back and reopen the order from the queue');
+    }
     return;
   }
   window.open(fallbackUrl, '_blank');
@@ -11967,7 +11993,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.92<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.93<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
