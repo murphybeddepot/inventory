@@ -4131,9 +4131,16 @@ function _renderTrackingRow_(s, SRC_COLORS) {
   const color = SRC_COLORS[s.source] || '#666';
   const when = String(s.shipped_at || '').slice(0, 10);
   const trackingDisplay = s.tracking_number ? esc(s.tracking_number) : '—';
+  // v10.96 (CS persona): CS pastes the tracking # into Shopify /
+  // email constantly — give the Tracking panel a one-tap copy so
+  // they don't have to drill into Lookup first. stopPropagation so
+  // it doesn't also fire the row→Lookup tap. Reuses _lkCopy_.
+  const trkCopyBtn = s.tracking_number
+    ? '<button onclick="event.stopPropagation();_lkCopy_(this,\'' + esc(String(s.tracking_number).replace(/'/g, "\\'")) + '\')" title="Copy tracking #" style="background:transparent;border:1px solid rgba(0,0,0,.15);color:#888;font-size:10px;padding:1px 6px;border-radius:5px;cursor:pointer;margin-left:6px;font-weight:700">📋</button>'
+    : '';
   const trackingNode = (s.tracking_url && s.tracking_number)
-    ? '<a href="' + esc(s.tracking_url) + '" target="_blank" onclick="event.stopPropagation()" style="color:#42a5f5;text-decoration:underline;font-family:monospace;font-size:11px">' + trackingDisplay + ' ↗</a>'
-    : '<span style="font-family:monospace;font-size:11px;color:#888">' + trackingDisplay + '</span>';
+    ? '<a href="' + esc(s.tracking_url) + '" target="_blank" onclick="event.stopPropagation()" style="color:#42a5f5;text-decoration:underline;font-family:monospace;font-size:11px">' + trackingDisplay + ' ↗</a>' + trkCopyBtn
+    : '<span style="font-family:monospace;font-size:11px;color:#888">' + trackingDisplay + '</span>' + trkCopyBtn;
   // v9.93: row tap → jump to Lookup pre-filled with this order #
   // (carrier-link tap still goes to the carrier page via stopPropagation).
   return '<div onclick="jumpToLookup_(\'' + esc(s.order_number) + '\')" style="display:grid;grid-template-columns:64px 1fr auto;gap:8px;align-items:center;padding:10px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:6px;font-size:13px;cursor:pointer" title="Tap row for full order detail">'
