@@ -321,6 +321,7 @@ function openPackDetail(orderNumber) {
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       ${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">📄 Open Pick List PDF</a>' : ''}
       ${row.pick_list_pdf_url ? '<button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px">🖨 Print Instructions</button>' : ''}
+      <button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px" title="${row.instructions_pdf_url ? 'Instructions link is set — tap to view/replace' : 'No instructions link found — paste it; it will be remembered'}">${row.instructions_pdf_url ? '🔗 Instructions Link ✓' : '✏️ Set Instructions Link'}</button>
       ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
     </div>
 
@@ -1132,6 +1133,48 @@ async function ensurePackInstructionsUrl_(orderNumber) {
   return '';
 }
 
+// v10.92 (task #63, Zac): when the instructions link can't be
+// auto-extracted from the pick-list PDF, the packer was stuck —
+// nothing prompted for it and every print re-attempted the failing
+// parse. Now they can paste it once; it persists via the existing
+// setPackInstructionsUrl endpoint (no server change) so it's never
+// asked again. Returns the saved URL or ''.
+async function promptForInstructionsUrl_(orderNumber) {
+  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  if (!row) { showToast('Order not in current list — refresh'); return ''; }
+  const existing = row.instructions_pdf_url || '';
+  const entered = window.prompt(
+    'Instructions link for order ' + orderNumber + '\n\n'
+    + 'Paste the build/assembly instructions URL (Drive or PDF link).\n'
+    + 'It will be remembered for this order — you won\'t be asked again.',
+    existing);
+  if (entered === null) return existing; // cancelled
+  const url = String(entered).trim();
+  if (url && url === existing) return existing; // unchanged
+  if (url && !/^https?:\/\//i.test(url)) {
+    showToast('That doesn\'t look like a URL (needs http/https) — not saved');
+    return existing;
+  }
+  if (!url) { showToast('No URL entered — nothing changed'); return existing; }
+  try {
+    showPackBanner_('Saving instructions link for ' + orderNumber + '…', '#42a5f5');
+    const res = await groundApi('setPackInstructionsUrl', { orderNumber: orderNumber, url: url });
+    if (res && res.ok) {
+      row.instructions_pdf_url = url;
+      try { paintPackQueue_(_packQueueCache, false); } catch (e) {}
+      if (typeof openPackDetail === 'function' && _packDetailOrderNumber === orderNumber) {
+        try { openPackDetail(orderNumber); } catch (e) {}
+      }
+      showPackBanner_('✓ Instructions link saved & remembered for ' + orderNumber, '#00e676');
+      return url;
+    }
+    showToast('Save failed: ' + ((res && res.error) || 'unknown'));
+  } catch (e) {
+    showToast('Save error: ' + e.message);
+  }
+  return existing;
+}
+
 async function printOneInstruction(orderNumber) {
   const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
   if (!row) { showToast('Order not in current list — refresh'); return; }
@@ -1143,8 +1186,16 @@ async function printOneInstruction(orderNumber) {
   if (!row.instructions_pdf_url) {
     showPackBanner_('Extracting instructions URL from ' + orderNumber + '…', '#42a5f5');
     await ensurePackInstructionsUrl_(orderNumber);
-    // (If extraction failed, the stamping path still works against
-    // pick_list_pdf_url as a fallback.)
+    // v10.92: auto-extract failed → don't silently print the pick
+    // list as if it were instructions. Ask the packer to paste the
+    // link once; promptForInstructionsUrl_ persists it so this never
+    // recurs. Cancel = keep the old pick-list fallback behavior.
+    if (!row.instructions_pdf_url) {
+      const supplied = await promptForInstructionsUrl_(orderNumber);
+      if (!supplied) {
+        showPackBanner_('No instructions link — printing the pick list as a fallback', '#ff9800');
+      }
+    }
   }
 
   showPackBanner_('Stamping cover + sending ' + orderNumber + ' to Brother…', '#42a5f5');
