@@ -3250,6 +3250,59 @@ async function openNeedsBookingList() {
   document.body.appendChild(ov);
 }
 
+// ── "How Bedrock Works" — in-app architecture/orientation page ─
+// Plain-language for the team (Seth/Norm/Kim/Jonah/CS), not eng.
+// How an order flows today + the spine we're building + live
+// pillar status. Pure additive; reads nothing, breaks nothing.
+function openHowItWorks() {
+  const prior = document.getElementById('howItWorksOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'howItWorksOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const H = (t) => '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">' + t + '</div>';
+  const P = (t) => '<div style="font-size:13px;line-height:1.55;color:#C7D2E0;margin-bottom:8px">' + t + '</div>';
+  const step = (n, t, d) => '<div style="display:flex;gap:10px;margin-bottom:8px"><div style="flex:0 0 22px;height:22px;border-radius:50%;background:rgba(66,165,245,.18);color:#5BB3FF;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;font-size:13px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + t + '</b> — ' + d + '</div></div>';
+  const pill = (state, label, detail) => {
+    const c = state === 'live' ? ['#00C853', 'rgba(0,200,83,.14)', 'LIVE'] : state === 'safe' ? ['#42a5f5', 'rgba(66,165,245,.14)', 'SHIPPED'] : ['#FFB300', 'rgba(255,179,0,.14)', 'GATED'];
+    return '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'
+      + '<span style="flex:0 0 64px;text-align:center;font-size:10px;font-weight:900;letter-spacing:.5px;color:' + c[0] + ';background:' + c[1] + ';border:1px solid ' + c[0] + '55;border-radius:999px;padding:3px 0">' + c[2] + '</span>'
+      + '<div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + label + '</b> — ' + detail + '</div></div>';
+  };
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:760px;max-height:90vh;border-radius:16px 16px 0 0;padding:20px 20px 28px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 24px rgba(0,0,0,.6);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">How Bedrock Works</div>'
+    +   '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today, and the one change that ties it all together.</div>'
+
+    + H('An order today, start → ship')
+    + step(1, 'Schedule', 'Upcoming freight/cabinet shipments by day; a carrier on the calendar means it\'s booked. Kim works the to-book list.')
+    + step(2, 'Cabinets / Ground', 'Cabinet shipments arrive as PICK LIST emails; ground orders import from ShipStation. The daily receive + pack queues.')
+    + step(3, 'Pre-Pack', 'Zoe builds the hardware box the day before, scan-verified, with an OPEN-ME-FIRST label.')
+    + step(4, 'Pack', 'Packer scans every item; a second checker re-scans (catches mistakes before they ship). Photos + freight booking.')
+    + step(5, 'Ship', 'Label is bought, ShipStation + Shopify are told, the customer gets tracking.')
+    + step(6, 'Lookup / Tracking / Remakes', 'CS answers "where\'s my order", sends replacement parts, sees the whole history.')
+
+    + H('The problem we\'re fixing')
+    + P('Right now an order\'s truth is scattered across <b>7 systems</b> — Shopify, ShipStation (×2), three Google Sheets, the calendars, Gmail. Every screen reads a different piece, so things disagree (a freight order booked on the calendar but "not booked" in Bedrock; CS hopping tabs + Gmail to answer one question).')
+    + P('<b>The fix isn\'t more screens. It\'s one spine:</b> a single order record with an append-only history of everything that happened to it. Every outside system becomes a feeder; every screen becomes a view of the same truth.')
+
+    + H('Where it\'s headed — and where we are')
+    + pill('live', 'P1 · The order spine', 'Built &amp; LIVE. Every order now has one record + an event log; ground labels, shipments &amp; freight bookings write to it automatically. Verified consistent with the old data (0 drift).')
+    + pill('safe', 'P2 · Auto-capture tracking', 'Shipped in watch-only mode — reads carrier "shipped" emails and learns to pull tracking, before it writes anything. Tuning per carrier.')
+    + pill('live', 'P3 · One CS timeline', 'Lookup now shows the live order history (and CS can log call notes onto the order). Falls back to the old view if the spine has nothing yet — no disruption.')
+    + pill('safe', 'P4 · Freight as one thing', 'Carrier, rate, tracking, booking pulled into one freight record + a multi-carrier rate compare (FedEx live; ABF/Estes/TForce next).')
+    + pill('safe', 'P5 · Counts that don\'t vanish', 'Cycle counts now save to a durable server record, not just the iPad.')
+    + pill('gated', 'P6 · Retire the old crutches', 'Once the spine is proven over time, screens switch to reading it and the old calendar/sheet/JS2 dependencies retire — one reversible step at a time, with sign-off. Not automatic.')
+
+    + '<div style="margin-top:16px;font-size:11px;color:#5E6A7E;line-height:1.5">Everything was built additively and reversibly — nothing risky happens without explicit sign-off. Full technical detail lives in <code style="color:#8FA3BD">docs/VISION.md</code>.</div>'
+    + '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="width:100%;margin-top:18px;padding:14px;background:#1f2630;color:#C7D2E0;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
 // ── Carrier editor ───────────────────────────────────────────
 // Edit carrier display name + color + active. Persists to the
 // Rulebook 'carriers' tab via the manager-PIN-gated saveCarriers
