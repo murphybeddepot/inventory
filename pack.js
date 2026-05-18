@@ -2442,9 +2442,18 @@ async function confirmMarkHardwareReady(orderNumber) {
       return;
     }
     showPrePackBanner_('✓ HW ready for ' + orderNumber, '#00e676');
-    printPrePackLabel(orderNumber);
+    // Await the label print and only auto-close on success. If the
+    // OPEN-ME-FIRST label fails (no printer / PrintNode / network),
+    // keep the detail OPEN so Zoe sees the failure + the 🖨 Reprint
+    // button — otherwise the view collapsed in 800ms and she'd walk
+    // away with an unlabeled hardware box (silent failure).
+    const printed = await printPrePackLabel(orderNumber);
     await refreshPrePackQueue();
-    setTimeout(() => closePrePackDetail(), 800);
+    if (printed) {
+      setTimeout(() => closePrePackDetail(), 1000);
+    } else {
+      showPrePackBanner_('⚠ HW marked ready, but the label did NOT print — tap 🖨 Reprint Label', '#ff5252');
+    }
   } catch (err) {
     showPrePackBanner_('Mark error: ' + err.message, '#ff5252');
   }
@@ -2578,11 +2587,13 @@ async function printPrePackLabel(orderNumber) {
     const res = await groundApi('printHwBoxLabel', { orderNumber: orderNumber });
     if (!res || !res.ok) {
       showPrePackBanner_('Label print failed: ' + ((res && res.error) || 'unknown'), '#ff5252');
-      return;
+      return false;
     }
     showPrePackBanner_('✓ Label sent to printer #' + res.printer_id + ' (job ' + res.job_id + ')', '#00e676');
+    return true;
   } catch (err) {
     showPrePackBanner_('Label print error: ' + err.message, '#ff5252');
+    return false;
   }
 }
 
