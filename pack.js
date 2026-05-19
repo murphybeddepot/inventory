@@ -3810,7 +3810,7 @@ function _fxRender_() {
       if (bd.totalSurcharge) lines.push(['Surcharges/fuel', '+' + _fxMoney_(bd.totalSurcharge, q.currency), '#FFB300']);
       return '<div onclick="_fxSelect_(' + i + ')" style="border:1.5px solid ' + (sel ? '#00e676' : 'rgba(255,255,255,.18)') + ';background:' + (sel ? 'rgba(0,230,118,.08)' : 'rgba(255,255,255,.03)') + ';border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer">'
         + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
-        +   '<div style="font-weight:900;font-size:15px">' + (sel ? '✓ ' : '') + esc(q.serviceName || q.serviceType) + '<div style="font-size:11px;font-weight:800;color:#7C9CBF;-webkit-text-fill-color:#7C9CBF;margin-top:1px">' + esc(_fxTierLabel_(q.freightDirectTier)) + '</div></div>'
+        +   '<div style="font-weight:900;font-size:15px">' + (sel ? '✓ ' : '') + esc(q.serviceName || q.serviceType) + '<div style="font-size:11px;font-weight:800;color:#7C9CBF;-webkit-text-fill-color:#7C9CBF;margin-top:1px">' + esc(_fxTierLabel_(q.freightDirectTier)) + (q.accountLabel ? ' · <span style="color:#9AAAC0;-webkit-text-fill-color:#9AAAC0">' + esc(q.accountLabel) + '</span>' : '') + '</div></div>'
         +   '<div style="font-weight:900;font-size:20px;color:#00e676;font-family:\'Barlow Condensed\',Arial,sans-serif">' + _fxMoney_(q.totalNet, q.currency) + '</div>'
         + '</div>'
         + '<div style="font-size:11px;color:#9AAAC0;margin:2px 0 8px">' + esc(q.transitDays || '') + (q.rateType ? ' · <span style="color:' + (/ACCOUNT/i.test(q.rateType) ? '#00e676' : '#FFB300') + ';font-weight:800">' + esc(q.rateType) + ' rate</span>' : '') + '</div>'
@@ -3906,6 +3906,7 @@ async function _fxBook_() {
   if (!q) { showToast('Pick a service first'); return; }
   const ok = confirm('Book FedEx Freight for order ' + _fxState.orderNumber + '?\n\n'
     + (q.serviceName || q.serviceType) + ' · ' + _fxTierLabel_(q.freightDirectTier) + '\n'
+    + 'Account: ' + (q.accountLabel || q.account || '?') + '\n'
     + _fxMoney_(q.totalNet, q.currency) + '\n'
     + 'To: ' + _fxState.dest.city + ', ' + _fxState.dest.state + ' ' + _fxState.dest.zip + '\n\n'
     + 'This creates a REAL FedEx Freight shipment + BOL on the production account. You only pay when it actually ships (cancellable). Proceed?');
@@ -3917,6 +3918,7 @@ async function _fxBook_() {
       orderNumber: _fxState.orderNumber,
       serviceType: q.serviceType,
       freightDirectTier: q.freightDirectTier || '',
+      account: q.account || '',
       destination: _fxState.dest,
       confirm: 'BOOK-CONFIRMED',
     };
