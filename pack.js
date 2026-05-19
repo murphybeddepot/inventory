@@ -3800,7 +3800,7 @@ function _fxRender_() {
     html += '<div style="margin-top:14px;font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Quotes — net + discount breakdown</div>';
     html += _fxState.quotes.map((q, i) => {
       const bd = q.breakdown || {};
-      const sel = _fxState.selected === q.serviceType;
+      const sel = _fxState.selectedIdx === i;
       const lines = [];
       if (bd.grossFreight != null) lines.push(['List/base freight', _fxMoney_(bd.grossFreight, q.currency), '#9AAAC0']);
       (bd.discounts || []).forEach(x => lines.push(['  − ' + esc(x.type), '−' + _fxMoney_(x.amount, q.currency), '#00e676']));
@@ -3808,9 +3808,9 @@ function _fxRender_() {
       if (bd.netFreight != null) lines.push(['Net freight', _fxMoney_(bd.netFreight, q.currency), '#cfd8e3']);
       (bd.surcharges || []).forEach(x => lines.push(['  + ' + esc(x.type), '+' + _fxMoney_(x.amount, q.currency), '#FFB300']));
       if (bd.totalSurcharge) lines.push(['Surcharges/fuel', '+' + _fxMoney_(bd.totalSurcharge, q.currency), '#FFB300']);
-      return '<div onclick="_fxSelect_(\'' + esc(q.serviceType) + '\')" style="border:1.5px solid ' + (sel ? '#00e676' : 'rgba(255,255,255,.18)') + ';background:' + (sel ? 'rgba(0,230,118,.08)' : 'rgba(255,255,255,.03)') + ';border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer">'
+      return '<div onclick="_fxSelect_(' + i + ')" style="border:1.5px solid ' + (sel ? '#00e676' : 'rgba(255,255,255,.18)') + ';background:' + (sel ? 'rgba(0,230,118,.08)' : 'rgba(255,255,255,.03)') + ';border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer">'
         + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
-        +   '<div style="font-weight:900;font-size:15px">' + (sel ? '✓ ' : '') + esc(q.serviceName || q.serviceType) + '</div>'
+        +   '<div style="font-weight:900;font-size:15px">' + (sel ? '✓ ' : '') + esc(q.serviceName || q.serviceType) + '<div style="font-size:11px;font-weight:800;color:#7C9CBF;-webkit-text-fill-color:#7C9CBF;margin-top:1px">' + esc(_fxTierLabel_(q.freightDirectTier)) + '</div></div>'
         +   '<div style="font-weight:900;font-size:20px;color:#00e676;font-family:\'Barlow Condensed\',Arial,sans-serif">' + _fxMoney_(q.totalNet, q.currency) + '</div>'
         + '</div>'
         + '<div style="font-size:11px;color:#9AAAC0;margin:2px 0 8px">' + esc(q.transitDays || '') + (q.rateType ? ' · <span style="color:' + (/ACCOUNT/i.test(q.rateType) ? '#00e676' : '#FFB300') + ';font-weight:800">' + esc(q.rateType) + ' rate</span>' : '') + '</div>'
@@ -3820,8 +3820,9 @@ function _fxRender_() {
         + '</div></div>';
     }).join('');
 
-    if (_fxState.selected) {
-      html += '<button onclick="_fxBook_()" id="fxBookBtn" style="width:100%;margin-top:4px;padding:15px;background:linear-gradient(180deg,#00C853,#1A5C1A);color:#fff;border:1.5px solid #00E676;border-radius:10px;font-size:16px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;box-shadow:0 0 20px rgba(0,230,118,.35)">📦 Book ' + esc(_fxState.selected.replace(/_/g, ' ')) + '</button>'
+    if (_fxState.selectedIdx != null && _fxState.quotes[_fxState.selectedIdx]) {
+      const _sq = _fxState.quotes[_fxState.selectedIdx];
+      html += '<button onclick="_fxBook_()" id="fxBookBtn" style="width:100%;margin-top:4px;padding:15px;background:linear-gradient(180deg,#00C853,#1A5C1A);color:#fff;border:1.5px solid #00E676;border-radius:10px;font-size:16px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;box-shadow:0 0 20px rgba(0,230,118,.35)">📦 Book ' + esc((_sq.serviceName || _sq.serviceType).replace(/_/g, ' ')) + ' · ' + esc(_fxTierLabel_(_sq.freightDirectTier)) + '</button>'
         + '<div style="font-size:11px;color:#9AAAC0;text-align:center;margin-top:6px">A confirm step follows — booking only happens after you confirm.</div>'
         + '<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:#FFB300;font-weight:800">＋ Also schedule a FedEx pickup (optional)</summary>'
         +   '<div style="padding:10px 0 2px">'
@@ -3880,7 +3881,7 @@ async function _fxGetQuote_() {
     _fxState.needsDims = null;
     _fxState.quotes = res.quotes || [];
     if (res.context) _fxState.ctx = res.context;
-    _fxState.selected = '';
+    _fxState.selectedIdx = null;
     if (res.virtualized) showToast('FedEx sandbox (virtualized) response');
     _fxRender_();
   } catch (e) {
@@ -3889,22 +3890,33 @@ async function _fxGetQuote_() {
   }
 }
 
-function _fxSelect_(svc) { _fxState.selected = svc; _fxRender_(); }
+// v10.106: selection is now by quote INDEX — multiple quotes share
+// a serviceType (Economy) across Freight Direct tiers, so a string
+// key is ambiguous. _fxSel_() = the chosen quote object.
+function _fxSelect_(idx) { _fxState.selectedIdx = Number(idx); _fxRender_(); }
+function _fxSel_() {
+  return (_fxState.selectedIdx != null) ? (_fxState.quotes || [])[_fxState.selectedIdx] : null;
+}
+function _fxTierLabel_(t) {
+  return ({ BASIC_BY_APPOINTMENT: 'Freight Direct · By Appt', PREMIUM: 'Freight Direct · Premium (white glove)', BASIC: 'Freight Direct · Basic', STANDARD: 'Freight Direct · Standard' })[t] || (t || 'Commercial');
+}
 
 async function _fxBook_() {
-  const q = (_fxState.quotes || []).find(x => x.serviceType === _fxState.selected);
+  const q = _fxSel_();
   if (!q) { showToast('Pick a service first'); return; }
   const ok = confirm('Book FedEx Freight for order ' + _fxState.orderNumber + '?\n\n'
-    + (q.serviceName || q.serviceType) + ' — ' + _fxMoney_(q.totalNet, q.currency) + '\n'
+    + (q.serviceName || q.serviceType) + ' · ' + _fxTierLabel_(q.freightDirectTier) + '\n'
+    + _fxMoney_(q.totalNet, q.currency) + '\n'
     + 'To: ' + _fxState.dest.city + ', ' + _fxState.dest.state + ' ' + _fxState.dest.zip + '\n\n'
-    + 'This creates a real FedEx Freight shipment + BOL. You only pay when it actually ships. Proceed?');
+    + 'This creates a REAL FedEx Freight shipment + BOL on the production account. You only pay when it actually ships (cancellable). Proceed?');
   if (!ok) return;
   const btn = document.getElementById('fxBookBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Booking…'; }
   try {
     const bookPayload = {
       orderNumber: _fxState.orderNumber,
-      serviceType: _fxState.selected,
+      serviceType: q.serviceType,
+      freightDirectTier: q.freightDirectTier || '',
       destination: _fxState.dest,
       confirm: 'BOOK-CONFIRMED',
     };
@@ -3913,7 +3925,7 @@ async function _fxBook_() {
     const rr = document.getElementById('fxResult');
     if (!res || !res.ok) {
       if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(255,82,82,.1);border:1px solid #ff5252;border-radius:8px;color:#ff8a8a;font-size:12px">Book failed: ' + esc((res && res.error) || 'unknown') + '</div>';
-      if (btn) { btn.disabled = false; btn.textContent = '📦 Book ' + _fxState.selected.replace(/_/g, ' '); }
+      if (btn) { btn.disabled = false; btn.textContent = '📦 Book selected service'; }
       return;
     }
     if (res.simulated) {
@@ -3934,11 +3946,13 @@ async function _fxPickup_() {
   if (!date) { showToast('Pick a ready date'); return; }
   if (!confirm('Schedule a FedEx pickup on ' + date + ' (close ' + close + ')?\n\nSeparate from the booking. An uncancelled pickup can incur a charge.')) return;
   try {
+    const _pq = _fxSel_() || {};
     const puPayload = {
       orderNumber: _fxState.orderNumber,
       readyDate: date,
       closeTime: close.length === 5 ? close + ':00' : close,
-      serviceType: _fxState.selected,
+      serviceType: _pq.serviceType || '',
+      freightDirectTier: _pq.freightDirectTier || '',
       confirm: 'PICKUP-CONFIRMED',
     };
     if (_fxState.manual) puPayload.manualShipment = _fxState.manual;
