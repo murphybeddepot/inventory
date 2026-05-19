@@ -12031,14 +12031,21 @@ async function completeGroundPack() {
       // futile retap loop ends.
       const isScanGate = /not all|scanned|package/i.test(errTxt);
       if (isScanGate && groundPendingOrder) {
+        const unsc = Array.isArray(data.unscanned) ? data.unscanned.filter(Boolean) : [];
+        const whichLine = unsc.length
+          ? 'Box(es) the server still needs: ' + unsc.join(', ') + '\n\n'
+          : '';
         const reload = confirm(
           'Server says: ' + errTxt + '\n\n'
-          + 'Some boxes aren\'t marked scanned on the server even though '
+          + whichLine
+          + 'These boxes aren\'t marked scanned on the server even though '
           + 'they look done here — usually a scan that didn\'t save, or '
           + 'a box that still needs a physical scan.\n\n'
           + 'Tap OK to reload this order\'s real scan state (safe — no '
-          + 'recharge). The box list will update so you can see exactly '
-          + 'which box still needs scanning.\n\n'
+          + 'recharge) and see exactly which box.\n\n'
+          + 'If a box has NO barcode or this order ships fewer boxes than '
+          + 'listed, use the purple "✓ MGR" button on that box (manager '
+          + 'PIN) to check it off without scanning.\n\n'
           + 'Cancel = leave as-is.');
         if (reload) {
           const le = document.getElementById('groundPackLoading');
@@ -12127,7 +12134,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.102<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.103<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
