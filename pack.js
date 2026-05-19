@@ -3776,12 +3776,19 @@ function _fxRender_() {
   // OR the booker's manual fallback entry. v10.111.
   const instCode = ctx.installer_code || _fxState.manualInstaller || '';
   const d = _fxState.dest || {};
-  const itemsLine = (ctx.items || []).map(it => esc(it.sku) + '×' + (it.pieces || 1)).join(', ') || '<span style="color:#ff8a8a">no SKU lines on this order</span>';
   let html = ''
     + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:4px">' + esc(ctx.customer_name || '') + (ctx.item_count ? ' · ' + ctx.item_count + ' line(s)' : '') + '</div>'
-    + '<div style="font-size:11px;color:#6b7685;margin-bottom:' + ((ctx.hardware_inside && ctx.hardware_inside.length) ? '4' : '10') + 'px;word-break:break-word">Items: ' + itemsLine + '</div>'
+    + '<div style="font-size:11px;color:#6b7685;margin-bottom:' + ((ctx.hardware_inside && ctx.hardware_inside.length) ? '4' : '10') + 'px;word-break:break-word">Items: '
+      + ((ctx.items || []).length
+          ? (ctx.items || []).map(it => esc(it.sku) + '×' + (it.pieces || 1)
+              + ' <span onclick="_fxToggleHardware_(\'' + esc(String(it.sku).replace(/'/g, "\\'")) + '\',\'add\')" title="Mark as hardware packed inside (manager PIN) — excludes from freight" style="color:#7C3AED;-webkit-text-fill-color:#7C3AED;cursor:pointer;font-weight:800">🔩</span>').join(' · ')
+          : '<span style="color:#ff8a8a">no SKU lines on this order</span>')
+      + '</div>'
     + ((ctx.hardware_inside && ctx.hardware_inside.length)
-        ? '<div style="font-size:11px;color:#7C9CBF;margin-bottom:10px;word-break:break-word">🔩 Packed inside (no freight charge): ' + esc(ctx.hardware_inside.join(', ')) + '</div>'
+        ? '<div style="font-size:11px;color:#7C9CBF;margin-bottom:10px;word-break:break-word">🔩 Packed inside (no freight charge): '
+          + ctx.hardware_inside.map(s => esc(s)
+              + ' <span onclick="_fxToggleHardware_(\'' + esc(String(s).replace(/'/g, "\\'")) + '\',\'remove\')" title="Not hardware — include in freight (manager PIN)" style="color:#FFB300;-webkit-text-fill-color:#FFB300;cursor:pointer;font-weight:800">↩</span>').join(' · ')
+          + '</div>'
         : '')
     + (instCode
         ? '<div style="background:rgba(124,58,237,.14);border:1px solid #7C3AED;border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:12px;color:#C4B5FD;-webkit-text-fill-color:#C4B5FD">'
@@ -3933,6 +3940,24 @@ function _fxSetManualInstaller_(v) {
 }
 function _fxInstallerCode_() {
   return (_fxState.ctx && _fxState.ctx.installer_code) || _fxState.manualInstaller || '';
+}
+
+// v10.112 (#69): booker marks a SKU hardware-packed-inside (exclude
+// from freight) or un-marks it (include) — manager-PIN persisted to
+// the shared FEDEX_HARDWARE_SKUS list. Re-loads the quote so the
+// reclassification takes effect immediately.
+async function _fxToggleHardware_(sku, action) {
+  if (!sku) return;
+  const verb = action === 'remove' ? 'include in freight (not hardware)' : 'mark as hardware packed inside (exclude from freight)';
+  const pin = window.prompt('Manager PIN to ' + verb + ' for SKU "' + sku + '".\n\n(Persists for ALL future freight quotes.)');
+  if (pin == null) return;
+  try {
+    const res = await groundApi('setHardwareSku', { sku: sku, action: action, manager_pin: String(pin).trim() });
+    if (!res || !res.ok) { showToast(res && /PIN/i.test(res.error || '') ? '✗ ' + res.error : ('Failed: ' + ((res && res.error) || 'unknown'))); return; }
+    showToast('✓ ' + sku + (action === 'remove' ? ' → freight' : ' → hardware (packed inside)'));
+    _fxState.quotes = []; _fxState.selectedIdx = null;
+    _fxLoadContext_();   // re-resolve items + re-quote with new classification
+  } catch (e) { showToast('Error: ' + e.message); }
 }
 
 // v10.110: change the SAVED default terminal for this installer
