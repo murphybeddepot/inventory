@@ -3775,6 +3775,11 @@ function _fxRender_() {
     +   '<input id="fxState_" placeholder="ST" maxlength="2" value="' + esc(d.state || '') + '" style="' + _FXIN + 'flex:0 1 52px;min-width:0;text-transform:uppercase">'
     +   '<input id="fxZip" placeholder="ZIP" value="' + esc(d.zip || '') + '" style="' + _FXIN + 'flex:0 1 80px;min-width:0">'
     + '</div>'
+    + '<div style="font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin:4px 0">Accessorials (apply to all quotes)</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:10px">'
+    +   [['LIFTGATE_DELIVERY','Liftgate'],['LIMITED_ACCESS_DELIVERY','Residential / limited-access'],['CALL_BEFORE_DELIVERY','Call before delivery']]
+          .map(a => '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#E8EDF4;cursor:pointer"><input type="checkbox" class="fxAcc" value="' + a[0] + '"' + (((_fxState.accessorials||[]).indexOf(a[0])>=0)?' checked':'') + ' style="width:15px;height:15px"> ' + a[1] + '</label>').join('')
+    + '</div>'
     + '<button onclick="_fxGetQuote_()" id="fxQuoteBtn" style="width:100%;box-sizing:border-box;padding:13px;background:linear-gradient(180deg,#1A5BE0,#003087);color:#fff;border:1.5px solid #3B82F6;border-radius:9px;font-size:15px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">↻ Get FedEx Quote</button>'
     + '<details id="fxManualWrap"' + (_fxState.needsDims ? ' open' : '') + ' style="margin-top:10px">'
     +   '<summary style="cursor:pointer;font-size:12px;color:#FFB300;font-weight:800">'
@@ -3797,27 +3802,60 @@ function _fxRender_() {
     + '</details>';
 
   if (_fxState.quotes && _fxState.quotes.length) {
-    html += '<div style="margin-top:14px;font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Quotes — net + discount breakdown</div>';
-    html += _fxState.quotes.map((q, i) => {
-      const bd = q.breakdown || {};
-      const sel = _fxState.selectedIdx === i;
-      const lines = [];
-      if (bd.grossFreight != null) lines.push(['List/base freight', _fxMoney_(bd.grossFreight, q.currency), '#9AAAC0']);
-      (bd.discounts || []).forEach(x => lines.push(['  − ' + esc(x.type), '−' + _fxMoney_(x.amount, q.currency), '#00e676']));
-      if (bd.totalDiscount) lines.push(['Total discount', '−' + _fxMoney_(bd.totalDiscount, q.currency), '#00e676']);
-      if (bd.netFreight != null) lines.push(['Net freight', _fxMoney_(bd.netFreight, q.currency), '#cfd8e3']);
-      (bd.surcharges || []).forEach(x => lines.push(['  + ' + esc(x.type), '+' + _fxMoney_(x.amount, q.currency), '#FFB300']));
-      if (bd.totalSurcharge) lines.push(['Surcharges/fuel', '+' + _fxMoney_(bd.totalSurcharge, q.currency), '#FFB300']);
-      return '<div onclick="_fxSelect_(' + i + ')" style="border:1.5px solid ' + (sel ? '#00e676' : 'rgba(255,255,255,.18)') + ';background:' + (sel ? 'rgba(0,230,118,.08)' : 'rgba(255,255,255,.03)') + ';border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer">'
-        + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
-        +   '<div style="font-weight:900;font-size:15px">' + (sel ? '✓ ' : '') + esc(q.serviceName || q.serviceType) + '<div style="font-size:11px;font-weight:800;color:#7C9CBF;-webkit-text-fill-color:#7C9CBF;margin-top:1px">' + esc(_fxTierLabel_(q.freightDirectTier)) + (q.accountLabel ? ' · <span style="color:#9AAAC0;-webkit-text-fill-color:#9AAAC0">' + esc(q.accountLabel) + '</span>' : '') + '</div></div>'
-        +   '<div style="font-weight:900;font-size:20px;color:#00e676;font-family:\'Barlow Condensed\',Arial,sans-serif">' + _fxMoney_(q.totalNet, q.currency) + '</div>'
-        + '</div>'
-        + '<div style="font-size:11px;color:#9AAAC0;margin:2px 0 8px">' + esc(q.transitDays || '') + (q.rateType ? ' · <span style="color:' + (/ACCOUNT/i.test(q.rateType) ? '#00e676' : '#FFB300') + ';font-weight:800">' + esc(q.rateType) + ' rate</span>' : '') + '</div>'
-        + '<div style="font-size:11px;font-family:\'JetBrains Mono\',monospace;line-height:1.7">'
-        +   lines.map(l => '<div style="display:flex;justify-content:space-between;color:' + l[2] + '"><span>' + l[0] + '</span><span>' + l[1] + '</span></div>').join('')
-        +   '<div style="display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.15);margin-top:5px;padding-top:5px;font-weight:900;font-size:13px;color:#fff"><span>NET</span><span>' + _fxMoney_(q.totalNet, q.currency) + '</span></div>'
-        + '</div></div>';
+    html += '<div style="margin-top:14px;font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Quotes — tap a price to select, ▾ for breakdown</div>';
+    // v10.108 (Zac): condensed FedEx-style view — group by tier,
+    // tier name+desc on the left, service rows w/ price + a ▾ that
+    // expands the discount/surcharge breakdown. Identical rows
+    // across accounts are collapsed (they're the same negotiated
+    // price right now — flagged separately); if accounts ever
+    // differ the rows split with an account label.
+    const TIER_META = {
+      '':                    { name: 'Commercial',          desc: 'Terminal / commercial dock — no Freight Direct' },
+      BASIC:                 { name: 'Basic',               desc: 'Front door, back door, or garage — no signature' },
+      BASIC_BY_APPOINTMENT:  { name: 'Basic by Appointment', desc: 'Front/back door or garage — scheduled, signature' },
+      STANDARD:              { name: 'Standard',            desc: 'To the first ground-level room' },
+      PREMIUM:               { name: 'Premium',             desc: 'Room of choice + packaging removal by request' },
+    };
+    const ORDER = ['', 'BASIC', 'BASIC_BY_APPOINTMENT', 'STANDARD', 'PREMIUM'];
+    // group + de-dupe identical-across-account
+    const groups = {};
+    (_fxState.quotes || []).forEach((q, i) => {
+      const tk = q.freightDirectTier || '';
+      (groups[tk] = groups[tk] || []);
+      const dupe = groups[tk].find(e => e.q.serviceType === q.serviceType && e.q.totalNet === q.totalNet);
+      if (dupe) { dupe.accounts = (dupe.accounts || [dupe.q.accountLabel]).concat(q.accountLabel || q.account); }
+      else groups[tk].push({ q, i, accounts: [q.accountLabel || q.account] });
+    });
+    const tierKeys = Object.keys(groups).sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
+    html += tierKeys.map(tk => {
+      const meta = TIER_META[tk] || { name: _fxTierLabel_(tk), desc: '' };
+      const rows2 = groups[tk].map(({ q, i, accounts }) => {
+        const bd = q.breakdown || {};
+        const L = [];
+        if (bd.grossFreight != null) L.push(['List/base', _fxMoney_(bd.grossFreight, q.currency), '#9AAAC0']);
+        if (bd.totalDiscount) L.push(['Discount', '−' + _fxMoney_(bd.totalDiscount, q.currency), '#00e676']);
+        if (bd.netFreight != null) L.push(['Net freight', _fxMoney_(bd.netFreight, q.currency), '#cfd8e3']);
+        if (bd.totalSurcharge) L.push(['Surcharges/fuel', '+' + _fxMoney_(bd.totalSurcharge, q.currency), '#FFB300']);
+        const sel = _fxState.selectedIdx === i;
+        const acctNote = (accounts && accounts.filter(Boolean).length > 1) ? ' · both accts' : (accounts && accounts[0] ? ' · ' + esc(accounts[0]) : '');
+        return '<details style="border-top:1px dashed rgba(255,255,255,.10)"><summary style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:9px 0">'
+          + '<div onclick="event.preventDefault();_fxSelect_(' + i + ')" style="flex:1;min-width:0">'
+          +   '<div style="font-size:13px;font-weight:800;color:' + (sel ? '#00e676' : '#E8EDF4') + ';-webkit-text-fill-color:' + (sel ? '#00e676' : '#E8EDF4') + '">' + (sel ? '✓ ' : '') + esc(q.serviceName || q.serviceType.replace(/_/g, ' ')) + '</div>'
+          +   '<div style="font-size:10px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0">' + esc(q.transitDays || '') + acctNote + '</div>'
+          + '</div>'
+          + '<span onclick="event.preventDefault();_fxSelect_(' + i + ')" style="flex:0 0 auto;background:' + (sel ? '#00C853' : '#FF6B00') + ';color:#fff;-webkit-text-fill-color:#fff;border-radius:7px;padding:8px 12px;font-size:14px;font-weight:900;font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.5px">' + _fxMoney_(q.totalNet, q.currency) + '</span>'
+          + '<span style="flex:0 0 auto;color:#9AAAC0;font-size:14px;padding-left:2px">▾</span>'
+          + '</summary>'
+          + '<div style="font-size:10px;font-family:\'JetBrains Mono\',monospace;line-height:1.7;padding:2px 4px 10px">'
+          +   L.map(l => '<div style="display:flex;justify-content:space-between;color:' + l[2] + '"><span>' + l[0] + '</span><span>' + l[1] + '</span></div>').join('')
+          +   (q.rateType ? '<div style="color:#00e676;margin-top:3px">' + esc(q.rateType) + ' negotiated rate</div>' : '')
+          + '</div></details>';
+      }).join('');
+      return '<div style="margin-bottom:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:10px 12px">'
+        + '<div style="font-size:15px;font-weight:900;color:#E8EDF4">' + esc(meta.name) + '</div>'
+        + (meta.desc ? '<div style="font-size:11px;color:#9AAAC0;margin-bottom:2px">' + esc(meta.desc) + '</div>' : '')
+        + rows2
+        + '</div>';
     }).join('');
 
     if (_fxState.selectedIdx != null && _fxState.quotes[_fxState.selectedIdx]) {
@@ -3858,15 +3896,22 @@ function _fxReadManual_() {
   };
 }
 
+function _fxReadAccessorials_() {
+  return Array.prototype.slice.call(document.querySelectorAll('.fxAcc'))
+    .filter(c => c.checked).map(c => c.value);
+}
+
 async function _fxGetQuote_() {
   const btn = document.getElementById('fxQuoteBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Rating…'; }
+  _fxState.accessorials = _fxReadAccessorials_();
   _fxState.dest = _fxReadDest_();
   _fxState.manual = _fxReadManual_();
   if (!_fxState.dest.zip) { showToast('ZIP required to rate'); if (btn) { btn.disabled = false; btn.textContent = '↻ Get FedEx Quote'; } return; }
   try {
     const payload = { orderNumber: _fxState.orderNumber, destination: _fxState.dest };
     if (_fxState.manual) payload.manualShipment = _fxState.manual;
+    if (_fxState.accessorials && _fxState.accessorials.length) payload.accessorials = _fxState.accessorials;
     const res = await groundApi('fedexQuoteOrder', payload);
     if (!res || !res.ok) {
       if (res && res.needs_dims && res.needs_dims.length) _fxState.needsDims = res.needs_dims;
@@ -3919,6 +3964,7 @@ async function _fxBook_() {
       serviceType: q.serviceType,
       freightDirectTier: q.freightDirectTier || '',
       account: q.account || '',
+      accessorials: _fxState.accessorials || [],
       destination: _fxState.dest,
       confirm: 'BOOK-CONFIRMED',
     };
