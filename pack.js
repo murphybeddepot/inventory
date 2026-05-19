@@ -2361,6 +2361,10 @@ async function processPrePackScan_(code) {
     });
     if (!res || !res.ok) {
       const msg = (res && res.error) || 'Scan failed';
+      // v10.114: mirror Ground's scan-reject pattern — haptic +
+      // sound on top of the red banner so a busy packer never
+      // mistakes a silent banner for a successful scan.
+      try { if (typeof FB !== 'undefined' && FB.error) FB.error(); } catch (e) {}
       showPrePackBanner_(msg, '#ff5252');
       return;
     }
@@ -2373,6 +2377,7 @@ async function processPrePackScan_(code) {
     }
     showPrePackBanner_('✓ ' + res.sku + ' · ' + res.scanned + '/' + res.qty, '#00e676');
   } catch (err) {
+    try { if (typeof FB !== 'undefined' && FB.error) FB.error(); } catch (e) {}
     showPrePackBanner_('Scan error: ' + err.message, '#ff5252');
   }
 }
@@ -4650,6 +4655,38 @@ function renderCabinetAttentionStrip_() {
 // Phase 1: list + create overlay. Jessica taps "New Remake",
 // fills the customer + SKU details, hits create — orchestrator
 // logs the row and emails shipping@ with structured details.
+// v10.114: cache of remake rows by remake_id (populated on every
+// openRemakesPanel fetch) so per-row actions can look up the full
+// record without re-fetching.
+let _remakesCacheById = {};
+
+// Stuck-remake escalate: opens a pre-filled mailto: to flag a
+// remake that's been sitting too long. Server-free; uses the
+// platform's mail composer (works on iPad + desktop). Pulls
+// customer/SKUs/age from _remakesCacheById.
+function _remakeEscalate_(remakeId) {
+  const r = _remakesCacheById[remakeId];
+  if (!r) { showToast('Remake details not loaded — refresh the list'); return; }
+  const ageDays = r.created_at ? Math.round((new Date() - new Date(r.created_at)) / 86400000) : '?';
+  const skus = (r.skus || []).map(s => s.qty + '× ' + s.sku).join(', ');
+  const subject = '[Remake STUCK ' + ageDays + 'd] ' + remakeId + ' — ' + (r.customer_name || '');
+  const lines = [
+    'Remake has been sitting in ' + (r.status || '') + ' for ' + ageDays + ' days.',
+    '',
+    'Remake ID:  ' + remakeId,
+    'Customer:   ' + (r.customer_name || ''),
+    'Original #: ' + (r.original_order_number || ''),
+    'SKUs:       ' + skus,
+    'Reason:     ' + (r.reason || ''),
+    'Created:    ' + (r.created_at || ''),
+    r.shipstation_admin_url ? 'ShipStation: ' + r.shipstation_admin_url : '',
+    '',
+    'Please action or update status.',
+  ].filter(Boolean);
+  const mailto = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\n'));
+  window.location.href = mailto;
+}
+
 async function openRemakesPanel(statusFilter) {
   statusFilter = statusFilter || 'open';
   const prior = document.getElementById('remakesOverlay');
@@ -4688,6 +4725,11 @@ async function openRemakesPanel(statusFilter) {
     document.getElementById('remakesListBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
     return;
   }
+  // v10.114: cache the rendered remakes so per-row actions
+  // (e.g. _remakeEscalate_) can look up the full record.
+  _remakesCacheById = {};
+  (res.rows || []).forEach(r => { if (r && r.remake_id) _remakesCacheById[r.remake_id] = r; });
+
 
   const rows = res.remakes || [];
   if (!rows.length) {
@@ -4723,6 +4765,7 @@ async function openRemakesPanel(statusFilter) {
       + '<div style="display:flex;gap:6px;margin-top:6px">'
       + (r.status === 'pending' ? '<button onclick="updateRemakeStatus_(\'' + esc(r.remake_id) + '\',\'ready_to_ship\')" style="flex:1;padding:8px;background:rgba(61,190,255,.15);color:#0099CC;border:1px solid #3DBEFF;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Ready to Ship</button>' : '')
       + (r.status === 'ready_to_ship' ? '<button onclick="openRemakeShipModal(\'' + esc(r.remake_id) + '\')" style="flex:1;padding:8px;background:rgba(0,200,83,.15);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Mark Shipped</button>' : '')
+      + (stuckChip ? '<button onclick="_remakeEscalate_(\'' + esc(r.remake_id) + '\')" style="padding:8px 10px;background:rgba(255,82,82,.12);color:#ff5252;border:1px solid #ff5252;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Email warehouse — flag this stuck remake">↗ Escalate</button>' : '')
       + (r.status !== 'cancelled' ? '<button onclick="reprintRemakeSlip_(\'' + esc(r.remake_id) + '\')" style="padding:8px 10px;background:rgba(255,179,0,.10);color:#FFB300;border:1px solid #FFB300;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Reprint pick slip">🖨</button>' : '')
       + (r.status !== 'shipped' && r.status !== 'cancelled' ? '<button onclick="updateRemakeStatus_(\'' + esc(r.remake_id) + '\',\'cancelled\')" style="padding:8px 12px;background:rgba(255,82,82,.10);color:#c33;border:1px solid rgba(255,82,82,.4);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Cancel</button>' : '')
       + '</div>'
@@ -4992,7 +5035,10 @@ function openRemakeShipModal(remakeId) {
     '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:20px;max-width:380px;width:100%">'
     + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a;margin-bottom:10px;text-transform:uppercase">Mark Shipped · ' + esc(remakeId) + '</div>'
     + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Carrier</label>'
-    + '<input type="text" id="rmkShipCarrier" placeholder="e.g. UPS Ground" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px">'
+    + '<input list="rmkCarrierList" id="rmkShipCarrier" placeholder="Pick or type carrier" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px">'
+    + '<datalist id="rmkCarrierList">'
+    +   ['UPS Ground','UPS 2nd Day Air','UPS Next Day Air','FedEx Ground','FedEx Express','FedEx Freight','USPS Priority','USPS Ground Advantage','DHL','OnTrac','LaserShip','Local Delivery','MBD Truck'].map(c=>'<option value="'+c+'">').join('')
+    + '</datalist>'
     + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Tracking #</label>'
     + '<input type="text" id="rmkShipTracking" style="width:100%;padding:10px;font-size:14px;font-family:monospace;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 14px">'
     + '<div style="display:flex;gap:8px">'
