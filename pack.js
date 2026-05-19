@@ -3772,6 +3772,9 @@ function _fxRender_() {
   const b = document.getElementById('fxBody');
   if (!b) return;
   const ctx = _fxState.ctx || {};
+  // effective installer code: auto-detected (PackingQueue/Shopify)
+  // OR the booker's manual fallback entry. v10.111.
+  const instCode = ctx.installer_code || _fxState.manualInstaller || '';
   const d = _fxState.dest || {};
   const itemsLine = (ctx.items || []).map(it => esc(it.sku) + '×' + (it.pieces || 1)).join(', ') || '<span style="color:#ff8a8a">no SKU lines on this order</span>';
   let html = ''
@@ -3780,16 +3783,16 @@ function _fxRender_() {
     + ((ctx.hardware_inside && ctx.hardware_inside.length)
         ? '<div style="font-size:11px;color:#7C9CBF;margin-bottom:10px;word-break:break-word">🔩 Packed inside (no freight charge): ' + esc(ctx.hardware_inside.join(', ')) + '</div>'
         : '')
-    + (ctx.installer_code
+    + (instCode
         ? '<div style="background:rgba(124,58,237,.14);border:1px solid #7C3AED;border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:12px;color:#C4B5FD;-webkit-text-fill-color:#C4B5FD">'
-          + '<div style="font-weight:900;font-size:13px;color:#E8EDF4;-webkit-text-fill-color:#E8EDF4">🏢 Installer order — ' + esc(ctx.installer_code) + '</div>'
+          + '<div style="font-weight:900;font-size:13px;color:#E8EDF4;-webkit-text-fill-color:#E8EDF4">🏢 Installer order — ' + esc(instCode) + (ctx.installer_code ? '' : ' <span style="font-size:10px;color:#9AAAC0">(manual)</span>') + '</div>'
           + (ctx.remembered_terminal
               ? 'Ships to the <b>remembered FedEx terminal</b> below. Confirm it, or edit for a <b>one-off</b> (this order only — won’t change the saved default). '
                 + '<button onclick="_fxSaveInstallerTerminal_()" style="margin-top:6px;display:inline-block;padding:6px 10px;background:rgba(124,58,237,.25);color:#fff;-webkit-text-fill-color:#fff;border:1px solid #A78BFA;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">💾 Save as new default (manager)</button>'
               : '<b>First time for this installer.</b> Enter the FedEx terminal address below — it’ll be remembered for next time.')
           + '</div>'
-        : '')
-    + '<div style="font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">' + (ctx.installer_code ? 'FedEx terminal address (recipient)' : 'Destination (parsed — confirm/fix before quoting)') + '</div>'
+        : '<div style="margin-bottom:8px"><input id="fxManualInst" placeholder="Installer order? enter code (e.g. CesarSOCAL) — optional" value="' + esc(_fxState.manualInstaller || '') + '" onchange="_fxSetManualInstaller_(this.value)" style="' + _FXIN + 'width:100%;border-style:dashed;border-color:#7C3AED"></div>')
+    + '<div style="font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">' + (instCode ? 'FedEx terminal address (recipient)' : 'Destination (parsed — confirm/fix before quoting)') + '</div>'
     + '<input id="fxStreet" placeholder="Street" value="' + esc(d.street || '') + '" style="' + _FXIN + 'width:100%;margin-bottom:6px">'
     + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">'
     +   '<input id="fxCity" placeholder="City" value="' + esc(d.city || '') + '" style="' + _FXIN + 'flex:1 1 130px;min-width:0">'
@@ -3922,12 +3925,22 @@ function _fxReadAccessorials_() {
     .filter(c => c.checked).map(c => c.value);
 }
 
+// Manual installer fallback (auto-detect found nothing). Setting a
+// code flips the modal into installer mode (terminal learn/confirm).
+function _fxSetManualInstaller_(v) {
+  _fxState.manualInstaller = String(v || '').trim().replace(/\s+/g, '');
+  _fxRender_();
+}
+function _fxInstallerCode_() {
+  return (_fxState.ctx && _fxState.ctx.installer_code) || _fxState.manualInstaller || '';
+}
+
 // v10.110: change the SAVED default terminal for this installer
 // (manager-PIN gated — remembered one already exists). One-off
 // edits don't call this; they just leave the dest fields changed
 // for this quote/book only.
 async function _fxSaveInstallerTerminal_() {
-  const code = _fxState.ctx && _fxState.ctx.installer_code;
+  const code = _fxInstallerCode_();
   if (!code) return;
   const t = _fxReadDest_();
   if (!t.street || !t.city || !t.state || !t.zip) { showToast('Fill street, city, state, ZIP first'); return; }
@@ -3957,7 +3970,7 @@ async function _fxGetQuote_() {
   // v10.110: first-time installer → persist the entered terminal as
   // the remembered default (no PIN; learn-on-first-use). Best-effort
   // — never block the quote on a save hiccup.
-  const _ic = _fxState.ctx && _fxState.ctx.installer_code;
+  const _ic = _fxInstallerCode_();
   if (_ic && _fxState.ctx && !_fxState.ctx.remembered_terminal
       && _fxState.dest.street && _fxState.dest.city && _fxState.dest.state) {
     try {
