@@ -3952,7 +3952,7 @@ async function _fxToggleHardware_(sku, action) {
   const pin = window.prompt('Manager PIN to ' + verb + ' for SKU "' + sku + '".\n\n(Persists for ALL future freight quotes.)');
   if (pin == null) return;
   try {
-    const res = await groundApi('setHardwareSku', { sku: sku, action: action, manager_pin: String(pin).trim() });
+    const res = await groundApi('setHardwareSku', { sku: sku, op: action, manager_pin: String(pin).trim() });
     if (!res || !res.ok) { showToast(res && /PIN/i.test(res.error || '') ? '✗ ' + res.error : ('Failed: ' + ((res && res.error) || 'unknown'))); return; }
     showToast('✓ ' + sku + (action === 'remove' ? ' → freight' : ' → hardware (packed inside)'));
     _fxState.quotes = []; _fxState.selectedIdx = null;
