@@ -3698,6 +3698,11 @@ function openScheduleBookerModal(orderNumber, currentBooker, alreadyBooked) {
 // call). Pickup is a separate explicit opt-in, never auto. Entry
 // from the Schedule booker modal and Lookup freight hits.
 let _fxState = { orderNumber: '', quotes: [], dest: null, ctx: null, selected: '' };
+// Shared modal input style. box-sizing:border-box is the actual fix
+// for "fields off the side of the screen" — without it the 9px
+// padding was added ON TOP of the flex width and overflowed the
+// modal on a phone. Always appended with a flex/width rule + ';'.
+const _FXIN = 'box-sizing:border-box;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px;';
 
 function openFedexFreightModal(orderNumber) {
   const prior = document.getElementById('fedexFreightOverlay');
@@ -3706,7 +3711,13 @@ function openFedexFreightModal(orderNumber) {
   const ov = document.createElement('div');
   ov.id = 'fedexFreightOverlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10002;display:flex;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  // Backdrop-dismiss ONLY when the press both starts AND ends on the
+  // backdrop itself. Fixes the rage bug: selecting text in an input
+  // and dragging past the box edge used to fire click on the overlay
+  // and nuke the whole modal mid-edit.
+  let _fxDownOnOv = false;
+  ov.addEventListener('pointerdown', (e) => { _fxDownOnOv = (e.target === ov); });
+  ov.addEventListener('click', (e) => { if (e.target === ov && _fxDownOnOv) ov.remove(); _fxDownOnOv = false; });
   const panel = document.createElement('div');
   panel.id = 'fxPanel';
   panel.style.cssText = 'background:#1a1a1a;color:#fff;border:1.5px solid rgba(255,255,255,.15);border-radius:14px;padding:18px;max-width:520px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.55);font-family:Helvetica,Arial,sans-serif;margin:8px 0';
@@ -3753,30 +3764,33 @@ function _fxRender_() {
   const itemsLine = (ctx.items || []).map(it => esc(it.sku) + '×' + (it.pieces || 1)).join(', ') || '<span style="color:#ff8a8a">no SKU lines on this order</span>';
   let html = ''
     + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:4px">' + esc(ctx.customer_name || '') + (ctx.item_count ? ' · ' + ctx.item_count + ' line(s)' : '') + '</div>'
-    + '<div style="font-size:11px;color:#6b7685;margin-bottom:10px;word-break:break-word">Items: ' + itemsLine + '</div>'
+    + '<div style="font-size:11px;color:#6b7685;margin-bottom:' + ((ctx.hardware_inside && ctx.hardware_inside.length) ? '4' : '10') + 'px;word-break:break-word">Items: ' + itemsLine + '</div>'
+    + ((ctx.hardware_inside && ctx.hardware_inside.length)
+        ? '<div style="font-size:11px;color:#7C9CBF;margin-bottom:10px;word-break:break-word">🔩 Packed inside (no freight charge): ' + esc(ctx.hardware_inside.join(', ')) + '</div>'
+        : '')
     + '<div style="font-size:10px;font-weight:900;color:#9AAAC0;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Destination (parsed — confirm/fix before quoting)</div>'
-    + '<input id="fxStreet" placeholder="Street" value="' + esc(d.street || '') + '" style="width:100%;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px;margin-bottom:6px">'
-    + '<div style="display:flex;gap:6px;margin-bottom:10px">'
-    +   '<input id="fxCity" placeholder="City" value="' + esc(d.city || '') + '" style="flex:2;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
-    +   '<input id="fxState_" placeholder="ST" maxlength="2" value="' + esc(d.state || '') + '" style="flex:0 0 56px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px;text-transform:uppercase">'
-    +   '<input id="fxZip" placeholder="ZIP" value="' + esc(d.zip || '') + '" style="flex:0 0 90px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    + '<input id="fxStreet" placeholder="Street" value="' + esc(d.street || '') + '" style="' + _FXIN + 'width:100%;margin-bottom:6px">'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">'
+    +   '<input id="fxCity" placeholder="City" value="' + esc(d.city || '') + '" style="' + _FXIN + 'flex:1 1 130px;min-width:0">'
+    +   '<input id="fxState_" placeholder="ST" maxlength="2" value="' + esc(d.state || '') + '" style="' + _FXIN + 'flex:0 1 52px;min-width:0;text-transform:uppercase">'
+    +   '<input id="fxZip" placeholder="ZIP" value="' + esc(d.zip || '') + '" style="' + _FXIN + 'flex:0 1 80px;min-width:0">'
     + '</div>'
-    + '<button onclick="_fxGetQuote_()" id="fxQuoteBtn" style="width:100%;padding:13px;background:linear-gradient(180deg,#1A5BE0,#003087);color:#fff;border:1.5px solid #3B82F6;border-radius:9px;font-size:15px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">↻ Get FedEx Quote</button>'
+    + '<button onclick="_fxGetQuote_()" id="fxQuoteBtn" style="width:100%;box-sizing:border-box;padding:13px;background:linear-gradient(180deg,#1A5BE0,#003087);color:#fff;border:1.5px solid #3B82F6;border-radius:9px;font-size:15px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">↻ Get FedEx Quote</button>'
     + '<details id="fxManualWrap"' + (_fxState.needsDims ? ' open' : '') + ' style="margin-top:10px">'
     +   '<summary style="cursor:pointer;font-size:12px;color:#FFB300;font-weight:800">'
     +     (_fxState.needsDims ? '⚠ SKUs not in freight table — enter the shipment manually' : '＋ Manual shipment (if SKUs aren’t in the freight table)')
     +   '</summary>'
     +   '<div style="padding:10px 0 2px">'
     +     (_fxState.needsDims ? '<div style="font-size:11px;color:#FFB300;margin-bottom:6px">Unmapped: ' + esc((_fxState.needsDims || []).join(', ')) + '. Enter total pallet weight + dims to rate the whole shipment.</div>' : '')
-    +     '<div style="display:flex;gap:6px;margin-bottom:6px">'
-    +       '<input id="fxMWt" type="number" inputmode="decimal" placeholder="Total wt (lb)" value="' + esc((_fxState.manual && _fxState.manual.weightLbs) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
-    +       '<input id="fxMHU" type="number" inputmode="numeric" placeholder="# pallets" value="' + esc((_fxState.manual && _fxState.manual.handlingUnits) || '1') + '" style="flex:0 0 92px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +     '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">'
+    +       '<input id="fxMWt" type="number" inputmode="decimal" placeholder="Total wt (lb)" value="' + esc((_fxState.manual && _fxState.manual.weightLbs) || '') + '" style="' + _FXIN + 'flex:1 1 130px;min-width:0">'
+    +       '<input id="fxMHU" type="number" inputmode="numeric" placeholder="# pallets" value="' + esc((_fxState.manual && _fxState.manual.handlingUnits) || '1') + '" style="' + _FXIN + 'flex:0 1 90px;min-width:0">'
     +     '</div>'
-    +     '<div style="display:flex;gap:6px;margin-bottom:6px">'
-    +       '<input id="fxML" type="number" inputmode="decimal" placeholder="L in" value="' + esc((_fxState.manual && _fxState.manual.lengthIn) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
-    +       '<input id="fxMW" type="number" inputmode="decimal" placeholder="W in" value="' + esc((_fxState.manual && _fxState.manual.widthIn) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
-    +       '<input id="fxMH" type="number" inputmode="decimal" placeholder="H in" value="' + esc((_fxState.manual && _fxState.manual.heightIn) || '') + '" style="flex:1;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
-    +       '<input id="fxMC" type="text" placeholder="class (auto)" value="' + esc((_fxState.manual && _fxState.manual.freightClass) || '') + '" style="flex:0 0 96px;padding:9px;font-size:13px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:7px">'
+    +     '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">'
+    +       '<input id="fxML" type="number" inputmode="decimal" placeholder="L in" value="' + esc((_fxState.manual && _fxState.manual.lengthIn) || '') + '" style="' + _FXIN + 'flex:1 1 60px;min-width:0">'
+    +       '<input id="fxMW" type="number" inputmode="decimal" placeholder="W in" value="' + esc((_fxState.manual && _fxState.manual.widthIn) || '') + '" style="' + _FXIN + 'flex:1 1 60px;min-width:0">'
+    +       '<input id="fxMH" type="number" inputmode="decimal" placeholder="H in" value="' + esc((_fxState.manual && _fxState.manual.heightIn) || '') + '" style="' + _FXIN + 'flex:1 1 60px;min-width:0">'
+    +       '<input id="fxMC" type="text" placeholder="class (auto)" value="' + esc((_fxState.manual && _fxState.manual.freightClass) || '') + '" style="' + _FXIN + 'flex:1 1 90px;min-width:0">'
     +     '</div>'
     +     '<div style="font-size:10px;color:#6b7685">Leave class blank → computed from density (weight ÷ ft³). Dims default to a 48×40×48 pallet if blank.</div>'
     +   '</div>'
