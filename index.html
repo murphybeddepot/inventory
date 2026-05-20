@@ -6658,6 +6658,11 @@ function renderCabResult(query) {
     } else {
       html += '<button onclick="undoPullCabinet(\''+id+'\')" style="width:100%;margin-top:10px;padding:12px;font-size:13px;font-weight:700;background:#fff;color:#003087;border:2px solid #003087;border-radius:10px;cursor:pointer">↩ Undo Pull (return to storage)</button>';
     }
+    // v10.122: post-commit damage reporting — available regardless of
+    // pulled state. Subdued outline-style so it doesn't compete with
+    // Move / Pull / Undo Pull as the primary actions. (Parallel button
+    // exists in renderSpecificCabinet for the drill-into-duplicate path.)
+    html += '<button onclick="openMarkDamagedFromLookup('+JSON.stringify(c.cabinet||'')+')" style="width:100%;margin-top:8px;padding:11px;font-size:12px;font-weight:700;background:rgba(139,0,0,.05);color:#8B0000;border:1.5px solid rgba(139,0,0,.45);border-radius:10px;cursor:pointer;text-transform:uppercase;letter-spacing:.8px">🚫 Mark Damaged</button>';
     el.innerHTML = html;
   } else {
     // Multiple matches — list them. If the user has duplicates of the same
@@ -12254,7 +12259,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.121<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.122<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
