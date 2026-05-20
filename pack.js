@@ -4048,6 +4048,60 @@ function _fxTierLabel_(t) {
   return ({ BASIC_BY_APPOINTMENT: 'Freight Direct · By Appt', PREMIUM: 'Freight Direct · Premium (white glove)', BASIC: 'Freight Direct · Basic', STANDARD: 'Freight Direct · Standard' })[t] || (t || 'Commercial');
 }
 
+// v10.119: open a popup with 2 landscape "ORDER #" labels and auto-
+// trigger the print dialog. AirPrint on the iPad → default printer.
+function _fxPrintOrderNumberLabels_(orderNumber, pro) {
+  try {
+    const w = window.open('', '_blank', 'width=1100,height=850');
+    if (!w) { showToast('Popup blocked — enable popups to print order labels'); return; }
+    const num = esc(String(orderNumber || ''));
+    const proStr = pro ? esc(String(pro)) : '';
+    const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    // Two 11×8.5 landscape pages, order # huge, PRO + date below.
+    w.document.write(
+      '<!DOCTYPE html><html><head><title>Order ' + num + ' — labels</title>'
+      + '<style>'
+      + '@page{size:11in 8.5in landscape;margin:0}'
+      + '*{box-sizing:border-box}'
+      + 'html,body{margin:0;padding:0;background:#fff;color:#000;font-family:-apple-system,Helvetica,Arial,sans-serif}'
+      + '.pg{width:11in;height:8.5in;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0.5in}'
+      + '.pg:last-child{page-break-after:auto}'
+      + '.lbl{font-size:24px;letter-spacing:.2em;font-weight:700;color:#555;margin-bottom:.15in}'
+      + '.num{font-size:340px;font-weight:900;line-height:.9;letter-spacing:-.02em;font-family:"Arial Black",Impact,sans-serif}'
+      + '.meta{font-size:36px;font-weight:700;color:#333;margin-top:.4in;text-align:center}'
+      + '.pro{font-size:48px;font-weight:900;color:#000;margin-top:.15in}'
+      + '</style></head><body>'
+      + '<div class="pg"><div class="lbl">FEDEX FREIGHT · ORDER</div><div class="num">' + num + '</div>'
+      + (proStr ? '<div class="pro">PRO ' + proStr + '</div>' : '')
+      + '<div class="meta">Booked ' + esc(today) + '</div></div>'
+      + '<div class="pg"><div class="lbl">FEDEX FREIGHT · ORDER</div><div class="num">' + num + '</div>'
+      + (proStr ? '<div class="pro">PRO ' + proStr + '</div>' : '')
+      + '<div class="meta">Booked ' + esc(today) + '</div></div>'
+      + '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print();},250);};</scr' + 'ipt>'
+      + '</body></html>'
+    );
+    w.document.close();
+  } catch (e) {
+    showToast('Order-label print error: ' + e.message);
+  }
+}
+
+async function _fxRetryPrintBol_(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  const r = _fxState.lastBookResult || {};
+  if (!r.bolLabelBase64) { showToast('No BOL to reprint — re-book or print manually'); return; }
+  try {
+    const res = await groundApi('printFedexBol', {
+      base64: r.bolLabelBase64,
+      copies: 4,
+      orderNumber: _fxState.orderNumber,
+      pro: r.proNumber || r.masterTrackingNumber || '',
+    });
+    if (res && res.ok) showToast('🖨 BOL re-queued × ' + (res.copies || 4));
+    else showToast('Re-print failed: ' + ((res && res.error) || 'unknown'));
+  } catch (e) { showToast('Re-print error: ' + e.message); }
+}
+
 async function _fxBook_() {
   const q = _fxSel_();
   if (!q) { showToast('Pick a service first'); return; }
@@ -4083,7 +4137,16 @@ async function _fxBook_() {
       return;
     }
     showPackBanner_('✓ FedEx Freight booked for ' + _fxState.orderNumber, '#00e676');
-    if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(0,230,118,.1);border:1px solid #00e676;border-radius:8px;color:#00e676;font-size:12px;font-weight:800">✓ Booked. ' + esc(JSON.stringify(res.booking || {}).slice(0, 240)) + '</div>';
+    const pro = res.proNumber || res.masterTrackingNumber || '';
+    const pb = res.print_bol || {};
+    const pbLine = pb.ok
+      ? '🖨 BOL queued to default printer × ' + (pb.copies || 4)
+      : '⚠ BOL print failed: ' + esc(pb.error || 'unknown') + (res.bolLabelBase64 ? ' — <a href="#" onclick="_fxRetryPrintBol_(event)" style="color:#FFB300;text-decoration:underline">Retry</a>' : '');
+    if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(0,230,118,.1);border:1px solid #00e676;border-radius:8px;color:#00e676;font-size:12px;font-weight:800">✓ Booked' + (pro ? ' · PRO ' + esc(pro) : '') + '<br>' + pbLine + '</div>';
+    // Open a popup with 2 landscape order-# labels and auto-print.
+    _fxPrintOrderNumberLabels_(_fxState.orderNumber, pro);
+    // Stash for retry.
+    _fxState.lastBookResult = res;
   } catch (e) {
     showToast('Book error: ' + e.message);
     if (btn) { btn.disabled = false; btn.textContent = '📦 Book ' + _fxState.selected.replace(/_/g, ' '); }
