@@ -4254,7 +4254,7 @@ async function openEmailTemplatesEditor() {
   panel.appendChild(header);
 
   const intro = document.createElement('div');
-  intro.style.cssText = 'font-size:12px;color:#666;line-height:1.5';
+  intro.style.cssText = 'font-size:13px;color:#333;line-height:1.55';
   intro.innerHTML = 'Edit the email body templates. Saves go live immediately for any send that fires after. Currently wired: <strong>Shipping Confirmation</strong> + <strong>Customer Ready / Pick Lists</strong>. Reorder + Mattress migrate next.';
   panel.appendChild(intro);
 
@@ -4316,7 +4316,7 @@ function _renderEmailTplsList_(container) {
       keyDiv.textContent = tpl.key || '?';
       meta.appendChild(keyDiv);
       const subjDiv = document.createElement('div');
-      subjDiv.style.cssText = 'font-size:12px;color:#444;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      subjDiv.style.cssText = 'font-size:12px;color:#333;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       subjDiv.textContent = tpl.subject || '(no subject)';
       meta.appendChild(subjDiv);
       const srcChip = document.createElement('span');
@@ -4366,25 +4366,25 @@ async function _openEmailTplEditor_(templateKey, flow) {
 
   // Subject
   const subjLabel = document.createElement('label');
-  subjLabel.style.cssText = 'font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px';
+  subjLabel.style.cssText = 'font-size:11px;font-weight:800;color:#444;text-transform:uppercase;letter-spacing:.5px';
   subjLabel.textContent = 'Subject';
   panel.appendChild(subjLabel);
   const subjInput = document.createElement('input');
   subjInput.type = 'text';
   subjInput.id = 'emailTplSubject';
   subjInput.value = tpl.subject || '';
-  subjInput.style.cssText = 'width:100%;padding:10px 12px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;box-sizing:border-box;font-family:-apple-system,Helvetica,Arial,sans-serif';
+  subjInput.style.cssText = 'width:100%;padding:10px 12px;font-size:14px;color:#1a1a1a;border:1.5px solid #ccc;border-radius:8px;outline:none;box-sizing:border-box;font-family:-apple-system,Helvetica,Arial,sans-serif';
   panel.appendChild(subjInput);
 
   // Mail-merge variables hint (Phase 0 — chips/autocomplete are Phase 1)
   const hint = document.createElement('div');
-  hint.style.cssText = 'font-size:11px;color:#666;background:#F5F7FA;border:1px dashed #ccc;border-radius:6px;padding:8px 10px;font-family:monospace';
+  hint.style.cssText = 'font-size:12px;color:#333;background:#F0F4F8;border:1px dashed #888;border-radius:6px;padding:8px 10px;font-family:monospace';
   hint.textContent = 'Variables: {{customer_name}} {{order_number}} {{offered_date}} {{shipping_method}} {{installer_code}} {{fillout_form_url}} {{customer_email}} {{customer_phone}}';
   panel.appendChild(hint);
 
   // Body label
   const bodyLabel = document.createElement('label');
-  bodyLabel.style.cssText = 'font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px';
+  bodyLabel.style.cssText = 'font-size:11px;font-weight:800;color:#444;text-transform:uppercase;letter-spacing:.5px';
   bodyLabel.textContent = 'Body';
   panel.appendChild(bodyLabel);
 
@@ -4395,10 +4395,12 @@ async function _openEmailTplEditor_(templateKey, flow) {
   panel.appendChild(quillMount);
 
   // v10.138 — Live preview pane (Phase 1). Renders the template with
-  // sample data substituted in. Updates on Quill text-change + subject
-  // input. Toggleable.
+  // sample data substituted in. v10.144: bumped contrast (color:#444
+  // for label, #1a1a1a for content), made scrollable on long bodies
+  // (max-height + overflow-y), and added Subject/Body labels inside
+  // the pane so it's clearer what's being previewed.
   const previewToggle = document.createElement('label');
-  previewToggle.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:#666;cursor:pointer;margin-top:4px';
+  previewToggle.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:#444;cursor:pointer;margin-top:4px;font-weight:700';
   const previewCb = document.createElement('input');
   previewCb.type = 'checkbox';
   previewCb.id = 'emailTplPreviewToggle';
@@ -4410,8 +4412,12 @@ async function _openEmailTplEditor_(templateKey, flow) {
 
   const previewPane = document.createElement('div');
   previewPane.id = 'emailTplPreviewPane';
-  previewPane.style.cssText = 'border:1.5px solid #003087;border-radius:8px;background:#F8FAFD;padding:12px 14px;font-size:13px;line-height:1.55;min-height:120px';
-  previewPane.innerHTML = '<div style="font-size:10px;font-weight:900;color:#003087;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview</div><div id="emailTplPreviewSubj" style="font-weight:700;margin-bottom:6px"></div><div id="emailTplPreviewBody"></div>';
+  previewPane.style.cssText = 'border:1.5px solid #003087;border-radius:8px;background:#F8FAFD;padding:12px 14px;font-size:14px;line-height:1.55;color:#1a1a1a;min-height:120px;max-height:340px;overflow-y:auto;-webkit-overflow-scrolling:touch';
+  previewPane.innerHTML = '<div style="font-size:10px;font-weight:900;color:#003087;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview · sample data</div>'
+    + '<div style="font-size:10px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Subject</div>'
+    + '<div id="emailTplPreviewSubj" style="font-weight:700;color:#1a1a1a;margin-bottom:10px;font-size:14px"></div>'
+    + '<div style="font-size:10px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Body</div>'
+    + '<div id="emailTplPreviewBody" style="color:#1a1a1a;background:#fff;border:1px solid #ddd;border-radius:4px;padding:10px 12px"></div>';
   panel.appendChild(previewPane);
   previewCb.addEventListener('change', () => {
     previewPane.style.display = previewCb.checked ? 'block' : 'none';
@@ -4441,7 +4447,7 @@ async function _openEmailTplEditor_(templateKey, flow) {
   testRow.appendChild(testBtn);
   const testStatus = document.createElement('span');
   testStatus.id = 'emailTplTestStatus';
-  testStatus.style.cssText = 'font-size:12px;color:#666;flex:1;text-align:right';
+  testStatus.style.cssText = 'font-size:13px;color:#333;flex:1;text-align:right;font-weight:600';
   testRow.appendChild(testStatus);
   panel.appendChild(testRow);
 
@@ -4450,7 +4456,7 @@ async function _openEmailTplEditor_(templateKey, flow) {
   footer.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:8px';
   const status = document.createElement('div');
   status.id = 'emailTplSaveStatus';
-  status.style.cssText = 'font-size:12px;color:#666';
+  status.style.cssText = 'font-size:13px;color:#333;font-weight:600';
   footer.appendChild(status);
   const actBtns = document.createElement('div');
   actBtns.style.cssText = 'display:flex;gap:8px';
@@ -13197,7 +13203,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.143<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.144<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
