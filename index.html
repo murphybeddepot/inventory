@@ -3918,9 +3918,24 @@ function markItemReceivedFromOrder(uuid) {
 //   • Pick destination: 4×6 label printer (default) | Paper N-up | Custom size
 //   • Print fires window.print() with the right @page CSS for AirPrint
 function openPrintKanbanCards() {
-  console.log('openPrintKanbanCards: entered');
+  // v10.136: tap-fire-confirm + global try/catch with visible error.
+  // Two prior fixes failed silently — this version surfaces ANY error
+  // visibly so we can diagnose without iPad Safari console access.
+  console.log('openPrintKanbanCards: entered (v10.136)');
+  try {
+    _openPrintKanbanCardsImpl_();
+  } catch (err) {
+    console.error('openPrintKanbanCards FAILED:', err);
+    alert('Print Cards crashed: ' + (err && err.message || String(err)) + '\n\nStack: ' + (err && err.stack || '').split('\n').slice(0, 3).join('\n'));
+  }
+}
+
+function _openPrintKanbanCardsImpl_() {
   const candidates = (typeof items === 'undefined' ? [] : items).filter(i => i && !i.deleted);
-  if (candidates.length === 0) { showToast('No items to print cards for'); return; }
+  if (candidates.length === 0) {
+    alert('No items to print cards for. Items array length: ' + (typeof items === 'undefined' ? 'undefined' : items.length));
+    return;
+  }
   console.log('openPrintKanbanCards: ' + candidates.length + ' candidates');
   // Sort same as the kanban view: by lane (reorder > onorder > low > ok),
   // then by deficit-magnitude within each.
@@ -12747,7 +12762,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.135<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.136<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
