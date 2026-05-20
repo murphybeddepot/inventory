@@ -3359,29 +3359,37 @@ function openHowItWorks() {
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">How Bedrock Works</div>'
     +   '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today, and the one change that ties it all together.</div>'
+    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.143.</div>'
 
     + H('An order today, start → ship')
-    + step(1, 'Schedule', 'Upcoming freight/cabinet shipments by day; a carrier on the calendar means it\'s booked. Kim works the to-book list.')
-    + step(2, 'Cabinets / Ground', 'Cabinet shipments arrive as PICK LIST emails; ground orders import from ShipStation. The daily receive + pack queues.')
-    + step(3, 'Pre-Pack', 'Zoe builds the hardware box the day before, scan-verified, with an OPEN-ME-FIRST label.')
-    + step(4, 'Pack', 'Packer scans every item; a second checker re-scans (catches mistakes before they ship). Photos + freight booking.')
-    + step(5, 'Ship', 'Label is bought, ShipStation + Shopify are told, the customer gets tracking.')
-    + step(6, 'Lookup / Tracking / Remakes', 'CS answers "where\'s my order", sends replacement parts, sees the whole history.')
+    + step(1, 'Schedule', 'Upcoming freight/cabinet shipments by day; a carrier on the calendar means it\'s booked. Kim works the to-book list, taps an order to open a FedEx Freight quote and book in two clicks. BOL auto-prints (4 copies) + a landscape order-# label sheet (2 copies) on the default printer.')
+    + step(2, 'Cabinets / Ground', 'Cabinet shipments arrive as PICK LIST emails (parsed into Cabinets receive list); ground orders import from ShipStation. Cabinets search now also surfaces ARCH-announced future cabinets with "📅 Arriving Week of MMM D" before the truck lands. Damaged cabinets hide from pulls automatically.')
+    + step(3, 'Pre-Pack', 'Zoe builds the hardware box the day before, scan-verified with haptic/audio feedback on each scan, with a 4×6 OPEN-ME-FIRST label (hero order #, QR to assembly PDF) auto-printed.')
+    + step(4, 'Pack', 'Packer scans every item; a second checker re-scans (catches mistakes before they ship). Photos + freight booking. Manager ✓ MGR check-off for catch-all/parts orders that lack scannable SKUs.')
+    + step(5, 'Ship', 'Label is bought, ShipStation + Shopify are told, the customer gets tracking. View cost / rate in ShipStation\'s V2 Shipments tab (V1\'s Order#/Rate columns are blank for Bedrock shipments by design — use V2).')
+    + step(6, 'Lookup / Tracking / Remakes / Damage', 'CS answers "where\'s my order", files a 🚨 customer-damage report with photo uploads + carrier-claim tracking, sends replacement parts, sees the whole history.')
 
-    + H('The problem we\'re fixing')
-    + P('Right now an order\'s truth is scattered across <b>7 systems</b> — Shopify, ShipStation (×2), three Google Sheets, the calendars, Gmail. Every screen reads a different piece, so things disagree (a freight order booked on the calendar but "not booked" in Bedrock; CS hopping tabs + Gmail to answer one question).')
-    + P('<b>The fix isn\'t more screens. It\'s one spine:</b> a single order record with an append-only history of everything that happened to it. Every outside system becomes a feeder; every screen becomes a view of the same truth.')
+    + H('Ops surfaces (More menu ⋯)')
+    + pill('live', '📦 Tracking', 'Recent shipments across all sources for CS escalations.')
+    + pill('live', '🔧 Remakes', 'Structured replacement-part log: + New Remake (CS associate creates one) OR 🚨 Report Customer Damage (Jessica\'s flow — captures damaged carrier + tracking, photo uploads to Drive, optional claim ID, emails warehouse + Jessica with photo links + carrier claims-portal URL).')
+    + pill('live', '🔨 Damage Log', 'Open damage records — inspect, parts due date, remake-in-transit, mark complete (auto-clears the cabinet\'s damaged flag so it re-appears for pulls).')
+    + pill('live', '📝 Email Templates', 'WYSIWYG editor (Quill) for ShipConf + Customer Ready templates. Live preview with sample data, send-test to [Zac/Seth/Jessica/Ken/Kim], auto-save to a versioned tab (50 versions retained), auto-Slack diff to #claude_bedrock on every edit.')
+    + pill('live', '🚦 Holds', 'Orders blocked from packing — Beacon, manual hold, hidden.')
+    + pill('live', '🩹 Damage Log + 🩹 Returns', 'Cabinet damage workflow incl. post-commit damage reporting from the Cabinets-tab lookup view (when a cabinet is damaged AFTER the receive session committed).')
 
-    + H('Where it\'s headed — and where we are')
-    + pill('live', 'P1 · The order spine', 'Built &amp; LIVE. Every order now has one record + an event log; ground labels, shipments &amp; freight bookings write to it automatically. Verified consistent with the old data (0 drift).')
-    + pill('safe', 'P2 · Auto-capture tracking', 'Shipped in watch-only mode — reads carrier "shipped" emails and learns to pull tracking, before it writes anything. Tuning per carrier.')
-    + pill('live', 'P3 · One CS timeline', 'Lookup now shows the live order history (and CS can log call notes onto the order). Falls back to the old view if the spine has nothing yet — no disruption.')
-    + pill('safe', 'P4 · Freight as one thing', 'Carrier, rate, tracking, booking pulled into one freight record + a multi-carrier rate compare (FedEx live; ABF/Estes/TForce next).')
-    + pill('safe', 'P5 · Counts that don\'t vanish', 'Cycle counts now save to a durable server record, not just the iPad.')
-    + pill('gated', 'P6 · Retire the old crutches', 'Once the spine is proven over time, screens switch to reading it and the old calendar/sheet/JS2 dependencies retire — one reversible step at a time, with sign-off. Not automatic.')
+    + H('Stock kanban (Hardware Inventory tab)')
+    + P('Lane view (🔴 Reorder / 📦 On Order / 🟡 Low / ✓ OK). Tap a tile or open SKU detail to <b>📦 Mark Ordered</b> with qty + ETA. Print kanban cards in batches with a selection modal (checkbox list + destination picker: 4×6 label printer / paper N-up grid / custom size). Scan a card\'s QR on the warehouse floor → opens Bedrock with prefilled <b>📦 I Just Ordered This</b> button (taps mark the SKU on-order without going to your desk).')
 
-    + '<div style="margin-top:16px;font-size:11px;color:#5E6A7E;line-height:1.5">Everything was built additively and reversibly — nothing risky happens without explicit sign-off. Full technical detail lives in <code style="color:#8FA3BD">docs/VISION.md</code>.</div>'
+    + H('FedEx Freight quote → book (live)')
+    + P('From any cabinet/freight order, tap "📦 Get FedEx Quote" → review rates across both MBD FedEx accounts (commercial + FXFD Direct with By Appt / Premium tiers) → pick service → tap Book. Real-money flow gated by two clicks; pickup is a separate explicit opt-in. BOL (×4) auto-prints to default printer via PrintNode; 2-page landscape order-# label sheet auto-prints alongside.')
+
+    + H('What\'s pending design + build')
+    + pill('safe', '📋 Shipping Confirmation migration', 'Phase 1 shadow-log live (logs what Bedrock WOULD send to compare against JS2\'s actual sends for parity). Phases 2-4 ship after the shadow comparison validates. End state: Bedrock replaces JS2 for the customer-facing Shipping Confirmation flow.')
+    + pill('safe', '✅ Customer Ready takeover', 'Scaffold + templates ready. Build phases 1-6 stage after Shipping Confirmation Phase 2: per-product-type pick-list PDFs, per-ship-week Drive folder, JURG inline-on-status-flip, WG-downgrade button.')
+    + pill('gated', '💸 Multi-carrier parcel quote', 'UPS + FedEx + USPS rate compare side-by-side. Needs carrier-API credentials before build.')
+    + pill('gated', '🔒 Hardware QR scan-to-verify', 'Hardware box QR scanned during pack to confirm correct box. Investigation pending — Ground pack flow is sensitive.')
+
+    + '<div style="margin-top:16px;font-size:11px;color:#5E6A7E;line-height:1.5">Bedrock builds additively and reversibly — nothing risky happens without explicit sign-off. Design docs live in <code style="color:#8FA3BD">docs/VISION.md</code> · <code style="color:#8FA3BD">docs/SHIPPING_CONFIRMATION.md</code> · <code style="color:#8FA3BD">docs/CUSTOMER_READY.md</code> · <code style="color:#8FA3BD">docs/EMAIL_TEMPLATES_EDITOR.md</code>.</div>'
     + '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="width:100%;margin-top:18px;padding:14px;background:#1f2630;color:#C7D2E0;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Close</button>'
     + '</div>';
   document.body.appendChild(ov);

@@ -2340,6 +2340,9 @@ function switchTab(name) {
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
+  // v10.143: persist active tab so refresh / re-open stays on the
+  // same screen instead of bouncing back to the default (Zac ask).
+  try { localStorage.setItem('mbd_active_tab', name); } catch (e) {}
   // Browser tab title reflects the active panel so multiple Safari
   // tabs are distinguishable: "Pack — Bedrock", "Ground — Bedrock",
   // etc. Label map matches the tab-button text the user sees.
@@ -7407,11 +7410,21 @@ function renderItemLocResult(query) {
 // initial render so renderPackTab() doesn't run. Kick it off here so
 // the list loads automatically without the user having to tap Refresh.
 document.addEventListener('DOMContentLoaded', () => {
-  // Cabinets is the default active panel (Pack moved to the More menu).
-  // Kick its render so the receive list paints on first load.
-  if (typeof renderCabinets === 'function') renderCabinets();
+  // v10.143: restore the last-active tab from localStorage so refresh
+  // stays on the same screen instead of bouncing back to Cabinets.
+  // Falls back to Cabinets if nothing saved or saved value is invalid.
+  let savedTab = '';
+  try { savedTab = localStorage.getItem('mbd_active_tab') || ''; } catch (e) {}
+  const validTabs = ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export'];
+  if (savedTab && validTabs.indexOf(savedTab) >= 0 && savedTab !== 'cabinets') {
+    if (typeof switchTab === 'function') switchTab(savedTab);
+  } else {
+    // Cabinets is the default active panel (Pack moved to the More menu).
+    // Kick its render so the receive list paints on first load.
+    if (typeof renderCabinets === 'function') renderCabinets();
+    document.title = 'Cabinets — Bedrock';
+  }
   if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
-  document.title = 'Cabinets — Bedrock';
   // v9.86: paint pill badge from cached attention immediately
   if (typeof _refreshVersionPillBadge_ === 'function') _refreshVersionPillBadge_();
   // v9.52: auto-open System Status on first launch if device isn't
@@ -13175,7 +13188,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.127"></script>
+<script src="./pack.js?v=10.143"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -13184,7 +13197,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.142<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.143<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
