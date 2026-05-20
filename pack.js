@@ -4732,10 +4732,14 @@ async function openRemakesPanel(statusFilter) {
     +   '<button onclick="document.getElementById(\'remakesOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px">✕</button>'
     + '</div>'
     + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:12px">Replacement parts to ship to customers. Creating one emails the warehouse and logs to the Remakes tab.</div>'
-    + '<div style="display:flex;gap:8px;margin-bottom:12px">'
+    + '<div style="display:flex;gap:8px;margin-bottom:8px">'
     +   '<button onclick="openRemakeCreate()" style="flex:1;padding:14px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">+ New Remake</button>'
     +   '<button onclick="pollRemakeShipments_()" style="padding:14px 18px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap" title="Check ShipStation for newly-shipped remakes">🔄 Check SS</button>'
     + '</div>'
+    // v10.126: damage-intake CTA. Visually distinct from "+ New Remake"
+    // — uses the alert-red gradient + 🚨 icon so it's clearly the
+    // "customer reported damage" path, not the routine remake flow.
+    + '<button onclick="openRemakeDamageIntake()" style="width:100%;padding:13px;margin-bottom:12px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🚨 Report Customer Damage</button>'
     + '<div style="display:flex;gap:6px;margin-bottom:12px">'
     + ['open', 'pending', 'ready_to_ship', 'shipped', 'all'].map(s => '<button onclick="openRemakesPanel(\'' + s + '\')" style="flex:1;padding:8px 4px;background:' + (s === statusFilter ? '#003087' : '#f5f5f5') + ';color:' + (s === statusFilter ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + s.replace(/_/g, ' ') + '</button>').join('')
     + '</div>'
@@ -5051,6 +5055,196 @@ async function reprintRemakeSlip_(remakeId) {
     showToast('🖨 Pick slip queued for ' + remakeId);
   } catch (err) {
     showToast('Print error: ' + err.message);
+  }
+}
+
+// v10.126: Customer-damage intake. CS associate (Jessica usually) taps
+// "🚨 Report Customer Damage" → fills in carrier+tracking, damage
+// notes, uploads photos. Server creates the remake row with
+// damage_source='carrier_damage', uploads photos to Drive, and sends a
+// 🚨 CARRIER DAMAGE email to shipping@ + seth@ + zac@ + jessica@.
+let _rmkDamagePhotos = []; // [{filename, base64, mimeType}]
+let _rmkDamageSubmitting = false;
+function openRemakeDamageIntake(prefill) {
+  _rmkDamagePhotos = [];
+  _rmkDamageSubmitting = false;
+  const defaultBy = (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e) { return ''; } })();
+  const pf = prefill || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const ov = document.createElement('div');
+  ov.id = 'remakeDamageOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:20px;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#B71C1C;text-transform:uppercase;letter-spacing:.5px">🚨 Customer Damage Report</div><button onclick="document.getElementById(\'remakeDamageOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#999;cursor:pointer">✕</button></div>'
+    + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:14px">Use this when a customer reports their shipment arrived damaged. Creates a Remake + emails warehouse + Jessica with photos + carrier info. Files a carrier claim is a separate step (link emailed).</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+    +   '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Your name *</label><input type="text" id="rmkdBy" value="' + esc(defaultBy) + '" placeholder="e.g. Jessica" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px;box-sizing:border-box"></div>'
+    +   '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Original Order # *</label><input type="text" id="rmkdOrigOrder" value="' + esc(pf.orderNumber || '') + '" placeholder="e.g. 31774" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px;box-sizing:border-box"></div>'
+    + '</div>'
+    + '<div style="background:#FFE0E0;border:1.5px solid #B71C1C;border-radius:10px;padding:12px 14px;margin:8px 0 12px">'
+    +   '<div style="font-size:11px;font-weight:900;color:#5A0000;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Damage details</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+    +     '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Carrier *</label>'
+    +       '<select id="rmkdCarrier" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px;box-sizing:border-box;background:#fff">'
+    +         '<option value="">-- pick one --</option>'
+    +         '<option value="fedex">FedEx</option>'
+    +         '<option value="ups">UPS</option>'
+    +         '<option value="usps">USPS</option>'
+    +         '<option value="ontrac">OnTrac</option>'
+    +         '<option value="lasership">LaserShip</option>'
+    +         '<option value="dhl">DHL</option>'
+    +         '<option value="other">Other</option>'
+    +       '</select></div>'
+    +     '<div><label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Damage date</label><input type="date" id="rmkdAt" value="' + esc(today) + '" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:2px;box-sizing:border-box"></div>'
+    +   '</div>'
+    +   '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Tracking # (of damaged shipment)</label>'
+    +   '<input type="text" id="rmkdTracking" placeholder="" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px;font-family:monospace;box-sizing:border-box">'
+    +   '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Carrier claim ID (if already filed)</label>'
+    +   '<input type="text" id="rmkdClaimId" placeholder="(optional — leave blank, link in email)" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px;font-family:monospace;box-sizing:border-box">'
+    +   '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Damage description / what customer reported *</label>'
+    +   '<textarea id="rmkdNotes" rows="3" placeholder="e.g. Box arrived crushed; HLR77 cracked at the mounting bracket. Customer sent 3 photos." style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 8px;resize:vertical;font-family:inherit;box-sizing:border-box"></textarea>'
+    +   '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">📷 Damage photos (uploads to Drive, linked in email)</label>'
+    +   '<input type="file" id="rmkdPhotos" accept="image/*" multiple capture="environment" onchange="_rmkDamageOnPhotosSelected_(this.files)" style="font-size:13px;width:100%">'
+    +   '<div id="rmkdPhotosStatus" style="font-size:12px;color:#666;margin-top:4px"></div>'
+    + '</div>'
+    + '<div style="font-size:11px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Customer + ship-to</div>'
+    + '<div style="font-size:11px;color:#888;margin-bottom:6px">For the replacement shipment we\'ll send out. If Order # above is set, you can leave these blank — we\'ll pull from the Shopify order.</div>'
+    + '<input type="text" id="rmkdCustName" value="' + esc(pf.customerName || '') + '" placeholder="Customer name" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:6px;box-sizing:border-box">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">'
+    +   '<input type="email" id="rmkdCustEmail" value="' + esc(pf.customerEmail || '') + '" placeholder="Email" style="padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;box-sizing:border-box">'
+    +   '<input type="tel" id="rmkdCustPhone" value="' + esc(pf.customerPhone || '') + '" placeholder="Phone" style="padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;box-sizing:border-box">'
+    + '</div>'
+    + '<textarea id="rmkdShipAddr" rows="3" placeholder="Street&#10;City, State Zip" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:8px;resize:vertical;font-family:inherit;box-sizing:border-box">' + esc(pf.shipAddress || '') + '</textarea>'
+    + '<div style="font-size:11px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Replacement items to send *</div>'
+    + '<div id="rmkdSkuRows" style="margin:4px 0 6px">'
+    +   _renderRmkdSkuRow_(0)
+    + '</div>'
+    + '<button type="button" onclick="addRmkdSkuRow_()" style="padding:6px 12px;background:#f5f5f5;color:#444;border:1px solid #ccc;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:10px">+ Add another SKU</button>'
+    + '<label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="rmkdRush" checked style="width:18px;height:18px"> <span style="font-size:13px;font-weight:700;color:#c33">⚡ RUSH — damage replacements default to rush priority</span></label>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="document.getElementById(\'remakeDamageOverlay\').remove()" style="flex:1;padding:12px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="submitRemakeDamageIntake()" id="rmkdSubmitBtn" style="flex:2;padding:12px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🚨 File Damage Report</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => {
+    const inp = document.getElementById('rmkdBy');
+    if (inp && !inp.value) inp.focus();
+    else { const c = document.getElementById('rmkdOrigOrder'); if (c) c.focus(); }
+  }, 80);
+}
+
+let _rmkdSkuRowSeq = 1;
+function _renderRmkdSkuRow_(idx) {
+  return '<div class="rmkdSkuRow" data-idx="' + idx + '" style="display:grid;grid-template-columns:60px 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px">'
+    + '<input type="number" min="1" value="1" class="rmkdSkuQty" style="padding:8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px;outline:none;text-align:center;box-sizing:border-box">'
+    + '<input type="text" class="rmkdSkuSku" placeholder="SKU (e.g. HLR77)" style="padding:8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px;outline:none;font-family:monospace;box-sizing:border-box">'
+    + '<input type="text" class="rmkdSkuNotes" placeholder="notes (optional)" style="padding:8px;font-size:13px;border:1.5px solid #ccc;border-radius:6px;outline:none;box-sizing:border-box">'
+    + (idx > 0 ? '<button onclick="this.closest(\'.rmkdSkuRow\').remove()" style="background:none;border:none;color:#c33;font-size:18px;cursor:pointer;padding:0 4px">✕</button>' : '<span></span>')
+    + '</div>';
+}
+function addRmkdSkuRow_() {
+  const c = document.getElementById('rmkdSkuRows');
+  if (!c) return;
+  const idx = _rmkdSkuRowSeq++;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = _renderRmkdSkuRow_(idx);
+  c.appendChild(tmp.firstChild);
+}
+
+async function _rmkDamageOnPhotosSelected_(fileList) {
+  const status = document.getElementById('rmkdPhotosStatus');
+  if (!fileList || !fileList.length) { if (status) status.textContent = ''; _rmkDamagePhotos = []; return; }
+  if (status) { status.textContent = 'Compressing ' + fileList.length + ' photo' + (fileList.length === 1 ? '' : 's') + '…'; status.style.color = '#666'; }
+  const out = [];
+  for (let i = 0; i < fileList.length; i++) {
+    const f = fileList[i];
+    try {
+      const dataUrl = await compressImageToJpeg_(f, 1600, 0.85);
+      const comma = dataUrl.indexOf(',');
+      const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+      out.push({ filename: f.name || ('damage_' + (i + 1) + '.jpg'), base64: b64, mimeType: 'image/jpeg' });
+    } catch (e) {
+      console.warn('photo compress failed', f.name, e);
+    }
+  }
+  _rmkDamagePhotos = out;
+  if (status) { status.textContent = '✓ ' + out.length + ' photo' + (out.length === 1 ? '' : 's') + ' ready (uploads on submit)'; status.style.color = '#1A5C1A'; }
+}
+
+async function submitRemakeDamageIntake() {
+  if (_rmkDamageSubmitting) { showToast('Submitting…'); return; }
+  const by = (document.getElementById('rmkdBy') || {}).value || '';
+  const origOrder = (document.getElementById('rmkdOrigOrder') || {}).value || '';
+  const carrier = (document.getElementById('rmkdCarrier') || {}).value || '';
+  const damagedAt = (document.getElementById('rmkdAt') || {}).value || '';
+  const tracking = (document.getElementById('rmkdTracking') || {}).value || '';
+  const claimId = (document.getElementById('rmkdClaimId') || {}).value || '';
+  const damageNotes = (document.getElementById('rmkdNotes') || {}).value || '';
+  const custName = (document.getElementById('rmkdCustName') || {}).value || '';
+  const custEmail = (document.getElementById('rmkdCustEmail') || {}).value || '';
+  const custPhone = (document.getElementById('rmkdCustPhone') || {}).value || '';
+  const shipAddr = (document.getElementById('rmkdShipAddr') || {}).value || '';
+  const rush = !!(document.getElementById('rmkdRush') || {}).checked;
+
+  const skus = [];
+  document.querySelectorAll('.rmkdSkuRow').forEach(row => {
+    const qty = Number(row.querySelector('.rmkdSkuQty').value || 0);
+    const sku = String(row.querySelector('.rmkdSkuSku').value || '').trim();
+    const notes = String(row.querySelector('.rmkdSkuNotes').value || '').trim();
+    if (sku && qty > 0) skus.push({ sku, qty, notes });
+  });
+
+  if (!by.trim()) { showToast('Enter your name'); document.getElementById('rmkdBy').focus(); return; }
+  if (!origOrder.trim()) { showToast('Enter original order #'); document.getElementById('rmkdOrigOrder').focus(); return; }
+  if (!carrier) { showToast('Pick the damaged-shipment carrier'); document.getElementById('rmkdCarrier').focus(); return; }
+  if (!damageNotes.trim()) { showToast('Describe the damage'); document.getElementById('rmkdNotes').focus(); return; }
+  if (!skus.length) { showToast('Add at least one replacement SKU'); return; }
+  // Customer name + ship address — optional if origOrder provided (server-side lookup TBD), but warn.
+  if (!custName.trim() && !origOrder.trim()) { showToast('Enter customer name'); return; }
+  if (!shipAddr.trim() && !origOrder.trim()) { showToast('Enter ship address'); return; }
+
+  _rmkDamageSubmitting = true;
+  const btn = document.getElementById('rmkdSubmitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = (_rmkDamagePhotos.length ? 'Uploading ' + _rmkDamagePhotos.length + ' photo(s)…' : 'Submitting…'); }
+
+  try {
+    const res = await groundApi('createRemake', {
+      created_by: by.trim(),
+      original_order_number: origOrder.trim(),
+      customer_name: custName.trim() || ('(from order ' + origOrder.trim() + ')'),
+      customer_email: custEmail.trim(),
+      customer_phone: custPhone.trim(),
+      ship_address: shipAddr.trim() || ('(from order ' + origOrder.trim() + ')'),
+      skus,
+      reason: damageNotes.trim(),
+      priority: rush ? 'rush' : 'normal',
+      damage_source: 'carrier_damage',
+      damaged_carrier: carrier,
+      damaged_tracking_number: tracking.trim(),
+      damaged_at: damagedAt,
+      photos: _rmkDamagePhotos,
+      carrier_claim_id: claimId.trim(),
+    });
+    if (!res || !res.ok) {
+      showToast('Damage report failed: ' + ((res && res.error) || 'unknown'));
+      _rmkDamageSubmitting = false;
+      if (btn) { btn.disabled = false; btn.textContent = '🚨 File Damage Report'; }
+      return;
+    }
+    showPackBanner_('✓ Damage report filed · ' + res.remake_id + (res.photo_urls && res.photo_urls.length ? ' (' + res.photo_urls.length + ' photo' + (res.photo_urls.length === 1 ? '' : 's') + ' uploaded)' : ''), '#00e676');
+    const ov = document.getElementById('remakeDamageOverlay');
+    if (ov) ov.remove();
+    _rmkDamagePhotos = [];
+    _rmkDamageSubmitting = false;
+    // Re-open Remakes panel to show the new row.
+    if (typeof openRemakesPanel === 'function') openRemakesPanel('open');
+  } catch (err) {
+    showToast('Damage report error: ' + err.message);
+    _rmkDamageSubmitting = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🚨 File Damage Report'; }
   }
 }
 
