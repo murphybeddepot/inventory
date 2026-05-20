@@ -1583,10 +1583,10 @@ input::placeholder, textarea::placeholder {
   <!-- v72: open a printable page of kanban cards (one per item with QR
        code) — scan any card to fire a re-order request email to Seth. -->
   <div style="display:flex;gap:8px;margin-bottom:14px">
-    <button onclick="openPrintKanbanCards()" style="flex:2;padding:11px 14px;background:rgba(0,48,135,.08);color:#003087;border:1.5px solid rgba(0,48,135,.35);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
+    <button onclick="openPrintKanbanCards()" style="flex:2;padding:13px 14px;background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 6px rgba(0,48,135,.25)">
       🖨 Print Cards (QR)
     </button>
-    <button onclick="openPrintKanbanInstructions()" style="flex:1;padding:11px 14px;background:rgba(139,79,0,.08);color:#8B4F00;border:1.5px solid rgba(139,79,0,.4);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
+    <button onclick="openPrintKanbanInstructions()" style="flex:1;padding:13px 14px;background:#fff;color:#8B4F00;border:2px solid #8B4F00;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
       📋 Print Guide
     </button>
   </div>
@@ -3955,7 +3955,7 @@ function openPrintKanbanCards() {
     +     '<label style="font-size:11px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Cards per page</label>'
     +     '<select id="kbNup" style="margin-left:8px;padding:6px 8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px"><option value="2">2-up</option><option value="4" selected>4-up</option><option value="6">6-up</option><option value="8">8-up</option></select>'
     +   '</div>'
-    +   '<div id="kbCustomOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;display:none;align-items:center;gap:8px;font-size:13px">'
+    +   '<div id="kbCustomOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;align-items:center;gap:8px;font-size:13px">'
     +     '<label>Width <input type="number" id="kbCustomW" value="4" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
     +     '<label>Height <input type="number" id="kbCustomH" value="6" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
     +     '<span style="font-size:11px;color:#888;margin-left:4px">(one card per page)</span>'
@@ -4000,13 +4000,13 @@ function openPrintKanbanCards() {
     + '</div>'
     + '</div>';
   document.body.appendChild(ov);
-  // Wire row clicks to toggle the checkbox.
-  ov.querySelectorAll('.kbRow').forEach(row => {
-    row.addEventListener('click', e => {
-      if (e.target.tagName === 'INPUT') { _kbUpdateSelCount_(); return; }
-      const cb = row.querySelector('.kbItemCheck');
-      if (cb) { cb.checked = !cb.checked; _kbUpdateSelCount_(); }
-    });
+  // v10.134: the row is a <label> wrapping a checkbox INPUT, so native
+  // browser behavior already toggles the input on row tap. Previously
+  // had a manual click handler that ALSO toggled → net result was
+  // double-toggle (back to original state). Just listen for changes
+  // on the inputs to keep the counter in sync.
+  ov.querySelectorAll('.kbItemCheck').forEach(cb => {
+    cb.addEventListener('change', () => _kbUpdateSelCount_());
   });
   _kbUpdateSelCount_();
 }
@@ -12663,7 +12663,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.133<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.134<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
