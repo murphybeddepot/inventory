@@ -4265,22 +4265,36 @@ function escHtml_(s) {
 // ── Re-order URL handler ───────────────────────────────────────────
 // When the PWA loads with `?reorder=<sku>`, surface a confirm modal
 // and fire sendReorderRequest on confirm. Activated by a card scan.
+//
+// v10.132: ALSO handle `?markOrdered=<sku>` from the reorder-email
+// "✓ I Just Ordered This" button — opens the Mark Ordered modal
+// pre-filled (qty defaults to reorderQty). Cleanest deep-link path.
 (function handleReorderUrlParam_() {
   try {
     const params = new URLSearchParams(window.location.search);
-    const sku = params.get('reorder');
-    if (!sku) return;
-    // Defer to after the items array is loaded — page init runs many
-    // localStorage reads before this point; setTimeout puts us safely
-    // after the synchronous bootstrap.
-    setTimeout(() => openReorderConfirmModal(sku), 200);
-    // Strip the param so a refresh doesn't re-trigger.
+    const reorderSku = params.get('reorder');
+    const markOrderedSku = params.get('markOrdered');
+    if (!reorderSku && !markOrderedSku) return;
+    setTimeout(() => {
+      if (markOrderedSku) {
+        // Find the item by SKU; if not in the local list yet, fall back
+        // to the kanban tile's behavior (open Add Item flow).
+        const item = items.find(i => !i.deleted && String(i.sku || '').toLowerCase() === String(markOrderedSku).toLowerCase());
+        if (item) {
+          openMarkOrderedModal_(item.uuid);
+        } else {
+          showToast('SKU ' + markOrderedSku + ' not found in local items list — add it first');
+        }
+      } else if (reorderSku) {
+        openReorderConfirmModal(reorderSku);
+      }
+    }, 200);
     if (window.history && window.history.replaceState) {
       const cleanUrl = window.location.pathname + window.location.hash;
       window.history.replaceState({}, document.title, cleanUrl);
     }
   } catch (e) {
-    console.warn('reorder url handler failed:', e);
+    console.warn('reorder/markOrdered url handler failed:', e);
   }
 })();
 
@@ -12649,7 +12663,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.131<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.132<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
