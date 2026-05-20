@@ -5445,8 +5445,31 @@ async function runLookup() {
       resultsEl.innerHTML = '<div style="padding:32px 20px;text-align:center;background:rgba(255,165,0,.08);border:1px dashed rgba(255,165,0,.4);border-radius:10px;color:#FFB300;font-weight:700">No orders found matching <strong>' + esc(q) + '</strong>.<br><span style="font-weight:500;font-size:12px;color:var(--text-dim);margin-top:6px;display:inline-block">' + tip + '</span><br><span style="font-weight:500;font-size:11px;color:var(--text-dim);opacity:.7;margin-top:4px;display:inline-block">Searched: PackingQueue · OrderPack · MattressDropships · CabinetDamage · Calendar</span></div>';
       return;
     }
-    statusEl.textContent = res.hits.length + ' match' + (res.hits.length === 1 ? '' : 'es') + ' for #' + q;
-    resultsEl.innerHTML = res.hits.map(h => renderLookupHit_(h)).join('');
+    // v10.118 (Zac SchedPanels): if the only hit is a calendar entry
+    // (no PackingQueue/OrderPack/Mattress row yet), synthesize a
+    // cabinet/freight panel from the calendar data so the user
+    // always sees BOTH panels — calendar info + cabinet/freight
+    // (in a pending-picklist state until the ingest lands).
+    const hits = (res.hits || []).slice();
+    const calHit = hits.find(h => h && h.source === 'calendar');
+    const hasOrderPanel = hits.some(h => h && (h.source === 'cabinet' || h.source === 'ground' || h.source === 'mattress'));
+    if (calHit && !hasOrderPanel) {
+      hits.unshift({
+        source: 'cabinet',
+        tab: 'PackingQueue',
+        order_number: calHit.order_number,
+        customer_name: '',
+        customer_address: '',
+        customer_phone: '',
+        ship_date: calHit.ship_date,
+        carrier: calHit.carrier,
+        status: 'awaiting_picklist',
+        task_line: calHit.label || '',
+        _synthFromCalendar: true,
+      });
+    }
+    statusEl.textContent = hits.length + ' match' + (hits.length === 1 ? '' : 'es') + ' for #' + q;
+    resultsEl.innerHTML = hits.map(h => renderLookupHit_(h)).join('');
     // P3: progressively upgrade timelines to the order_events spine
     // where it has data (fire-and-forget; falls back to scavenger).
     _lkUpgradeTimelines_(res.hits);
@@ -5737,7 +5760,15 @@ function _lkCard(title, accent, badge, body) {
 }
 
 function renderLookupCabinet_(h) {
+  // v10.118 (Zac SchedPanels): when this panel was synthesized
+  // from a calendar-only hit (no PackingQueue row yet), most
+  // fields are empty by design — show a small pending banner so
+  // the user knows why instead of seeing a sparse card.
+  const pendingBanner = h._synthFromCalendar
+    ? '<div style="margin:-4px 0 10px;padding:8px 10px;background:rgba(255,179,0,.10);border:1px dashed rgba(255,179,0,.55);border-radius:8px;font-size:11px;color:#FFB300;-webkit-text-fill-color:#FFB300">Awaiting pick-list email — full pack/scan/HW detail appears once it lands. Cabinet/Freight context shown from the calendar.</div>'
+    : '';
   const body = ''
+    + pendingBanner
     + _lkFld('Order #', h.order_number, { mono: true })
     + _lkFld('Customer', h.customer_name)
     + _lkFld('Address', h.customer_address)
