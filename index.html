@@ -6748,6 +6748,10 @@ function renderSpecificCabinet(id) {
   } else {
     html += '<button onclick="undoPullCabinet(\''+id+'\')" style="width:100%;margin-top:10px;padding:12px;font-size:13px;font-weight:700;background:#fff;color:#003087;border:2px solid #003087;border-radius:10px;cursor:pointer">↩ Undo Pull (return to storage)</button>';
   }
+  // v10.121: post-commit damage reporting — available whether or not
+  // the cabinet has been pulled. Subdued outline-style so it doesn't
+  // compete with Move / Pull / Undo Pull as the primary actions.
+  html += '<button onclick="openMarkDamagedFromLookup('+JSON.stringify(c.cabinet||'')+')" style="width:100%;margin-top:8px;padding:11px;font-size:12px;font-weight:700;background:rgba(139,0,0,.05);color:#8B0000;border:1.5px solid rgba(139,0,0,.45);border-radius:10px;cursor:pointer;text-transform:uppercase;letter-spacing:.8px">🚫 Mark Damaged</button>';
 
   // Delete this specific record — visible only when there are duplicates
   // (deleting a unique cabinet is too risky to expose as a one-tap action;
@@ -8963,6 +8967,58 @@ function submitMarkDamaged(idx) {
   });
 
   renderReceiveSession();
+}
+
+// v10.121: post-commit damage report from the Cabinets-tab Lookup view.
+// Session-less — server resolves the original receive session by cabinet#
+// (or stores a 'post_commit_lookup' marker if there's no match).
+function openMarkDamagedFromLookup(cabinetNum) {
+  const num = String(cabinetNum || '').trim();
+  if (!num) { showToast('Cabinet number missing'); return; }
+  const ov = document.createElement('div');
+  ov.id = 'markDamagedOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998';
+  ov.onclick = (e) => { if (e.target === ov) closeMarkDamagedModal(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;border-radius:14px;padding:20px;width:min(420px,92vw);box-shadow:0 16px 40px rgba(0,0,0,.4)">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#8B0000;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">🚫 Mark Damaged</div>'
+    + '<div style="font-size:13px;color:#444;margin-bottom:14px">Cabinet <strong>'+esc(num)+'</strong> — describe what\'s wrong. Seth and Zac will be emailed immediately. The damage record will link back to this cabinet\'s original receive session automatically.</div>'
+    + '<textarea id="markDamagedNotes" placeholder="e.g. left side panel cracked, top edge crushed" autocomplete="off" style="width:100%;min-height:90px;padding:12px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px;-webkit-appearance:none;resize:vertical;font-family:inherit"></textarea>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button onclick="closeMarkDamagedModal()" style="flex:1;padding:12px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '<button onclick="submitMarkDamagedFromLookup('+JSON.stringify(num)+')" style="flex:1;padding:12px;background:#8B0000;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">🚫 Mark Damaged</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const t = document.getElementById('markDamagedNotes'); if (t) t.focus(); }, 50);
+}
+
+function submitMarkDamagedFromLookup(cabinetNum) {
+  const num = String(cabinetNum || '').trim();
+  const notesInp = document.getElementById('markDamagedNotes');
+  const notes = (notesInp && notesInp.value.trim()) || '';
+  closeMarkDamagedModal();
+  let person = '';
+  try { person = (localStorage.getItem('mbd_ground_packer') || '').trim(); } catch(e) {}
+  if (!GROUND_ORCH_URL) {
+    showToast('🚫 No orchestrator configured — damage NOT recorded');
+    return;
+  }
+  groundApi('markCabinetDamaged', {
+    cabinetNum: num,
+    notes: notes,
+    reportedBy: person || '(lookup)',
+  }).then(resp => {
+    if (resp && resp.ok) {
+      showToast('🚫 Marked damaged · Seth + Zac alerted');
+    } else {
+      console.warn('markCabinetDamaged (lookup) non-OK:', resp);
+      showToast('⚠ Damage report failed: ' + ((resp && resp.error) || 'unknown'));
+    }
+  }).catch(err => {
+    console.warn('markCabinetDamaged (lookup) error:', err);
+    showToast('⚠ Damage report failed: ' + err.message);
+  });
 }
 
 // v71 Phase 2: Damage Log — list open damage records with inline
@@ -12198,7 +12254,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.120<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.121<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
