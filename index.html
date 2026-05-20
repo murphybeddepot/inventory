@@ -1436,11 +1436,15 @@ input::placeholder, textarea::placeholder {
     Tap <strong>+ Add Cabinet(s)</strong> above to add cabinets one or many at a time, or use Upload Spreadsheet (admin tools below).
   </div>
 
-  <!-- SHOW PULLED TOGGLE -->
-  <div style="margin-top:0;margin-bottom:14px">
+  <!-- SHOW PULLED / DAMAGED TOGGLES -->
+  <div style="margin-top:0;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:14px">
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;cursor:pointer">
       <input type="checkbox" id="showPulledToggle" onchange="togglePulled(this.checked)" style="width:18px;height:18px;cursor:pointer">
       Show pulled cabinets in search
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;cursor:pointer">
+      <input type="checkbox" id="showDamagedToggle" onchange="toggleDamaged(this.checked)" style="width:18px;height:18px;cursor:pointer">
+      Show damaged cabinets in search
     </label>
   </div>
 
@@ -3348,6 +3352,12 @@ try {
 // Show pulled cabinets in search? Off by default — they're history.
 let showPulled = false;
 try { showPulled = localStorage.getItem('mbd_show_pulled') === 'true'; } catch(e) {}
+// v10.123: parallel showDamaged toggle — damaged cabinets are hidden
+// from search by default (so they can't be accidentally pulled), but
+// findable when this toggle is on (e.g. to check status / close the
+// damage record once ARCH sends them back cleaned).
+let showDamaged = false;
+try { showDamaged = localStorage.getItem('mbd_show_damaged') === 'true'; } catch(e) {}
 
 function saveCabinets() {
   try { localStorage.setItem('mbd_cabinets', JSON.stringify(cabinets)); } catch(e) {}
@@ -3371,6 +3381,9 @@ function findCabinets(query) {
   // Always exclude soft-deleted records
   let pool = cabinets.filter(c => !c.deleted);
   if (!showPulled) pool = pool.filter(c => !c.pulledAt);
+  // v10.123: hide damaged from search by default so they can't be
+  // accidentally pulled. Toggleable via the Show damaged checkbox.
+  if (!showDamaged) pool = pool.filter(c => !c.damaged);
 
   // 1. Exact match on cabinet # — return only that, it's almost certainly what they want
   const exact = pool.filter(c => normCab(c.cabinet) === q);
@@ -3452,6 +3465,7 @@ function renderRecentSearches() {
 
 function renderCabinets() {
   syncShowPulledToggle();
+  syncShowDamagedToggle();
   refreshSyncStatus();
   renderRecentSearches();
   renderActiveSessionBadge();
@@ -6603,7 +6617,11 @@ function renderCabResult(query) {
   if (hits.length === 1) recordRecentSearch(hits[0]);
   if (!hits.length) {
     // Maybe it's a pulled cabinet hidden from view
-    const wasPulled = !showPulled && cabinets.some(c => c.pulledAt &&
+    const wasPulled = !showPulled && cabinets.some(c => c.pulledAt && !c.deleted &&
+      normCab(c.cabinet) === normCab(query)
+    );
+    // v10.123: or hidden because it's marked damaged
+    const wasDamaged = !showDamaged && cabinets.some(c => c.damaged && !c.pulledAt && !c.deleted &&
       normCab(c.cabinet) === normCab(query)
     );
     el.innerHTML = '<div style="background:#FDECEA;border:2px solid #8B0000;border-radius:14px;padding:20px;text-align:center">'
@@ -6611,6 +6629,7 @@ function renderCabResult(query) {
       + '<div style="font-size:18px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.5px">No match</div>'
       + '<div style="font-size:13px;color:#666;margin-top:6px">Nothing found for "'+esc(query)+'".</div>'
       + (wasPulled ? '<div style="font-size:12px;color:#8B4000;margin-top:10px;background:#FFF3CC;padding:8px 12px;border-radius:6px;display:inline-block">ℹ This cabinet exists but was already pulled. Toggle "Show pulled" to see it.</div>' : '')
+      + (wasDamaged ? '<div style="font-size:12px;color:#8B4000;margin-top:10px;background:#FFE0E0;padding:8px 12px;border-radius:6px;display:inline-block">🚫 This cabinet is marked damaged and hidden from search. Toggle "Show damaged" to see it.</div>' : '')
       + '</div>';
     expandCabKeypad();
     return;
@@ -6626,13 +6645,16 @@ function renderCabResult(query) {
     const c = hits[0];
     const id = cabId(c);
     const isPulled = !!c.pulledAt;
-    const headerColor = isPulled ? 'linear-gradient(135deg,#555,#777)' : 'linear-gradient(135deg,#0D1520,#111D2E)';
+    const isDamaged = !!c.damaged;
+    const headerColor = isDamaged ? 'linear-gradient(135deg,#5A0000,#8B0000)' : isPulled ? 'linear-gradient(135deg,#555,#777)' : 'linear-gradient(135deg,#0D1520,#111D2E)';
     const locColor = isPulled ? 'rgba(255,255,255,.7)' : '#fff';
 
     let html = '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.5)">'
       + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">Cabinet</div>'
       + '<div style="font-size:26px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">' + esc(c.cabinet||'—') + '</div>'
-      + (isPulled
+      + (isDamaged
+          ? '<div style="display:inline-block;background:#fff;color:#8B0000;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">🚫 Damaged · Hidden from Pulls</div>'
+          : isPulled
           ? '<div style="display:inline-block;background:#8B0000;color:#fff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:6px">✓ Pulled for Fulfillment</div>'
           : '')
       + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Location</div>'
@@ -6650,7 +6672,16 @@ function renderCabResult(query) {
         + '</div>';
     }
 
-    if (!isPulled) {
+    if (isDamaged) {
+      // v10.123: Pull is gated while damaged — guide to Damage Log to
+      // close the record instead. Move still allowed (relocating a
+      // damaged unit awaiting cleanup is fine).
+      html += '<div style="background:#FFE0E0;border:1.5px solid #8B0000;border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;color:#5A0000;line-height:1.5">'
+        +   '<strong>🚫 Marked damaged · Pull blocked.</strong>'
+        +   '<div style="margin-top:4px">Open <a href="#" onclick="openDamageLog();return false" style="color:#8B0000;text-decoration:underline;font-weight:700">Damage Log</a> and mark the record <em>complete</em> when ARCH sends it back cleaned — that re-enables Pull automatically.</div>'
+        + '</div>'
+        + '<button onclick="openMoveCabinet(\''+id+'\')" style="width:100%;margin-top:10px;padding:12px;font-size:13px;font-weight:700;background:#fff;color:#FF9100;border:2px solid #FF9100;border-radius:10px;cursor:pointer">↪ Move (relocate within warehouse)</button>';
+    } else if (!isPulled) {
       html += '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
         + '<button onclick="openMoveCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#FF9100;color:#fff;border:none;border-radius:10px;cursor:pointer">↪ Move</button>'
         + '<button onclick="openPullCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#8B0000;color:#fff;border:none;border-radius:10px;cursor:pointer">📤 Pull for Fulfillment</button>'
@@ -6717,7 +6748,8 @@ function renderSpecificCabinet(id) {
   );
   const hasDupes = siblings.length > 0;
   const isPulled = !!c.pulledAt;
-  const headerColor = isPulled ? 'linear-gradient(135deg,#555,#777)' : 'linear-gradient(135deg,#0D1520,#111D2E)';
+  const isDamaged = !!c.damaged;
+  const headerColor = isDamaged ? 'linear-gradient(135deg,#5A0000,#8B0000)' : isPulled ? 'linear-gradient(135deg,#555,#777)' : 'linear-gradient(135deg,#0D1520,#111D2E)';
   const locColor = isPulled ? 'rgba(255,255,255,.7)' : '#fff';
 
   let html = '';
@@ -6728,7 +6760,9 @@ function renderSpecificCabinet(id) {
   html += '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.5)">'
     + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">Cabinet</div>'
     + '<div style="font-size:26px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">' + esc(c.cabinet||'—') + '</div>'
-    + (isPulled
+    + (isDamaged
+        ? '<div style="display:inline-block;background:#fff;color:#8B0000;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">🚫 Damaged · Hidden from Pulls</div>'
+        : isPulled
         ? '<div style="display:inline-block;background:#8B0000;color:#fff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:6px">✓ Pulled for Fulfillment</div>'
         : '')
     + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin-top:14px">Location</div>'
@@ -6745,7 +6779,14 @@ function renderSpecificCabinet(id) {
       + '</div>';
   }
 
-  if (!isPulled) {
+  if (isDamaged) {
+    // v10.123: Pull is gated while damaged. Move still allowed.
+    html += '<div style="background:#FFE0E0;border:1.5px solid #8B0000;border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;color:#5A0000;line-height:1.5">'
+      +   '<strong>🚫 Marked damaged · Pull blocked.</strong>'
+      +   '<div style="margin-top:4px">Open <a href="#" onclick="openDamageLog();return false" style="color:#8B0000;text-decoration:underline;font-weight:700">Damage Log</a> and mark the record <em>complete</em> when ARCH sends it back cleaned — that re-enables Pull automatically.</div>'
+      + '</div>'
+      + '<button onclick="openMoveCabinet(\''+id+'\')" style="width:100%;margin-top:10px;padding:12px;font-size:13px;font-weight:700;background:#fff;color:#FF9100;border:2px solid #FF9100;border-radius:10px;cursor:pointer">↪ Move (relocate within warehouse)</button>';
+  } else if (!isPulled) {
     html += '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
       + '<button onclick="openMoveCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#FF9100;color:#fff;border:none;border-radius:10px;cursor:pointer">↪ Move</button>'
       + '<button onclick="openPullCabinet(\''+id+'\')" style="flex:1;min-width:140px;padding:14px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#8B0000;color:#fff;border:none;border-radius:10px;cursor:pointer">📤 Pull for Fulfillment</button>'
@@ -9114,7 +9155,7 @@ function damageRecordCardHtml_(r) {
   const partsDue = r.parts_due_date ? String(r.parts_due_date).slice(0,10) : '';
   const safeId = esc(r.damage_id || '');
   return ''
-    + '<div data-damage-id="'+safeId+'" style="background:#fff;border:1.5px solid #e0e0e0;border-left:5px solid '+statusColor+';border-radius:10px;padding:14px 16px;margin-bottom:10px">'
+    + '<div data-damage-id="'+safeId+'" data-cabinet-num="'+esc(r.cabinet_num||'')+'" style="background:#fff;border:1.5px solid #e0e0e0;border-left:5px solid '+statusColor+';border-radius:10px;padding:14px 16px;margin-bottom:10px">'
     +   '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:.5px">'+esc(r.cabinet_num||'?')+'</div>'
     +     '<div style="font-size:10px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:1px">'+esc(r.session_id||'')+'</div>'
@@ -9185,6 +9226,27 @@ async function updateDamageField(damageId, field, value) {
     if (resp && resp.ok) {
       const verb = field === 'status' ? 'Status' : (field === 'parts_due_date' ? 'Parts due' : field);
       showToast('✓ '+verb+' saved');
+      // v10.123: when status flips to 'complete', the server clears the
+      // cabinet's damaged flag (so Pull is re-enabled). Sync our local
+      // cabinets array so the cabinet re-appears in Cabinets search
+      // immediately without a hard refresh. Cabinet # is read from the
+      // damage-log card's data attribute (set in damageRecordCardHtml_).
+      if (field === 'status' && value === 'complete') {
+        try {
+          const card = document.querySelector('[data-damage-id="'+damageId+'"]');
+          const cabNum = card ? (card.getAttribute('data-cabinet-num') || '').trim() : '';
+          if (cabNum) {
+            let flipped = 0;
+            cabinets.forEach(c => {
+              if (c.damaged && normCab(c.cabinet) === normCab(cabNum)) {
+                c.damaged = false;
+                flipped++;
+              }
+            });
+            if (flipped > 0) saveCabinets();
+          }
+        } catch(e) {}
+      }
       // Auto-refresh so the card's left-border color matches the new status,
       // and to drop "complete" rows out of the list when applicable.
       refreshDamageLog();
@@ -9313,6 +9375,12 @@ function undoPullCabinet(id) {
 function togglePulled(on) {
   showPulled = on;
   try { localStorage.setItem('mbd_show_pulled', on ? 'true' : 'false'); } catch(e) {}
+  renderCabResult(document.getElementById('cabSearchInput').value);
+}
+
+function toggleDamaged(on) {
+  showDamaged = on;
+  try { localStorage.setItem('mbd_show_damaged', on ? 'true' : 'false'); } catch(e) {}
   renderCabResult(document.getElementById('cabSearchInput').value);
 }
 
@@ -9467,6 +9535,11 @@ function cabRemoveMember(i) {
 function syncShowPulledToggle() {
   const t = document.getElementById('showPulledToggle');
   if (t) t.checked = showPulled;
+}
+
+function syncShowDamagedToggle() {
+  const t = document.getElementById('showDamagedToggle');
+  if (t) t.checked = showDamaged;
 }
 
 function printCommandCard() {
@@ -12259,7 +12332,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.122<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.123<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
