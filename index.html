@@ -4364,8 +4364,59 @@ async function _openEmailTplEditor_(templateKey) {
   // Quill mount point
   const quillMount = document.createElement('div');
   quillMount.id = 'emailTplQuill';
-  quillMount.style.cssText = 'min-height:300px;background:#fff;border:1.5px solid #ccc;border-radius:8px';
+  quillMount.style.cssText = 'min-height:280px;background:#fff;border:1.5px solid #ccc;border-radius:8px';
   panel.appendChild(quillMount);
+
+  // v10.138 — Live preview pane (Phase 1). Renders the template with
+  // sample data substituted in. Updates on Quill text-change + subject
+  // input. Toggleable.
+  const previewToggle = document.createElement('label');
+  previewToggle.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:#666;cursor:pointer;margin-top:4px';
+  const previewCb = document.createElement('input');
+  previewCb.type = 'checkbox';
+  previewCb.id = 'emailTplPreviewToggle';
+  previewCb.checked = true;
+  previewCb.style.cssText = 'width:16px;height:16px';
+  previewToggle.appendChild(previewCb);
+  previewToggle.appendChild(document.createTextNode(' 👁 Show live preview (sample data substituted)'));
+  panel.appendChild(previewToggle);
+
+  const previewPane = document.createElement('div');
+  previewPane.id = 'emailTplPreviewPane';
+  previewPane.style.cssText = 'border:1.5px solid #003087;border-radius:8px;background:#F8FAFD;padding:12px 14px;font-size:13px;line-height:1.55;min-height:120px';
+  previewPane.innerHTML = '<div style="font-size:10px;font-weight:900;color:#003087;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview</div><div id="emailTplPreviewSubj" style="font-weight:700;margin-bottom:6px"></div><div id="emailTplPreviewBody"></div>';
+  panel.appendChild(previewPane);
+  previewCb.addEventListener('change', () => {
+    previewPane.style.display = previewCb.checked ? 'block' : 'none';
+  });
+
+  // v10.138 — Send Test row (Phase 1, Q1 of the editor red-pen):
+  // dropdown of [Zac, Seth, Jessica, Ken, Kim], no PIN. Sends the
+  // template with sample data substituted in, [TEST] prefix on the
+  // subject. Never touches real customers.
+  const testRow = document.createElement('div');
+  testRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;font-size:13px';
+  testRow.innerHTML = '<span style="font-weight:700;color:#8B4F00">📧 Send test:</span>';
+  const testSel = document.createElement('select');
+  testSel.id = 'emailTplTestRecipient';
+  testSel.style.cssText = 'padding:7px 10px;font-size:13px;border:1.5px solid #ccc;border-radius:6px;background:#fff';
+  ['Zac', 'Seth', 'Jessica', 'Ken', 'Kim'].forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    testSel.appendChild(opt);
+  });
+  testRow.appendChild(testSel);
+  const testBtn = document.createElement('button');
+  testBtn.textContent = '📨 Send Test';
+  testBtn.style.cssText = 'padding:8px 14px;background:#FF9100;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px';
+  testBtn.addEventListener('click', () => _sendEmailTplTest_(templateKey, testSel, testBtn));
+  testRow.appendChild(testBtn);
+  const testStatus = document.createElement('span');
+  testStatus.id = 'emailTplTestStatus';
+  testStatus.style.cssText = 'font-size:12px;color:#666;flex:1;text-align:right';
+  testRow.appendChild(testStatus);
+  panel.appendChild(testRow);
 
   // Footer
   const footer = document.createElement('div');
@@ -4410,6 +4461,76 @@ async function _openEmailTplEditor_(templateKey) {
   } catch (err) {
     console.error('Quill init failed:', err);
     alert('Editor init failed: ' + err.message);
+    return;
+  }
+
+  // v10.138 — Live preview wiring. Debounced refresh on text-change
+  // + subject input. Initial render below.
+  let _previewTimer = null;
+  const refreshPreview = () => {
+    if (_previewTimer) clearTimeout(_previewTimer);
+    _previewTimer = setTimeout(() => _refreshEmailTplPreview_(templateKey), 250);
+  };
+  _quillInstance.on('text-change', refreshPreview);
+  subjInput.addEventListener('input', refreshPreview);
+  refreshPreview();
+}
+
+async function _refreshEmailTplPreview_(templateKey) {
+  const pane = document.getElementById('emailTplPreviewPane');
+  const subjEl = document.getElementById('emailTplPreviewSubj');
+  const bodyEl = document.getElementById('emailTplPreviewBody');
+  if (!pane || !subjEl || !bodyEl || !_quillInstance) return;
+  const subject = (document.getElementById('emailTplSubject') || {}).value || '';
+  const bodyHtml = _quillInstance.root.innerHTML || '';
+  try {
+    const res = await groundApi('previewShipConfTemplate', {
+      template_key: templateKey,
+      subject: subject,
+      body_html: bodyHtml,
+    });
+    if (res && res.ok) {
+      subjEl.textContent = res.rendered_subject || '';
+      bodyEl.innerHTML = res.rendered_body_html || '';
+    } else {
+      subjEl.textContent = '';
+      bodyEl.textContent = 'Preview failed: ' + ((res && res.error) || 'unknown');
+    }
+  } catch (err) {
+    bodyEl.textContent = 'Preview error: ' + err.message;
+  }
+}
+
+async function _sendEmailTplTest_(templateKey, selectEl, btn) {
+  if (!_quillInstance) { showToast('Editor not initialized'); return; }
+  const recipient = selectEl ? selectEl.value : '';
+  if (!recipient) { showToast('Pick a recipient'); return; }
+  const subject = (document.getElementById('emailTplSubject') || {}).value || '';
+  const bodyHtml = _quillInstance.root.innerHTML || '';
+  let person = '';
+  try { person = localStorage.getItem('mbd_ground_packer') || ''; } catch(e) {}
+  const status = document.getElementById('emailTplTestStatus');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  if (status) { status.textContent = ''; status.style.color = '#666'; }
+  try {
+    const res = await groundApi('sendShipConfTestEmail', {
+      template_key: templateKey,
+      recipient_label: recipient,
+      subject: subject,
+      body_html: bodyHtml,
+      from_user: person || '(editor)',
+    });
+    if (res && res.ok) {
+      if (status) { status.textContent = '✓ Sent to ' + res.sent_to; status.style.color = '#1A5C1A'; }
+    } else {
+      if (status) { status.textContent = '⚠ ' + ((res && res.error) || 'send failed'); status.style.color = '#8B0000'; }
+    }
+  } catch (err) {
+    if (status) { status.textContent = '⚠ ' + err.message; status.style.color = '#8B0000'; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📨 Send Test';
   }
 }
 
@@ -13036,7 +13157,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.137<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.138<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
