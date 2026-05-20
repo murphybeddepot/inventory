@@ -3918,8 +3918,10 @@ function markItemReceivedFromOrder(uuid) {
 //   • Pick destination: 4×6 label printer (default) | Paper N-up | Custom size
 //   • Print fires window.print() with the right @page CSS for AirPrint
 function openPrintKanbanCards() {
-  const candidates = items.filter(i => !i.deleted);
+  console.log('openPrintKanbanCards: entered');
+  const candidates = (typeof items === 'undefined' ? [] : items).filter(i => i && !i.deleted);
   if (candidates.length === 0) { showToast('No items to print cards for'); return; }
+  console.log('openPrintKanbanCards: ' + candidates.length + ' candidates');
   // Sort same as the kanban view: by lane (reorder > onorder > low > ok),
   // then by deficit-magnitude within each.
   const sorted = candidates.slice().sort((a, b) => {
@@ -3935,79 +3937,161 @@ function openPrintKanbanCards() {
     if (lane === 'reorder' || lane === 'onorder' || lane === 'low') preSel[i.sku] = true;
   });
 
+  // Remove any prior overlay (in case of double-tap).
+  const prior = document.getElementById('kanbanPrintOverlay');
+  if (prior) prior.remove();
+
   const ov = document.createElement('div');
   ov.id = 'kanbanPrintOverlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  ov.innerHTML =
-    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:18px 20px;max-width:640px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px;box-sizing:border-box">'
-    + '<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">🖨 Print Kanban Cards</div><button onclick="document.getElementById(\'kanbanPrintOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#999;cursor:pointer">✕</button></div>'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
 
-    // Destination + size picker.
-    + '<div style="background:#F5F7FA;border:1px solid #e0e0e0;border-radius:10px;padding:10px 12px">'
-    +   '<div style="font-size:11px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Print to</div>'
-    +   '<div style="display:flex;flex-direction:column;gap:6px;font-size:14px">'
-    +     '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="label46" checked onchange="_kbDestChange_()" style="width:18px;height:18px"><span><strong>4×6 label printer</strong> <span style="color:#888;font-size:12px">(default — one card per label)</span></span></label>'
-    +     '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="paperNup" onchange="_kbDestChange_()" style="width:18px;height:18px"><span><strong>Paper printer</strong> <span style="color:#888;font-size:12px">(the one that prints instructions, N-up grid)</span></span></label>'
-    +     '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="custom" onchange="_kbDestChange_()" style="width:18px;height:18px"><span><strong>Custom size</strong></span></label>'
-    +   '</div>'
-    +   '<div id="kbPaperOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px">'
-    +     '<label style="font-size:11px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Cards per page</label>'
-    +     '<select id="kbNup" style="margin-left:8px;padding:6px 8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px"><option value="2">2-up</option><option value="4" selected>4-up</option><option value="6">6-up</option><option value="8">8-up</option></select>'
-    +   '</div>'
-    +   '<div id="kbCustomOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;align-items:center;gap:8px;font-size:13px">'
-    +     '<label>Width <input type="number" id="kbCustomW" value="4" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
-    +     '<label>Height <input type="number" id="kbCustomH" value="6" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
-    +     '<span style="font-size:11px;color:#888;margin-left:4px">(one card per page)</span>'
-    +   '</div>'
-    + '</div>'
+  // Inner panel — built via createElement so any string-escaping bug
+  // in items' SKU/name can't break the modal HTML.
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#fff;border-radius:14px;padding:18px 20px;max-width:640px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px;box-sizing:border-box';
+  panel.addEventListener('click', e => e.stopPropagation());
 
-    // Selection toolbar.
-    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
-    +   '<input type="text" id="kbFilter" placeholder="Filter by SKU or name…" oninput="_kbFilterRows_(this.value)" style="flex:1;min-width:160px;padding:8px 10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none">'
-    +   '<div style="display:flex;gap:6px">'
-    +     '<button onclick="_kbSelectAll_(true)" style="padding:6px 10px;background:#f5f5f5;border:1px solid #ccc;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">All</button>'
-    +     '<button onclick="_kbSelectAll_(false)" style="padding:6px 10px;background:#f5f5f5;border:1px solid #ccc;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">None</button>'
-    +     '<button onclick="_kbSelectAction_()" style="padding:6px 10px;background:#FFF3CC;border:1px solid #FFC107;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Action only</button>'
-    +   '</div>'
-    + '</div>'
-    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#666;cursor:pointer"><input type="checkbox" id="kbShowOk" onchange="_kbToggleOk_(this.checked)" style="width:16px;height:16px"> Include OK-stock items in list</label>'
+  // Header
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+  header.innerHTML = '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">🖨 Print Kanban Cards</div>';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'background:none;border:none;font-size:22px;color:#999;cursor:pointer';
+  closeBtn.addEventListener('click', () => ov.remove());
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
 
-    // Item checkbox list.
-    + '<div id="kbItemList" style="border:1px solid #e0e0e0;border-radius:8px;max-height:300px;overflow-y:auto;background:#fff">'
-    +   sorted.map(item => {
-            const lane = kbLane(item);
-            const sku = String(item.sku || '');
-            const sel = !!preSel[sku];
-            const hideOk = lane === 'ok';
-            const laneTag = ({ reorder: '🔴 REORDER', onorder: '🟠 ON ORDER', low: '🟡 LOW', ok: '✓ OK' })[lane] || lane;
-            const laneColor = ({ reorder: '#8B0000', onorder: '#B25500', low: '#8B4F00', ok: '#1A5C1A' })[lane] || '#444';
-            return '<label class="kbRow" data-sku="' + esc(sku) + '" data-name="' + esc(String(item.name||'').toLowerCase()) + '" data-okhide="' + (hideOk ? '1' : '0') + '" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer;' + (hideOk ? 'display:none' : '') + '">'
-              + '<input type="checkbox" class="kbItemCheck" data-sku="' + esc(sku) + '"' + (sel ? ' checked' : '') + ' style="width:18px;height:18px;flex-shrink:0">'
-              + '<div style="font-family:monospace;font-size:13px;font-weight:700;color:#1a1a1a;min-width:120px">' + esc(sku) + '</div>'
-              + '<div style="flex:1;font-size:13px;color:#444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(String(item.name||'')) + '</div>'
-              + '<span style="font-size:10px;font-weight:900;color:' + laneColor + ';letter-spacing:.5px;flex-shrink:0">' + laneTag + '</span>'
-              + '</label>';
-          }).join('')
+  // Destination picker block (static HTML — no items data)
+  const destBox = document.createElement('div');
+  destBox.style.cssText = 'background:#F5F7FA;border:1px solid #e0e0e0;border-radius:10px;padding:10px 12px';
+  destBox.innerHTML =
+    '<div style="font-size:11px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Print to</div>'
+    + '<div style="display:flex;flex-direction:column;gap:6px;font-size:14px">'
+    +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="label46" checked style="width:18px;height:18px"><span><strong>4×6 label printer</strong> <span style="color:#888;font-size:12px">(default — one card per label)</span></span></label>'
+    +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="paperNup" style="width:18px;height:18px"><span><strong>Paper printer</strong> <span style="color:#888;font-size:12px">(the one that prints instructions, N-up grid)</span></span></label>'
+    +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="custom" style="width:18px;height:18px"><span><strong>Custom size</strong></span></label>'
     + '</div>'
-
-    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:4px">'
-    +   '<div id="kbSelCount" style="font-size:13px;color:#666;font-weight:700"></div>'
-    +   '<div style="display:flex;gap:8px">'
-    +     '<button onclick="document.getElementById(\'kanbanPrintOverlay\').remove()" style="padding:11px 16px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
-    +     '<button onclick="_kbPrintSelected_()" style="padding:11px 18px;background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🖨 Print</button>'
-    +   '</div>'
+    + '<div id="kbPaperOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px">'
+    +   '<label style="font-size:11px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Cards per page</label>'
+    +   '<select id="kbNup" style="margin-left:8px;padding:6px 8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px"><option value="2">2-up</option><option value="4" selected>4-up</option><option value="6">6-up</option><option value="8">8-up</option></select>'
     + '</div>'
+    + '<div id="kbCustomOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;align-items:center;gap:8px;font-size:13px">'
+    +   '<label>Width <input type="number" id="kbCustomW" value="4" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
+    +   '<label>Height <input type="number" id="kbCustomH" value="6" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
+    +   '<span style="font-size:11px;color:#888;margin-left:4px">(one card per page)</span>'
     + '</div>';
-  document.body.appendChild(ov);
-  // v10.134: the row is a <label> wrapping a checkbox INPUT, so native
-  // browser behavior already toggles the input on row tap. Previously
-  // had a manual click handler that ALSO toggled → net result was
-  // double-toggle (back to original state). Just listen for changes
-  // on the inputs to keep the counter in sync.
-  ov.querySelectorAll('.kbItemCheck').forEach(cb => {
-    cb.addEventListener('change', () => _kbUpdateSelCount_());
+  panel.appendChild(destBox);
+  destBox.querySelectorAll('input[name="kbDest"]').forEach(r => r.addEventListener('change', _kbDestChange_));
+
+  // Selection toolbar
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap';
+  const filter = document.createElement('input');
+  filter.id = 'kbFilter';
+  filter.type = 'text';
+  filter.placeholder = 'Filter by SKU or name…';
+  filter.style.cssText = 'flex:1;min-width:160px;padding:8px 10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none';
+  filter.addEventListener('input', () => _kbFilterRows_(filter.value));
+  toolbar.appendChild(filter);
+  const btnGroup = document.createElement('div');
+  btnGroup.style.cssText = 'display:flex;gap:6px';
+  ['All', 'None', 'Action only'].forEach((label, idx) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = idx === 2
+      ? 'padding:6px 10px;background:#FFF3CC;border:1px solid #FFC107;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer'
+      : 'padding:6px 10px;background:#f5f5f5;border:1px solid #ccc;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer';
+    b.addEventListener('click', () => {
+      if (idx === 0) _kbSelectAll_(true);
+      else if (idx === 1) _kbSelectAll_(false);
+      else _kbSelectAction_();
+    });
+    btnGroup.appendChild(b);
   });
+  toolbar.appendChild(btnGroup);
+  panel.appendChild(toolbar);
+
+  // Show OK toggle
+  const okLabel = document.createElement('label');
+  okLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:#666;cursor:pointer';
+  const okCb = document.createElement('input');
+  okCb.type = 'checkbox';
+  okCb.id = 'kbShowOk';
+  okCb.style.cssText = 'width:16px;height:16px';
+  okCb.addEventListener('change', () => _kbToggleOk_(okCb.checked));
+  okLabel.appendChild(okCb);
+  okLabel.appendChild(document.createTextNode(' Include OK-stock items in list'));
+  panel.appendChild(okLabel);
+
+  // Item list — built via createElement so any character in SKU/name
+  // can't break the markup.
+  const listBox = document.createElement('div');
+  listBox.id = 'kbItemList';
+  listBox.style.cssText = 'border:1px solid #e0e0e0;border-radius:8px;max-height:300px;overflow-y:auto;background:#fff';
+  sorted.forEach(item => {
+    const lane = kbLane(item);
+    const sku = String(item.sku || '');
+    const sel = !!preSel[sku];
+    const hideOk = lane === 'ok';
+    const laneTag = ({ reorder: '🔴 REORDER', onorder: '🟠 ON ORDER', low: '🟡 LOW', ok: '✓ OK' })[lane] || lane;
+    const laneColor = ({ reorder: '#8B0000', onorder: '#B25500', low: '#8B4F00', ok: '#1A5C1A' })[lane] || '#444';
+    const row = document.createElement('label');
+    row.className = 'kbRow';
+    row.setAttribute('data-sku', sku);
+    row.setAttribute('data-name', String(item.name || '').toLowerCase());
+    row.setAttribute('data-okhide', hideOk ? '1' : '0');
+    row.style.cssText = 'display:' + (hideOk ? 'none' : 'flex') + ';align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'kbItemCheck';
+    cb.setAttribute('data-sku', sku);
+    cb.checked = sel;
+    cb.style.cssText = 'width:18px;height:18px;flex-shrink:0';
+    cb.addEventListener('change', _kbUpdateSelCount_);
+    row.appendChild(cb);
+    const skuDiv = document.createElement('div');
+    skuDiv.style.cssText = 'font-family:monospace;font-size:13px;font-weight:700;color:#1a1a1a;min-width:120px';
+    skuDiv.textContent = sku;
+    row.appendChild(skuDiv);
+    const nameDiv = document.createElement('div');
+    nameDiv.style.cssText = 'flex:1;font-size:13px;color:#444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    nameDiv.textContent = String(item.name || '');
+    row.appendChild(nameDiv);
+    const tagSpan = document.createElement('span');
+    tagSpan.style.cssText = 'font-size:10px;font-weight:900;color:' + laneColor + ';letter-spacing:.5px;flex-shrink:0';
+    tagSpan.textContent = laneTag;
+    row.appendChild(tagSpan);
+    listBox.appendChild(row);
+  });
+  panel.appendChild(listBox);
+
+  // Footer with count + Cancel + Print
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:4px';
+  const countDiv = document.createElement('div');
+  countDiv.id = 'kbSelCount';
+  countDiv.style.cssText = 'font-size:13px;color:#666;font-weight:700';
+  footer.appendChild(countDiv);
+  const actBtns = document.createElement('div');
+  actBtns.style.cssText = 'display:flex;gap:8px';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'padding:11px 16px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer';
+  cancelBtn.addEventListener('click', () => ov.remove());
+  actBtns.appendChild(cancelBtn);
+  const printBtn = document.createElement('button');
+  printBtn.textContent = '🖨 Print';
+  printBtn.style.cssText = 'padding:11px 18px;background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase';
+  printBtn.addEventListener('click', _kbPrintSelected_);
+  actBtns.appendChild(printBtn);
+  footer.appendChild(actBtns);
+  panel.appendChild(footer);
+
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
+  console.log('openPrintKanbanCards: modal appended, ' + sorted.length + ' rows rendered');
   _kbUpdateSelCount_();
 }
 
@@ -12663,7 +12747,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.134<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.135<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
