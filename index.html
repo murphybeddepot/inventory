@@ -4252,7 +4252,7 @@ async function openEmailTemplatesEditor() {
 
   const intro = document.createElement('div');
   intro.style.cssText = 'font-size:12px;color:#666;line-height:1.5';
-  intro.innerHTML = 'Edit the email body templates. Saves go live immediately for any send that fires after. <strong>Phase 0:</strong> Shipping Confirmation templates. More flows (Customer Ready, Reorder, Mattress) added as their migrations land.';
+  intro.innerHTML = 'Edit the email body templates. Saves go live immediately for any send that fires after. Currently wired: <strong>Shipping Confirmation</strong> + <strong>Customer Ready / Pick Lists</strong>. Reorder + Mattress migrate next.';
   panel.appendChild(intro);
 
   const listBox = document.createElement('div');
@@ -4264,13 +4264,18 @@ async function openEmailTemplatesEditor() {
   ov.appendChild(panel);
   document.body.appendChild(ov);
 
+  // v10.142: fetch both ShipConf + Customer Ready templates in parallel.
+  // Group by flow so the editor surface mirrors the Email Types in
+  // docs/EMAIL_TEMPLATES_EDITOR.md §2.
   try {
-    const res = await groundApi('listShipConfTemplates', {});
-    if (!res || !res.ok) {
-      listBox.textContent = 'Failed to load templates: ' + ((res && res.error) || 'unknown');
-      return;
-    }
-    _emailTplsCache = res.templates || [];
+    const [shipRes, crRes] = await Promise.all([
+      groundApi('listShipConfTemplates', {}).catch(err => ({ ok: false, error: err.message })),
+      groundApi('listCustomerReadyTemplates', {}).catch(err => ({ ok: false, error: err.message })),
+    ]);
+    _emailTplsCache = {
+      shipping_confirmation: (shipRes && shipRes.ok) ? (shipRes.templates || []) : [],
+      customer_ready: (crRes && crRes.ok) ? (crRes.templates || []) : [],
+    };
     _renderEmailTplsList_(listBox);
   } catch (err) {
     listBox.textContent = 'Error loading templates: ' + err.message;
@@ -4279,42 +4284,61 @@ async function openEmailTemplatesEditor() {
 
 function _renderEmailTplsList_(container) {
   container.innerHTML = '';
-  if (!_emailTplsCache || _emailTplsCache.length === 0) {
+  if (!_emailTplsCache) {
     container.textContent = 'No templates configured yet.';
     return;
   }
-  _emailTplsCache.forEach(tpl => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #f0f0f0';
-    const meta = document.createElement('div');
-    meta.style.cssText = 'flex:1;min-width:0';
-    const keyDiv = document.createElement('div');
-    keyDiv.style.cssText = 'font-family:monospace;font-size:13px;font-weight:700;color:#1a1a1a';
-    keyDiv.textContent = tpl.key || '?';
-    meta.appendChild(keyDiv);
-    const subjDiv = document.createElement('div');
-    subjDiv.style.cssText = 'font-size:12px;color:#444;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-    subjDiv.textContent = tpl.subject || '(no subject)';
-    meta.appendChild(subjDiv);
-    const srcChip = document.createElement('span');
-    srcChip.style.cssText = 'font-size:10px;font-weight:900;padding:2px 8px;border-radius:999px;letter-spacing:.5px;text-transform:uppercase;'
-      + (tpl.source === 'tab' ? 'background:#E7EFFC;color:#1A4FB0' : 'background:#FFF8E1;color:#8B4F00');
-    srcChip.textContent = tpl.source === 'tab' ? 'EDITED' : 'DEFAULT';
-    meta.appendChild(srcChip);
-    row.appendChild(meta);
-    const editBtn = document.createElement('button');
-    editBtn.textContent = 'Edit';
-    editBtn.style.cssText = 'padding:8px 14px;background:#003087;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer';
-    editBtn.addEventListener('click', () => _openEmailTplEditor_(tpl.key));
-    row.appendChild(editBtn);
-    container.appendChild(row);
+  // v10.142: cache is now { shipping_confirmation: [...], customer_ready: [...] }
+  // Render per-section with a heading row.
+  const sections = [
+    { key: 'shipping_confirmation', title: '📨 Shipping Confirmation', flow: 'shipping_confirmation' },
+    { key: 'customer_ready', title: '✅ Customer Ready / Pick Lists', flow: 'customer_ready' },
+  ];
+  let any = false;
+  sections.forEach(sec => {
+    const list = _emailTplsCache[sec.key] || [];
+    if (!list.length) return;
+    any = true;
+    const headerRow = document.createElement('div');
+    headerRow.style.cssText = 'padding:10px 14px;background:#F5F7FA;font-size:11px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #e0e0e0;position:sticky;top:0';
+    headerRow.textContent = sec.title;
+    container.appendChild(headerRow);
+    list.forEach(tpl => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #f0f0f0';
+      const meta = document.createElement('div');
+      meta.style.cssText = 'flex:1;min-width:0';
+      const keyDiv = document.createElement('div');
+      keyDiv.style.cssText = 'font-family:monospace;font-size:13px;font-weight:700;color:#1a1a1a';
+      keyDiv.textContent = tpl.key || '?';
+      meta.appendChild(keyDiv);
+      const subjDiv = document.createElement('div');
+      subjDiv.style.cssText = 'font-size:12px;color:#444;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      subjDiv.textContent = tpl.subject || '(no subject)';
+      meta.appendChild(subjDiv);
+      const srcChip = document.createElement('span');
+      srcChip.style.cssText = 'font-size:10px;font-weight:900;padding:2px 8px;border-radius:999px;letter-spacing:.5px;text-transform:uppercase;'
+        + (tpl.source === 'tab' ? 'background:#E7EFFC;color:#1A4FB0' : 'background:#FFF8E1;color:#8B4F00');
+      srcChip.textContent = tpl.source === 'tab' ? 'EDITED' : 'DEFAULT';
+      meta.appendChild(srcChip);
+      row.appendChild(meta);
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Edit';
+      editBtn.style.cssText = 'padding:8px 14px;background:#003087;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer';
+      editBtn.addEventListener('click', () => _openEmailTplEditor_(tpl.key, sec.flow));
+      row.appendChild(editBtn);
+      container.appendChild(row);
+    });
   });
+  if (!any) container.textContent = 'No templates loaded. Check orchestrator connection.';
 }
 
-async function _openEmailTplEditor_(templateKey) {
+async function _openEmailTplEditor_(templateKey, flow) {
   await _ensureQuillLoaded_();
-  const tpl = (_emailTplsCache || []).find(t => t.key === templateKey);
-  if (!tpl) { showToast('Template not found in cache'); return; }
+  flow = flow || 'shipping_confirmation';
+  const flowCache = (_emailTplsCache && _emailTplsCache[flow]) || [];
+  const tpl = flowCache.find(t => t.key === templateKey);
+  if (!tpl) { showToast('Template not found in cache for flow ' + flow); return; }
 
   const prior = document.getElementById('emailTplEditOverlay');
   if (prior) prior.remove();
@@ -4435,7 +4459,7 @@ async function _openEmailTplEditor_(templateKey) {
   const saveBtn = document.createElement('button');
   saveBtn.textContent = '💾 Save';
   saveBtn.style.cssText = 'padding:11px 18px;background:linear-gradient(135deg,#1A5C1A,#00C853);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase';
-  saveBtn.addEventListener('click', () => _saveEmailTpl_(templateKey, ov, status, saveBtn));
+  saveBtn.addEventListener('click', () => _saveEmailTpl_(templateKey, flow, ov, status, saveBtn));
   actBtns.appendChild(saveBtn);
   footer.appendChild(actBtns);
   panel.appendChild(footer);
@@ -4534,8 +4558,9 @@ async function _sendEmailTplTest_(templateKey, selectEl, btn) {
   }
 }
 
-async function _saveEmailTpl_(templateKey, ov, status, saveBtn) {
+async function _saveEmailTpl_(templateKey, flow, ov, status, saveBtn) {
   if (!_quillInstance) { showToast('Editor not initialized'); return; }
+  flow = flow || 'shipping_confirmation';
   const subject = (document.getElementById('emailTplSubject') || {}).value || '';
   const bodyHtml = _quillInstance.root.innerHTML || '';
   if (!subject.trim()) { showToast('Subject is required'); return; }
@@ -4545,8 +4570,10 @@ async function _saveEmailTpl_(templateKey, ov, status, saveBtn) {
   status.textContent = '';
   let person = '';
   try { person = localStorage.getItem('mbd_ground_packer') || ''; } catch(e) {}
+  // v10.142: route to the right save endpoint by flow.
+  const endpoint = flow === 'customer_ready' ? 'saveCustomerReadyTemplate' : 'saveShipConfTemplate';
   try {
-    const res = await groundApi('saveShipConfTemplate', {
+    const res = await groundApi(endpoint, {
       template_key: templateKey,
       subject: subject.trim(),
       body_html: bodyHtml,
@@ -4562,12 +4589,12 @@ async function _saveEmailTpl_(templateKey, ov, status, saveBtn) {
     status.textContent = '✓ Saved ' + new Date(res.saved_at).toLocaleTimeString();
     status.style.color = '#1A5C1A';
     // Update the cache so the list shows EDITED chip on close.
-    if (_emailTplsCache) {
-      const idx = _emailTplsCache.findIndex(t => t.key === templateKey);
+    if (_emailTplsCache && _emailTplsCache[flow]) {
+      const idx = _emailTplsCache[flow].findIndex(t => t.key === templateKey);
       if (idx >= 0) {
-        _emailTplsCache[idx].subject = subject.trim();
-        _emailTplsCache[idx].body_html = bodyHtml;
-        _emailTplsCache[idx].source = 'tab';
+        _emailTplsCache[flow][idx].subject = subject.trim();
+        _emailTplsCache[flow][idx].body_html = bodyHtml;
+        _emailTplsCache[flow][idx].source = 'tab';
       }
     }
     setTimeout(() => {
@@ -13157,7 +13184,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.141<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.142<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
