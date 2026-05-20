@@ -3845,7 +3845,10 @@ function itemKanbanCardHtml(item) {
   const vendor = (item.vendor || item.category || '').trim();
   let actionBtn = '';
   if (lane === 'reorder' || lane === 'low') {
-    actionBtn = '<button class="kb-action action-onorder" onclick="event.stopPropagation();markItemOnOrder(\''+esc(item.uuid)+'\')">📦 Mark on order</button>';
+    // v10.131: route through the modal (capture qty + ETA) instead of
+    // immediate-flip. Renamed "Mark on order" → "Mark Ordered" per
+    // Zac's note that "mark on order" is weird language.
+    actionBtn = '<button class="kb-action action-onorder" onclick="event.stopPropagation();openMarkOrderedModal_(\''+esc(item.uuid)+'\')">📦 Mark Ordered</button>';
   } else if (lane === 'onorder') {
     const since = item.orderedAt ? timeAgoShort_(item.orderedAt) : '';
     actionBtn = '<button class="kb-action action-received" onclick="event.stopPropagation();markItemReceivedFromOrder(\''+esc(item.uuid)+'\')">✓ Mark received</button>';
@@ -3894,9 +3897,14 @@ function markItemReceivedFromOrder(uuid) {
   // transitions the kanban state.
   item.onOrder = false;
   delete item.orderedAt;
+  delete item.orderedQty;
+  delete item.orderEta;
   saveItems();
   showToast('✓ ' + (item.sku || 'item') + ' off on-order — use Add Stock to credit qty');
   renderItems();
+  // Refresh detail card if open.
+  const inp = document.getElementById('itemSearchInput');
+  if (inp && inp.value) renderItemResult(inp.value);
 }
 
 // ── v72 Printable kanban cards (with QR for re-order) ──────────────
@@ -4431,7 +4439,79 @@ function itemDetailHtml(item) {
     + locsHtml
     + '<button onclick="openReceiveStock(\''+item.uuid+'\')" style="width:100%;margin-top:10px;padding:14px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;cursor:pointer">📥 Add Stock</button>'
     + (locs.length ? '<button onclick="openMoveStock(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:13px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;background:#FF9100;color:#fff;border:none;border-radius:10px;cursor:pointer">↪ Move Stock Between Locations</button>' : '')
+    // v10.131: on-order surface on the detail card. Previously only
+    // existed as a kanban-tile button; not findable when you searched
+    // for a SKU and opened the detail.
+    + _itemOnOrderDetailHtml_(item)
     + '<button onclick="openItemEdit(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;cursor:pointer">✏ Edit Item Details</button>';
+}
+
+// v10.131: on-order state surface for the item detail card.
+//   - Not on order: "📦 Mark Ordered" button → opens modal with qty + ETA
+//   - On order: chip showing qty + ETA + "✓ Mark Received" button
+function _itemOnOrderDetailHtml_(item) {
+  if (item.onOrder) {
+    const since = item.orderedAt ? timeAgoShort_(item.orderedAt) : '';
+    const qty = item.orderedQty ? fmt(item.orderedQty) : '';
+    const eta = item.orderEta || '';
+    return '<div style="margin-top:10px;padding:12px 14px;background:#E7EFFC;border:1.5px solid #1A4FB0;border-radius:10px;color:#1A4FB0;font-size:13px;line-height:1.5">'
+      +   '<div style="font-weight:900;text-transform:uppercase;letter-spacing:1px;font-size:11px;margin-bottom:4px">📦 On Order' + (since ? ' · ' + esc(since) + ' ago' : '') + '</div>'
+      +   (qty ? '<div>Qty: <strong>' + qty + '</strong></div>' : '')
+      +   (eta ? '<div>ETA: <strong>' + esc(eta) + '</strong></div>' : '')
+      + '</div>'
+      + '<button onclick="openMarkOrderedModal_(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:11px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#fff;color:#1A4FB0;border:1.5px solid #1A4FB0;border-radius:10px;cursor:pointer">✏ Edit Order Info</button>'
+      + '<button onclick="markItemReceivedFromOrder(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:13px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;cursor:pointer">✓ Mark Received (clears on-order)</button>';
+  }
+  return '<button onclick="openMarkOrderedModal_(\''+item.uuid+'\')" style="width:100%;margin-top:8px;padding:13px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;background:linear-gradient(135deg,#1A4FB0,#003087);color:#fff;border:none;border-radius:10px;cursor:pointer">📦 Mark Ordered (placed PO)</button>';
+}
+
+// v10.131: small modal to record qty + ETA when marking an item ordered.
+// Called from: kanban tile "📦 Mark Ordered" button, item detail card
+// "📦 Mark Ordered" button, AND the deep-link path when an email recipient
+// taps "I ordered this" (?markOrdered=SKU URL param — coming in v10.132).
+function openMarkOrderedModal_(uuid) {
+  const item = items.find(i => i.uuid === uuid);
+  if (!item) return;
+  const defaultQty = item.orderedQty || item.reorderQty || '';
+  const defaultEta = item.orderEta || '';
+  const ov = document.createElement('div');
+  ov.id = 'markOrderedOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10002;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:20px;max-width:380px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.4)">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1A4FB0;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">📦 Mark Ordered</div>'
+    + '<div style="font-size:13px;color:#444;margin-bottom:14px"><strong>' + esc(item.sku || '—') + '</strong>' + (item.name ? ' — ' + esc(item.name) : '') + '</div>'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Qty ordered</label>'
+    + '<input type="number" id="markOrdQty" value="' + esc(defaultQty) + '" min="0" placeholder="(optional)" style="width:100%;padding:11px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 10px;box-sizing:border-box">'
+    + '<label style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Expected arrival (ETA)</label>'
+    + '<input type="date" id="markOrdEta" value="' + esc(defaultEta) + '" style="width:100%;padding:11px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin:2px 0 14px;box-sizing:border-box">'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="document.getElementById(\'markOrderedOverlay\').remove()" style="flex:1;padding:11px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="submitMarkOrdered_(\''+uuid+'\')" style="flex:2;padding:11px;background:linear-gradient(135deg,#1A4FB0,#003087);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">📦 Save</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const q = document.getElementById('markOrdQty'); if (q) q.focus(); }, 60);
+}
+
+function submitMarkOrdered_(uuid) {
+  const item = items.find(i => i.uuid === uuid);
+  if (!item) return;
+  const qty = Number((document.getElementById('markOrdQty') || {}).value || 0);
+  const eta = (document.getElementById('markOrdEta') || {}).value || '';
+  item.onOrder = true;
+  item.orderedAt = Date.now();
+  if (qty > 0) item.orderedQty = qty;
+  if (eta) item.orderEta = eta;
+  saveItems();
+  const ov = document.getElementById('markOrderedOverlay');
+  if (ov) ov.remove();
+  showToast('📦 ' + (item.sku || 'item') + ' marked ordered' + (qty > 0 ? ' (qty ' + qty + ')' : '') + (eta ? ' · ETA ' + eta : ''));
+  renderItems();
+  // Refresh the detail card if open.
+  const inp = document.getElementById('itemSearchInput');
+  if (inp && inp.value) renderItemResult(inp.value);
 }
 
 function openItemDetail(uuid) {
@@ -12569,7 +12649,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.130<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.131<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
