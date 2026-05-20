@@ -1503,9 +1503,13 @@ input::placeholder, textarea::placeholder {
   <!-- BIG SEARCH BAR -->
   <div style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
     <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Find an Item</label>
-    <input type="text" id="itemSearchInput" placeholder="Type or scan SKU…"
-      style="width:100%;padding:14px 16px;font-size:18px;font-weight:600;border:2px solid #ccc;border-radius:10px;outline:none;font-family:inherit;-webkit-appearance:none"
-      autocomplete="off" autocorrect="off" autocapitalize="characters">
+    <div style="position:relative">
+      <input type="text" id="itemSearchInput" placeholder="Type or scan SKU…"
+        style="width:100%;padding:14px 40px 14px 16px;font-size:18px;font-weight:600;border:2px solid #ccc;border-radius:10px;outline:none;font-family:inherit;-webkit-appearance:none;box-sizing:border-box"
+        autocomplete="off" autocorrect="off" autocapitalize="characters">
+      <button type="button" id="itemSearchClear" onclick="_clearItemSearch_()" aria-label="Clear search"
+        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;border:none;background:#e9ecef;color:#666;font-size:18px;line-height:1;cursor:pointer;padding:0;display:none;align-items:center;justify-content:center">×</button>
+    </div>
     <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.5">
       Tip: scan a SKU barcode, or type any part of the SKU or product name. You can also search by category.
     </div>
@@ -2184,6 +2188,16 @@ function handleHandsFreeCommand(code) {
 
   // Backspace / delete last digit
   if (cmd === 'MBD-BACK') {
+    // v10.117 (Zac Q6c): if qty is already empty, BACK steps out
+    // of the stuck-item state by clearing hfActiveItem too — so a
+    // bad-qty scan that errored doesn't strand the user (used to
+    // require MBD-CANCEL to recover).
+    if (!hfQty && hfActiveItem) {
+      hfActiveItem = null;
+      updateHfStatus();
+      showToast('Item cleared — scan again');
+      return;
+    }
     hfQty = hfQty.slice(0, -1);
     updateHfStatus();
     showToast(hfQty ? 'Qty: ' + hfQty : 'Qty cleared');
@@ -2286,11 +2300,24 @@ function showUnmappedBarcode(code) {
   const el = document.getElementById('itemCard');
   const div = document.createElement('div');
   div.className = 'not-found-card';
+  // v10.117 (Zac Q6a): the "Map this barcode \u2192" jump to the
+  // barcodes tab is the right path when you actually want to map
+  // it permanently, but day-to-day a scanner often picks up a SKU
+  // barcode that just isn't mapped yet \u2014 and the user just wants
+  // to find it. Add an inline "Search '<code>' as a SKU instead"
+  // so they can act without leaving the scan tab.
   div.innerHTML = '<div style="font-weight:700;font-size:15px">Unknown barcode</div>'
     + '<p>Barcode <code style="background:#f1f3f4;padding:2px 6px;border-radius:4px">'+esc(code)+'</code> is not mapped to any element yet.</p>'
-    + '<button class="map-it-btn" id="mapItBtn">Map this barcode \u2192</button>';
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +   '<button class="map-it-btn" id="mapItBtn">Map this barcode \u2192</button>'
+    +   '<button id="searchAsSkuBtn" style="padding:10px 14px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">\ud83d\udd0d Search "'+esc(code)+'" as a SKU instead</button>'
+    + '</div>';
   el.innerHTML = ''; el.appendChild(div);
   document.getElementById('mapItBtn').addEventListener('click', () => { pendingBarcode = code; switchTab('barcodes'); });
+  document.getElementById('searchAsSkuBtn').addEventListener('click', () => {
+    const si = document.getElementById('searchInput');
+    if (si) { si.value = code; if (typeof onSearch === 'function') onSearch(); }
+  });
 }
 
 // ── TABS ──────────────────────────────────────────
@@ -3555,6 +3582,17 @@ function findItemByUuid(uuid) {
 }
 function findItemBySku(sku) {
   return items.find(i => !i.deleted && String(i.sku||'').toUpperCase() === String(sku||'').toUpperCase());
+}
+
+// v10.117 (Zac Q3a): clear-X on the Items search input.
+function _clearItemSearch_() {
+  const inp = document.getElementById('itemSearchInput');
+  if (!inp) return;
+  inp.value = '';
+  const x = document.getElementById('itemSearchClear');
+  if (x) x.style.display = 'none';
+  renderItems();
+  inp.focus();
 }
 
 function renderItems() {
@@ -5704,13 +5742,19 @@ function seedStarterItems() {
     if (inp && !inp._wired) {
       inp._wired = true;
       let timer = null;
+      const _toggleClear_ = () => {
+        const x = document.getElementById('itemSearchClear');
+        if (x) x.style.display = inp.value ? 'flex' : 'none';
+      };
       inp.addEventListener('input', () => {
+        _toggleClear_();
         clearTimeout(timer);
         timer = setTimeout(() => renderItems(), 80);
       });
       inp.addEventListener('keydown', e => {
         if (e.key === 'Enter') { renderItems(); setTimeout(() => inp.select(), 50); }
       });
+      _toggleClear_();
     }
     const fileInp = document.getElementById('itemImportInput');
     if (fileInp && !fileInp._wired) {
@@ -12154,7 +12198,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.116<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.117<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
