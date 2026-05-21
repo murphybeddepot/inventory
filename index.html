@@ -795,19 +795,21 @@ input::placeholder, textarea::placeholder {
   color: var(--text-dim) !important;
 }
 
-/* v10.146: descendant exemption. The :not(.keep-dark-text) above
-   only matches when the marked element itself has the class — it
-   does NOT exempt children. Modals with white panels (Email Templates
-   Editor, Mark Ordered, kanban print, damage intake, etc.) put
-   keep-dark-text on the outer panel; this descendant rule extends
-   the exemption to all children inside it. Higher specificity than
-   the generic rules above so it wins despite both having !important. */
-.keep-dark-text [style*="color:#222"], .keep-dark-text [style*="color: #222"],
-.keep-dark-text [style*="color:#444"], .keep-dark-text [style*="color: #444"] {
+/* v10.146 → v10.147: descendant exemption with corrected specificity.
+   v10.146's `.keep-dark-text [style*=]` had specificity (0,2,0) which
+   LOSES to the global override's (0,4,0) → my rule never won → modal
+   children kept showing dim text. v10.147 matches the global's
+   structure (3 attribute-:not's) to push descendant rule to (0,5,0). */
+.keep-dark-text [style*="color:#222"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+.keep-dark-text [style*="color: #222"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+.keep-dark-text [style*="color:#444"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+.keep-dark-text [style*="color: #444"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text) {
   color: #1a1a1a !important;
 }
-.keep-dark-text [style*="color:#666"], .keep-dark-text [style*="color: #666"],
-.keep-dark-text [style*="color:#888"], .keep-dark-text [style*="color: #888"] {
+.keep-dark-text [style*="color:#666"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+.keep-dark-text [style*="color: #666"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+.keep-dark-text [style*="color:#888"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text),
+.keep-dark-text [style*="color: #888"]:not([style*="#E4E7EC"]):not([style*="#BFC4CC"]):not(.keep-dark-text) {
   color: #333 !important;
 }
 
@@ -13231,7 +13233,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.146<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.147<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
