@@ -3076,7 +3076,9 @@ const SCHEDULE_VIEW_MODES = [
   // v10.171 — ShipConf Inbox view (Phase 0a). Filters to cabinet
   // orders in the outreach window where ShipConf hasn't been sent.
   // Data joined client-side from the new listShipConfInbox endpoint.
-  { key: 'shipconf_inbox',   label: '📧 Ship Conf',     color: '#9C27B0' },
+  // v10.180 — color brightened from #9C27B0 (dark purple, fails contrast
+  // on black bg per Zac 16:24 EDT) to #CE93D8 (Material Light Purple).
+  { key: 'shipconf_inbox',   label: '📧 Ship Conf',     color: '#CE93D8' },
 ];
 
 // v10.171 — ShipConf Inbox state. _shipConfInboxMap is order_number →
@@ -3094,6 +3096,32 @@ let _shipConfStatusMap = null;
 let _shipConfStatusFetchedAt = 0;
 const SHIPCONF_STATUS_TTL_MS = 5 * 60 * 1000;
 const SHIPCONF_OUTREACH_BIZ_DAYS = 14;
+
+// v10.180 — heuristic for "is this cabinet order in the ShipConf
+// inbox" that works regardless of view mode. Two paths:
+//  - In shipconf_inbox view, _shipConfInboxMap is server-loaded →
+//    trust it (authoritative).
+//  - In any other view, _shipConfStatusMap is loaded (from v10.175
+//    refreshShipConfStatusMap_ on schedule load). Compute: cabinet,
+//    not yet sent, not yet skipped, arrival within outreach window
+//    (≤20 cal days ahead, includes past-due).
+// Used both by filter (mode match) and by chip-count rendering.
+function _scheduleOrderInShipConfInbox_(o) {
+  if (!o || o.source !== 'cabinet') return false;
+  const orderNum = String(o.order_number || '');
+  if (!orderNum) return false;
+  if (_shipConfInboxMap) {
+    return !!_shipConfInboxMap[orderNum];
+  }
+  const logRow = _shipConfStatusMap && _shipConfStatusMap[orderNum];
+  if (logRow && (logRow.status === 'sent' || logRow.status === 'skipped')) return false;
+  const arrival = String(o.ship_date || '');
+  if (!arrival) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const ship = new Date(arrival + 'T00:00:00');
+  const diffDays = (ship - today) / 86400000;
+  return diffDays <= 20; // includes past-due (negative diff)
+}
 
 function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
@@ -3224,6 +3252,14 @@ function setScheduleViewMode(mode) {
   // inbox set first then repaint. Clear on switch OUT so a stale map
   // doesn't accidentally filter another view.
   if (mode === 'shipconf_inbox') {
+    // v10.180 — show explicit loading state during the fetch (5-15s
+    // for listShipConfInbox since it calls listScheduleByDateRange
+    // internally). Without this, the empty-state message renders
+    // and looks like "nothing in inbox" → confusing per Zac 16:24 EDT.
+    const listEl = document.getElementById('scheduleDayList');
+    if (listEl) {
+      listEl.innerHTML = '<div style="padding:48px 24px;text-align:center;background:rgba(206,147,216,.10);border:1.5px dashed rgba(206,147,216,.45);border-radius:12px;color:#CE93D8;font-size:18px;font-weight:800;letter-spacing:.5px"><div style="font-size:36px;margin-bottom:12px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</div><div>Loading Ship Conf inbox…</div><div style="font-size:11px;color:var(--text-dim);margin-top:8px;font-weight:600;letter-spacing:.5px">Fetching cabinet orders awaiting customer outreach</div></div>';
+    }
     refreshShipConfInbox_().then(() => {
       if (_scheduleCache) paintSchedule_(_scheduleCache);
     });
@@ -3269,12 +3305,17 @@ function _renderScheduleFilterBar_(payload) {
   const bar = document.getElementById('scheduleFilterBar');
   if (!bar) return;
   // Per-mode counts so each pill shows how many it'd surface.
-  const counts = { all: 0, needs_booking: 0, awaiting_customer: 0, stalled: 0 };
+  // v10.180: shipconf_inbox count was missing → rendered "undefined"
+  // on the chip. Computed client-side from _shipConfStatusMap +
+  // arrival window (same heuristic as Phase 0c chip's queued/past_due
+  // detection) so the count works regardless of view mode.
+  const counts = { all: 0, needs_booking: 0, awaiting_customer: 0, stalled: 0, shipconf_inbox: 0 };
   (payload.days || []).forEach(d => (d.orders || []).forEach(o => {
     counts.all++;
     if (_scheduleOrderMatchesMode_(o, 'needs_booking')) counts.needs_booking++;
     if (_scheduleOrderMatchesMode_(o, 'awaiting_customer')) counts.awaiting_customer++;
     if (_scheduleOrderMatchesMode_(o, 'stalled')) counts.stalled++;
+    if (_scheduleOrderInShipConfInbox_(o)) counts.shipconf_inbox++;
   }));
   bar.innerHTML = SCHEDULE_VIEW_MODES.map(m => {
     const active = m.key === _scheduleViewMode;
@@ -3678,11 +3719,19 @@ async function openShipConfPreviewModal(orderNumber) {
     + '</div>'
     + '<div style="background:#F5F7FA;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;color:#333">'
     +   '<div><strong>Order:</strong> #' + esc(orderNumber) + ' · ' + esc(item.customer_name || '—') + '</div>'
-    +   '<div><strong>Arrival:</strong> ' + esc(item.arrival_date || '—') + ' · <strong>Auto Date:</strong> ' + esc(item.auto_offered_date || '—') + ' · <strong>Template:</strong> <code>' + esc(item.template_key) + '</code></div>'
+    +   '<div><strong>Arrival:</strong> ' + esc(item.arrival_date || '—') + ' · <strong>Auto Date:</strong> <span title="' + esc(item.auto_offered_date_explain || '') + '">' + esc(item.auto_offered_date || '—') + '</span> · <strong>Template:</strong> <code>' + esc(item.template_key) + '</code></div>'
     + '</div>'
+    // v10.180 — explicit white-bg/dark-text on the To: input so
+    // the dark theme's default input chrome doesn't bleed through
+    // and render invisible (Zac 16:24 EDT screenshot).
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#1a1a1a"><span style="font-weight:700;min-width:60px">To:</span>'
-    +   '<input type="email" id="shipConfRecipient" value="' + esc(item.customer_email || '') + '" style="flex:1;padding:8px 10px;font-size:13px;border:1.5px solid #ccc;border-radius:6px"></label>'
-    + '<div id="shipConfPreviewBody" style="background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:14px;min-height:200px;max-height:340px;overflow-y:auto;font-size:13px;color:#333;line-height:1.5">Loading preview…</div>'
+    +   '<input type="email" id="shipConfRecipient" value="' + esc(item.customer_email || '') + '" style="flex:1;padding:8px 10px;font-size:13px;border:1.5px solid #ccc;border-radius:6px;background:#fff;color:#1a1a1a"></label>'
+    // v10.180 — preview body wrapped in an iframe (sandboxed) so
+    // the rendered email HTML uses its OWN clean stylesheet — none
+    // of the parent dark-theme overrides or keep-dark-text rewrites
+    // leak in to invert colors. iframe srcdoc'd from rendered HTML
+    // after the fetch completes.
+    + '<iframe id="shipConfPreviewBody" sandbox="allow-same-origin" style="width:100%;background:#fff;border:1px solid #e0e0e0;border-radius:8px;min-height:280px;max-height:380px;font-size:13px" srcdoc="<div style=&quot;font-family:Helvetica,Arial,sans-serif;color:#555;padding:14px&quot;>Loading preview&hellip;</div>"></iframe>'
     + '<div id="shipConfSendStatus" style="font-size:12px;color:#666;min-height:14px"></div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'
     +   '<button onclick="document.getElementById(\'shipConfPreviewOverlay\').remove()" style="padding:11px 16px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
@@ -3705,15 +3754,25 @@ async function openShipConfPreviewModal(orderNumber) {
     });
     const body = document.getElementById('shipConfPreviewBody');
     if (res && res.ok) {
-      body.innerHTML = '<div style="font-weight:700;color:#1a1a1a;margin-bottom:8px;font-size:14px">Subject: ' + esc(res.rendered_subject || '') + '</div>'
-        + '<hr style="border:0;border-top:1px solid #e0e0e0;margin:8px 0">'
-        + (res.rendered_body_html || '<em>(empty body)</em>');
+      // v10.180 — write into iframe srcdoc so the email body renders
+      // with its own clean stylesheet (no dark-theme overrides).
+      const docHtml = '<html><head><style>'
+        + 'body{font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;background:#fff;margin:0;padding:14px;font-size:13px;line-height:1.5}'
+        + '.subj{font-weight:700;color:#1a1a1a;margin-bottom:8px;font-size:14px}'
+        + 'hr{border:0;border-top:1px solid #e0e0e0;margin:8px 0}'
+        + 'a{color:#003087}'
+        + '</style></head><body>'
+        + '<div class="subj">Subject: ' + esc(res.rendered_subject || '') + '</div>'
+        + '<hr>'
+        + (res.rendered_body_html || '<em>(empty body)</em>')
+        + '</body></html>';
+      body.setAttribute('srcdoc', docHtml);
     } else {
-      body.innerHTML = '<div style="color:#c33">Preview failed: ' + esc(res && res.error || 'unknown') + '</div>';
+      body.setAttribute('srcdoc', '<div style="color:#c33;padding:14px;font-family:Helvetica,Arial,sans-serif">Preview failed: ' + esc(res && res.error || 'unknown') + '</div>');
     }
   } catch (err) {
     const body = document.getElementById('shipConfPreviewBody');
-    if (body) body.innerHTML = '<div style="color:#c33">Preview error: ' + esc(err.message) + '</div>';
+    if (body) body.setAttribute('srcdoc', '<div style="color:#c33;padding:14px;font-family:Helvetica,Arial,sans-serif">Preview error: ' + esc(err.message) + '</div>');
   }
 }
 
