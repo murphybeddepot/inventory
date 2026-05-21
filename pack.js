@@ -3509,6 +3509,22 @@ function _scheduleRenderOrderRow_(o, opts) {
   // items, phone, activity timeline). Chips all stopPropagation so
   // they keep their own actions. Mirrors the Tracking v9.93 pattern.
   const rowTap = ' onclick="jumpToLookup_(\'' + esc(o.order_number) + '\')" title="Tap for full order detail"';
+  // v10.173 ShipConf Inbox Phase 0b — when filtering to the inbox view,
+  // append a purple actions footer with Preview/Send + Skip per row.
+  // Other view modes render unchanged.
+  let shipConfFooter = '';
+  if (_scheduleViewMode === 'shipconf_inbox' && o.source === 'cabinet'
+      && _shipConfInboxMap && _shipConfInboxMap[String(o.order_number)]) {
+    const item = _shipConfInboxMap[String(o.order_number)];
+    const autoDate = item.auto_offered_date || '—';
+    const tplKey = item.template_key || 'cc_default';
+    shipConfFooter = '<div style="background:rgba(156,39,176,.10);border-left:3px solid #9C27B0;padding:7px 12px;margin-top:-4px;margin-bottom:6px;border-radius:0 0 6px 6px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:11px">'
+      +   '<span style="color:var(--text-dim)">Auto Date: <strong style="color:#CE93D8;font-family:\'JetBrains Mono\',monospace">' + esc(autoDate) + '</strong></span>'
+      +   '<span style="color:var(--text-dim)">· Template: <code style="font-family:\'JetBrains Mono\',monospace;color:var(--text)">' + esc(tplKey) + '</code></span>'
+      +   '<button onclick="event.stopPropagation();openShipConfPreviewModal(\'' + esc(o.order_number) + '\')" style="margin-left:auto;padding:6px 12px;background:linear-gradient(135deg,#9C27B0,#7B1FA2);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">📧 Preview &amp; Send</button>'
+      +   '<button onclick="event.stopPropagation();openShipConfSkipModal(\'' + esc(o.order_number) + '\')" style="padding:6px 12px;background:rgba(255,255,255,.06);color:var(--text-dim);border:1px solid rgba(255,255,255,.18);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">⊘ Skip</button>'
+      + '</div>';
+  }
   if (opts.compact) {
     // Desktop grid cell — compact two-line layout to fit a column
     return '<div' + rowTap + ' style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3;cursor:pointer">'
@@ -3521,7 +3537,8 @@ function _scheduleRenderOrderRow_(o, opts) {
       +   (statusText ? '<span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">' + esc(statusText.slice(0,14)) + '</span>' : '<span></span>')
       +   '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' + stallChip + custChip + bookerChip + '</div>'
       + '</div>'
-      + '</div>';
+      + '</div>'
+      + shipConfFooter;
   }
   // Mobile / list layout — single-line row
   return '<div' + rowTap + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap;cursor:pointer">'
@@ -3532,7 +3549,184 @@ function _scheduleRenderOrderRow_(o, opts) {
     + stallChip
     + custChip
     + bookerChip
+    + '</div>'
+    + shipConfFooter;
+}
+
+// v10.173 ShipConf Inbox Phase 0b — Preview & Send modal.
+// Fetches the rendered template via previewShipConfTemplate, lets
+// operator review subject + body + recipient, then sends via the
+// shadow path (or sendShipConfReal when SHIPCONF_LIVE Script Property
+// is true). Honors the v10.157 R3 retry pattern + showGlobalLoader.
+async function openShipConfPreviewModal(orderNumber) {
+  const item = _shipConfInboxMap && _shipConfInboxMap[String(orderNumber)];
+  if (!item) {
+    showToast('Order not in inbox — refresh + try again');
+    return;
+  }
+  // Remove any prior overlay first.
+  const prior = document.getElementById('shipConfPreviewOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'shipConfPreviewOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+  const panel = document.createElement('div');
+  panel.className = 'keep-dark-text';
+  panel.style.cssText = 'background:#fff;border-radius:14px;padding:18px 20px;max-width:720px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px;box-sizing:border-box';
+  panel.addEventListener('click', e => e.stopPropagation());
+  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">📧 Preview & Send</div>'
+    + '<button onclick="document.getElementById(\'shipConfPreviewOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="background:#F5F7FA;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;color:#333">'
+    +   '<div><strong>Order:</strong> #' + esc(orderNumber) + ' · ' + esc(item.customer_name || '—') + '</div>'
+    +   '<div><strong>Arrival:</strong> ' + esc(item.arrival_date || '—') + ' · <strong>Auto Date:</strong> ' + esc(item.auto_offered_date || '—') + ' · <strong>Template:</strong> <code>' + esc(item.template_key) + '</code></div>'
+    + '</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#1a1a1a"><span style="font-weight:700;min-width:60px">To:</span>'
+    +   '<input type="email" id="shipConfRecipient" value="' + esc(item.customer_email || '') + '" style="flex:1;padding:8px 10px;font-size:13px;border:1.5px solid #ccc;border-radius:6px"></label>'
+    + '<div id="shipConfPreviewBody" style="background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;padding:14px;min-height:200px;max-height:340px;overflow-y:auto;font-size:13px;color:#333;line-height:1.5">Loading preview…</div>'
+    + '<div id="shipConfSendStatus" style="font-size:12px;color:#666;min-height:14px"></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'
+    +   '<button onclick="document.getElementById(\'shipConfPreviewOverlay\').remove()" style="padding:11px 16px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button id="shipConfSendBtn" onclick="_shipConfSendClick_(\'' + esc(orderNumber) + '\')" style="padding:11px 18px;background:linear-gradient(135deg,#9C27B0,#7B1FA2);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">📧 Send</button>'
     + '</div>';
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
+
+  // Fetch the rendered template body.
+  try {
+    const res = await groundApi('previewShipConfTemplate', {
+      template_key: item.template_key,
+      sample_overrides: {
+        customer_name: item.customer_name || '',
+        order_number: orderNumber,
+        arrival_date: item.arrival_date || '',
+        offered_date: item.auto_offered_date || '',
+        carrier: item.carrier_display || '',
+      },
+    });
+    const body = document.getElementById('shipConfPreviewBody');
+    if (res && res.ok) {
+      body.innerHTML = '<div style="font-weight:700;color:#1a1a1a;margin-bottom:8px;font-size:14px">Subject: ' + esc(res.rendered_subject || '') + '</div>'
+        + '<hr style="border:0;border-top:1px solid #e0e0e0;margin:8px 0">'
+        + (res.rendered_body_html || '<em>(empty body)</em>');
+    } else {
+      body.innerHTML = '<div style="color:#c33">Preview failed: ' + esc(res && res.error || 'unknown') + '</div>';
+    }
+  } catch (err) {
+    const body = document.getElementById('shipConfPreviewBody');
+    if (body) body.innerHTML = '<div style="color:#c33">Preview error: ' + esc(err.message) + '</div>';
+  }
+}
+
+async function _shipConfSendClick_(orderNumber) {
+  const item = _shipConfInboxMap && _shipConfInboxMap[String(orderNumber)];
+  if (!item) { showToast('Order not in inbox'); return; }
+  const recipient = (document.getElementById('shipConfRecipient') || {}).value || '';
+  const statusEl = document.getElementById('shipConfSendStatus');
+  const sendBtn = document.getElementById('shipConfSendBtn');
+  if (sendBtn) sendBtn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Sending…';
+  const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('📧 Sending Ship Conf…') : null;
+  try {
+    const res = await groundApi('sendShipConfReal', {
+      order_number: orderNumber,
+      template_key: item.template_key,
+      recipient: recipient,
+      customer_name: item.customer_name || '',
+      arrival_date: item.arrival_date || '',
+      auto_offered_date: item.auto_offered_date || '',
+      operator: (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e) { return ''; } })(),
+    });
+    if (loader) loader.stop();
+    if (res && res.ok) {
+      const isLive = res.sent === true;
+      showToast(isLive ? '✓ Sent to ' + recipient : '✓ Shadow-logged (SHIPCONF_LIVE=false, no real send)');
+      document.getElementById('shipConfPreviewOverlay').remove();
+      // Refresh inbox so this card drops out.
+      if (typeof refreshShipConfInbox_ === 'function') {
+        refreshShipConfInbox_().then(() => { if (_scheduleCache) paintSchedule_(_scheduleCache); });
+      }
+    } else {
+      if (statusEl) statusEl.textContent = '⚠ ' + ((res && res.error) || 'unknown');
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  } catch (err) {
+    if (loader) loader.stop();
+    if (statusEl) statusEl.textContent = '⚠ ' + err.message;
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+// v10.173 ShipConf Inbox Phase 0b — Skip modal.
+function openShipConfSkipModal(orderNumber) {
+  const item = _shipConfInboxMap && _shipConfInboxMap[String(orderNumber)];
+  if (!item) { showToast('Order not in inbox'); return; }
+  const prior = document.getElementById('shipConfSkipOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'shipConfSkipOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+  const panel = document.createElement('div');
+  panel.className = 'keep-dark-text';
+  panel.style.cssText = 'background:#fff;border-radius:14px;padding:18px 20px;max-width:460px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px';
+  panel.addEventListener('click', e => e.stopPropagation());
+
+  const reasons = [
+    { key: 'no_email', label: 'Customer has no email on file' },
+    { key: 'contacted_directly', label: 'Already contacted directly (phone, etc)' },
+    { key: 'order_cancelled', label: 'Order cancelled — escalate' },
+    { key: 'other', label: 'Other (free-text)' },
+  ];
+  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">⊘ Skip Ship Conf</div><button onclick="document.getElementById(\'shipConfSkipOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666;cursor:pointer">✕</button></div>'
+    + '<div style="font-size:12px;color:#666">Order #' + esc(orderNumber) + ' · ' + esc(item.customer_name || '') + '. Marks this order as "no Ship Conf needed" — drops from the inbox.</div>'
+    + '<div style="display:flex;flex-direction:column;gap:8px">'
+    +   reasons.map(r => '<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fafafa;border:1.5px solid #e0e0e0;border-radius:8px;cursor:pointer"><input type="radio" name="shipConfSkipReason" value="' + r.key + '"' + (r.key === 'other' ? '' : ' checked') + ' style="width:18px;height:18px;cursor:pointer;accent-color:#9C27B0"><span style="font-size:13px;color:#1a1a1a">' + esc(r.label) + '</span></label>').join('')
+    + '</div>'
+    + '<textarea id="shipConfSkipNote" placeholder="Optional note (required for &quot;Other&quot;)…" style="padding:8px 10px;font-size:12px;border:1.5px solid #ccc;border-radius:6px;min-height:50px;resize:vertical;font-family:inherit"></textarea>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +   '<button onclick="document.getElementById(\'shipConfSkipOverlay\').remove()" style="padding:11px 16px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="_shipConfSkipConfirm_(\'' + esc(orderNumber) + '\')" style="padding:11px 18px;background:#666;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">⊘ Skip</button>'
+    + '</div>';
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
+}
+
+async function _shipConfSkipConfirm_(orderNumber) {
+  const reasonInput = document.querySelector('input[name="shipConfSkipReason"]:checked');
+  const reason = reasonInput ? reasonInput.value : 'other';
+  const note = (document.getElementById('shipConfSkipNote') || {}).value || '';
+  if (reason === 'other' && !note.trim()) { showToast('Note required for "Other" reason'); return; }
+  const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('Marking skipped…') : null;
+  try {
+    const res = await groundApi('markShipConfSkipped', {
+      order_number: orderNumber,
+      reason: reason,
+      note: note,
+      operator: (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e) { return ''; } })(),
+    });
+    if (loader) loader.stop();
+    if (res && res.ok) {
+      showToast('✓ Skipped — ' + reason);
+      const ov = document.getElementById('shipConfSkipOverlay');
+      if (ov) ov.remove();
+      // Refresh inbox so the card drops.
+      if (typeof refreshShipConfInbox_ === 'function') {
+        refreshShipConfInbox_().then(() => { if (_scheduleCache) paintSchedule_(_scheduleCache); });
+      }
+    } else {
+      showToast('⚠ Skip failed: ' + ((res && res.error) || 'unknown'));
+    }
+  } catch (err) {
+    if (loader) loader.stop();
+    showToast('⚠ Skip error: ' + err.message);
+  }
 }
 
 // Stalled-only filter panel — taps the red "N STALLED" chip in the
