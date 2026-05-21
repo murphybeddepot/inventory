@@ -158,6 +158,11 @@ function renderPackTab() {
 async function refreshPackQueue() {
   const statusEl = document.getElementById('packQueueStatus');
   statusEl.textContent = 'Loading…';
+  // v10.162 — global loader on first paint only (no flicker when
+  // refreshing already-cached data). showGlobalLoader is defined in
+  // index.html's inline scope.
+  const loader = (typeof showGlobalLoader === 'function' && !_packQueueCache.length)
+    ? showGlobalLoader('Loading pack queue…') : null;
   // v9.99: parallel Day Plan paint into the Pack tab strip.
   paintDayPlanInto_('packDayPlan');
   // Only show the big loading card if we don't have a cached list to
@@ -179,6 +184,7 @@ async function refreshPackQueue() {
       groundApi('listPackingQueue', { status: ['packed'] }),
     ]);
     if (!inflight || !inflight.ok) {
+      if (loader) loader.stop();
       _packStatusError_(statusEl, (inflight && inflight.error) || 'unknown');
       return;
     }
@@ -190,7 +196,9 @@ async function refreshPackQueue() {
     const ipPart = inflightRows.length + ' to pack';
     const pkPart = packedRows.length ? (', ' + packedRows.length + ' awaiting ship') : '';
     statusEl.textContent = ipPart + pkPart;
+    if (loader) loader.stop();
   } catch (err) {
+    if (loader) loader.stop();
     _packStatusError_(statusEl, err.message);
   }
 }
