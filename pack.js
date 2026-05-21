@@ -3067,7 +3067,16 @@ const SCHEDULE_VIEW_MODES = [
   { key: 'needs_booking',    label: 'Needs Booking',    color: '#FFB300' },
   { key: 'awaiting_customer',label: 'Awaiting Customer', color: '#3DBEFF' },
   { key: 'stalled',          label: 'Stalled',          color: '#FF5252' },
+  // v10.171 — ShipConf Inbox view (Phase 0a). Filters to cabinet
+  // orders in the outreach window where ShipConf hasn't been sent.
+  // Data joined client-side from the new listShipConfInbox endpoint.
+  { key: 'shipconf_inbox',   label: '📧 Ship Conf',     color: '#9C27B0' },
 ];
+
+// v10.171 — ShipConf Inbox state. _shipConfInboxMap is order_number →
+// inbox row, populated by refreshShipConfInbox_() on view-mode switch.
+let _shipConfInboxMap = null;
+let _shipConfInboxStats = null;
 
 function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
@@ -3089,13 +3098,53 @@ function _scheduleOrderMatchesMode_(o, mode) {
     const diff = (ship - now) / 86400000;
     return diff >= -1 && diff <= 14;
   }
+  if (mode === 'shipconf_inbox') {
+    // Match if this order_number is in the inbox map (server-side
+    // computed in listShipConfInbox).
+    if (o.source !== 'cabinet') return false;
+    if (!_shipConfInboxMap) return false;
+    return !!_shipConfInboxMap[String(o.order_number || '')];
+  }
   return true;
+}
+
+// v10.171 — fetch the ShipConf inbox set from server. Called when
+// view-mode flips to 'shipconf_inbox'. Cached as long as the user
+// stays in that view; cleared on view-mode change.
+async function refreshShipConfInbox_() {
+  try {
+    const res = await groundApi('listShipConfInbox', {});
+    if (!res || !res.ok) {
+      _shipConfInboxMap = {};
+      _shipConfInboxStats = { total: 0, queued: 0, sent_today: 0, skipped: 0, past_due: 0 };
+      return;
+    }
+    const map = {};
+    (res.inbox || []).forEach(item => { map[String(item.order_number || '')] = item; });
+    _shipConfInboxMap = map;
+    _shipConfInboxStats = res.stats || null;
+  } catch (e) {
+    console.warn('shipConfInbox fetch failed:', e.message);
+    _shipConfInboxMap = {};
+    _shipConfInboxStats = null;
+  }
 }
 
 function setScheduleViewMode(mode) {
   _scheduleViewMode = mode;
   try { localStorage.setItem('mbd_sched_view', mode); } catch(e) {}
-  if (_scheduleCache) paintSchedule_(_scheduleCache);
+  // v10.171 — when switching INTO ShipConf inbox view, fetch the
+  // inbox set first then repaint. Clear on switch OUT so a stale map
+  // doesn't accidentally filter another view.
+  if (mode === 'shipconf_inbox') {
+    refreshShipConfInbox_().then(() => {
+      if (_scheduleCache) paintSchedule_(_scheduleCache);
+    });
+  } else {
+    _shipConfInboxMap = null;
+    _shipConfInboxStats = null;
+    if (_scheduleCache) paintSchedule_(_scheduleCache);
+  }
 }
 
 // v10.12 pass 4: ephemeral order-find (NOT persisted — a stale filter
