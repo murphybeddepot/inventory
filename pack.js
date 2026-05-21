@@ -4723,6 +4723,19 @@ function _remakeEscalate_(remakeId) {
   window.location.href = mailto;
 }
 
+// v10.150 — persona #4 (Jessica): carrier filter chips on the Remakes
+// panel so weekly batch carrier-claim filings can see all FedEx-damaged
+// (or UPS-damaged etc.) orders in one view. Persisted in localStorage.
+let _remakesCarrierFilter = '';
+try { _remakesCarrierFilter = localStorage.getItem('mbd_remakes_carrier_filter') || ''; } catch (e) {}
+
+function setRemakesCarrierFilter_(carrierKey, statusFilter) {
+  _remakesCarrierFilter = String(carrierKey || '');
+  try { localStorage.setItem('mbd_remakes_carrier_filter', _remakesCarrierFilter); } catch (e) {}
+  // Re-render with same status filter (server is re-called to refresh)
+  openRemakesPanel(statusFilter || 'open');
+}
+
 async function openRemakesPanel(statusFilter) {
   statusFilter = statusFilter || 'open';
   const prior = document.getElementById('remakesOverlay');
@@ -4748,8 +4761,26 @@ async function openRemakesPanel(statusFilter) {
     // — uses the alert-red gradient + 🚨 icon so it's clearly the
     // "customer reported damage" path, not the routine remake flow.
     + '<button onclick="openRemakeDamageIntake()" style="width:100%;padding:13px;margin-bottom:12px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🚨 Report Customer Damage</button>'
-    + '<div style="display:flex;gap:6px;margin-bottom:12px">'
-    + ['open', 'pending', 'ready_to_ship', 'shipped', 'all'].map(s => '<button onclick="openRemakesPanel(\'' + s + '\')" style="flex:1;padding:8px 4px;background:' + (s === statusFilter ? '#003087' : '#f5f5f5') + ';color:' + (s === statusFilter ? '#fff' : '#444') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + s.replace(/_/g, ' ') + '</button>').join('')
+    + '<div style="display:flex;gap:6px;margin-bottom:8px">'
+    + ['open', 'pending', 'ready_to_ship', 'shipped', 'all'].map(s => '<button onclick="openRemakesPanel(\'' + s + '\')" style="flex:1;padding:8px 4px;background:' + (s === statusFilter ? '#003087' : '#f5f5f5') + ';color:' + (s === statusFilter ? '#fff' : '#333') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + s.replace(/_/g, ' ') + '</button>').join('')
+    + '</div>'
+    // v10.150: carrier filter chips (Jessica's J3). Active filter is
+    // applied client-side to the fetched rows below. "Any" = no filter.
+    // "🚨 Damaged" = any row with damage_source set, regardless of carrier.
+    + '<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">'
+    + [
+        {k: '', label: 'Any carrier', bg: '#f5f5f5', fg: '#333'},
+        {k: '__damaged__', label: '🚨 Damaged', bg: '#FFE0E0', fg: '#8B0000'},
+        {k: 'fedex', label: '🚚 FedEx', bg: '#f5f5f5', fg: '#333'},
+        {k: 'ups', label: '📦 UPS', bg: '#f5f5f5', fg: '#333'},
+        {k: 'usps', label: '✉ USPS', bg: '#f5f5f5', fg: '#333'},
+        {k: 'ontrac', label: 'OnTrac', bg: '#f5f5f5', fg: '#333'},
+        {k: 'lasership', label: 'LaserShip', bg: '#f5f5f5', fg: '#333'},
+        {k: 'other', label: 'Other', bg: '#f5f5f5', fg: '#333'},
+      ].map(c => {
+        const active = _remakesCarrierFilter === c.k;
+        return '<button onclick="setRemakesCarrierFilter_(\'' + c.k + '\',\'' + statusFilter + '\')" style="padding:6px 12px;background:' + (active ? '#003087' : c.bg) + ';color:' + (active ? '#fff' : c.fg) + ';border:none;border-radius:999px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.3px">' + c.label + '</button>';
+      }).join('')
     + '</div>'
     + '<div id="remakesListBody" style="min-height:60px">Loading…</div>'
     + '</div>';
@@ -4771,9 +4802,18 @@ async function openRemakesPanel(statusFilter) {
   (res.rows || []).forEach(r => { if (r && r.remake_id) _remakesCacheById[r.remake_id] = r; });
 
 
-  const rows = res.remakes || [];
+  let rows = res.remakes || [];
+  // v10.150: apply client-side carrier filter (Jessica's J3).
+  if (_remakesCarrierFilter === '__damaged__') {
+    rows = rows.filter(r => r && r.damage_source);
+  } else if (_remakesCarrierFilter) {
+    rows = rows.filter(r => r && String(r.damaged_carrier || '').toLowerCase() === _remakesCarrierFilter.toLowerCase());
+  }
   if (!rows.length) {
-    document.getElementById('remakesListBody').innerHTML = '<div style="padding:24px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:13px">No remakes in this view.</div>';
+    const noteFilter = _remakesCarrierFilter
+      ? ' for carrier filter "' + (_remakesCarrierFilter === '__damaged__' ? 'Damaged' : _remakesCarrierFilter.toUpperCase()) + '"'
+      : '';
+    document.getElementById('remakesListBody').innerHTML = '<div style="padding:24px;text-align:center;color:#555;background:#fafafa;border-radius:10px;font-size:13px">No remakes in this view' + esc(noteFilter) + '.</div>';
     return;
   }
 
