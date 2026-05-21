@@ -4358,12 +4358,22 @@ async function _kbPrintSelected_() {
   }
   // v10.149: PrintNode integration. Submit PDF server-side → printer
   // pulls automatically. No popup dialog. Mirrors FedEx BOL pattern.
-  // v10.161 — surface the actual server error in a persistent banner
-  // INSIDE the modal (not a toast that fades) when the fallback fires.
-  // v10.162 — global loading indicator via showGlobalLoader so Zac
-  // sees the request is in flight (Apps Script wake-up can take 5-10s).
+  // v10.161 — surface the actual server error in a persistent banner.
+  // v10.162 — global loading indicator via showGlobalLoader.
+  // v10.168 — REMOVED auto-popup fallback. Zac feedback (13:34 EDT):
+  // shipping labels go to default printer fine, so kanban should too.
+  // The popup was auto-firing on ANY PrintNode error, masking the
+  // actual root cause (often PDF build or QR fetch, not printer
+  // config). Now: failure shows banner with the actual error +
+  // OPT-IN "open browser print dialog instead" link inside it.
+  // Kanban items array is stashed on the overlay so the opt-in
+  // fallback can find it without re-deriving from checkboxes.
   const ov = document.getElementById('kanbanPrintOverlay');
-  if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = true);
+  if (ov) {
+    ov._kbItemsForFallback = selectedItems;
+    ov._kbDestForFallback = dest;
+    ov.querySelectorAll('button').forEach(b => b.disabled = true);
+  }
   const loader = showGlobalLoader('🖨 Sending ' + selectedItems.length + ' cards to printer…');
   try {
     const res = await groundApi('printKanbanCards', payload);
@@ -4374,20 +4384,34 @@ async function _kbPrintSelected_() {
     } else {
       const errMsg = (res && res.error) || 'unknown';
       _kbShowFailBanner_(ov, errMsg, dest);
-      _kbFallbackPopupPrint_(selectedItems, dest);
       if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = false);
     }
   } catch (err) {
     loader.stop();
     _kbShowFailBanner_(ov, err.message, dest);
-    _kbFallbackPopupPrint_(selectedItems, dest);
     if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = false);
   }
 }
 
+// v10.168 — opt-in browser-print fallback, called only when the user
+// clicks the link inside the failure banner. Reads items + dest off
+// the overlay node where _kbPrintSelected_ stashed them.
+function _kbTriggerPopupFallback_() {
+  const ov = document.getElementById('kanbanPrintOverlay');
+  const items = (ov && ov._kbItemsForFallback) || [];
+  const dest = (ov && ov._kbDestForFallback) || 'label46';
+  if (!items.length) {
+    showToast('Nothing to print — select items + try again');
+    return;
+  }
+  _kbFallbackPopupPrint_(items, dest);
+}
+
 // v10.161 — persistent in-modal banner showing why the PrintNode path
-// failed. Distinguishes "no printer configured" (config gap) from
-// real errors (printer offline, etc.) since the fix is different.
+// failed. v10.168 — no longer auto-pops the print dialog; banner
+// includes an opt-in link to use the browser-print fallback.
+// Distinguishes "no printer configured" (config gap) from real
+// errors (printer offline, etc.) since the fix is different.
 function _kbShowFailBanner_(ov, errMsg, dest) {
   if (!ov) return;
   const panel = ov.querySelector('div');
@@ -4399,13 +4423,14 @@ function _kbShowFailBanner_(ov, errMsg, dest) {
   banner.className = 'keep-dark-text';
   const isConfig = /no printer configured|PRINTNODE_API_KEY|Script Property/i.test(errMsg);
   banner.style.cssText = 'background:#FFF3CD;border:1.5px solid #FFC107;color:#5C4400;padding:12px 14px;border-radius:8px;margin-bottom:8px;font-size:13px';
-  banner.innerHTML = '<strong>⚠ PrintNode submit failed — opened popup print instead.</strong><br>'
-    + '<span style="font-size:12px">' + esc(errMsg) + '</span><br>'
-    + '<span style="font-size:11px;margin-top:4px;display:block">'
+  banner.innerHTML = '<strong>⚠ PrintNode submit failed.</strong><br>'
+    + '<span style="font-size:12px;font-family:monospace;color:#7a4f00">' + esc(errMsg) + '</span><br>'
+    + '<span style="font-size:11px;margin-top:6px;display:block;color:#5C4400">'
     + (isConfig
-        ? 'Fix: set Apps Script properties <code>PRINTNODE_API_KEY</code> + <code>PRINTNODE_KANBAN_PRINTER_ID</code> (for 4×6) or <code>PRINTNODE_INSTRUCTIONS_PRINTER_ID</code> (for paper). Run <code>listPrinters</code> in the editor to find IDs.'
-        : 'The v10.156 PrintNode watcher will email you a triage alert within 5min if the job stuck on the printer side. Tap a printer destination above + Print to retry.')
-    + '</span>';
+        ? 'Fix: set Apps Script properties <code>PRINTNODE_API_KEY</code> + <code>PRINTNODE_KANBAN_PRINTER_ID</code> (for 4×6) or <code>PRINTNODE_INSTRUCTIONS_PRINTER_ID</code> (for paper). Run <code>listPrinters</code> in the editor to find printer IDs. Defaults fall through to <code>PRINTNODE_DEFAULT_PRINTER_ID</code> (the same one shipping labels use).'
+        : 'Tap Print again to retry. If labels print to the default printer fine but this fails, the issue is likely upstream of printer selection (PDF generation or QR fetch). The v10.156 PrintNode watcher will email a triage alert if a job sticks on the printer side.')
+    + '</span>'
+    + '<div style="margin-top:8px"><a href="#" onclick="event.preventDefault();_kbTriggerPopupFallback_();return false" style="color:#003087;font-size:12px;font-weight:700;text-decoration:underline">📂 Open browser print dialog instead (manual fallback)</a></div>';
   panel.insertBefore(banner, panel.children[1] || null);
 }
 
@@ -13537,7 +13562,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.166<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.168<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
