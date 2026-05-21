@@ -11310,6 +11310,22 @@ function openSystemStatus() {
     + '<div style="font-size:13px;color:' + (ok ? '#0a8a3f' : '#c33') + ';font-weight:700;margin-bottom:12px">' + (ok ? '✓ Ready' : '⚠ Setup needed') + '</div>'
     + row('Bedrock', ver, true)
     + row('Orchestrator URL', urlShort + (DEV_MODE_ON ? ' (DEV)' : ''), urlConfigured)
+    + (function() {
+        // v10.170 — STABLE age row. Reads cached value (refreshes hourly).
+        if (typeof window.getStableAgeCached_ !== 'function') return '';
+        const info = window.getStableAgeCached_();
+        if (!info || !info.released_at) return row('STABLE last promoted', '— unknown —', false);
+        const hours = Math.floor(info.age_ms / 3600000);
+        const days = Math.floor(hours / 24);
+        const ageStr = days >= 1 ? days + 'd ' + (hours - days * 24) + 'h ago' : hours + 'h ago';
+        const isStale = hours >= 24;
+        return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #eee">'
+          + '<span style="font-size:12px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">STABLE last promoted</span>'
+          + '<span style="font-size:13px;font-family:monospace;color:' + (isStale ? (hours >= 72 ? '#c33' : '#B25500') : '#0a8a3f') + ';font-weight:700">'
+          + ageStr + (isStale ? (hours >= 72 ? ' ⚠ very stale' : ' ⚠ stale') : ' ✓')
+          + '</span></div>'
+          + (isStale ? '<div style="font-size:11px;color:#5C4400;background:#FFF8E1;border:1px solid #FFC107;padding:6px 10px;border-radius:6px;margin:6px 0;line-height:1.4">STABLE is behind DEV. Some endpoints added recently may return <code>unknown action</code> errors. Run <code>gh workflow run promote-stable.yml</code> to refresh (or ask Claude).</div>' : '');
+      })()
     + (DEV_MODE_ON ? '<div style="font-size:11px;color:#FF9100;background:rgba(255,145,0,.10);border:1px solid rgba(255,145,0,.30);padding:6px 10px;border-radius:6px;margin:6px 0 4px;text-align:center;font-weight:700">🧪 DEV MODE — this device hits the staging deployment. Append <code>?dev=0</code> to the URL to switch back.</div>' : '')
     + row('Shared Secret', secretMask, secretConfigured)
     + row('Packer', packer || '— not set —', !!packer)
@@ -13562,7 +13578,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.168<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.170<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
@@ -13573,6 +13589,61 @@ startAutoSync();
       if (chip) chip.style.display = 'inline-block';
     });
   }
+  // v10.170 — STABLE age indicator. Per Zac feedback after the
+  // 33hr-stale incident, surface when STABLE was last promoted so we
+  // catch the buffer drift earlier. Reads listReleases (cached 6h);
+  // chip appears next to DEV chip on pill + age also shown in System
+  // Status modal. Color codes: <24h green / 24-72h yellow / >72h red.
+  (function() {
+    const STABLE_AGE_CACHE_KEY = 'mbd_stable_age_v1';
+    const STABLE_AGE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+    function _renderStableAgeChip_(ms) {
+      const chip = document.getElementById('stableAgeChip');
+      if (!chip || !ms) return;
+      const hours = Math.floor(ms / 3600000);
+      const days = Math.floor(hours / 24);
+      const label = days >= 1 ? days + 'd' : hours + 'h';
+      let bg, fg;
+      if (hours < 24) { bg = 'linear-gradient(135deg,#00C853,#00E676)'; fg = '#0A2014'; }
+      else if (hours < 72) { bg = 'linear-gradient(135deg,#FFC107,#FFB300)'; fg = '#3D2400'; }
+      else { bg = 'linear-gradient(135deg,#FF5252,#D32F2F)'; fg = '#fff'; }
+      chip.style.background = bg;
+      chip.style.color = fg;
+      chip.textContent = 'STABLE ' + label;
+      chip.style.display = 'inline-block';
+      // Update the pill's tooltip too.
+      const pill = document.getElementById('versionPill');
+      if (pill) pill.title = 'Tap for system status · STABLE promoted ' + label + ' ago';
+    }
+    async function _refreshStableAge_() {
+      try {
+        let cached = null;
+        try { cached = JSON.parse(localStorage.getItem(STABLE_AGE_CACHE_KEY) || 'null'); } catch (e) {}
+        if (cached && cached.fetched_at && (Date.now() - cached.fetched_at) < STABLE_AGE_TTL_MS && cached.released_at) {
+          _renderStableAgeChip_(Date.now() - new Date(cached.released_at).getTime());
+        }
+        // Fetch fresh in background regardless (covers TTL miss + age advances).
+        if (typeof groundApi !== 'function' || !GROUND_ORCH_URL) return;
+        const res = await groundApi('listReleases', { deployment: 'STABLE', limit: 1 });
+        if (res && res.ok && res.releases && res.releases[0]) {
+          const releasedAt = res.releases[0].released_at;
+          try { localStorage.setItem(STABLE_AGE_CACHE_KEY, JSON.stringify({ released_at: releasedAt, fetched_at: Date.now() })); } catch (e) {}
+          _renderStableAgeChip_(Date.now() - new Date(releasedAt).getTime());
+        }
+      } catch (e) { /* swallow — non-critical */ }
+    }
+    document.addEventListener('DOMContentLoaded', () => setTimeout(_refreshStableAge_, 1500));
+    // Re-check hourly while session is open.
+    setInterval(_refreshStableAge_, 60 * 60 * 1000);
+    // Expose for openSystemStatus to read.
+    window.getStableAgeCached_ = function() {
+      try {
+        const c = JSON.parse(localStorage.getItem(STABLE_AGE_CACHE_KEY) || 'null');
+        if (c && c.released_at) return { released_at: c.released_at, age_ms: Date.now() - new Date(c.released_at).getTime() };
+      } catch (e) {}
+      return null;
+    };
+  })();
 </script>
 
 </body>
