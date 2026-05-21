@@ -3035,6 +3035,12 @@ async function refreshScheduleTab() {
     paintSchedule_(res);
     paintScheduleDayPlan_();
     if (typeof renderCabinetAttentionStrip_ === 'function') renderCabinetAttentionStrip_();
+    // v10.175 Phase 0c — fetch the ShipConf status map in parallel.
+    // 5min TTL cache + fire-and-forget; on completion repaint so chips
+    // appear. Non-blocking so schedule paints immediately.
+    refreshShipConfStatusMap_().then(() => {
+      if (_scheduleCache) paintSchedule_(_scheduleCache);
+    });
     const totalOrders = (res.days || []).reduce((s, d) => s + d.total, 0);
     if (statusEl) statusEl.textContent = totalOrders + ' order' + (totalOrders === 1 ? '' : 's') + ' across ' + (res.days || []).length + ' day' + ((res.days || []).length === 1 ? '' : 's') + ' · today=' + res.today;
   } catch (err) {
@@ -3077,6 +3083,17 @@ const SCHEDULE_VIEW_MODES = [
 // inbox row, populated by refreshShipConfInbox_() on view-mode switch.
 let _shipConfInboxMap = null;
 let _shipConfInboxStats = null;
+
+// v10.175 Phase 0c — ShipConf status chip on EVERY cabinet card.
+// _shipConfStatusMap is order_number → { status: 'sent'|'skipped',
+// sent_at?, skipped_reason? } from the ShippingConfirmation log.
+// 'queued' and 'past_due' are computed locally from arrival_date
+// (no log row + in outreach window = queued; no log row + arrival
+// in past = past_due). Refreshed on schedule load with 5min cache.
+let _shipConfStatusMap = null;
+let _shipConfStatusFetchedAt = 0;
+const SHIPCONF_STATUS_TTL_MS = 5 * 60 * 1000;
+const SHIPCONF_OUTREACH_BIZ_DAYS = 14;
 
 function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
@@ -3128,6 +3145,76 @@ async function refreshShipConfInbox_() {
     _shipConfInboxMap = {};
     _shipConfInboxStats = null;
   }
+}
+
+// v10.175 Phase 0c — fetch the ShipConf status map (sent/skipped facts
+// only). Lightweight server endpoint; 5min TTL cache. Force=true skips
+// cache check (used after a Send/Skip action so the chip flips
+// immediately).
+async function refreshShipConfStatusMap_(force) {
+  const now = Date.now();
+  if (!force && _shipConfStatusMap
+      && (now - _shipConfStatusFetchedAt) < SHIPCONF_STATUS_TTL_MS) {
+    return _shipConfStatusMap;
+  }
+  try {
+    const res = await groundApi('getShipConfStatusMap', {});
+    if (res && res.ok && res.statusMap) {
+      _shipConfStatusMap = res.statusMap;
+      _shipConfStatusFetchedAt = now;
+    } else {
+      _shipConfStatusMap = _shipConfStatusMap || {};
+    }
+  } catch (e) {
+    console.warn('shipConfStatusMap fetch failed:', e.message);
+    _shipConfStatusMap = _shipConfStatusMap || {};
+  }
+  return _shipConfStatusMap;
+}
+
+// Returns one of: 'sent' | 'skipped' | 'past_due' | 'queued' | null.
+// Null = no chip rendered (non-cabinet or arrival > outreach window).
+function _shipConfStatusForOrder_(o) {
+  if (!o || o.source !== 'cabinet') return null;
+  const orderNum = String(o.order_number || '');
+  if (!orderNum) return null;
+  // Definitive facts from the log (server-side).
+  const logRow = _shipConfStatusMap && _shipConfStatusMap[orderNum];
+  if (logRow && logRow.status === 'sent') return 'sent';
+  if (logRow && logRow.status === 'skipped') return 'skipped';
+  // Compute queued/past_due from arrival date — only meaningful if we
+  // have an arrival date to begin with. No chip if arrival unknown.
+  const arrival = String(o.ship_date || '');
+  if (!arrival) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const ship = new Date(arrival + 'T00:00:00');
+  const diffDays = (ship - today) / 86400000;
+  // Arrival already happened, no log row → overdue ShipConf.
+  if (diffDays < 0) return 'past_due';
+  // Arrival in the outreach window (next ~14 biz days ≈ 20 cal days
+  // accounting for weekends) → queued chip; further out = no chip
+  // so chips don't blanket every distant cabinet.
+  if (diffDays <= 20) return 'queued';
+  return null;
+}
+
+function _shipConfStatusChipHtml_(status) {
+  if (!status) return '';
+  let bg, color, glyph, title;
+  if (status === 'sent') {
+    bg = 'rgba(0,200,83,.18)'; color = '#00e676';
+    glyph = '🟢'; title = 'Shipping confirmation sent';
+  } else if (status === 'skipped') {
+    bg = 'rgba(120,120,120,.18)'; color = '#9e9e9e';
+    glyph = '🚫'; title = 'Shipping confirmation skipped';
+  } else if (status === 'past_due') {
+    bg = 'rgba(255,82,82,.18)'; color = '#ff5252';
+    glyph = '🔴'; title = 'Shipping confirmation past due — arrival has passed without outreach';
+  } else if (status === 'queued') {
+    bg = 'rgba(255,179,0,.18)'; color = '#FFB300';
+    glyph = '🟡'; title = 'Shipping confirmation queued — in outreach window';
+  } else return '';
+  return ' <span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:' + bg + ';color:' + color + ';border:1px solid ' + color + '55;padding:0 5px;border-radius:3px;vertical-align:middle" title="' + title + '">' + glyph + ' SC</span>';
 }
 
 function setScheduleViewMode(mode) {
@@ -3505,6 +3592,10 @@ function _scheduleRenderOrderRow_(o, opts) {
   const bookerChip = _scheduleBookerChip_(o, !!opts.compact);
   const custChip = _scheduleCustomerReadyChip_(o, !!opts.compact);
   const stallChip = _scheduleStallChip_(o, !!opts.compact);
+  // v10.175 Phase 0c — ShipConf chip on EVERY cabinet card (regardless
+  // of view mode). 🟢 Sent / 🚫 Skipped / 🔴 Past due / 🟡 Queued / no
+  // chip when arrival > outreach window or order not cabinet.
+  const shipConfChip = _shipConfStatusChipHtml_(_shipConfStatusForOrder_(o));
   // v10.11 pass 3: row tap → Lookup for this order (full address,
   // items, phone, activity timeline). Chips all stopPropagation so
   // they keep their own actions. Mirrors the Tracking v9.93 pattern.
@@ -3518,11 +3609,15 @@ function _scheduleRenderOrderRow_(o, opts) {
     const item = _shipConfInboxMap[String(o.order_number)];
     const autoDate = item.auto_offered_date || '—';
     const tplKey = item.template_key || 'cc_default';
-    shipConfFooter = '<div style="background:rgba(156,39,176,.10);border-left:3px solid #9C27B0;padding:7px 12px;margin-top:-4px;margin-bottom:6px;border-radius:0 0 6px 6px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:11px">'
-      +   '<span style="color:var(--text-dim)">Auto Date: <strong style="color:#CE93D8;font-family:\'JetBrains Mono\',monospace">' + esc(autoDate) + '</strong></span>'
-      +   '<span style="color:var(--text-dim)">· Template: <code style="font-family:\'JetBrains Mono\',monospace;color:var(--text)">' + esc(tplKey) + '</code></span>'
-      +   '<button onclick="event.stopPropagation();openShipConfPreviewModal(\'' + esc(o.order_number) + '\')" style="margin-left:auto;padding:6px 12px;background:linear-gradient(135deg,#9C27B0,#7B1FA2);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">📧 Preview &amp; Send</button>'
-      +   '<button onclick="event.stopPropagation();openShipConfSkipModal(\'' + esc(o.order_number) + '\')" style="padding:6px 12px;background:rgba(255,255,255,.06);color:var(--text-dim);border:1px solid rgba(255,255,255,.18);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">⊘ Skip</button>'
+    // v10.176 — contrast pass: Zac flagged the original 10%-purple-on-
+    // dark-card as unreadable. Bump background opacity, brighten label
+    // text to var(--text), promote inline values to bright lavender,
+    // and add top border accent so the footer reads as its own block.
+    shipConfFooter = '<div style="background:rgba(186,104,200,.22);border-left:3px solid #CE93D8;border-top:1px solid rgba(206,147,216,.40);padding:8px 12px;margin-top:-4px;margin-bottom:6px;border-radius:0 0 6px 6px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:var(--text)">'
+      +   '<span style="color:#E1BEE7;font-weight:700">Auto Date: <strong style="color:#fff;font-family:\'JetBrains Mono\',monospace;background:rgba(0,0,0,.30);padding:1px 6px;border-radius:3px">' + esc(autoDate) + '</strong></span>'
+      +   '<span style="color:#E1BEE7;font-weight:700">· Template: <code style="font-family:\'JetBrains Mono\',monospace;color:#fff;background:rgba(0,0,0,.30);padding:1px 6px;border-radius:3px">' + esc(tplKey) + '</code></span>'
+      +   '<button onclick="event.stopPropagation();openShipConfPreviewModal(\'' + esc(o.order_number) + '\')" style="margin-left:auto;padding:7px 14px;background:linear-gradient(135deg,#CE93D8,#9C27B0);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35);text-shadow:0 1px 2px rgba(0,0,0,.4)">📧 Preview &amp; Send</button>'
+      +   '<button onclick="event.stopPropagation();openShipConfSkipModal(\'' + esc(o.order_number) + '\')" style="padding:7px 14px;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.40);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.5px">⊘ Skip</button>'
       + '</div>';
   }
   if (opts.compact) {
@@ -3530,7 +3625,7 @@ function _scheduleRenderOrderRow_(o, opts) {
     return '<div' + rowTap + ' style="padding:6px 8px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:5px;margin-bottom:4px;font-size:11px;line-height:1.3;cursor:pointer">'
       + '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline">'
       +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">' + chgPill + '#' + esc(o.order_number) + '</span>'
-      +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + '</span>'
+      +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + shipConfChip + '</span>'
       + '</div>'
       + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
@@ -3544,7 +3639,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   return '<div' + rowTap + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap;cursor:pointer">'
     + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">' + chgPill + '#' + esc(o.order_number) + '</div>'
     + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
-    + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + '</div>'
+    + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + shipConfChip + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(statusText.slice(0,12)) + '</div>'
     + stallChip
     + custChip
@@ -3646,9 +3741,13 @@ async function _shipConfSendClick_(orderNumber) {
       const isLive = res.sent === true;
       showToast(isLive ? '✓ Sent to ' + recipient : '✓ Shadow-logged (SHIPCONF_LIVE=false, no real send)');
       document.getElementById('shipConfPreviewOverlay').remove();
-      // Refresh inbox so this card drops out.
+      // Refresh inbox so this card drops out + status-map so 🟢 Sent
+      // chip appears on the card on every other view too (Phase 0c).
       if (typeof refreshShipConfInbox_ === 'function') {
         refreshShipConfInbox_().then(() => { if (_scheduleCache) paintSchedule_(_scheduleCache); });
+      }
+      if (typeof refreshShipConfStatusMap_ === 'function') {
+        refreshShipConfStatusMap_(true).then(() => { if (_scheduleCache) paintSchedule_(_scheduleCache); });
       }
     } else {
       if (statusEl) statusEl.textContent = '⚠ ' + ((res && res.error) || 'unknown');
@@ -3716,9 +3815,13 @@ async function _shipConfSkipConfirm_(orderNumber) {
       showToast('✓ Skipped — ' + reason);
       const ov = document.getElementById('shipConfSkipOverlay');
       if (ov) ov.remove();
-      // Refresh inbox so the card drops.
+      // Refresh inbox + status-map (Phase 0c chip flips to 🚫 Skipped
+      // on every Schedule card immediately, regardless of view mode).
       if (typeof refreshShipConfInbox_ === 'function') {
         refreshShipConfInbox_().then(() => { if (_scheduleCache) paintSchedule_(_scheduleCache); });
+      }
+      if (typeof refreshShipConfStatusMap_ === 'function') {
+        refreshShipConfStatusMap_(true).then(() => { if (_scheduleCache) paintSchedule_(_scheduleCache); });
       }
     } else {
       showToast('⚠ Skip failed: ' + ((res && res.error) || 'unknown'));
@@ -6666,8 +6769,54 @@ function renderLookupGround_(h) {
     + _lkFld('Pack complete', h.pack_completed_at ? String(h.pack_completed_at).slice(0, 16) : '—')
     + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—')
     + (pkgRows ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10)"><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Packages</div>' + pkgRows + '</div>' : '')
+    // v10.177 — Reprint All Labels button. Use case: MGR-bypass orders
+    // that shipped but labels never made it to PrintNode (Seth queen
+    // slat 2 bug 2026-05-21). Only shows for orders with packages.
+    + ((h.packages && h.packages.length) ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10);display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button onclick="reprintAllLabelsFromLookup_(\'' + esc(h.order_number) + '\', this)" style="padding:8px 14px;background:linear-gradient(135deg,#003087,#005bb5);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35)">🖨 Reprint All Labels</button><span style="font-size:10px;color:var(--text-dim)">Re-submits each label PDF to PrintNode. Safe to retry — no ShipStation calls.</span></div>' : '')
     + _lkTimeline_(h);
   return _lkCard('Ground', '#663399', h.pack_status, body);
+}
+
+// v10.177 — Reprint button click handler. Calls reprintAllLabelsForOrder
+// endpoint then surfaces per-box results in an alert (success count +
+// any failures). Uses the global loader so user knows something's
+// happening (per the existing R3 retry pattern).
+async function reprintAllLabelsFromLookup_(orderNumber, btn) {
+  if (!orderNumber) return;
+  const ok = confirm('Reprint all labels for order #' + orderNumber + '?\n\nThis re-submits each label PDF to PrintNode. No ShipStation calls, no charges.');
+  if (!ok) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Reprinting…'; }
+  const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('Reprinting labels…') : null;
+  try {
+    const res = await groundApi('reprintAllLabelsForOrder', { orderNumber: orderNumber });
+    if (loader && loader.stop) loader.stop();
+    if (btn) btn.disabled = false;
+    if (!res || !res.ok) {
+      const msg = (res && res.error) || 'unknown error';
+      showToast('⚠ Reprint failed: ' + msg);
+      if (btn) btn.textContent = '🖨 Reprint All Labels';
+      return;
+    }
+    const lines = [
+      '✓ Reprint complete for #' + orderNumber,
+      '',
+      'Printed: ' + res.printed_count + '/' + res.total_packages,
+    ];
+    if (res.failed_count > 0) {
+      lines.push('');
+      lines.push('Failures:');
+      (res.results || []).filter(r => !r.ok).forEach(r => {
+        lines.push('  Box ' + r.sequence + ': ' + (r.error || 'unknown'));
+      });
+    }
+    alert(lines.join('\n'));
+    showToast(res.failed_count === 0 ? ('✓ All ' + res.printed_count + ' labels sent to printer') : ('⚠ ' + res.failed_count + ' label(s) failed'));
+    if (btn) btn.textContent = '🖨 Reprint All Labels';
+  } catch (e) {
+    if (loader && loader.stop) loader.stop();
+    if (btn) { btn.disabled = false; btn.textContent = '🖨 Reprint All Labels'; }
+    showToast('⚠ Reprint failed: ' + (e.message || String(e)));
+  }
 }
 
 function renderLookupMattress_(h) {
