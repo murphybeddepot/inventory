@@ -179,7 +179,7 @@ async function refreshPackQueue() {
       groundApi('listPackingQueue', { status: ['packed'] }),
     ]);
     if (!inflight || !inflight.ok) {
-      statusEl.textContent = 'Error: ' + ((inflight && inflight.error) || 'unknown');
+      _packStatusError_(statusEl, (inflight && inflight.error) || 'unknown');
       return;
     }
     const inflightRows = inflight.rows || [];
@@ -191,8 +191,18 @@ async function refreshPackQueue() {
     const pkPart = packedRows.length ? (', ' + packedRows.length + ' awaiting ship') : '';
     statusEl.textContent = ipPart + pkPart;
   } catch (err) {
-    statusEl.textContent = 'Error: ' + err.message;
+    _packStatusError_(statusEl, err.message);
   }
+}
+
+// v10.157 R3 — render an error status with an inline Retry button.
+// iPad Pack queue load fails most often due to intermittent Apps Script
+// wake-up timeouts; surfacing Retry inline saves the operator a trip
+// to the toolbar.
+function _packStatusError_(statusEl, message) {
+  if (!statusEl) return;
+  statusEl.innerHTML = '<span style="color:#ff5252">Error: ' + esc(String(message || '')) + '</span>'
+    + ' <button onclick="refreshPackQueue()" style="margin-left:8px;padding:3px 10px;background:var(--green-bright);color:#000;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry</button>';
 }
 
 function paintPackQueue_(rows, fromCache) {
