@@ -818,6 +818,18 @@ input::placeholder, textarea::placeholder {
   color: var(--text-dim) !important;
 }
 
+/* v10.161 ROOT CAUSE FIX — `.keep-dark-text` had NO rule of its own,
+   only existed as a `:not()` exemption in the global override. So an
+   element with the class but no explicit `color:` inline style would
+   STILL inherit `body { color: #E8EDF4 }` (light text for dark theme)
+   → invisible on the modal's white background. Setting a baseline
+   dark `color` here propagates through to all descendants via normal
+   inheritance, fixing every bold/inherit-color case I missed in v10.147. */
+.keep-dark-text,
+.keep-dark-text * {
+  color: #1a1a1a;
+}
+
 /* v10.146 → v10.147: descendant exemption with corrected specificity.
    v10.146's `.keep-dark-text [style*=]` had specificity (0,2,0) which
    LOSES to the global override's (0,4,0) → my rule never won → modal
@@ -4295,6 +4307,9 @@ async function _kbPrintSelected_() {
   }
   // v10.149: PrintNode integration. Submit PDF server-side → printer
   // pulls automatically. No popup dialog. Mirrors FedEx BOL pattern.
+  // v10.161 — surface the actual server error in a persistent banner
+  // INSIDE the modal (not a toast that fades) when the fallback fires.
+  // Zac kept seeing the silent fallback-to-popup with no visible reason.
   const ov = document.getElementById('kanbanPrintOverlay');
   if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = true);
   showToast('🖨 Sending ' + selectedItems.length + ' cards to printer…');
@@ -4304,17 +4319,40 @@ async function _kbPrintSelected_() {
       showToast('✓ ' + selectedItems.length + ' cards queued to printer (job ' + (res.job_id || '?') + ')');
       if (ov) ov.remove();
     } else {
-      showToast('⚠ Print failed: ' + ((res && res.error) || 'unknown') + ' — falling back to popup');
-      // Fallback: legacy popup-print path. Keeps the operator unblocked
-      // if PrintNode is misconfigured.
+      const errMsg = (res && res.error) || 'unknown';
+      _kbShowFailBanner_(ov, errMsg, dest);
       _kbFallbackPopupPrint_(selectedItems, dest);
       if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = false);
     }
   } catch (err) {
-    showToast('⚠ Print error: ' + err.message + ' — falling back to popup');
+    _kbShowFailBanner_(ov, err.message, dest);
     _kbFallbackPopupPrint_(selectedItems, dest);
     if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = false);
   }
+}
+
+// v10.161 — persistent in-modal banner showing why the PrintNode path
+// failed. Distinguishes "no printer configured" (config gap) from
+// real errors (printer offline, etc.) since the fix is different.
+function _kbShowFailBanner_(ov, errMsg, dest) {
+  if (!ov) return;
+  const panel = ov.querySelector('div');
+  if (!panel) return;
+  const existing = ov.querySelector('#kbFailBanner');
+  if (existing) existing.remove();
+  const banner = document.createElement('div');
+  banner.id = 'kbFailBanner';
+  banner.className = 'keep-dark-text';
+  const isConfig = /no printer configured|PRINTNODE_API_KEY|Script Property/i.test(errMsg);
+  banner.style.cssText = 'background:#FFF3CD;border:1.5px solid #FFC107;color:#5C4400;padding:12px 14px;border-radius:8px;margin-bottom:8px;font-size:13px';
+  banner.innerHTML = '<strong>⚠ PrintNode submit failed — opened popup print instead.</strong><br>'
+    + '<span style="font-size:12px">' + esc(errMsg) + '</span><br>'
+    + '<span style="font-size:11px;margin-top:4px;display:block">'
+    + (isConfig
+        ? 'Fix: set Apps Script properties <code>PRINTNODE_API_KEY</code> + <code>PRINTNODE_KANBAN_PRINTER_ID</code> (for 4×6) or <code>PRINTNODE_INSTRUCTIONS_PRINTER_ID</code> (for paper). Run <code>listPrinters</code> in the editor to find IDs.'
+        : 'The v10.156 PrintNode watcher will email you a triage alert within 5min if the job stuck on the printer side. Tap a printer destination above + Print to retry.')
+    + '</span>';
+  panel.insertBefore(banner, panel.children[1] || null);
 }
 
 // Legacy popup-print fallback — used only if the server-side PrintNode
@@ -13361,7 +13399,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.160<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.161<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
