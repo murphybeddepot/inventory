@@ -3038,7 +3038,21 @@ async function refreshScheduleTab() {
     const totalOrders = (res.days || []).reduce((s, d) => s + d.total, 0);
     if (statusEl) statusEl.textContent = totalOrders + ' order' + (totalOrders === 1 ? '' : 's') + ' across ' + (res.days || []).length + ' day' + ((res.days || []).length === 1 ? '' : 's') + ' · today=' + res.today;
   } catch (err) {
-    if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+    // v10.166 R3-style — inline Retry on Schedule load failure (Zac
+    // 2026-05-21 09:59 bug report: schedule failing on phone, no way
+    // to retry without finding the refresh button).
+    if (statusEl) {
+      statusEl.innerHTML = '<span style="color:#ff5252">Error: ' + esc(String(err && err.message || err)) + '</span>'
+        + ' <button onclick="refreshScheduleTab()" style="margin-left:8px;padding:5px 12px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">↻ Retry</button>';
+    }
+    if (listEl && !hasCached) {
+      listEl.innerHTML = '<div style="padding:32px 18px;text-align:center;background:rgba(255,82,82,.08);border:1.5px dashed rgba(255,82,82,.35);border-radius:12px;color:#ff5252;font-size:14px">'
+        + '<div style="font-size:28px;margin-bottom:10px">⚠</div>'
+        + '<div style="font-weight:800;margin-bottom:6px">Schedule load failed</div>'
+        + '<div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">' + esc(String(err && err.message || err)) + '</div>'
+        + '<button onclick="refreshScheduleTab()" style="padding:10px 20px;background:#003087;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">↻ Try again</button>'
+        + '</div>';
+    }
   }
 }
 
@@ -5711,10 +5725,17 @@ function paintScheduleMobileList_(payload, listEl) {
       + '</div>';
   }).join('');
 
-  setTimeout(() => {
-    const t = document.getElementById('sched-day-' + today);
-    if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, 50);
+  // v10.166 — only auto-scroll to "today" on the FIRST paint per
+  // session, not every refresh. Zac 2026-05-21 09:51 bug: "schedule
+  // auto-scrolls to weird spot on every load — not clear or helpful".
+  // Block:'nearest' so if today is already in viewport we don't jump.
+  if (!window._scheduleScrolledOnce) {
+    window._scheduleScrolledOnce = true;
+    setTimeout(() => {
+      const t = document.getElementById('sched-day-' + today);
+      if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+  }
 }
 
 // ── Desktop: one-week calendar grid (Mon-Fri by default, toggle to Sun-Sat) ──
