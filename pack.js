@@ -87,6 +87,12 @@ async function refreshPackQueue() {
 function paintPackQueue_(rows, fromCache) {
   const list = document.getElementById('packQueueList');
   list.innerHTML = '';
+  // v10.152 Seth's manager-mode ship-date filter chips: only render
+  // chips + apply filter when in bulk/manager mode. Outside bulk mode
+  // the list stays unfiltered (Jonah needs the full picture).
+  if (_packManagerMode) {
+    list.appendChild(renderPackShipDateFilterChips_(rows));
+  }
   if (!rows.length) {
     list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">Today\'s pack list is empty.<br><span style="font-size:12px">Tap <strong>+ Add to List</strong> above to load today\'s orders by ship date.</span></div>';
     return;
@@ -108,7 +114,20 @@ function paintPackQueue_(rows, fromCache) {
   const BUCKET_ORDER = ['Past', 'Today', 'Tomorrow', 'This Week', 'Later', 'No Date'];
   const BUCKET_ACCENT = { Past: '#ff5252', Today: '#00e676', Tomorrow: '#FFB300', 'This Week': '#42a5f5', Later: '#9e9e9e', 'No Date': '#666' };
   const grouped = { Past: [], Today: [], Tomorrow: [], 'This Week': [], Later: [], 'No Date': [] };
-  rows.forEach(r => grouped[bucketOf(r.ship_date)].push(r));
+  // v10.152: apply ship-date filter when bulk mode active.
+  const filteredRows = (_packManagerMode && _packShipDateFilter !== 'all')
+    ? rows.filter(r => matchPackShipDateFilter_(r.ship_date, bucketOf))
+    : rows;
+  if (_packManagerMode && _packShipDateFilter !== 'all' && !filteredRows.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:20px;text-align:center;color:var(--text-dim);background:rgba(255,165,0,.06);border:1px dashed rgba(255,165,0,.30);border-radius:10px;margin-top:6px';
+    empty.innerHTML = 'No orders match the <strong>' + esc(packShipDateFilterLabel_(_packShipDateFilter)) + '</strong> filter.<br><span style="font-size:12px">Tap <strong>Any date</strong> above to see everything.</span>';
+    list.appendChild(empty);
+    return;
+  }
+  filteredRows.forEach(r => grouped[bucketOf(r.ship_date)].push(r));
+  // _filteredRows fully shadow `rows` from this point on; outer code
+  // reads `filteredRows` not `rows` so the buckets reflect the filter.
   BUCKET_ORDER.forEach(bucket => {
     if (!grouped[bucket].length) return;
     const accent = BUCKET_ACCENT[bucket];
@@ -498,6 +517,89 @@ let _packActivePhase = 'packer';
 // orders packed/shipped in one PIN-gated batch.
 let _packManagerMode = false;
 const _packBulkSelection = new Set();
+
+// v10.152 persona #13 Seth — ship-date filter chips that appear in
+// manager bulk mode so he can isolate today / overdue / this-week
+// before marking. Persisted to localStorage so re-entering bulk mode
+// remembers the last filter. Values: all | overdue | today | tomorrow
+// | this_week.
+const PACK_SHIPDATE_FILTER_KEY = 'mbd_pack_ship_date_filter';
+let _packShipDateFilter = (function() {
+  try { return localStorage.getItem(PACK_SHIPDATE_FILTER_KEY) || 'all'; }
+  catch(e) { return 'all'; }
+})();
+
+const PACK_SHIPDATE_FILTERS = [
+  { value: 'all',       label: 'Any date',  emoji: '◯',   color: '#9aa0a6' },
+  { value: 'overdue',   label: 'Overdue',   emoji: '⚠️', color: '#ff5252' },
+  { value: 'today',     label: 'Today',     emoji: '📅', color: '#00e676' },
+  { value: 'tomorrow',  label: 'Tomorrow',  emoji: '➡️', color: '#FFB300' },
+  { value: 'this_week', label: 'This week', emoji: '📆', color: '#42a5f5' },
+];
+
+function packShipDateFilterLabel_(value) {
+  const f = PACK_SHIPDATE_FILTERS.find(x => x.value === value);
+  return f ? f.label : value;
+}
+
+function matchPackShipDateFilter_(iso, bucketOf) {
+  const b = bucketOf(iso);
+  if (_packShipDateFilter === 'overdue')   return b === 'Past';
+  if (_packShipDateFilter === 'today')     return b === 'Today';
+  if (_packShipDateFilter === 'tomorrow')  return b === 'Tomorrow';
+  if (_packShipDateFilter === 'this_week') return b === 'Today' || b === 'Tomorrow' || b === 'This Week';
+  return true;
+}
+
+function renderPackShipDateFilterChips_(rows) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px 12px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.25);border-radius:10px;flex-wrap:wrap';
+  const label = document.createElement('div');
+  label.style.cssText = 'font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;color:#ff9800;letter-spacing:1.5px;text-transform:uppercase;margin-right:4px';
+  label.textContent = 'Ship date';
+  wrap.appendChild(label);
+  // Pre-count rows per filter so Seth sees how many he'd be selecting.
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const weekOut = new Date(today.getTime() + 7 * 86400000);
+  const bucketOf = (iso) => {
+    if (!iso) return 'No Date';
+    const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+    if (d < today) return 'Past';
+    if (d < tomorrow) return 'Today';
+    if (d < new Date(today.getTime() + 2 * 86400000)) return 'Tomorrow';
+    if (d < weekOut) return 'This Week';
+    return 'Later';
+  };
+  const counts = { all: rows.length, overdue: 0, today: 0, tomorrow: 0, this_week: 0 };
+  rows.forEach(r => {
+    const b = bucketOf(r.ship_date);
+    if (b === 'Past') counts.overdue++;
+    if (b === 'Today') { counts.today++; counts.this_week++; }
+    else if (b === 'Tomorrow') { counts.tomorrow++; counts.this_week++; }
+    else if (b === 'This Week') counts.this_week++;
+  });
+  PACK_SHIPDATE_FILTERS.forEach(f => {
+    const active = _packShipDateFilter === f.value;
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.onclick = () => setPackShipDateFilter_(f.value);
+    const bg = active ? f.color + '33' : 'rgba(255,255,255,.04)';
+    const border = active ? f.color : 'rgba(255,255,255,.18)';
+    const color = active ? f.color : 'var(--text)';
+    chip.style.cssText = 'padding:6px 11px;font-size:12px;font-weight:'+(active?'900':'700')+';background:'+bg+';color:'+color+';border:1.5px solid '+border+';border-radius:999px;cursor:pointer;letter-spacing:.3px';
+    chip.innerHTML = f.emoji + ' ' + esc(f.label)
+      + '<span style="margin-left:6px;font-size:11px;opacity:.75;font-weight:700">' + counts[f.value] + '</span>';
+    wrap.appendChild(chip);
+  });
+  return wrap;
+}
+
+function setPackShipDateFilter_(value) {
+  _packShipDateFilter = value;
+  try { localStorage.setItem(PACK_SHIPDATE_FILTER_KEY, value); } catch(e) {}
+  paintPackQueue_(_packQueueCache, false);
+}
 function packEnqueue_(orderNumber, task) {
   const prev = _packScanQueue[orderNumber] || Promise.resolve();
   const next = prev.then(task).catch(err => { console.warn('pack queue task failed:', err); });
