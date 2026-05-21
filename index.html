@@ -10215,9 +10215,26 @@ async function refreshDamageLog() {
   const body = document.getElementById('damageLogBody');
   if (!body) return;
   const includeComplete = !!document.getElementById('damageLogIncludeComplete')?.checked;
-  body.innerHTML = '<div style="text-align:center;color:#666;padding:40px 10px;font-size:14px">Loading…</div>';
+  // v10.163 — stale-while-revalidate: paint cached records immediately
+  // so the operator sees something while the server-side full-sheet
+  // read warms up. Cache key bucketed by includeComplete because the
+  // record set differs.
+  const cacheKey = 'mbd_damage_log_cache_v1_' + (includeComplete ? 'all' : 'open');
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch (e) {}
+  if (cached && Array.isArray(cached.records) && cached.records.length) {
+    body.innerHTML = cached.records.map(damageRecordCardHtml_).join('')
+      + '<div style="text-align:center;color:#888;padding:8px;font-size:11px;opacity:.7">(cached — refreshing…)</div>';
+    body.style.opacity = '0.85';
+  } else {
+    body.innerHTML = '<div style="text-align:center;color:#666;padding:40px 10px;font-size:14px">Loading…</div>';
+  }
+  const loader = (typeof showGlobalLoader === 'function')
+    ? showGlobalLoader('Loading damage records…') : null;
   try {
     const resp = await groundApi('listDamageRecords', { includeComplete });
+    if (loader) loader.stop();
+    body.style.opacity = '';
     if (!resp || !resp.ok) {
       body.innerHTML = '<div style="text-align:center;color:#8B0000;padding:40px 10px;font-size:14px">Failed to load: '+esc(resp && resp.error || 'unknown error')+'</div>';
       return;
@@ -10241,10 +10258,15 @@ async function refreshDamageLog() {
     } catch(e) {}
     if (records.length === 0) {
       body.innerHTML = '<div style="text-align:center;color:#666;padding:40px 10px;font-size:14px">'+(includeComplete?'No damage records.':'No open damage records. 🎉')+'</div>';
+      try { localStorage.setItem(cacheKey, JSON.stringify({ records: [], at: Date.now() })); } catch(e) {}
       return;
     }
     body.innerHTML = records.map(damageRecordCardHtml_).join('');
+    // v10.163 — persist for next-open stale-while-revalidate.
+    try { localStorage.setItem(cacheKey, JSON.stringify({ records: records, at: Date.now() })); } catch(e) {}
   } catch (err) {
+    if (loader) loader.stop();
+    body.style.opacity = '';
     body.innerHTML = '<div style="text-align:center;color:#8B0000;padding:40px 10px;font-size:14px">Error: '+esc(String(err && err.message || err))+'</div>';
   }
 }
@@ -10337,8 +10359,7 @@ async function updateDamageField(damageId, field, value) {
       // v10.123: when status flips to 'complete', the server clears the
       // cabinet's damaged flag (so Pull is re-enabled). Sync our local
       // cabinets array so the cabinet re-appears in Cabinets search
-      // immediately without a hard refresh. Cabinet # is read from the
-      // damage-log card's data attribute (set in damageRecordCardHtml_).
+      // immediately without a hard refresh.
       if (field === 'status' && value === 'complete') {
         try {
           const card = document.querySelector('[data-damage-id="'+damageId+'"]');
@@ -10355,15 +10376,66 @@ async function updateDamageField(damageId, field, value) {
           }
         } catch(e) {}
       }
-      // Auto-refresh so the card's left-border color matches the new status,
-      // and to drop "complete" rows out of the list when applicable.
-      refreshDamageLog();
+      // v10.163 — DO NOT full-refresh the list anymore (Zac 2026-05-21 bug:
+      // clicking to edit a date triggered auto-reload that yanked the picker
+      // out from under him). Instead, update the affected card IN PLACE.
+      _damageCardInPlaceUpdate_(damageId, field, value);
     } else {
       showToast('⚠ Save failed: '+esc(resp && resp.error || 'unknown'));
     }
   } catch (err) {
     showToast('⚠ Save error: '+esc(String(err && err.message || err)));
   }
+}
+
+// v10.163 — in-place card mutation instead of full-list re-render.
+// For status changes: update the left-border color + the chip color
+// + drop the row if status==='complete' and Show completed is off.
+// For parts_due_date or other text fields: no DOM change needed
+// (the input value the user just typed is already correct).
+function _damageCardInPlaceUpdate_(damageId, field, value) {
+  const card = document.querySelector('[data-damage-id="'+damageId+'"]');
+  if (!card) return;
+  if (field === 'status') {
+    const statusColor = ({
+      reported:           '#8B0000',
+      inspecting:         '#B25500',
+      parts_ordered:      '#6B4F00',
+      remake_in_transit:  '#2C5282',
+      remake_received:    '#0F6B3C',
+      complete:           '#444',
+    })[String(value)] || '#444';
+    card.style.borderLeftColor = statusColor;
+    // Drop the row if status now complete + Show completed unchecked.
+    const showCompleted = !!document.getElementById('damageLogIncludeComplete')?.checked;
+    if (value === 'complete' && !showCompleted) {
+      card.style.transition = 'opacity 250ms ease, max-height 250ms ease';
+      card.style.opacity = '0';
+      card.style.maxHeight = card.offsetHeight + 'px';
+      setTimeout(() => {
+        card.style.maxHeight = '0';
+        card.style.padding = '0';
+        card.style.margin = '0';
+        card.style.overflow = 'hidden';
+      }, 50);
+      setTimeout(() => { if (card.parentNode) card.remove(); }, 320);
+    }
+    // Update the open-count badge in real time.
+    const badge = document.getElementById('damageLogBadge');
+    if (badge) {
+      // Recount visible-open cards (not just deltas — keeps badge correct
+      // if multiple updates happen rapidly).
+      setTimeout(() => {
+        const remaining = document.querySelectorAll('#damageLogBody [data-damage-id]').length;
+        // If completed-rows are hidden, remaining ≈ open. If shown, recount.
+        if (!showCompleted) {
+          badge.textContent = remaining > 0 ? '(' + remaining + ' open)' : '';
+        }
+      }, 350);
+    }
+  }
+  // parts_due_date + other text fields: user's typed/picked value is
+  // already in the DOM via the input's value attribute. No action.
 }
 
 // Cancel a session entirely without committing anything not already saved.
@@ -13446,7 +13518,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.162<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.163<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
