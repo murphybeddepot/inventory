@@ -144,6 +144,8 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .scan-dot{width:8px;height:8px;border-radius:50%;background:#fff;opacity:.5;animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 @keyframes mbdSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+/* v10.165 Sable S1 — skeleton pulse for loading placeholders. */
+@keyframes mbdSkelPulse{0%,100%{opacity:1}50%{opacity:.55}}
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 
 .suggestions{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:10px;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:240px;overflow-y:auto}
@@ -11962,7 +11964,19 @@ async function refreshGroundQueue() {
     groundQueue = paintGroundQueue_(cached.queue.slice(), list, empty);
     status.textContent = groundQueue.length + ' awaiting · refreshing…';
   } else {
-    list.innerHTML = '';
+    // v10.165 Sable S1 — shaped skeleton placeholders match final card
+    // proportions so the page doesn't reflow when data arrives.
+    // 5 skeletons covers ~typical above-the-fold queue size.
+    list.innerHTML = Array(5).fill(0).map(() =>
+      '<div style="display:flex;align-items:center;gap:14px;padding:16px 14px;background:var(--surface-2);border:1.5px solid var(--border);border-radius:10px;animation:mbdSkelPulse 1.2s ease-in-out infinite">'
+      + '<div style="flex:0 0 80px;height:38px;background:rgba(255,255,255,.07);border-radius:6px"></div>'
+      + '<div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0">'
+      +   '<div style="height:18px;width:62%;background:rgba(255,255,255,.07);border-radius:4px"></div>'
+      +   '<div style="height:14px;width:42%;background:rgba(255,255,255,.04);border-radius:4px"></div>'
+      + '</div>'
+      + '<div style="flex:0 0 24px;height:24px;background:rgba(255,255,255,.04);border-radius:4px"></div>'
+      + '</div>'
+    ).join('');
     empty.style.display = 'none';
     status.textContent = 'Loading queue…';
   }
@@ -13523,7 +13537,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.164<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.165<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
