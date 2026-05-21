@@ -79,7 +79,18 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .tab-btn:hover{color:var(--green-bright)}
 .tab-btn.active{color:var(--green-bright);border-bottom-color:var(--green-bright);text-shadow:0 0 10px rgba(0,230,118,.45);background:linear-gradient(180deg,rgba(0,230,118,.08),transparent)}
 .panel{display:none;padding:14px}
-.panel.active{display:block}
+/* v10.158 Sable S4 — tab transitions feel intentional, not instant.
+   .active panel gets a 150ms opacity fade-in + 4px vertical settle.
+   Pure CSS animation runs on every active-class flip; no JS change.
+   prefers-reduced-motion respects accessibility (no animation). */
+.panel.active{display:block;animation:mbdTabFade .15s ease-out both}
+@keyframes mbdTabFade{
+  from{opacity:0;transform:translateY(4px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@media (prefers-reduced-motion: reduce){
+  .panel.active{animation:none}
+}
 
 .mode-row{display:flex;gap:6px;margin-bottom:12px}
 .mode-chip{flex:1;padding:11px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-radius:8px;border:2px solid var(--border);background:var(--surface);color:var(--text-dim);cursor:pointer;text-align:center;transition:all .12s ease}
@@ -13338,7 +13349,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.157<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.158<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
