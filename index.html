@@ -1797,6 +1797,24 @@ input::placeholder, textarea::placeholder {
     <button onclick="testFeedback()" style="margin-top:10px;width:100%;background:#003087;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">🎉 Test feedback</button>
   </div>
 
+  <!-- v10.153 Persona #12 (Shane) — end-of-shift reminder so packers
+       don't leave orphan claims that block tomorrow's work. -->
+  <div class="barcode-hint keep-dark-text" style="background:#FFF8E1;border-color:#FFC107">
+    <strong style="color:#3d2400">🌙 End-of-Shift Reminder</strong>
+    <div style="display:grid;gap:8px;margin-top:10px">
+      <label class="keep-dark-text" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fff;border-radius:8px;cursor:pointer;border:1px solid #FFC107">
+        <input type="checkbox" id="eosEnabled" onchange="setEosReminderEnabled(this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#FF9800">
+        <div><div class="keep-dark-text" style="font-size:13px;font-weight:700;color:#3d2400">Show end-of-shift reminder on Pack tab</div>
+        <div class="keep-dark-text" style="font-size:11px;color:#5a3a00;margin-top:1px">If you still have an active claim past the configured time, a banner reminds you to mark Ready-for-Check or release it for tomorrow.</div></div>
+      </label>
+      <label class="keep-dark-text" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fff;border-radius:8px;border:1px solid #FFC107">
+        <div class="keep-dark-text" style="font-size:13px;font-weight:700;color:#3d2400">Time</div>
+        <input type="time" id="eosTime" onchange="setEosReminderTime(this.value)" style="font-size:14px;padding:4px 8px;border:1px solid #B26500;border-radius:6px;background:#FFFDE7;color:#3d2400;font-weight:700">
+        <div class="keep-dark-text" style="font-size:11px;color:#5a3a00;flex:1">Defaults 5:00 PM. Fires once per device per day. Only when you have active claims.</div>
+      </label>
+    </div>
+  </div>
+
   <!-- HANDS-FREE COMMAND CARD — print this and laminate it for the wall -->
   <div class="barcode-hint" style="background:#003087;color:#fff;border-color:#003087">
     <strong style="color:#fff">📡 Hands-Free Scanning</strong>
@@ -2807,6 +2825,31 @@ function syncFeedbackToggles() {
   if (h) h.checked = FB.haptics;
   if (s) s.checked = FB.sounds;
   if (v) v.checked = FB.visuals;
+  // v10.153 — also sync the end-of-shift reminder toggles (Persona #12)
+  const eosEnabled = document.getElementById('eosEnabled');
+  const eosTime = document.getElementById('eosTime');
+  if (eosEnabled) {
+    const stored = localStorage.getItem('mbd_eos_reminder_enabled');
+    eosEnabled.checked = (stored === null) ? true : stored === 'true';
+  }
+  if (eosTime) {
+    eosTime.value = localStorage.getItem('mbd_eos_reminder_time') || '17:00';
+  }
+}
+
+function setEosReminderEnabled(on) {
+  localStorage.setItem('mbd_eos_reminder_enabled', on ? 'true' : 'false');
+  // Reset state when re-enabling so today's reminder can fire.
+  if (on) localStorage.removeItem('mbd_eos_reminder_lastdate');
+  if (typeof showToast === 'function') showToast(on ? '🌙 End-of-shift reminder ON' : 'End-of-shift reminder OFF');
+}
+
+function setEosReminderTime(value) {
+  if (!/^\d{2}:\d{2}$/.test(value)) return;
+  localStorage.setItem('mbd_eos_reminder_time', value);
+  // Reset state so the new time can fire today.
+  localStorage.removeItem('mbd_eos_reminder_lastdate');
+  if (typeof showToast === 'function') showToast('Reminder time set to ' + value);
 }
 
 function testFeedback() {
@@ -13280,7 +13323,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.152"></script>
+<script src="./pack.js?v=10.153"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -13289,7 +13332,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.152<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.153<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

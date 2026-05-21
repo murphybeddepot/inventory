@@ -30,6 +30,114 @@ function getPackDeviceId_() {
 let _packQueueCache = [];
 let _packDetailOrderNumber = null;
 
+// v10.153 persona #12 Shane — end-of-shift reminder for packers with
+// orphaned claims. Polled every 60s; only fires once per device per
+// day. If you have any in_progress/checking claim AND it's past the
+// configured time AND the reminder hasn't shown today → big banner
+// at top of Pack tab with Ready-for-Check / Release / Snooze actions.
+const EOS_REMINDER_KEY_ENABLED  = 'mbd_eos_reminder_enabled';
+const EOS_REMINDER_KEY_TIME     = 'mbd_eos_reminder_time';      // HH:MM
+const EOS_REMINDER_KEY_LASTDATE = 'mbd_eos_reminder_lastdate';  // YYYY-MM-DD
+const EOS_REMINDER_KEY_SNOOZE   = 'mbd_eos_reminder_snooze_until'; // epoch ms
+
+function eosReminderEnabled_() {
+  const v = localStorage.getItem(EOS_REMINDER_KEY_ENABLED);
+  return v === null ? true : v === 'true';
+}
+function eosReminderTime_() {
+  return localStorage.getItem(EOS_REMINDER_KEY_TIME) || '17:00';
+}
+function eosTodayIso_() {
+  const d = new Date();
+  const pad = n => n < 10 ? '0' + n : '' + n;
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+
+function checkPackEosReminder_() {
+  if (!eosReminderEnabled_()) return;
+  // Only fire if Pack tab is the active panel — banner injects there.
+  const packPanel = document.getElementById('packQueueList');
+  if (!packPanel || packPanel.offsetParent === null) return;
+  // Snooze check.
+  const snoozeUntil = Number(localStorage.getItem(EOS_REMINDER_KEY_SNOOZE) || 0);
+  if (snoozeUntil && Date.now() < snoozeUntil) return;
+  // Already shown today.
+  if (localStorage.getItem(EOS_REMINDER_KEY_LASTDATE) === eosTodayIso_()) return;
+  // Time check.
+  const now = new Date();
+  const cfg = eosReminderTime_();
+  const [hh, mm] = cfg.split(':').map(Number);
+  if (isNaN(hh) || isNaN(mm)) return;
+  if (now.getHours() < hh || (now.getHours() === hh && now.getMinutes() < mm)) return;
+  // Any active claims on this device?
+  const myDevice = getPackDeviceId_();
+  const myClaims = (_packQueueCache || []).filter(r => {
+    if (r.status === 'in_progress' && r.started_by === myDevice) return true;
+    if (r.status === 'checking' && r.checker_started_by === myDevice) return true;
+    return false;
+  });
+  if (!myClaims.length) {
+    // Mark as shown so silent-no-claim doesn't re-check 1000x; still
+    // counts as "today's reminder fired" since the goal is met.
+    localStorage.setItem(EOS_REMINDER_KEY_LASTDATE, eosTodayIso_());
+    return;
+  }
+  showPackEosBanner_(myClaims);
+  localStorage.setItem(EOS_REMINDER_KEY_LASTDATE, eosTodayIso_());
+}
+
+function showPackEosBanner_(myClaims) {
+  let bar = document.getElementById('packEosReminderBanner');
+  if (bar) bar.remove();
+  bar = document.createElement('div');
+  bar.id = 'packEosReminderBanner';
+  bar.style.cssText = 'position:sticky;top:0;z-index:50;background:linear-gradient(135deg,#FFC107 0%,#FF9800 100%);color:#3d2400;border:2px solid #B26500;border-radius:12px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 12px rgba(0,0,0,.25);font-family:-apple-system,Helvetica,Arial,sans-serif';
+  const list = myClaims.map(c => '#' + esc(c.order_number) + ' (' + esc(c.status) + ')').join(' · ');
+  bar.innerHTML =
+    '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">'
+    + '<div style="font-size:32px">🌙</div>'
+    + '<div style="flex:1;min-width:200px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;letter-spacing:1px;text-transform:uppercase">End of Shift Check-in</div>'
+    +   '<div style="font-size:13px;margin-top:4px;font-weight:600">You still have <strong>' + myClaims.length + ' active claim' + (myClaims.length === 1 ? '' : 's') + '</strong>: ' + list + '</div>'
+    +   '<div style="font-size:12px;margin-top:6px;opacity:.85">If you\'re done, mark them Ready-for-Check or release the claim so they\'re free for tomorrow.</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +   '<button onclick="snoozePackEosReminder_(15)" style="background:rgba(255,255,255,.4);color:#3d2400;border:1.5px solid rgba(0,0,0,.25);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer">Snooze 15m</button>'
+    +   '<button onclick="dismissPackEosReminder_()" style="background:#3d2400;color:#FFC107;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer">Got it</button>'
+    + '</div>'
+    + '</div>';
+  const queueList = document.getElementById('packQueueList');
+  if (queueList && queueList.parentNode) queueList.parentNode.insertBefore(bar, queueList);
+  // Haptic + sound (if FB engine exists)
+  try {
+    if (typeof FB !== 'undefined') {
+      if (FB.vibrate) FB.vibrate([200, 100, 200]);
+      if (FB.beep) FB.beep(523, 0.18, 'sine'); // C5
+    }
+  } catch(e) {}
+}
+
+function snoozePackEosReminder_(minutes) {
+  localStorage.setItem(EOS_REMINDER_KEY_SNOOZE, String(Date.now() + minutes * 60_000));
+  // Clear lastdate so it can re-fire after snooze expires.
+  localStorage.removeItem(EOS_REMINDER_KEY_LASTDATE);
+  dismissPackEosReminder_();
+  if (typeof showToast === 'function') showToast('Reminder snoozed ' + minutes + ' min');
+}
+
+function dismissPackEosReminder_() {
+  const bar = document.getElementById('packEosReminderBanner');
+  if (bar) bar.remove();
+}
+
+// Poll once a minute. setInterval armed at module load so the check
+// runs even between Pack-tab paint cycles.
+if (typeof window !== 'undefined' && !window._packEosInterval) {
+  window._packEosInterval = setInterval(checkPackEosReminder_, 60_000);
+  // Also fire once at 5s after load so silent days are marked early.
+  setTimeout(checkPackEosReminder_, 5000);
+}
+
 function renderPackTab() {
   document.getElementById('packQueueDetail').style.display = 'none';
   document.getElementById('packQueueList').style.display = '';
@@ -42,6 +150,9 @@ function renderPackTab() {
     }
   } catch(e) {}
   refreshPackQueue();
+  // v10.153: run an EOS check on every tab open in case it's already
+  // past 5pm when the packer switches to Pack.
+  setTimeout(checkPackEosReminder_, 1500);
 }
 
 async function refreshPackQueue() {
