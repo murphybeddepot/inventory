@@ -4034,8 +4034,8 @@ function _openPrintKanbanCardsImpl_() {
   destBox.innerHTML =
     '<div style="font-size:11px;font-weight:900;color:#444;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Print to</div>'
     + '<div style="display:flex;flex-direction:column;gap:6px;font-size:14px">'
-    +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="label46" checked style="width:18px;height:18px"><span><strong>4×6 label printer</strong> <span style="color:#888;font-size:12px">(default — one card per label)</span></span></label>'
-    +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="paperNup" style="width:18px;height:18px"><span><strong>Paper printer</strong> <span style="color:#888;font-size:12px">(the one that prints instructions, N-up grid)</span></span></label>'
+    +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="label46" checked style="width:18px;height:18px"><span><strong>4×6 label printer</strong> <span style="color:#555;font-size:12px">(default — one card per label)</span></span></label>'
+    +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="paperNup" style="width:18px;height:18px"><span><strong>Paper printer</strong> <span style="color:#555;font-size:12px">(the one that prints instructions, N-up grid)</span></span></label>'
     +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="kbDest" value="custom" style="width:18px;height:18px"><span><strong>Custom size</strong></span></label>'
     + '</div>'
     + '<div id="kbPaperOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px">'
@@ -4045,7 +4045,7 @@ function _openPrintKanbanCardsImpl_() {
     + '<div id="kbCustomOpts" style="display:none;margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;align-items:center;gap:8px;font-size:13px">'
     +   '<label>Width <input type="number" id="kbCustomW" value="4" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
     +   '<label>Height <input type="number" id="kbCustomH" value="6" min="1" max="20" step="0.1" style="width:60px;padding:4px;border:1px solid #ccc;border-radius:4px;margin-left:4px"> in</label>'
-    +   '<span style="font-size:11px;color:#888;margin-left:4px">(one card per page)</span>'
+    +   '<span style="font-size:11px;color:#555;margin-left:4px">(one card per page)</span>'
     + '</div>';
   panel.appendChild(destBox);
   destBox.querySelectorAll('input[name="kbDest"]').forEach(r => r.addEventListener('change', _kbDestChange_));
@@ -4210,13 +4210,50 @@ function _kbUpdateSelCount_() {
   if (el) el.textContent = checked + ' / ' + total + ' selected';
 }
 
-function _kbPrintSelected_() {
+async function _kbPrintSelected_() {
   const selectedSkus = Array.from(document.querySelectorAll('.kbItemCheck:checked')).map(cb => cb.getAttribute('data-sku'));
   if (!selectedSkus.length) { showToast('Select at least one card'); return; }
   const skuSet = {}; selectedSkus.forEach(s => { skuSet[s] = true; });
-  const selectedItems = items.filter(i => skuSet[i.sku]);
+  const selectedItems = items.filter(i => skuSet[i.sku]).map(i => ({
+    sku: i.sku || '', name: i.name || '', vendor: i.vendor || '',
+    category: i.category || '', reorderPoint: i.reorderPoint || 0,
+  }));
   const destEl = document.querySelector('input[name="kbDest"]:checked');
   const dest = destEl ? destEl.value : 'label46';
+  const payload = { items: selectedItems, destination: dest };
+  if (dest === 'paperNup') {
+    payload.nUp = Number((document.getElementById('kbNup') || {}).value || 4);
+  } else if (dest === 'custom') {
+    payload.customW = Number((document.getElementById('kbCustomW') || {}).value || 4);
+    payload.customH = Number((document.getElementById('kbCustomH') || {}).value || 6);
+  }
+  // v10.149: PrintNode integration. Submit PDF server-side → printer
+  // pulls automatically. No popup dialog. Mirrors FedEx BOL pattern.
+  const ov = document.getElementById('kanbanPrintOverlay');
+  if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = true);
+  showToast('🖨 Sending ' + selectedItems.length + ' cards to printer…');
+  try {
+    const res = await groundApi('printKanbanCards', payload);
+    if (res && res.ok) {
+      showToast('✓ ' + selectedItems.length + ' cards queued to printer (job ' + (res.job_id || '?') + ')');
+      if (ov) ov.remove();
+    } else {
+      showToast('⚠ Print failed: ' + ((res && res.error) || 'unknown') + ' — falling back to popup');
+      // Fallback: legacy popup-print path. Keeps the operator unblocked
+      // if PrintNode is misconfigured.
+      _kbFallbackPopupPrint_(selectedItems, dest);
+      if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+  } catch (err) {
+    showToast('⚠ Print error: ' + err.message + ' — falling back to popup');
+    _kbFallbackPopupPrint_(selectedItems, dest);
+    if (ov) ov.querySelectorAll('button').forEach(b => b.disabled = false);
+  }
+}
+
+// Legacy popup-print fallback — used only if the server-side PrintNode
+// path fails. Keeps the operator unblocked.
+function _kbFallbackPopupPrint_(itemList, dest) {
   let pageSize, nUpCols, nUpRows, cardW, cardH;
   if (dest === 'label46') {
     pageSize = '4in 6in'; nUpCols = 1; nUpRows = 1; cardW = '4in'; cardH = '6in';
@@ -4226,16 +4263,17 @@ function _kbPrintSelected_() {
     if (n === 2) { nUpCols = 1; nUpRows = 2; cardW = '7.5in'; cardH = '5in'; }
     else if (n === 6) { nUpCols = 2; nUpRows = 3; cardW = '3.75in'; cardH = '3.33in'; }
     else if (n === 8) { nUpCols = 2; nUpRows = 4; cardW = '3.75in'; cardH = '2.5in'; }
-    else { nUpCols = 2; nUpRows = 2; cardW = '3.75in'; cardH = '5in'; } // 4-up default
-  } else { // custom
+    else { nUpCols = 2; nUpRows = 2; cardW = '3.75in'; cardH = '5in'; }
+  } else {
     const cw = Number((document.getElementById('kbCustomW') || {}).value || 4);
     const ch = Number((document.getElementById('kbCustomH') || {}).value || 6);
     pageSize = cw + 'in ' + ch + 'in';
     nUpCols = 1; nUpRows = 1;
     cardW = cw + 'in'; cardH = ch + 'in';
   }
-  _kbOpenPrintWindow_(selectedItems, { pageSize, nUpCols, nUpRows, cardW, cardH, dest });
-  document.getElementById('kanbanPrintOverlay').remove();
+  _kbOpenPrintWindow_(itemList, { pageSize, nUpCols, nUpRows, cardW, cardH, dest });
+  const ov = document.getElementById('kanbanPrintOverlay');
+  if (ov) ov.remove();
 }
 
 // ── Email Templates Editor (v10.137 — Phase 0 of #89) ──────────────
@@ -13251,7 +13289,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.148<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.149<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
