@@ -208,6 +208,12 @@ function _packStatusError_(statusEl, message) {
 function paintPackQueue_(rows, fromCache) {
   const list = document.getElementById('packQueueList');
   list.innerHTML = '';
+  // v10.160 Sable S3 — stale-data dimming. When painting from cache
+  // (the existing fromCache path), apply mild opacity to signal the
+  // data is being refreshed. Cleared on the fresh-fetch paint. Pairs
+  // with the existing "(cached — refreshing…)" tag at the bottom.
+  list.style.opacity = fromCache ? '0.78' : '';
+  list.style.transition = 'opacity 200ms ease-out';
   // v10.152 Seth's manager-mode ship-date filter chips: only render
   // chips + apply filter when in bulk/manager mode. Outside bulk mode
   // the list stays unfiltered (Jonah needs the full picture).
@@ -2313,6 +2319,9 @@ async function refreshPrePackQueue() {
 function paintPrePackQueue_(rows, fromCache) {
   const list = document.getElementById('prePackQueueList');
   list.innerHTML = '';
+  // v10.160 Sable S3 — same dimming pattern as paintPackQueue_.
+  list.style.opacity = fromCache ? '0.78' : '';
+  list.style.transition = 'opacity 200ms ease-out';
   if (!rows.length) {
     list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No hardware to pre-pack in this horizon.<br><span style="font-size:12px">Switch to <strong>All</strong> or <strong>Tomorrow</strong> to see upcoming jobs.</span></div>';
     return;
