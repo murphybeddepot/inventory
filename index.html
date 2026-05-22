@@ -3270,6 +3270,49 @@ function _isBinFormat_(s) {
   return s && /^(HDWR|\d{3})\.\d{3}$/.test(String(s));
 }
 
+// v10.218 Zac: "On print Location labels, you should be able to add
+// a bay to an aisle right from that screen". Persist per-zone bay
+// extensions in localStorage so the next visit (and the Stock tab,
+// Locations dropdown, batch-count flow) all pick them up. Mutates
+// STOCK_BIN_ZONES[i].bays so the rest of the app's call sites just
+// keep working without modification.
+const STOCK_ZONE_EXTRA_BAYS_KEY = 'mbd_zone_extra_bays';
+function _getZoneExtraBays_() {
+  try {
+    const raw = localStorage.getItem(STOCK_ZONE_EXTRA_BAYS_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    return (obj && typeof obj === 'object') ? obj : {};
+  } catch (e) { return {}; }
+}
+function _saveZoneExtraBays_(obj) {
+  try { localStorage.setItem(STOCK_ZONE_EXTRA_BAYS_KEY, JSON.stringify(obj || {})); } catch (e) {}
+}
+function _applyZoneExtraBaysToModel_() {
+  const ext = _getZoneExtraBays_();
+  STOCK_BIN_ZONES.forEach(z => {
+    const extra = Number(ext[z.code] || 0);
+    if (extra > 0 && z._baseBays == null) z._baseBays = z.bays;
+    if (z._baseBays != null) z.bays = z._baseBays + extra;
+  });
+}
+// Apply at module load so all callers see the extended counts.
+_applyZoneExtraBaysToModel_();
+
+// Increment one bay onto a zone + persist. Returns the new bay code
+// (e.g. addBayToZone_('001') → '019' if 001 was at 18). null on
+// invalid zone.
+function addBayToZone_(zoneCode) {
+  const z = STOCK_BIN_ZONES.find(x => x.code === zoneCode);
+  if (!z) return null;
+  const ext = _getZoneExtraBays_();
+  ext[zoneCode] = Number(ext[zoneCode] || 0) + 1;
+  _saveZoneExtraBays_(ext);
+  _applyZoneExtraBaysToModel_();
+  // The new bay number = the now-current bays count
+  return String(z.bays).padStart(3, '0');
+}
+
 // v10.191 Build A.1 — persisted user-added custom locations (beyond
 // the 266 hardcoded bins). Stored in localStorage so Seth's
 // "Other (type)" entries during inventory persist for next time.
@@ -5520,9 +5563,15 @@ function openPrintLocationLabels() {
       const allSelected = seriesBins.every(b => selected.has(b));
       const sectionHeader = (z.code === 'HDWR' ? 'ZONE HDWR' : 'AISLE ' + s);
       return '<div style="margin-bottom:10px;padding:8px 10px;background:#F5F7FA;border:1px solid #ddd;border-radius:8px">'
-        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px;flex-wrap:wrap">'
         +   '<strong style="color:#1a1a1a;font-size:13px;letter-spacing:1px">' + sectionHeader + '</strong>'
-        +   '<button type="button" onclick="_locLabelToggleSeries(\'' + s + '\')" style="padding:4px 10px !important;background:' + (allSelected ? '#106c34' : '#fff') + ' !important;color:' + (allSelected ? '#fff' : '#106c34') + ' !important;-webkit-text-fill-color:' + (allSelected ? '#fff' : '#106c34') + ' !important;border:1.5px solid #106c34 !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important">' + (allSelected ? '✓ all' : 'select all ' + seriesBins.length) + '</button>'
+        +   '<div style="display:flex;gap:6px;align-items:center">'
+        // v10.218 — add-bay button per aisle. Tap → increments the
+        // zone's bay count by 1 (persisted), then auto-selects the
+        // new bay for printing + re-renders.
+        +     '<button type="button" onclick="_locLabelAddBay(\'' + s + '\')" title="Add a new bay to ' + sectionHeader + '" style="padding:4px 10px !important;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important">+ bay</button>'
+        +     '<button type="button" onclick="_locLabelToggleSeries(\'' + s + '\')" style="padding:4px 10px !important;background:' + (allSelected ? '#106c34' : '#fff') + ' !important;color:' + (allSelected ? '#fff' : '#106c34') + ' !important;-webkit-text-fill-color:' + (allSelected ? '#fff' : '#106c34') + ' !important;border:1.5px solid #106c34 !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important">' + (allSelected ? '✓ all' : 'select all ' + seriesBins.length) + '</button>'
+        +   '</div>'
         + '</div>'
         + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px">'
         +   seriesBins.map(b => {
@@ -5587,6 +5636,21 @@ function openPrintLocationLabels() {
   };
   window._locLabelSelectAll = () => { ALL_BINS.forEach(b => selected.add(b)); _renderPanel(); };
   window._locLabelSelectNone = () => { selected.clear(); _renderPanel(); };
+  // v10.218 — add a bay to a specific aisle. Bumps the zone's bay
+  // count (persisted), refreshes ALL_BINS from the now-extended
+  // ZONES, auto-selects the new bay, re-renders. Toast confirms.
+  window._locLabelAddBay = (zoneCode) => {
+    const newBay = addBayToZone_(zoneCode);
+    if (!newBay) { showToast('Zone ' + zoneCode + ' not found'); return; }
+    const newBin = zoneCode + '.' + newBay;
+    // Rebuild ALL_BINS from extended ZONES
+    ALL_BINS.length = 0;
+    ZONES.forEach(z => _baysFor(z.code).forEach(b => ALL_BINS.push(z.code + '.' + b)));
+    selected.add(newBin);
+    _renderPanel();
+    showToast('✓ Added bay ' + newBin + ' to ' + (zoneCode === 'HDWR' ? 'zone HDWR' : 'aisle ' + zoneCode));
+    FB.success();
+  };
   window._locLabelPreview = async () => {
     const first = Array.from(selected)[0] || ALL_BINS[0];
     const statusEl = document.getElementById('locLabelSendStatus');
@@ -15354,7 +15418,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.217"></script>
+<script src="./pack.js?v=10.218"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15363,7 +15427,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.217<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.218<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
