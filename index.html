@@ -927,7 +927,10 @@ input::placeholder, textarea::placeholder {
   color: var(--tape-cream);
   border: 2px solid var(--brass-dim);
   border-radius: 6px;
-  padding: 14px 12px 12px 18px;   /* extra left for LED edge */
+  /* v10.196 — tighter padding (was 14/12/12/18) to make cards more
+     compact at Zac's request; left padding still wide enough for the
+     LED edge accent. */
+  padding: 9px 10px 9px 16px;
   cursor: pointer;
   text-align: left;
   box-shadow:
@@ -1005,18 +1008,24 @@ input::placeholder, textarea::placeholder {
 .kb-vendor {
   font-size: 9px; font-weight: 800; letter-spacing: 1px;
   text-transform: uppercase; color: var(--brass);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
+/* v10.196 — title font swapped from Barlow Condensed Black 17/900
+   to non-condensed Barlow 15/700 with letter-spacing. Per Zac:
+   "letters bleeding together" — condensed + 900 was visually
+   merging adjacent characters in product names like "SCREW - ZINC
+   #6 X 5/8IN". Wider tracking + lower weight = legible. */
 .kb-sku {
-  font-family: 'Barlow Condensed',Arial,sans-serif;
-  font-size: 17px; font-weight: 900; line-height: 1.1;
+  font-family: 'Barlow','Inter',system-ui,-apple-system,Arial,sans-serif;
+  font-size: 15px; font-weight: 700; line-height: 1.2;
+  letter-spacing: .3px;
   color: var(--tape-cream);
   word-break: break-word;
 }
 .kb-name {
-  font-size: 11px; line-height: 1.3;
-  color: rgba(232,212,177,.7);
-  margin-top: 2px;
+  font-size: 11px; line-height: 1.25;
+  color: rgba(232,212,177,.65);
+  margin-top: 1px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1024,11 +1033,11 @@ input::placeholder, textarea::placeholder {
 }
 .kb-qty-row {
   display: flex; justify-content: space-between; align-items: baseline;
-  margin-top: 10px; gap: 8px;
+  margin-top: 6px; gap: 8px;
 }
 .kb-qty {
   font-family: 'Barlow Condensed',Arial,sans-serif;
-  font-size: 32px; font-weight: 900; line-height: 1;
+  font-size: 26px; font-weight: 900; line-height: 1;
   text-shadow: 0 0 8px rgba(255,255,255,.15);
 }
 .kb-card.lane-reorder .kb-qty { color: #FF6B6B; }
@@ -1041,8 +1050,8 @@ input::placeholder, textarea::placeholder {
   text-align: right;
 }
 .kb-action {
-  margin-top: 10px; width: 100%;
-  padding: 9px 10px;
+  margin-top: 6px; width: 100%;
+  padding: 6px 10px;
   border: 1.5px solid rgba(201,169,97,.4);
   border-radius: 4px;
   background: rgba(0,0,0,.45);
@@ -4636,11 +4645,17 @@ function itemKanbanCardHtml(item) {
     // OK lane — no primary action button. Whole card opens detail.
     actionBtn = '';
   }
+  // v10.196 — skip the subtitle when name == sku (no point showing
+  // the same text twice; Zac's data often has sku == name). Also
+  // skip when sku is the fallback '—'.
+  const skuStr = item.sku || '—';
+  const nameStr = item.name || '';
+  const showName = nameStr && nameStr.trim().toLowerCase() !== skuStr.trim().toLowerCase();
   return ''
     + '<div class="kb-card lane-' + lane + '" onclick="openItemDetail(\''+esc(item.uuid)+'\')">'
     +   (vendor ? '<div class="kb-vendor">' + esc(vendor) + '</div>' : '')
-    +   '<div class="kb-sku">' + esc(item.sku || '—') + '</div>'
-    +   (item.name ? '<div class="kb-name">' + esc(item.name) + '</div>' : '')
+    +   '<div class="kb-sku">' + esc(skuStr) + '</div>'
+    +   (showName ? '<div class="kb-name">' + esc(nameStr) + '</div>' : '')
     +   '<div class="kb-qty-row">'
     +     '<div class="kb-qty">' + fmt(bd.ok) + '</div>'
     +     (rp ? '<div class="kb-threshold">reorder @ ' + fmt(rp) + '</div>' : '')
@@ -14393,7 +14408,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.194"></script>
+<script src="./pack.js?v=10.196"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14402,7 +14417,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.195<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.196<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
