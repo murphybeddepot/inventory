@@ -300,7 +300,12 @@ function renderPackCard_(r) {
                : null;
   const bg = accent ? accent + '1a' : 'rgba(255,255,255,.04)';
   const border = accent ? accent + '72' : 'rgba(255,255,255,.12)';
-  card.style.cssText = 'background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:18px 18px;display:flex;align-items:center;gap:16px;transition:transform .1s ease';
+  // v10.199 — full-card tap target (was: only ship-date + task-line
+  // divs clickable, gaps + meta pill swallowed taps). Inner onclicks
+  // dropped to avoid double-fire; checkbox label + Mark-Shipped
+  // button stopPropagation as before.
+  card.style.cssText = 'background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:18px 18px;display:flex;align-items:center;gap:16px;transition:transform .1s ease;cursor:pointer';
+  card.onclick = () => openPackDetail(r.order_number);
 
   const shipDate = r.ship_date || '—';
   const taskLine = r.task_line || (r.order_number + ' (no task line)');
@@ -330,12 +335,12 @@ function renderPackCard_(r) {
 
   card.innerHTML = `
     ${checkboxHtml}
-    <div style="flex:0 0 96px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:16px;cursor:pointer" onclick="openPackDetail('${esc(r.order_number)}')">
+    <div style="flex:0 0 96px;text-align:center;border-right:1px solid rgba(255,255,255,.10);padding-right:16px">
       <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;color:var(--text-dim);text-transform:uppercase">Ship</div>
       <div style="font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:900;color:var(--green-bright);margin-top:4px;line-height:1.05">${esc(shipDate.slice(5))}</div>
       <div style="font-size:12px;color:var(--text-dim);margin-top:3px">${esc(shipDate.slice(0,4))}</div>
     </div>
-    <div style="flex:1;min-width:0;cursor:pointer" onclick="openPackDetail('${esc(r.order_number)}')">
+    <div style="flex:1;min-width:0">
       <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;line-height:1.2;word-break:break-word">${esc(taskLine)}</div>
       <div style="font-size:14px;color:var(--text);opacity:.85;margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;line-height:1.4">
         ${r.customer_name ? '<span>'+esc(r.customer_name)+'</span>' : ''}
