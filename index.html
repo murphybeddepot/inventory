@@ -3377,7 +3377,7 @@ function renderStockLocations_() {
       + (l.custom ? '<span style="font-size:10px !important;background:#FFF8E1 !important;color:#8B4F00 !important;-webkit-text-fill-color:#8B4F00 !important;border:1px solid #FFC107 !important;padding:1px 6px !important;border-radius:999px !important;font-weight:700 !important">CUSTOM</span>' : '')
       + '<span style="flex:1 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:12px !important">' + (isOcc ? l.occupants + ' item' + (l.occupants===1?'':'s') + ' · qty ' + l.qty : 'empty') + '</span>'
       + '<span style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:11px !important;white-space:nowrap !important">' + lastStr + '</span>'
-      + '<button onclick="openLocationFirstCount_(\'' + l.code + '\')" title="Count items at this location" style="padding:5px 10px !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important;text-transform:uppercase !important;letter-spacing:.5px !important">📝 Count</button>'
+      + '<button onclick="openLocationBatchCount_(\'' + l.code + '\')" title="Batch count items at this location (scan, qty, status, save, next SKU)" style="padding:5px 10px !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important;text-transform:uppercase !important;letter-spacing:.5px !important">📝 Count</button>'
       + '</div>';
   }).join('');
 }
@@ -3401,9 +3401,279 @@ function addCustomLocationFromStock_() {
   }
 }
 
-// Location-first count entry — pops a small modal letting the
-// operator pick the bin (pre-filled), pick an item (search), enter
-// qty, save. Updates the chosen item's _locations[] entry for the bin.
+// v10.211 — Location-first BATCH count flow. Per Zac 2026-05-22:
+// "click a location and scan each sku and enter the number and
+// click ok/pending/dnu on each sku he's counting for that location,
+// then save and proceed to next location (which should auto-move
+// to next location on the list)".
+//
+// State: lives in stockBatchCountSession. Flow per location:
+//   1. Show pinned location header + Currently-here summary
+//   2. Scan SKU → autofocus in input
+//   3. Enter qty on keypad
+//   4. Tap OK/PENDING/DNU (no default — forces explicit pick per v10.210)
+//   5. Save → keeps location pinned, clears SKU+qty+status for next SKU
+//   6. Session feed shows all SKUs counted at THIS location
+//   7. "Done at <bin> → Next Location" advances to next on _allStockLocations_()
+//
+// Save reuses _saveLocationBatchEntry_ which mirrors saveReceiveStock
+// (item.locations update + saveItems + push to session feed).
+const stockBatchCountSession = {
+  binCode: '',
+  binIdx: -1,
+  currentSku: '',
+  qty: '',
+  status: '',
+  recentReceipts: [],
+};
+
+function openLocationBatchCount_(binCode) {
+  const allLocs = _allStockLocations_();
+  const idx = allLocs.findIndex(l => l.code === binCode);
+  stockBatchCountSession.binCode = binCode;
+  stockBatchCountSession.binIdx = idx;
+  stockBatchCountSession.currentSku = '';
+  stockBatchCountSession.qty = '';
+  stockBatchCountSession.status = '';
+  stockBatchCountSession.recentReceipts = [];
+  // Close any prior batch modal
+  const prior = document.getElementById('locBatchCountOverlay');
+  if (prior) prior.remove();
+  // Close the earlier search-and-jump overlay if it was open
+  const prior2 = document.getElementById('locFirstCountOverlay');
+  if (prior2) prior2.remove();
+  _renderLocationBatchCount_();
+}
+
+function _renderLocationBatchCount_() {
+  const sess = stockBatchCountSession;
+  const allLocs = _allStockLocations_();
+  const det = _locationDetails_(sess.binCode);
+  // Occupants
+  const occupants = [];
+  (typeof items !== 'undefined' ? items : []).forEach(i => {
+    if (i.deleted) return;
+    (i.locations || []).forEach(l => {
+      if (String(l.code || '').trim().toUpperCase() === String(sess.binCode).trim().toUpperCase() && (parseFloat(l.qty) || 0) > 0) {
+        occupants.push({ sku: i.sku, name: i.name, qty: parseFloat(l.qty), status: locStatus(l) });
+      }
+    });
+  });
+  // Find next location for the advance button
+  const nextLoc = (sess.binIdx >= 0 && sess.binIdx < allLocs.length - 1) ? allLocs[sess.binIdx + 1] : null;
+
+  // Modal overlay — reuse the receive-stock visual idiom
+  let ov = document.getElementById('locBatchCountOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'locBatchCountOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78) !important;z-index:10010 !important;display:flex !important;align-items:flex-start !important;justify-content:center !important;padding:14px !important;overflow-y:auto !important';
+    ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+    document.body.appendChild(ov);
+  }
+  const item = sess.currentSku ? findItemBySku(sess.currentSku) : null;
+  const isUnknownSku = sess.currentSku && !item;
+
+  const occupantsHtml = occupants.length
+    ? '<div style="background:#F5F7FA !important;border:1px solid #ddd !important;border-radius:8px !important;padding:10px 12px !important;font-size:12px !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:10px"><strong style="color:#003087">Currently here (' + occupants.length + '):</strong><ul style="margin:4px 0 0;padding-left:18px">' + occupants.map(o => '<li>' + esc(o.sku) + ' · qty ' + o.qty + (o.status && o.status !== 'OK' ? ' · ' + esc(o.status) : '') + '</li>').join('') + '</ul></div>'
+    : '<div style="background:#F5F7FA !important;border:1px solid #ddd !important;border-radius:8px !important;padding:10px 12px !important;font-size:12px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:10px;font-style:italic">No items currently logged here. Counting fresh.</div>';
+
+  const statusPills = STOCK_STATUSES.map(s => {
+    const meta = STOCK_STATUS_META[s];
+    const active = sess.status === s;
+    return '<button onclick="setBatchCountStatus(\'' + s + '\')" style="flex:1 !important;min-width:80px !important;padding:12px 6px !important;border:2px solid ' + meta.color + ' !important;background:' + (active ? meta.color : '#fff') + ' !important;color:' + (active ? '#fff' : meta.color) + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : meta.color) + ' !important;border-radius:10px !important;font-size:13px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important">'
+      + (active ? '● ' : '') + meta.label
+      + '</button>';
+  }).join('');
+
+  const haveSku = !!sess.currentSku;
+  const haveQty = sess.qty && parseFloat(sess.qty) > 0;
+  const haveStatus = !!sess.status;
+  const saveValid = haveSku && haveQty && haveStatus;
+  const missingParts = [];
+  if (!haveSku) missingParts.push('SKU');
+  if (!haveQty) missingParts.push('qty');
+  if (!haveStatus) missingParts.push('status');
+  const saveLabel = saveValid ? '✓ Save + Next SKU' : 'Pick: ' + missingParts.join(' · ');
+
+  const recentFeedHtml = sess.recentReceipts.length
+    ? '<div style="font-size:12px !important;font-weight:700 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin:14px 0 6px">At <span style="font-family:\'JetBrains Mono\',monospace;color:#003087">' + esc(sess.binCode) + '</span> (' + sess.recentReceipts.length + ') <span style="font-weight:500;text-transform:none;letter-spacing:0;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:11px">— tap ↻ to undo</span></div>'
+      + sess.recentReceipts.slice().reverse().map((r, revIdx) => {
+          const meta = STOCK_STATUS_META[r.status] || STOCK_STATUS_META.OK;
+          const origIdx = sess.recentReceipts.length - 1 - revIdx;
+          return '<div style="background:#fff !important;border:1px solid #ddd !important;border-radius:8px !important;padding:8px 12px !important;margin-bottom:4px !important;display:flex !important;justify-content:space-between !important;align-items:center !important;gap:8px !important;font-size:13px !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+            + '<div style="min-width:0 !important;flex:1 !important"><strong>' + esc(r.sku) + '</strong> '
+            +   '<span style="background:' + meta.bg + ' !important;color:' + meta.color + ' !important;-webkit-text-fill-color:' + meta.color + ' !important;font-size:10px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:.5px !important;padding:1px 6px !important;border-radius:3px !important;margin-left:4px !important">' + meta.label + '</span>'
+            + '</div>'
+            + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px !important;font-weight:900 !important;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;flex-shrink:0 !important">+' + fmt(r.qty) + '</div>'
+            + '<button onclick="undoBatchCountEntry_(' + origIdx + ')" title="Undo" style="background:#FDECEA !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:1.5px solid #B71C1C !important;border-radius:6px !important;padding:6px 10px !important;font-size:13px !important;font-weight:900 !important;cursor:pointer !important;flex-shrink:0 !important">↻</button>'
+            + '</div>';
+        }).join('')
+    : '';
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px !important;padding:18px 20px !important;max-width:560px !important;width:100% !important;max-height:94vh !important;overflow-y:auto !important;box-shadow:0 8px 40px rgba(0,0,0,.4) !important;box-sizing:border-box !important">'
+    + '<div style="display:flex !important;justify-content:space-between !important;align-items:center !important;gap:10px !important;margin-bottom:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase !important;letter-spacing:.5px !important">📝 Count at <span style="font-family:\'JetBrains Mono\',monospace;color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(sess.binCode) + '</span></div>'
+    +   '<button onclick="document.getElementById(\'locBatchCountOverlay\').remove()" style="background:none !important;border:none !important;font-size:22px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer !important">✕</button>'
+    + '</div>'
+    + occupantsHtml
+    // SKU input
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">' + (item ? '✓ Scanned' : isUnknownSku ? '⚠ Unknown SKU' : 'Scan or Type SKU') + '</label>'
+    + '<input type="text" id="batchCountSku" value="' + esc(sess.currentSku || '') + '" placeholder="Pull scanner trigger or type SKU" autocomplete="off" autocorrect="off" autocapitalize="characters" style="width:100% !important;padding:14px !important;font-size:18px !important;font-weight:800 !important;border:2.5px solid ' + (item ? '#1A5C1A' : isUnknownSku ? '#FF9100' : '#003087') + ' !important;border-radius:10px !important;outline:none !important;margin-bottom:10px !important;-webkit-appearance:none !important;font-family:monospace !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important">'
+    + (item
+        ? '<div style="background:#E6F4EA !important;border:1.5px solid #1A5C1A !important;border-radius:8px !important;padding:10px 12px !important;margin-bottom:14px !important;font-size:13px !important;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important"><strong>' + esc(item.name || item.sku) + '</strong>' + (item.vendor ? '<div style="font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:2px">Vendor: ' + esc(item.vendor) + '</div>' : '') + '<div style="font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:2px">Currently: ' + fmt(itemUsableQty(item)) + ' usable, ' + fmt(itemTotalQty(item)) + ' total</div></div>'
+        : isUnknownSku ? '<div style="background:#FFF8E1 !important;border:1.5px solid #FF9100 !important;border-radius:8px !important;padding:10px 12px !important;margin-bottom:14px !important;font-size:12px !important;color:#8B4000 !important;-webkit-text-fill-color:#8B4000 !important;line-height:1.5"><strong>Unknown SKU "' + esc(sess.currentSku) + '"</strong><div style="margin-top:4px">Continuing will auto-create a placeholder item flagged for review.</div></div>' : '')
+    // Qty
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">Quantity</label>'
+    + '<div id="batchCountQtyDisplay" style="background:#fff !important;border:2.5px solid #003087 !important;border-radius:10px !important;padding:14px !important;margin-bottom:8px !important;text-align:center !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:42px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;letter-spacing:1px !important;min-height:74px !important;line-height:1 !important">' + (sess.qty || '<span style="color:#bbb !important;-webkit-text-fill-color:#bbb !important;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>') + '</div>'
+    + _renderBatchCountKeypad_()
+    // Status
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin:14px 0 6px !important">Status — <span style="color:#B71C1C !important;-webkit-text-fill-color:#B71C1C !important">pick one (required)</span></label>'
+    + '<div style="display:flex !important;gap:6px !important;margin-bottom:14px !important;flex-wrap:wrap !important">' + statusPills + '</div>'
+    // Save
+    + '<button id="batchCountSave" onclick="saveBatchCountEntry_()" ' + (saveValid ? '' : 'disabled') + ' style="width:100% !important;padding:16px !important;background:#1A5C1A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:15px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important;margin-bottom:8px !important;opacity:' + (saveValid ? '1' : '.55') + ' !important">' + saveLabel + '</button>'
+    + recentFeedHtml
+    // Done — next location button
+    + '<div style="margin-top:16px !important;padding-top:14px !important;border-top:2px solid #eee !important">'
+    +   (nextLoc
+        ? '<button onclick="advanceBatchCountToNext_()" style="width:100% !important;padding:14px !important;background:linear-gradient(135deg,#003087,#005bb5) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important">✓ Done at ' + esc(sess.binCode) + ' → Next: <span style="font-family:\'JetBrains Mono\',monospace">' + esc(nextLoc.code) + '</span></button>'
+        : '<button onclick="document.getElementById(\'locBatchCountOverlay\').remove()" style="width:100% !important;padding:14px !important;background:#1A5C1A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important">✓ Done — Close (last location)</button>')
+    + '</div>'
+    + '</div>';
+
+  // Wire SKU input
+  setTimeout(() => {
+    const skuInp = document.getElementById('batchCountSku');
+    if (skuInp) {
+      skuInp.addEventListener('input', () => {
+        sess.currentSku = skuInp.value.trim().toUpperCase();
+      });
+      skuInp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sess.currentSku = skuInp.value.trim().toUpperCase().replace(/^DEPOT[\s-]+/i, '');
+          _renderLocationBatchCount_();
+          FB.scan();
+        }
+      });
+      skuInp.focus();
+    }
+  }, 50);
+}
+
+function _renderBatchCountKeypad_() {
+  const keys = [['7','8','9'],['4','5','6'],['1','2','3'],['.','0','⌫']];
+  let html = '<div style="display:grid !important;grid-template-columns:repeat(3,1fr) !important;gap:6px !important">';
+  keys.forEach(row => row.forEach(k => {
+    const isBack = k === '⌫';
+    html += '<button onclick="batchCountKeypadTap(\'' + k + '\')" style="padding:18px 0 !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:26px !important;font-weight:900 !important;background:' + (isBack ? '#FDECEA' : '#fff') + ' !important;color:' + (isBack ? '#8B0000' : '#1a1a1a') + ' !important;-webkit-text-fill-color:' + (isBack ? '#8B0000' : '#1a1a1a') + ' !important;border:2px solid ' + (isBack ? '#8B0000' : '#999') + ' !important;border-radius:10px !important;cursor:pointer !important;-webkit-user-select:none !important;user-select:none !important">' + k + '</button>';
+  }));
+  html += '</div>';
+  return html;
+}
+
+function batchCountKeypadTap(k) {
+  const sess = stockBatchCountSession;
+  if (k === '⌫') {
+    sess.qty = String(sess.qty).slice(0, -1);
+  } else if (k === '.') {
+    if (!String(sess.qty).includes('.')) sess.qty = String(sess.qty) + '.';
+  } else {
+    if (sess.qty === '0') sess.qty = k;
+    else sess.qty = String(sess.qty) + k;
+  }
+  _renderLocationBatchCount_();
+}
+
+function setBatchCountStatus(s) {
+  stockBatchCountSession.status = s;
+  _renderLocationBatchCount_();
+  FB.tap();
+}
+
+function saveBatchCountEntry_() {
+  const sess = stockBatchCountSession;
+  if (!sess.currentSku) { showToast('⚠ Scan a SKU'); FB.error(); return; }
+  const qty = parseFloat(sess.qty);
+  if (!qty || qty <= 0) { showToast('⚠ Enter a quantity'); FB.error(); return; }
+  if (!sess.status) { showToast('⚠ Pick a status'); FB.error(); return; }
+
+  let item = findItemBySku(sess.currentSku);
+  let autoCreated = false;
+  if (!item) {
+    const ts = nowStamp();
+    item = {
+      uuid: makeUuid(),
+      sku: sess.currentSku,
+      name: '(scanned: ' + sess.currentSku + ')',
+      category: 'Other',
+      reorderPoint: 0, reorderQty: 0,
+      vendor: '',
+      locations: [],
+      autoCreated: true,
+      addedAt: ts, updatedAt: ts,
+    };
+    items.push(item);
+    autoCreated = true;
+  }
+  if (!item.locations) item.locations = [];
+  const existing = item.locations.find(l =>
+    String(l.code || '').trim().toUpperCase() === String(sess.binCode).toUpperCase()
+    && locStatus(l) === sess.status
+  );
+  if (existing) {
+    existing.qty = (parseFloat(existing.qty) || 0) + qty;
+  } else {
+    item.locations.push({ code: sess.binCode, qty, status: sess.status });
+  }
+  item.updatedAt = nowStamp();
+  saveItems();
+
+  sess.recentReceipts.push({
+    sku: sess.currentSku, qty, location: sess.binCode, status: sess.status, ts: nowStamp(),
+  });
+  FB.success();
+  if (FB.visuals) spawnScorePop('+' + fmt(qty), '#1A5C1A');
+  showToast('✓ ' + fmt(qty) + ' ' + sess.currentSku + (autoCreated ? ' (auto-created)' : '') + ' at ' + sess.binCode);
+  // Clear for next SKU, KEEP location pinned
+  sess.currentSku = '';
+  sess.qty = '';
+  sess.status = '';
+  _renderLocationBatchCount_();
+  renderItems();
+}
+
+function undoBatchCountEntry_(origIdx) {
+  const sess = stockBatchCountSession;
+  const entry = sess.recentReceipts[origIdx];
+  if (!entry) return;
+  if (!confirm('Undo this entry?\n\n  ' + entry.qty + '× ' + entry.sku + '\n  ' + entry.location + ' · ' + (entry.status || 'OK') + '\n\nThis will subtract ' + entry.qty + ' from that location.')) return;
+  _reverseReceiveEntry_(entry);
+  sess.recentReceipts.splice(origIdx, 1);
+  showToast('↻ Undone — ' + entry.qty + '× ' + entry.sku);
+  FB.success();
+  _renderLocationBatchCount_();
+  renderItems();
+}
+
+function advanceBatchCountToNext_() {
+  const allLocs = _allStockLocations_();
+  const sess = stockBatchCountSession;
+  if (sess.binIdx < 0 || sess.binIdx >= allLocs.length - 1) {
+    document.getElementById('locBatchCountOverlay').remove();
+    return;
+  }
+  // If there are unsaved fields, confirm before advance
+  if (sess.currentSku || sess.qty) {
+    if (!confirm('You have unsaved values for this location. Advance anyway? (Unsaved SKU/qty will be lost.)')) return;
+  }
+  const nextBin = allLocs[sess.binIdx + 1];
+  openLocationBatchCount_(nextBin.code);
+}
+
+// Old v10.192 search-and-jump flow — kept as the secondary path for
+// "find a specific SKU's location" from Stock locations. The 📝 Count
+// button now routes to openLocationBatchCount_ instead per Zac's spec.
 function openLocationFirstCount_(binCode) {
   const prior = document.getElementById('locFirstCountOverlay');
   if (prior) prior.remove();
@@ -14566,7 +14836,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.210"></script>
+<script src="./pack.js?v=10.211"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14575,7 +14845,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.210<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.211<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
