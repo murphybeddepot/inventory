@@ -2617,6 +2617,67 @@ function switchTab(name) {
 function openMoreMenu() {
   const ov = document.getElementById('moreMenuOverlay');
   if (ov) ov.style.display = 'block';
+  // v10.193 Build B — inject pin toggles next to each pinnable tab
+  // card so the user can promote up to 3 to the main nav bar.
+  _injectMoreMenuPinToggles_();
+}
+
+// v10.193 Build B — for each card in the More menu that calls
+// goToTabFromMore('<name>'), inject a small pin toggle that pins
+// that tab to the main bar. Idempotent — safe to call repeatedly.
+function _injectMoreMenuPinToggles_() {
+  const pinned = (typeof getPinnedTabs_ === 'function') ? getPinnedTabs_() : [];
+  const buttons = document.querySelectorAll('#moreMenuOverlay button');
+  buttons.forEach(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    const m = onclick.match(/goToTabFromMore\(['"](\w+)['"]\)/);
+    if (!m) return;
+    const tabName = m[1];
+    if (typeof TAB_PIN_LABELS === 'undefined' || !TAB_PIN_LABELS[tabName]) return;
+    // Avoid duplicate injection
+    if (btn.querySelector('.mbd-pin-toggle')) {
+      // Refresh pinned state on existing toggle
+      const existing = btn.querySelector('.mbd-pin-toggle');
+      const isPinned = pinned.includes(tabName);
+      existing.textContent = isPinned ? '📌' : '📍';
+      existing.title = isPinned ? 'Unpin from main bar' : 'Pin to main bar';
+      existing.style.color = isPinned ? '#003087' : '#999';
+      existing.style.background = isPinned ? '#e7eef9' : 'transparent';
+      return;
+    }
+    const isPinned = pinned.includes(tabName);
+    const pinBtn = document.createElement('span');
+    pinBtn.className = 'mbd-pin-toggle';
+    pinBtn.style.cssText = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;width:34px !important;height:34px !important;margin-right:8px !important;border-radius:8px !important;font-size:16px !important;cursor:pointer !important;flex-shrink:0 !important;background:' + (isPinned ? '#e7eef9' : 'transparent') + ' !important;color:' + (isPinned ? '#003087' : '#999') + ' !important;border:1px solid ' + (isPinned ? '#003087' : '#ccc') + ' !important';
+    pinBtn.textContent = isPinned ? '📌' : '📍';
+    pinBtn.title = isPinned ? 'Unpin from main bar' : 'Pin to main bar';
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      togglePinnedTab_(tabName);
+      _injectMoreMenuPinToggles_(); // refresh
+    });
+    // Insert as the first child of the button so it appears before
+    // the emoji icon. Buttons here have an icon-span first, then
+    // a text div. We'll prepend the pin.
+    btn.insertBefore(pinBtn, btn.firstChild);
+  });
+  // Append a small "pinned count" hint at the top of the menu
+  const ov = document.getElementById('moreMenuOverlay');
+  if (!ov) return;
+  const inner = ov.querySelector('div > div'); // the inner panel
+  if (!inner) return;
+  let hint = inner.querySelector('#mbdPinnedHint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'mbdPinnedHint';
+    hint.style.cssText = 'background:#FFF8E1 !important;border:1px solid #FFC107 !important;border-radius:8px !important;padding:8px 12px !important;font-size:12px !important;color:#5a3e00 !important;-webkit-text-fill-color:#5a3e00 !important;margin-bottom:12px !important;line-height:1.4 !important';
+    // Insert after the title (the second child)
+    const title = inner.children[2]; // [drag-handle, ?, title…]
+    if (title) inner.insertBefore(hint, title.nextSibling);
+    else inner.insertBefore(hint, inner.firstChild);
+  }
+  hint.innerHTML = '<strong>📌 Pin tabs to the main bar</strong> — tap the 📍 next to a tab to promote it. Up to ' + TAB_PINS_MAX + ' pinned at a time. Pins are per-device, persistent across refreshes. <span style="color:#003087;font-weight:700">' + pinned.length + ' / ' + TAB_PINS_MAX + ' pinned</span>';
 }
 
 function closeMoreMenu() {
@@ -14332,7 +14393,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.193"></script>
+<script src="./pack.js?v=10.194"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14341,7 +14402,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.193<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.194<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
