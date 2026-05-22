@@ -6539,15 +6539,24 @@ function renderReceiveStock() {
     + '</button>'
 
     + (sess.recentReceipts.length
-        ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin:14px 0 6px">This Session ('+sess.recentReceipts.length+')</div>'
-          + sess.recentReceipts.slice().reverse().map(r => {
+        ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;margin:14px 0 6px">This Session ('+sess.recentReceipts.length+') <span style="font-weight:500;text-transform:none;letter-spacing:0;color:#666;font-size:11px">— tap ↻ to undo or ✎ to edit</span></div>'
+          + sess.recentReceipts.slice().reverse().map((r, revIdx) => {
               const meta = STOCK_STATUS_META[r.status] || STOCK_STATUS_META.OK;
+              // origIdx = position in the un-reversed array. Used to find
+              // the session row to undo/edit.
+              const origIdx = sess.recentReceipts.length - 1 - revIdx;
               return '<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px 12px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px">'
                 + '<div style="min-width:0;flex:1"><strong>'+esc(r.sku)+'</strong> '
                 +   '<span style="background:'+meta.bg+';color:'+meta.color+';font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:1px 6px;border-radius:3px;margin-left:4px">'+meta.label+'</span>'
                 +   '<div style="font-size:11px;color:#444;margin-top:2px">📍 '+esc(r.location)+'</div>'
                 + '</div>'
                 + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#1A5C1A;flex-shrink:0">+'+fmt(r.qty)+'</div>'
+                // v10.209 Zac/Seth inventory edit/undo. ↻ reverses the
+                // qty + removes the entry. ✎ undoes + re-loads the values
+                // into the form so user can fix status/qty/location +
+                // re-save without retyping the SKU.
+                + '<button onclick="editReceiveStockEntry_('+origIdx+')" title="Edit this entry (undo + reload values)" style="background:#FFF3D0 !important;color:#7A5800 !important;-webkit-text-fill-color:#7A5800 !important;border:1.5px solid #FFA000 !important;border-radius:6px !important;padding:6px 10px !important;font-size:13px !important;font-weight:900 !important;cursor:pointer !important;flex-shrink:0 !important">✎</button>'
+                + '<button onclick="undoReceiveStockEntry_('+origIdx+')" title="Undo (subtract qty from this location)" style="background:#FDECEA !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:1.5px solid #B71C1C !important;border-radius:6px !important;padding:6px 10px !important;font-size:13px !important;font-weight:900 !important;cursor:pointer !important;flex-shrink:0 !important">↻</button>'
                 + '</div>';
             }).join('')
         : '');
@@ -6780,6 +6789,71 @@ function saveReceiveStock() {
   sess.qty = '';
   renderReceiveStock();
   renderItems();
+}
+
+// v10.209 — undo/edit a Stock receive entry mid-session. Reverses the
+// qty addition on the item's location entry (which mirrors what
+// saveReceiveStock did), removes the session feed row, then re-renders.
+// `editReceiveStockEntry_` is just undo + repopulating the form so the
+// user can fix the wrong field without retyping the SKU/qty/location.
+//
+// Address Zac's case (2026-05-22): "I saved 14× SBLM at 001.001 as OK
+// but should've been DNU" — tap ✎, the values pre-fill in the form,
+// pick the correct status, hit Save. Or just ↻ to reverse + walk away.
+function undoReceiveStockEntry_(origIdx) {
+  const sess = stockReceiveSession;
+  const entry = sess.recentReceipts[origIdx];
+  if (!entry) return;
+  if (!confirm('Undo this entry?\n\n  ' + entry.qty + '× ' + entry.sku
+    + '\n  ' + entry.location + ' · ' + (entry.status || 'OK')
+    + '\n\nThis will subtract ' + entry.qty + ' from that location.')) return;
+  _reverseReceiveEntry_(entry);
+  sess.recentReceipts.splice(origIdx, 1);
+  showToast('↻ Undone — ' + entry.qty + '× ' + entry.sku + ' at ' + entry.location);
+  FB.success();
+  renderReceiveStock();
+  renderItems();
+}
+
+function editReceiveStockEntry_(origIdx) {
+  const sess = stockReceiveSession;
+  const entry = sess.recentReceipts[origIdx];
+  if (!entry) return;
+  // Reverse the original entry on the item, drop the session row, then
+  // pre-fill the form so user can re-save with fixes.
+  _reverseReceiveEntry_(entry);
+  sess.recentReceipts.splice(origIdx, 1);
+  sess.currentSku = entry.sku;
+  sess.qty = String(entry.qty);
+  sess.location = entry.location;
+  sess.status = entry.status || 'OK';
+  showToast('✎ Loaded for edit — fix and tap Save');
+  FB.tap();
+  renderReceiveStock();
+  renderItems();
+}
+
+// Internal — reverses one session entry against the item's locations
+// array. Mirrors the qty-add logic in saveReceiveStock. Idempotent
+// (will not go negative).
+function _reverseReceiveEntry_(entry) {
+  const item = findItemBySku(entry.sku);
+  if (!item || !Array.isArray(item.locations)) return;
+  const loc = item.locations.find(l =>
+    String(l.code||'').trim().toUpperCase() === String(entry.location).trim().toUpperCase()
+    && locStatus(l) === (entry.status || 'OK')
+  );
+  if (!loc) return;
+  const reduced = (parseFloat(loc.qty) || 0) - (parseFloat(entry.qty) || 0);
+  if (reduced > 0) {
+    loc.qty = reduced;
+  } else {
+    // Remove the entire location entry — qty would go to 0 or negative.
+    const idx = item.locations.indexOf(loc);
+    if (idx >= 0) item.locations.splice(idx, 1);
+  }
+  item.updatedAt = nowStamp();
+  saveItems();
 }
 
 function exportItems() {
@@ -14459,7 +14533,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.208"></script>
+<script src="./pack.js?v=10.209"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14468,7 +14542,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.208<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.209<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
