@@ -3043,18 +3043,40 @@ function renderCountCard(item, el, sc) {
   document.getElementById('applyBtn').addEventListener('click', () => applyCount(item.row));
 }
 
-// v10.184 — bin location dropdown. 12 series × 18 bins = 216 standard
-// warehouse bins. Format NNN.NNN (e.g. 001.005). Native <select> with
-// <optgroup> per series renders as a section-headered iOS-native picker
-// on iPad/iPhone — fastest 2-tap UX for Seth's inventory work today.
-// "Other (type)" toggles a free-text fallback for legacy locations
-// like "Shelf A3" or "Bin 12" that don't follow the bin convention.
-const STOCK_BIN_SERIES = ['001','002','003','004','005','006','007','008','009','010','011','012'];
+// v10.184 — bin location dropdown. v10.188 — zones model.
+// Numeric aisles 001-012 each have 18 bays = 216 bins.
+// HDWR zone has 50 bays = 50 bins. Total = 266.
+// Format: ZONE.BAY (e.g. 001.005, HDWR.012). Native <select> with
+// <optgroup> per zone renders as section-headered iOS picker.
+// "Other (type)" toggles a free-text fallback.
+const STOCK_BIN_ZONES = (function(){
+  const out = [];
+  for (let i = 1; i <= 12; i++) {
+    out.push({ code: String(i).padStart(3, '0'), bays: 18 });
+  }
+  out.push({ code: 'HDWR', bays: 50 });
+  return out;
+})();
+// Backward-compat alias (existing call sites expect a flat list of
+// numeric aisle codes). Keep but mark as legacy-numeric.
+const STOCK_BIN_SERIES = STOCK_BIN_ZONES
+  .filter(z => /^\d+$/.test(z.code))
+  .map(z => z.code);
 const STOCK_BIN_BAYS = (function(){
   const out = [];
   for (let i = 1; i <= 18; i++) out.push(String(i).padStart(3, '0'));
   return out;
 })();
+function _stockBaysForZone_(zoneCode) {
+  const zone = STOCK_BIN_ZONES.find(z => z.code === zoneCode);
+  if (!zone) return [];
+  const out = [];
+  for (let i = 1; i <= zone.bays; i++) out.push(String(i).padStart(3, '0'));
+  return out;
+}
+function _isBinFormat_(s) {
+  return s && /^(HDWR|\d{3})\.\d{3}$/.test(String(s));
+}
 function _buildStockLocationSelect_(currentValue) {
   const sel = document.createElement('select');
   sel.className = 'loc-entry-loc';
@@ -3064,16 +3086,17 @@ function _buildStockLocationSelect_(currentValue) {
   ph.textContent = '— pick location —';
   ph.disabled = true;
   sel.appendChild(ph);
-  // Determine if current value matches the NNN.NNN bin format
-  const isBin = currentValue && /^\d{3}\.\d{3}$/.test(currentValue);
+  const isBin = _isBinFormat_(currentValue);
   const isLegacy = currentValue && !isBin;
-  STOCK_BIN_SERIES.forEach(series => {
+  STOCK_BIN_ZONES.forEach(zone => {
     const grp = document.createElement('optgroup');
-    grp.label = 'Aisle ' + series;
-    STOCK_BIN_BAYS.forEach(bay => {
+    // v10.188 — HDWR reads as "ZONE HDWR" (not Aisle) for clarity;
+    // numeric aisles 001-012 stay "Aisle NNN".
+    grp.label = (zone.code === 'HDWR' ? 'ZONE HDWR' : 'Aisle ' + zone.code);
+    _stockBaysForZone_(zone.code).forEach(bay => {
       const opt = document.createElement('option');
-      opt.value = series + '.' + bay;
-      opt.textContent = series + '.' + bay;
+      opt.value = zone.code + '.' + bay;
+      opt.textContent = zone.code + '.' + bay;
       if (currentValue === opt.value) opt.selected = true;
       grp.appendChild(opt);
     });
@@ -4208,13 +4231,22 @@ function openPrintLocationLabels() {
   const prior = document.getElementById('printLocLabelsOverlay');
   if (prior) prior.remove();
 
-  // Source-of-truth bin list — same as the Stock-count dropdown.
-  const SERIES = ['001','002','003','004','005','006','007','008','009','010','011','012'];
-  const BAYS = [];
-  for (let i = 1; i <= 18; i++) BAYS.push(String(i).padStart(3, '0'));
+  // v10.188 — source-of-truth zones model (numeric aisles 001-012
+  // with 18 bays each + HDWR zone with 50 bays). Total = 266 bins.
+  // Mirrors STOCK_BIN_ZONES from the count dropdown.
+  const ZONES = (typeof STOCK_BIN_ZONES !== 'undefined' && STOCK_BIN_ZONES.length)
+    ? STOCK_BIN_ZONES
+    : (function(){ const o=[]; for(let i=1;i<=12;i++)o.push({code:String(i).padStart(3,'0'),bays:18}); o.push({code:'HDWR',bays:50}); return o; })();
+  function _baysFor(zoneCode) {
+    const z = ZONES.find(z => z.code === zoneCode);
+    if (!z) return [];
+    const out = [];
+    for (let i = 1; i <= z.bays; i++) out.push(String(i).padStart(3, '0'));
+    return out;
+  }
   const ALL_BINS = [];
-  SERIES.forEach(s => BAYS.forEach(b => ALL_BINS.push(s + '.' + b)));
-  // Default selection: none (operator picks to avoid 216-print accidents)
+  ZONES.forEach(z => _baysFor(z.code).forEach(b => ALL_BINS.push(z.code + '.' + b)));
+  // Default selection: none (operator picks to avoid 266-print accidents)
   const selected = new Set();
 
   const ov = document.createElement('div');
@@ -4228,13 +4260,15 @@ function openPrintLocationLabels() {
   panel.addEventListener('click', e => e.stopPropagation());
 
   function _renderBinGrid() {
-    return SERIES.map(s => {
-      const seriesBins = BAYS.map(b => s + '.' + b);
+    return ZONES.map(z => {
+      const s = z.code;
+      const seriesBins = _baysFor(s).map(b => s + '.' + b);
       const allSelected = seriesBins.every(b => selected.has(b));
+      const sectionHeader = (z.code === 'HDWR' ? 'ZONE HDWR' : 'AISLE ' + s);
       return '<div style="margin-bottom:10px;padding:8px 10px;background:#F5F7FA;border:1px solid #ddd;border-radius:8px">'
         + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-        +   '<strong style="color:#1a1a1a;font-size:13px;letter-spacing:1px">AISLE ' + s + '</strong>'
-        +   '<button type="button" onclick="_locLabelToggleSeries(\'' + s + '\')" style="padding:4px 10px !important;background:' + (allSelected ? '#106c34' : '#fff') + ' !important;color:' + (allSelected ? '#fff' : '#106c34') + ' !important;-webkit-text-fill-color:' + (allSelected ? '#fff' : '#106c34') + ' !important;border:1.5px solid #106c34 !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important">' + (allSelected ? '✓ all' : 'select all 18') + '</button>'
+        +   '<strong style="color:#1a1a1a;font-size:13px;letter-spacing:1px">' + sectionHeader + '</strong>'
+        +   '<button type="button" onclick="_locLabelToggleSeries(\'' + s + '\')" style="padding:4px 10px !important;background:' + (allSelected ? '#106c34' : '#fff') + ' !important;color:' + (allSelected ? '#fff' : '#106c34') + ' !important;-webkit-text-fill-color:' + (allSelected ? '#fff' : '#106c34') + ' !important;border:1.5px solid #106c34 !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important">' + (allSelected ? '✓ all' : 'select all ' + seriesBins.length) + '</button>'
         + '</div>'
         + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px">'
         +   seriesBins.map(b => {
@@ -4264,7 +4298,7 @@ function openPrintLocationLabels() {
       +   '4×6 labels with the same AISLE/BAY format as the existing PDF but with a QR code instead of the Code 39 barcode. QR encodes the full bin code (e.g. <code>001.005</code>) — scannable by any phone camera or wedge scanner.'
       + '</div>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
-      +   '<button type="button" onclick="_locLabelSelectAll()" style="padding:8px 14px !important;background:#106c34 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:6px !important;font-size:12px !important;font-weight:800 !important;cursor:pointer !important">✓ Select all 216</button>'
+      +   '<button type="button" onclick="_locLabelSelectAll()" style="padding:8px 14px !important;background:#106c34 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:6px !important;font-size:12px !important;font-weight:800 !important;cursor:pointer !important">✓ Select all ' + ALL_BINS.length + '</button>'
       +   '<button type="button" onclick="_locLabelSelectNone()" style="padding:8px 14px !important;background:#fff !important;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1px solid #ccc !important;border-radius:6px !important;font-size:12px !important;font-weight:700 !important;cursor:pointer !important">Clear</button>'
       +   '<span id="locLabelCount" style="margin-left:auto;color:#1a1a1a;font-size:13px;font-weight:700">' + selected.size + ' selected</span>'
       + '</div>'
@@ -4289,7 +4323,7 @@ function openPrintLocationLabels() {
     if (el) el.textContent = selected.size + ' selected';
   };
   window._locLabelToggleSeries = (s) => {
-    const seriesBins = BAYS.map(b => s + '.' + b);
+    const seriesBins = _baysFor(s).map(b => s + '.' + b);
     const allSel = seriesBins.every(b => selected.has(b));
     if (allSel) seriesBins.forEach(b => selected.delete(b));
     else seriesBins.forEach(b => selected.add(b));
@@ -13838,7 +13872,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.187"></script>
+<script src="./pack.js?v=10.188"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -13847,7 +13881,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.187<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.188<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
