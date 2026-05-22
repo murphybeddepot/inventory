@@ -5243,6 +5243,30 @@ let _emailTplsCache = null;     // cached list from listShipConfTemplates
 let _quillInstance = null;      // singleton Quill editor instance
 let _quillLoadPromise = null;   // dedup CDN load
 
+// v10.208 — Phase 1b mail-merge chip handler. Inserts `{{key}}` at
+// the current Quill cursor position. If no selection, appends at the
+// end. Used by the chip-row in _openEmailTplEditor_ — taps don't
+// steal focus from Quill because chips are <button type="button">
+// outside the editor's DOM tree.
+function _insertMergeVarIntoQuill_(varKey) {
+  if (!_quillInstance) return;
+  const insertText = '{{' + String(varKey || '').trim() + '}}';
+  let range = _quillInstance.getSelection();
+  if (!range) {
+    // No active selection — append at end of document
+    const len = _quillInstance.getLength();
+    _quillInstance.insertText(len - 1, insertText, 'user');
+    _quillInstance.setSelection(len - 1 + insertText.length, 0, 'user');
+  } else {
+    // Replace selection (if any) with the insert; place caret after.
+    if (range.length) _quillInstance.deleteText(range.index, range.length, 'user');
+    _quillInstance.insertText(range.index, insertText, 'user');
+    _quillInstance.setSelection(range.index + insertText.length, 0, 'user');
+  }
+  // Refocus the editor so the next chip tap behaves predictably.
+  _quillInstance.focus();
+}
+
 function _ensureQuillLoaded_() {
   if (window.Quill) return Promise.resolve();
   if (_quillLoadPromise) return _quillLoadPromise;
@@ -5416,11 +5440,38 @@ async function _openEmailTplEditor_(templateKey, flow) {
   subjInput.style.cssText = 'width:100%;padding:10px 12px;font-size:14px;color:#1a1a1a;border:1.5px solid #ccc;border-radius:8px;outline:none;box-sizing:border-box;font-family:-apple-system,Helvetica,Arial,sans-serif';
   panel.appendChild(subjInput);
 
-  // Mail-merge variables hint (Phase 0 — chips/autocomplete are Phase 1)
-  const hint = document.createElement('div');
-  hint.style.cssText = 'font-size:12px;color:#333;background:#F0F4F8;border:1px dashed #888;border-radius:6px;padding:8px 10px;font-family:monospace';
-  hint.textContent = 'Variables: {{customer_name}} {{order_number}} {{offered_date}} {{shipping_method}} {{installer_code}} {{fillout_form_url}} {{customer_email}} {{customer_phone}}';
-  panel.appendChild(hint);
+  // v10.208 Phase 1b mail-merge chips — tap-to-insert variables at
+  // cursor position. Was: static hint with handtyped variable names.
+  // Now: each variable is a clickable chip that inserts the {{var}}
+  // string into the Quill body at the current selection. No custom
+  // Quill blots — simpler text insertion that the existing
+  // previewEmailTplBody_ substituter already handles.
+  const mergeVars = [
+    { key: 'customer_name',    label: 'Customer Name',    sample: 'Jane Smith' },
+    { key: 'order_number',     label: 'Order #',          sample: '31991' },
+    { key: 'offered_date',     label: 'Offered Date',     sample: 'Friday, May 29' },
+    { key: 'shipping_method',  label: 'Ship Method',      sample: 'FedEx Freight' },
+    { key: 'installer_code',   label: 'Installer Code',   sample: '4 Install' },
+    { key: 'fillout_form_url', label: 'Form URL',         sample: 'https://fillout.com/…' },
+    { key: 'customer_email',   label: 'Customer Email',   sample: 'jane@example.com' },
+    { key: 'customer_phone',   label: 'Customer Phone',   sample: '(904) 555-1234' },
+  ];
+  const chipBox = document.createElement('div');
+  chipBox.style.cssText = 'display:flex !important;flex-wrap:wrap !important;gap:4px !important;padding:8px 10px !important;background:#F0F4F8 !important;border:1px dashed #888 !important;border-radius:6px !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important';
+  const chipLabel = document.createElement('span');
+  chipLabel.textContent = 'Tap to insert →';
+  chipLabel.style.cssText = 'font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;letter-spacing:.5px !important;text-transform:uppercase !important;align-self:center !important;margin-right:6px !important';
+  chipBox.appendChild(chipLabel);
+  mergeVars.forEach(v => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.textContent = '{{' + v.key + '}}';
+    chip.title = v.label + ' — sample: "' + v.sample + '"';
+    chip.style.cssText = 'background:#fff !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:1.5px solid #003087 !important;border-radius:999px !important;padding:3px 10px !important;font-size:11px !important;font-weight:800 !important;font-family:monospace !important;cursor:pointer !important;letter-spacing:.2px !important';
+    chip.addEventListener('click', () => _insertMergeVarIntoQuill_(v.key));
+    chipBox.appendChild(chip);
+  });
+  panel.appendChild(chipBox);
 
   // Body label
   const bodyLabel = document.createElement('label');
@@ -14408,7 +14459,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.207"></script>
+<script src="./pack.js?v=10.208"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14417,7 +14468,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.207<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.208<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
