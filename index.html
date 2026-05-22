@@ -1660,6 +1660,13 @@ input::placeholder, textarea::placeholder {
       📋 Print Guide
     </button>
   </div>
+  <!-- v10.185 Print bin location labels — same row, dedicated CTA so Seth
+       can re-print warehouse aisle/bay tags when needed. -->
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <button onclick="openPrintLocationLabels()" style="flex:1;padding:13px 14px;background:linear-gradient(135deg,#0a8a3f,#106c34);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 6px rgba(10,138,63,.25)">
+      📍 Print Location Labels (QR)
+    </button>
+  </div>
 
   <!-- EMPTY STATE -->
   <div id="itemEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
@@ -4189,6 +4196,144 @@ function markItemReceivedFromOrder(uuid) {
   // Refresh detail card if open.
   const inp = document.getElementById('itemSearchInput');
   if (inp && inp.value) renderItemResult(inp.value);
+}
+
+// ── v10.185 Printable bin location labels (with QR for scan-to-fill) ──
+// Opens a selection modal: pick which bins to print (all 216, by
+// series, or individual), pick copies-per-label, fire printNode.
+// Server (LocationLabels.js) builds 4×6 PDFs matching the legacy
+// MBD OPS WHRS AISLE LABELS.pdf format but with QR instead of
+// Code 39 — QR scans at any angle, faster on phone cameras.
+function openPrintLocationLabels() {
+  const prior = document.getElementById('printLocLabelsOverlay');
+  if (prior) prior.remove();
+
+  // Source-of-truth bin list — same as the Stock-count dropdown.
+  const SERIES = ['001','002','003','004','005','006','007','008','009','010','011','012'];
+  const BAYS = [];
+  for (let i = 1; i <= 18; i++) BAYS.push(String(i).padStart(3, '0'));
+  const ALL_BINS = [];
+  SERIES.forEach(s => BAYS.forEach(b => ALL_BINS.push(s + '.' + b)));
+  // Default selection: none (operator picks to avoid 216-print accidents)
+  const selected = new Set();
+
+  const ov = document.createElement('div');
+  ov.id = 'printLocLabelsOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+  const panel = document.createElement('div');
+  panel.className = 'keep-dark-text';
+  panel.style.cssText = 'background:#fff;border-radius:14px;padding:18px 20px;max-width:760px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px;box-sizing:border-box';
+  panel.addEventListener('click', e => e.stopPropagation());
+
+  function _renderBinGrid() {
+    return SERIES.map(s => {
+      const seriesBins = BAYS.map(b => s + '.' + b);
+      const allSelected = seriesBins.every(b => selected.has(b));
+      return '<div style="margin-bottom:10px;padding:8px 10px;background:#F5F7FA;border:1px solid #ddd;border-radius:8px">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+        +   '<strong style="color:#1a1a1a;font-size:13px;letter-spacing:1px">SERIES ' + s + '</strong>'
+        +   '<button type="button" onclick="_locLabelToggleSeries(\'' + s + '\')" style="padding:4px 10px;background:' + (allSelected ? '#106c34' : '#fff') + ';color:' + (allSelected ? '#fff' : '#106c34') + ';border:1.5px solid #106c34;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer">' + (allSelected ? '✓ all' : 'select all 18') + '</button>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px">'
+        +   seriesBins.map(b => {
+              const checked = selected.has(b);
+              return '<label style="display:flex;align-items:center;gap:4px;padding:5px 6px;background:' + (checked ? '#e6f4ec' : '#fff') + ';border:1px solid ' + (checked ? '#106c34' : '#ddd') + ';border-radius:4px;cursor:pointer;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a">'
+                + '<input type="checkbox" data-bin="' + b + '" ' + (checked ? 'checked' : '') + ' onchange="_locLabelToggleBin(\'' + b + '\', this.checked)" style="margin:0">'
+                + b
+                + '</label>';
+            }).join('')
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function _renderPanel() {
+    panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">📍 Print Location Labels (QR)</div>'
+      + '<button onclick="document.getElementById(\'printLocLabelsOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666;cursor:pointer">✕</button>'
+      + '</div>'
+      + '<div style="background:#F5F7FA;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;color:#333;line-height:1.5">'
+      +   '4×6 labels with the same AISLE/BAY format as the existing PDF but with a QR code instead of the Code 39 barcode. QR encodes the full bin code (e.g. <code>001.005</code>) — scannable by any phone camera or wedge scanner.'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+      +   '<button type="button" onclick="_locLabelSelectAll()" style="padding:8px 14px;background:#106c34;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">✓ Select all 216</button>'
+      +   '<button type="button" onclick="_locLabelSelectNone()" style="padding:8px 14px;background:#fff;color:#666;border:1px solid #ccc;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Clear</button>'
+      +   '<span id="locLabelCount" style="margin-left:auto;color:#1a1a1a;font-size:13px;font-weight:700">' + selected.size + ' selected</span>'
+      + '</div>'
+      + '<div id="locLabelBinGrid" style="max-height:380px;overflow-y:auto;padding:4px">' + _renderBinGrid() + '</div>'
+      + '<div style="display:flex;gap:8px;align-items:center;padding:10px 12px;background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;font-size:13px;color:#5a3e00">'
+      +   '<label style="font-weight:700">Copies each:</label>'
+      +   '<input type="number" id="locLabelCopies" value="1" min="1" max="10" style="width:60px;padding:6px 8px;font-size:14px;border:1.5px solid #ccc;border-radius:6px;text-align:center">'
+      + '</div>'
+      + '<div id="locLabelSendStatus" style="font-size:12px;color:#666;min-height:14px"></div>'
+      + '<div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap">'
+      +   '<button type="button" onclick="_locLabelPreview()" style="padding:11px 16px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer">👁 Preview one (PDF in Drive)</button>'
+      +   '<div style="display:flex;gap:8px">'
+      +     '<button onclick="document.getElementById(\'printLocLabelsOverlay\').remove()" style="padding:11px 16px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+      +     '<button id="locLabelPrintBtn" onclick="_locLabelPrintClick()" style="padding:11px 18px;background:linear-gradient(135deg,#106c34,#0a8a3f);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🖨 Print</button>'
+      +   '</div>'
+      + '</div>';
+  }
+  // Expose toggles (modal uses onclick attributes that reference globals)
+  window._locLabelToggleBin = (bin, checked) => {
+    if (checked) selected.add(bin); else selected.delete(bin);
+    const el = document.getElementById('locLabelCount');
+    if (el) el.textContent = selected.size + ' selected';
+  };
+  window._locLabelToggleSeries = (s) => {
+    const seriesBins = BAYS.map(b => s + '.' + b);
+    const allSel = seriesBins.every(b => selected.has(b));
+    if (allSel) seriesBins.forEach(b => selected.delete(b));
+    else seriesBins.forEach(b => selected.add(b));
+    document.getElementById('locLabelBinGrid').innerHTML = _renderBinGrid();
+    const el = document.getElementById('locLabelCount');
+    if (el) el.textContent = selected.size + ' selected';
+  };
+  window._locLabelSelectAll = () => { ALL_BINS.forEach(b => selected.add(b)); _renderPanel(); };
+  window._locLabelSelectNone = () => { selected.clear(); _renderPanel(); };
+  window._locLabelPreview = async () => {
+    const first = Array.from(selected)[0] || ALL_BINS[0];
+    const statusEl = document.getElementById('locLabelSendStatus');
+    if (statusEl) statusEl.textContent = 'Generating preview PDF for ' + first + '…';
+    // Note: this uses the editor-runnable function which is auth-free
+    // but only previews a HARD-CODED bin ('001.005'). For preview-arbitrary
+    // we'd need a doPost endpoint — defer. Just open the editor.
+    if (statusEl) statusEl.innerHTML = 'Run <code>diagPreviewLocationLabel</code> from Apps Script editor → LocationLabels.gs to get a Drive PDF preview (currently hard-coded to bin <code>001.005</code> — edit line 1 of the function for a different bin).';
+  };
+  window._locLabelPrintClick = async () => {
+    if (!selected.size) { showToast('Pick at least one bin to print'); return; }
+    const copies = Math.max(1, Math.min(10, Number(document.getElementById('locLabelCopies').value) || 1));
+    const ok = confirm('Print ' + selected.size + ' bin label' + (selected.size === 1 ? '' : 's') + ' × ' + copies + ' cop' + (copies === 1 ? 'y' : 'ies') + '?\n\nLabels go to your default PrintNode printer.');
+    if (!ok) return;
+    const btn = document.getElementById('locLabelPrintBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⟳ Printing…'; }
+    const statusEl = document.getElementById('locLabelSendStatus');
+    if (statusEl) statusEl.textContent = 'Submitting to PrintNode…';
+    try {
+      const res = await groundApi('printLocationLabels', {
+        bins: Array.from(selected),
+        copies: copies,
+      });
+      if (btn) { btn.disabled = false; btn.textContent = '🖨 Print'; }
+      if (res && res.ok) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:#106c34;font-weight:800">✓ ' + res.bins_printed + ' bin label' + (res.bins_printed === 1 ? '' : 's') + ' × ' + res.copies_each + ' cop' + (res.copies_each === 1 ? 'y' : 'ies') + ' submitted (job #' + res.job_id + ')</span>';
+        showToast('✓ ' + res.bins_printed + ' labels sent to printer');
+        // Don't auto-close — let Seth see the confirmation + add more if needed
+      } else {
+        const err = (res && res.error) || 'unknown error';
+        if (statusEl) statusEl.innerHTML = '<span style="color:#c33">⚠ ' + esc(err) + '</span>';
+      }
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = '🖨 Print'; }
+      if (statusEl) statusEl.innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message || String(e)) + '</span>';
+    }
+  };
+
+  _renderPanel();
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
 }
 
 // ── v72 Printable kanban cards (with QR for re-order) ──────────────
@@ -13687,7 +13832,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.184"></script>
+<script src="./pack.js?v=10.185"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -13696,7 +13841,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.184<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.185<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
