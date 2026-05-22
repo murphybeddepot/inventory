@@ -3290,17 +3290,45 @@ function addStockUserLocation_(label) {
   return true;
 }
 
+// v10.215 — unified iterator over both location data shapes. The
+// item model has TWO arrays for historical reasons:
+//   - item._locations: legacy {loc, qty} (used by item-card inline editor)
+//   - item.locations:  current {code, qty, status} (used by Receive Stock + Batch Count)
+// Receive Stock + Batch Count write ONLY to item.locations. Older
+// flows still write to _locations. The Locations section + the
+// occupied-dot used to iterate _locations only — so a SKU added
+// today via Add Stock at 001.004 wouldn't show occupancy on the
+// Locations section. This unifies the read path so both shapes are
+// surfaced. Writes are unchanged for now (separate dedup pass).
+function _iterItemLocs_(item, fn) {
+  if (!item) return;
+  if (Array.isArray(item._locations)) {
+    item._locations.forEach(l => {
+      const code = String((l && l.loc) || '').trim();
+      const qty = parseFloat(l && l.qty) || 0;
+      if (code) fn(code, qty, '', l);
+    });
+  }
+  if (Array.isArray(item.locations)) {
+    item.locations.forEach(l => {
+      const code = String((l && l.code) || '').trim();
+      const qty = parseFloat(l && l.qty) || 0;
+      const status = String((l && l.status) || 'OK');
+      if (code) fn(code, qty, status, l);
+    });
+  }
+}
+
 // v10.191 — count items currently assigned to a bin. Used for the
 // occupied-dot indicator in the count dropdown. Iterates `items`
-// once + checks each item's _locations array. O(N×L) where N=items,
-// L=locations-per-item. Typically <500 items × <5 locs = fine.
+// once + checks each item via _iterItemLocs_ (covers both schemas).
 function _isBinOccupied_(bin) {
   if (!bin || typeof items === 'undefined' || !items.length) return 0;
   let n = 0;
   items.forEach(i => {
     if (i.deleted) return;
-    (i._locations || []).forEach(l => {
-      if (String(l.loc || '').trim() === bin && (parseFloat(l.qty) || 0) > 0) n++;
+    _iterItemLocs_(i, (code, qty) => {
+      if (code === bin && qty > 0) n++;
     });
   });
   return n;
@@ -3325,15 +3353,23 @@ function _allStockLocations_() {
 function _locationDetails_(binCode) {
   let occupants = 0, qty = 0, lastUpdated = '';
   if (typeof items !== 'undefined') {
+    const seen = {};  // dedupe by (sku) so an item with BOTH _locations
+                      // and locations entries for the same bin doesn't
+                      // double-count occupant count
     items.forEach(i => {
       if (i.deleted) return;
-      (i._locations || []).forEach(l => {
-        if (String(l.loc || '').trim() === binCode) {
-          const q = parseFloat(l.qty) || 0;
-          if (q > 0) { occupants++; qty += q; }
-          const ts = String(i.updatedAt || '');
-          if (ts > lastUpdated) lastUpdated = ts;
+      _iterItemLocs_(i, (code, q) => {
+        if (code !== binCode) return;
+        if (q > 0) {
+          const sku = String(i.sku || '');
+          if (!seen[sku + '|' + binCode]) {
+            occupants++;
+            seen[sku + '|' + binCode] = true;
+          }
+          qty += q;
         }
+        const ts = String(i.updatedAt || '');
+        if (ts > lastUpdated) lastUpdated = ts;
       });
     });
   }
@@ -15072,7 +15108,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.214"></script>
+<script src="./pack.js?v=10.215"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15081,7 +15117,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.214<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.215<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
