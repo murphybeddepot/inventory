@@ -3084,6 +3084,49 @@ function _stockBaysForZone_(zoneCode) {
 function _isBinFormat_(s) {
   return s && /^(HDWR|\d{3})\.\d{3}$/.test(String(s));
 }
+
+// v10.191 Build A.1 — persisted user-added custom locations (beyond
+// the 266 hardcoded bins). Stored in localStorage so Seth's
+// "Other (type)" entries during inventory persist for next time.
+// Capped at 200 to bound localStorage; admins can clear via Stock
+// admin tools (TODO Build A.2).
+const STOCK_USER_LOCATIONS_KEY = 'mbd_user_locations';
+function getStockUserLocations_() {
+  try {
+    const raw = localStorage.getItem(STOCK_USER_LOCATIONS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : [];
+  } catch (e) { return []; }
+}
+function addStockUserLocation_(label) {
+  label = String(label || '').trim();
+  if (!label) return false;
+  // Don't add if it's already a standard bin format
+  if (_isBinFormat_(label)) return false;
+  const list = getStockUserLocations_();
+  if (list.includes(label)) return false;
+  list.push(label);
+  if (list.length > 200) list.shift(); // FIFO eviction
+  try { localStorage.setItem(STOCK_USER_LOCATIONS_KEY, JSON.stringify(list)); } catch (e) {}
+  return true;
+}
+
+// v10.191 — count items currently assigned to a bin. Used for the
+// occupied-dot indicator in the count dropdown. Iterates `items`
+// once + checks each item's _locations array. O(N×L) where N=items,
+// L=locations-per-item. Typically <500 items × <5 locs = fine.
+function _isBinOccupied_(bin) {
+  if (!bin || typeof items === 'undefined' || !items.length) return 0;
+  let n = 0;
+  items.forEach(i => {
+    if (i.deleted) return;
+    (i._locations || []).forEach(l => {
+      if (String(l.loc || '').trim() === bin && (parseFloat(l.qty) || 0) > 0) n++;
+    });
+  });
+  return n;
+}
 function _buildStockLocationSelect_(currentValue) {
   const sel = document.createElement('select');
   sel.className = 'loc-entry-loc';
@@ -3094,28 +3137,50 @@ function _buildStockLocationSelect_(currentValue) {
   ph.disabled = true;
   sel.appendChild(ph);
   const isBin = _isBinFormat_(currentValue);
-  const isLegacy = currentValue && !isBin;
+  const userLocs = getStockUserLocations_();
+  const isUserLoc = currentValue && userLocs.includes(currentValue);
+  const isLegacy = currentValue && !isBin && !isUserLoc;
+  // v10.191 — prefix occupied bins with ● so Seth can see at-a-glance
+  // which bins already have items assigned during inventory walk.
   STOCK_BIN_ZONES.forEach(zone => {
     const grp = document.createElement('optgroup');
-    // v10.188 — HDWR reads as "ZONE HDWR" (not Aisle) for clarity;
-    // numeric aisles 001-012 stay "Aisle NNN".
     grp.label = (zone.code === 'HDWR' ? 'ZONE HDWR' : 'Aisle ' + zone.code);
     _stockBaysForZone_(zone.code).forEach(bay => {
+      const binCode = zone.code + '.' + bay;
       const opt = document.createElement('option');
-      opt.value = zone.code + '.' + bay;
-      opt.textContent = zone.code + '.' + bay;
-      if (currentValue === opt.value) opt.selected = true;
+      opt.value = binCode;
+      const occupants = _isBinOccupied_(binCode);
+      // ● for occupied; ○ for empty. Operator can tell at-a-glance
+      // which bins are "holding stock" without leaving the dropdown.
+      opt.textContent = (occupants > 0 ? '● ' : '○ ') + binCode
+        + (occupants > 0 ? ' (' + occupants + ')' : '');
+      if (currentValue === binCode) opt.selected = true;
       grp.appendChild(opt);
     });
     sel.appendChild(grp);
   });
-  // Escape hatch for non-standard bin labels
+  // v10.191 — user-added custom locations get their own optgroup
+  // so they don't clutter the standard-bin sections but are still
+  // pickable without re-typing.
+  if (userLocs.length) {
+    const cgrp = document.createElement('optgroup');
+    cgrp.label = 'Custom (added on this device)';
+    userLocs.forEach(loc => {
+      const opt = document.createElement('option');
+      opt.value = loc;
+      const occupants = _isBinOccupied_(loc);
+      opt.textContent = (occupants > 0 ? '● ' : '○ ') + loc
+        + (occupants > 0 ? ' (' + occupants + ')' : '');
+      if (currentValue === loc) opt.selected = true;
+      cgrp.appendChild(opt);
+    });
+    sel.appendChild(cgrp);
+  }
   const other = document.createElement('option');
   other.value = '__OTHER__';
   other.textContent = 'Other (type custom)…';
   if (isLegacy) other.selected = true;
   sel.appendChild(other);
-  // If nothing selected by either path, the placeholder stays selected
   if (!currentValue) ph.selected = true;
   return sel;
 }
@@ -3170,6 +3235,15 @@ function renderLocRow(item, idx) {
     }
   });
   locIn.addEventListener('input', () => { item._locations[idx].loc = locIn.value; });
+  // v10.191 — when free-text loses focus with a non-empty value,
+  // persist it to the user-custom-locations list so future dropdowns
+  // include it as a pickable option (saves re-typing on next count).
+  locIn.addEventListener('blur', () => {
+    const v = String(locIn.value || '').trim();
+    if (v && typeof addStockUserLocation_ === 'function') {
+      addStockUserLocation_(v);
+    }
+  });
   // Small swap-back button so user isn't stranded in free-text mode
   const locSwap = document.createElement('button');
   locSwap.type = 'button';
@@ -13935,7 +14009,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.190"></script>
+<script src="./pack.js?v=10.191"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -13944,7 +14018,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.190<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.191<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
