@@ -2339,8 +2339,32 @@ async function refreshPrePackQueue() {
     paintPrePackQueue_(_prePackQueueCache, false);
     const pending = _prePackQueueCache.filter(r => !r.hardware_packed_at).length;
     const done = _prePackQueueCache.filter(r => r.hardware_packed_at).length;
-    statusEl.textContent = pending + ' to pre-pack' + (done ? (' · ' + done + ' done in last 48h') : '')
+    // v10.205 Zoe/Evan persona — surface past-due pending count in the
+    // status line. Past bucket is rendered first in the list (red
+    // accent) but if Zoe glances at the status bar without scrolling
+    // she has no signal that something's overdue. Computing client-side
+    // (same logic as the bucket sort) avoids a server round-trip.
+    const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+    const pastDue = _prePackQueueCache.filter(r => {
+      if (r.hardware_packed_at) return false;
+      const iso = String(r.ship_date || '').slice(0, 10);
+      if (!iso) return false;
+      const d = new Date(iso + 'T00:00:00');
+      return d < todayMidnight;
+    }).length;
+    statusEl.textContent = pending + ' to pre-pack'
+      + (pastDue ? (' · 🔥 ' + pastDue + ' past due') : '')
+      + (done ? (' · ' + done + ' done in last 48h') : '')
       + ' · today=' + res.today + ' · tomorrow=' + res.tomorrow;
+    // Make past-due chip eye-catching in red on the status element so
+    // it doesn't blend in with the rest of the line. textContent
+    // doesn't carry inline color; switch to innerHTML when past>0.
+    if (pastDue) {
+      statusEl.innerHTML = pending + ' to pre-pack'
+        + ' · <span style="color:#ff5252;font-weight:900">🔥 ' + pastDue + ' past due</span>'
+        + (done ? (' · ' + done + ' done in last 48h') : '')
+        + ' · today=' + res.today + ' · tomorrow=' + res.tomorrow;
+    }
   } catch (err) {
     statusEl.textContent = 'Error: ' + err.message;
   }
