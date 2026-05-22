@@ -3543,8 +3543,27 @@ function _renderLocationBatchCount_() {
   const item = sess.currentSku ? findItemBySku(sess.currentSku) : null;
   const isUnknownSku = sess.currentSku && !item;
 
+  // v10.216 Zac: "i should be able to click on one of the items
+  // currently listed there to edit the qty or status if desired..
+  // or even to move to another location". Each occupant row is now
+  // a tappable card with an ✎ edit button + chevron. Tap → opens
+  // openBatchCountOccupantEdit_(sku, binCode) overlay with qty +
+  // status + move-to-location + delete.
   const occupantsHtml = occupants.length
-    ? '<div style="background:#F5F7FA !important;border:1px solid #ddd !important;border-radius:8px !important;padding:10px 12px !important;font-size:12px !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:10px"><strong style="color:#003087">Currently here (' + occupants.length + '):</strong><ul style="margin:4px 0 0;padding-left:18px">' + occupants.map(o => '<li>' + esc(o.sku) + ' · qty ' + o.qty + (o.status && o.status !== 'OK' ? ' · ' + esc(o.status) : '') + '</li>').join('') + '</ul></div>'
+    ? '<div style="background:#F5F7FA !important;border:1px solid #ddd !important;border-radius:8px !important;padding:10px 12px !important;font-size:12px !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:10px">'
+        + '<div style="font-weight:900 !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;margin-bottom:6px !important;font-size:12px !important">Currently here (' + occupants.length + ') <span style="font-weight:500;color:#666 !important;-webkit-text-fill-color:#666 !important">— tap to edit / move</span></div>'
+        + occupants.map(o => {
+            const statusMeta = STOCK_STATUS_META[o.status] || STOCK_STATUS_META.OK;
+            const sku = esc(o.sku);
+            const bin = esc(sess.binCode);
+            return '<div onclick="openBatchCountOccupantEdit_(\'' + sku + '\',\'' + bin + '\')" style="display:flex !important;align-items:center !important;gap:8px !important;padding:8px 10px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ddd !important;border-radius:6px !important;margin-bottom:4px !important;cursor:pointer !important" onmouseover="this.style.background=\'#F0F4FB\';this.style.borderColor=\'#1A4FB0\'" onmouseout="this.style.background=\'#fff\';this.style.borderColor=\'#ddd\'">'
+              + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:800 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;flex:1 !important;min-width:0 !important">' + sku + '</span>'
+              + '<span style="background:' + statusMeta.bg + ' !important;color:' + statusMeta.color + ' !important;-webkit-text-fill-color:' + statusMeta.color + ' !important;font-size:9px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:.5px !important;padding:1px 6px !important;border-radius:3px !important;flex-shrink:0 !important">' + statusMeta.label + '</span>'
+              + '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;flex-shrink:0 !important">' + o.qty + '</span>'
+              + '<span style="color:#999 !important;-webkit-text-fill-color:#999 !important;font-size:16px !important;flex-shrink:0 !important">›</span>'
+              + '</div>';
+          }).join('')
+      + '</div>'
     : '<div style="background:#F5F7FA !important;border:1px solid #ddd !important;border-radius:8px !important;padding:10px 12px !important;font-size:12px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:10px;font-style:italic">No items currently logged here. Counting fresh.</div>';
 
   const statusPills = STOCK_STATUSES.map(s => {
@@ -3747,6 +3766,180 @@ function advanceBatchCountToNext_() {
   }
   const nextBin = allLocs[sess.binIdx + 1];
   openLocationBatchCount_(nextBin.code);
+}
+
+// v10.216 — edit an existing occupant at the pinned bin. Opens a
+// secondary overlay on top of the batch-count modal (z-index 10015
+// vs 10010). Lets the operator change qty / status / move to
+// another bin / delete the entry. Saves via direct mutation on
+// item.locations (mirrors saveBatchCountEntry_'s write semantics).
+let _batchOccupantEditState = null;
+
+function openBatchCountOccupantEdit_(sku, binCode) {
+  const item = findItemBySku(sku);
+  if (!item) { showToast('Item not found: ' + sku); return; }
+  const loc = (item.locations || []).find(l =>
+    String(l.code || '').trim().toUpperCase() === String(binCode).trim().toUpperCase()
+  );
+  if (!loc) { showToast('Entry not found for ' + sku + ' at ' + binCode); return; }
+  _batchOccupantEditState = {
+    sku: sku,
+    fromBin: binCode,
+    targetBin: binCode,
+    qty: String(loc.qty || 0),
+    status: locStatus(loc) || 'OK',
+  };
+  _renderBatchOccupantEdit_();
+}
+
+function _renderBatchOccupantEdit_() {
+  const st = _batchOccupantEditState;
+  if (!st) return;
+  const prior = document.getElementById('batchOccupantEditOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'batchOccupantEditOverlay';
+  ov.style.cssText = 'position:fixed !important;inset:0 !important;background:rgba(0,0,0,.78) !important;z-index:10015 !important;display:flex !important;align-items:center !important;justify-content:center !important;padding:14px !important;overflow-y:auto !important';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+  const allLocs = _allStockLocations_();
+  const qtyDisplay = st.qty && parseFloat(st.qty) > 0 ? esc(st.qty) : '0';
+
+  const statusPills = STOCK_STATUSES.map(s => {
+    const meta = STOCK_STATUS_META[s];
+    const active = st.status === s;
+    return '<button onclick="setBatchOccupantEditStatus_(\'' + s + '\')" style="flex:1 !important;min-width:80px !important;padding:11px 6px !important;border:2px solid ' + meta.color + ' !important;background:' + (active ? meta.color : '#fff') + ' !important;color:' + (active ? '#fff' : meta.color) + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : meta.color) + ' !important;border-radius:8px !important;font-size:13px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important">'
+      + (active ? '● ' : '') + meta.label + '</button>';
+  }).join('');
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px !important;padding:18px 20px !important;max-width:460px !important;width:100% !important;max-height:94vh !important;overflow-y:auto !important;box-shadow:0 8px 40px rgba(0,0,0,.5) !important;box-sizing:border-box !important">'
+    + '<div style="display:flex !important;justify-content:space-between !important;align-items:center !important;gap:10px !important;margin-bottom:12px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase !important;letter-spacing:.5px !important">✎ Edit <span style="color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;font-family:\'JetBrains Mono\',monospace">' + esc(st.sku) + '</span></div>'
+    +   '<button onclick="document.getElementById(\'batchOccupantEditOverlay\').remove()" style="background:none !important;border:none !important;font-size:22px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer !important">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px !important">at <strong style="font-family:\'JetBrains Mono\',monospace;color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(st.fromBin) + '</strong></div>'
+    // Qty
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">Quantity</label>'
+    + '<div style="display:flex !important;align-items:center !important;gap:8px !important;margin-bottom:14px !important">'
+    +   '<button onclick="batchOccupantEditQtyStep_(-1)" style="padding:14px 18px !important;background:#FDECEA !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:2px solid #8B0000 !important;border-radius:10px !important;font-size:20px !important;font-weight:900 !important;cursor:pointer !important">−</button>'
+    +   '<input type="number" id="batchOccupantEditQty" value="' + qtyDisplay + '" min="0" step="1" inputmode="numeric" oninput="batchOccupantEditQtySet_(this.value)" style="flex:1 !important;padding:14px !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:32px !important;font-weight:900 !important;text-align:center !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:2.5px solid #003087 !important;border-radius:10px !important;outline:none !important">'
+    +   '<button onclick="batchOccupantEditQtyStep_(1)" style="padding:14px 18px !important;background:#E6F4EA !important;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;border:2px solid #1A5C1A !important;border-radius:10px !important;font-size:20px !important;font-weight:900 !important;cursor:pointer !important">+</button>'
+    + '</div>'
+    // Status
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">Status</label>'
+    + '<div style="display:flex !important;gap:6px !important;margin-bottom:14px !important;flex-wrap:wrap !important">' + statusPills + '</div>'
+    // Move to
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">Move to</label>'
+    + '<select id="batchOccupantEditTargetBin" onchange="setBatchOccupantEditTarget_(this.value)" style="width:100% !important;padding:11px !important;font-size:14px !important;font-family:\'JetBrains Mono\',monospace !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:2px solid #ccc !important;border-radius:10px !important;margin-bottom:14px !important">'
+    +   allLocs.map(l => '<option value="' + esc(l.code) + '"' + (l.code === st.targetBin ? ' selected' : '') + '>' + esc(l.code) + (l.code === st.fromBin ? ' (current)' : '') + (l.custom ? ' [custom]' : '') + '</option>').join('')
+    + '</select>'
+    // Action buttons
+    + '<div style="display:flex !important;gap:8px !important;margin-bottom:8px !important">'
+    +   '<button onclick="deleteBatchOccupant_()" style="flex:0 0 auto !important;padding:13px 16px !important;background:#fff !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:2px solid #8B0000 !important;border-radius:10px !important;font-size:13px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important">🗑 Remove</button>'
+    +   '<button onclick="document.getElementById(\'batchOccupantEditOverlay\').remove()" style="flex:1 !important;padding:13px !important;background:#f5f5f5 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1.5px solid #ccc !important;border-radius:10px !important;font-size:13px !important;font-weight:700 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important">Cancel</button>'
+    + '</div>'
+    + '<button onclick="saveBatchOccupantEdit_()" style="width:100% !important;padding:15px !important;background:linear-gradient(135deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:15px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;cursor:pointer !important">✓ Save Changes</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+function batchOccupantEditQtyStep_(delta) {
+  if (!_batchOccupantEditState) return;
+  const cur = parseFloat(_batchOccupantEditState.qty) || 0;
+  const next = Math.max(0, cur + delta);
+  _batchOccupantEditState.qty = String(next);
+  const inp = document.getElementById('batchOccupantEditQty');
+  if (inp) inp.value = String(next);
+}
+
+function batchOccupantEditQtySet_(value) {
+  if (!_batchOccupantEditState) return;
+  _batchOccupantEditState.qty = String(value || '0');
+}
+
+function setBatchOccupantEditStatus_(s) {
+  if (!_batchOccupantEditState) return;
+  _batchOccupantEditState.status = s;
+  _renderBatchOccupantEdit_();
+  FB.tap();
+}
+
+function setBatchOccupantEditTarget_(b) {
+  if (!_batchOccupantEditState) return;
+  _batchOccupantEditState.targetBin = b;
+}
+
+function saveBatchOccupantEdit_() {
+  const st = _batchOccupantEditState;
+  if (!st) return;
+  const item = findItemBySku(st.sku);
+  if (!item) { showToast('Item not found'); return; }
+  if (!Array.isArray(item.locations)) item.locations = [];
+  const newQty = parseFloat(st.qty) || 0;
+  const fromBin = String(st.fromBin).trim().toUpperCase();
+  const toBin = String(st.targetBin).trim().toUpperCase();
+  // Find the source entry (matching fromBin + current status — or
+  // match by fromBin alone if the status changed during this edit).
+  const srcIdx = item.locations.findIndex(l =>
+    String(l.code || '').trim().toUpperCase() === fromBin
+  );
+  if (srcIdx < 0) { showToast('Source entry not found'); return; }
+  if (newQty <= 0) {
+    // Quantity zeroed → remove entry
+    item.locations.splice(srcIdx, 1);
+  } else if (fromBin === toBin) {
+    // Same bin → update qty + status in place
+    item.locations[srcIdx].qty = newQty;
+    item.locations[srcIdx].status = st.status;
+    item.locations[srcIdx].code = st.targetBin;  // preserve original case
+  } else {
+    // Different bin → remove from source, add to target (merge if
+    // a same-status entry already exists at the target)
+    item.locations.splice(srcIdx, 1);
+    const existing = item.locations.find(l =>
+      String(l.code || '').trim().toUpperCase() === toBin && locStatus(l) === st.status
+    );
+    if (existing) {
+      existing.qty = (parseFloat(existing.qty) || 0) + newQty;
+    } else {
+      item.locations.push({ code: st.targetBin, qty: newQty, status: st.status });
+    }
+  }
+  item.updatedAt = nowStamp();
+  saveItems();
+  FB.success();
+  showToast('✓ ' + esc(st.sku) + ' at ' + esc(st.targetBin) + ' updated');
+  document.getElementById('batchOccupantEditOverlay').remove();
+  _batchOccupantEditState = null;
+  // If we moved to a different bin, follow the user there. Otherwise
+  // just re-render the current location.
+  if (fromBin !== toBin) {
+    openLocationBatchCount_(st.targetBin);
+  } else {
+    _renderLocationBatchCount_();
+  }
+  renderItems();
+}
+
+function deleteBatchOccupant_() {
+  const st = _batchOccupantEditState;
+  if (!st) return;
+  if (!confirm('Remove ' + st.sku + ' entirely from ' + st.fromBin + '?\n\nThis deletes the location entry (sets qty=0). The item itself stays.')) return;
+  const item = findItemBySku(st.sku);
+  if (!item || !Array.isArray(item.locations)) return;
+  const fromBin = String(st.fromBin).trim().toUpperCase();
+  const idx = item.locations.findIndex(l =>
+    String(l.code || '').trim().toUpperCase() === fromBin
+  );
+  if (idx >= 0) item.locations.splice(idx, 1);
+  item.updatedAt = nowStamp();
+  saveItems();
+  FB.success();
+  showToast('🗑 ' + esc(st.sku) + ' removed from ' + esc(st.fromBin));
+  document.getElementById('batchOccupantEditOverlay').remove();
+  _batchOccupantEditState = null;
+  _renderLocationBatchCount_();
+  renderItems();
 }
 
 // v10.212 — header dropdown switch. Selecting a new location replays
@@ -15108,7 +15301,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.215"></script>
+<script src="./pack.js?v=10.216"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15117,7 +15310,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.215<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.216<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
