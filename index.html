@@ -1711,6 +1711,10 @@ input::placeholder, textarea::placeholder {
 
   <!-- ITEM LIST -->
   <div id="itemCount" style="font-size:13px;color:#666;text-align:center;font-weight:600;margin-top:8px"></div>
+  <!-- v10.213 path B — Stock cloud-sync badge. Tap to force-sync. -->
+  <div style="text-align:center;margin-top:6px">
+    <button onclick="manualStockSync()" id="stockSyncBadge" title="Stock cloud-sync status — tap to force sync now" style="display:inline-block;padding:5px 12px !important;font-size:12px !important;font-weight:700 !important;border:none !important;border-radius:999px !important;cursor:pointer !important;background:#f0f0f0 !important;color:#444 !important;-webkit-text-fill-color:#444 !important">○ Not yet synced</button>
+  </div>
   <div id="itemList" style="margin-top:8px;margin-bottom:18px"></div>
 
   <!-- ── ADMIN TOOLS ─────────────────────────────────────────────── -->
@@ -4699,6 +4703,156 @@ function saveItems() {
     console.error('saveItems failed:', e);
     try { showToast('⚠ Count NOT saved on this device (storage full?) — re-enter or sync'); } catch (_) {}
   }
+  // v10.213 path B — every saveItems schedules a debounced server sync.
+  // Local write is the authority for this device; server write is the
+  // backup. Failures here don't toast (debounce + retry handles it).
+  if (typeof _scheduleStockSync_ === 'function') _scheduleStockSync_();
+}
+
+// v10.213 — Cloud-first Stock sync. localStorage is the authoritative
+// store for THIS device; the server is the convergence point across
+// devices + the durable backup that survives a Safari cache wipe.
+// Writes are debounced (10s after last saveItems) + batched so a
+// rapid-fire counting session doesn't hammer the orchestrator.
+let _stockSyncDebounceTimer = null;
+let _stockSyncState = 'idle';   // 'idle' | 'syncing' | 'offline' | 'error'
+let _stockSyncLastAt = 0;
+let _stockSyncLastError = '';
+let _stockSyncPendingCount = 0;
+const STOCK_SYNC_DEBOUNCE_MS = 10000;
+
+function _stockSyncDeviceId_() {
+  try {
+    let id = localStorage.getItem('mbd_device_id');
+    if (!id) {
+      id = 'dev-' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('mbd_device_id', id);
+    }
+    return id;
+  } catch (e) { return 'unknown'; }
+}
+
+function _scheduleStockSync_() {
+  _stockSyncPendingCount++;
+  _updateStockSyncBadge_();
+  if (_stockSyncDebounceTimer) clearTimeout(_stockSyncDebounceTimer);
+  _stockSyncDebounceTimer = setTimeout(() => {
+    _stockSyncDebounceTimer = null;
+    _runStockSync_();
+  }, STOCK_SYNC_DEBOUNCE_MS);
+}
+
+async function _runStockSync_(force) {
+  if (_stockSyncState === 'syncing' && !force) return;
+  _stockSyncState = 'syncing';
+  _updateStockSyncBadge_();
+  const payload = (items || []).map(i => i);
+  if (!payload.length) {
+    _stockSyncState = 'idle';
+    _stockSyncPendingCount = 0;
+    _updateStockSyncBadge_();
+    return { ok: true, written: 0 };
+  }
+  try {
+    const res = await groundApi('stockBulkUpsertItems', {
+      items: payload,
+      device_id: _stockSyncDeviceId_(),
+    });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'unknown');
+    _stockSyncState = 'idle';
+    _stockSyncLastAt = Date.now();
+    _stockSyncLastError = '';
+    _stockSyncPendingCount = 0;
+    _updateStockSyncBadge_();
+    return res;
+  } catch (err) {
+    _stockSyncState = 'error';
+    _stockSyncLastError = err.message || String(err);
+    _updateStockSyncBadge_();
+    // Retry once after a short delay — covers transient network blips
+    setTimeout(() => { _runStockSync_(true).catch(() => {}); }, 30000);
+    return { ok: false, error: _stockSyncLastError };
+  }
+}
+
+async function _loadStockFromServer_() {
+  try {
+    const res = await groundApi('stockListItems', {});
+    if (!res || !res.ok) {
+      console.warn('_loadStockFromServer_: ' + ((res && res.error) || 'unknown'));
+      return { ok: false };
+    }
+    const serverItems = res.items || [];
+    if (!serverItems.length) return { ok: true, applied: 0, reason: 'server-empty' };
+    // Merge: server wins per-item by updated_at. If server has an item
+    // local doesn't, add. If server has newer updated_at than local,
+    // replace local. Local-only items (never synced yet) stay until
+    // next outbound sync.
+    const byLocalSku = {};
+    items.forEach((i, idx) => { byLocalSku[String(i.sku || '')] = idx; });
+    let applied = 0;
+    serverItems.forEach(srvItem => {
+      const sku = String(srvItem.sku || '');
+      if (!sku) return;
+      const localIdx = byLocalSku[sku];
+      if (localIdx == null) {
+        items.push(srvItem);
+        applied++;
+      } else {
+        const local = items[localIdx];
+        const localTs = String(local.updatedAt || '');
+        const srvTs = String(srvItem.updatedAt || '');
+        if (srvTs > localTs) {
+          items[localIdx] = srvItem;
+          applied++;
+        }
+      }
+    });
+    if (applied > 0) {
+      // Persist merged set to localStorage (this is what saveItems does)
+      try { localStorage.setItem('mbd_items', JSON.stringify(items)); } catch (_) {}
+      _stockSyncLastAt = Date.now();
+      _updateStockSyncBadge_();
+    }
+    console.log('_loadStockFromServer_: applied ' + applied + ' of ' + serverItems.length + ' server items');
+    return { ok: true, applied: applied, total: serverItems.length };
+  } catch (err) {
+    console.warn('_loadStockFromServer_ failed: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+function _updateStockSyncBadge_() {
+  const el = document.getElementById('stockSyncBadge');
+  if (!el) return;
+  let txt = '', color = '', bg = '', title = '';
+  if (_stockSyncState === 'syncing') {
+    txt = '⟳ Syncing…'; color = '#fff'; bg = '#FF9100'; title = 'Writing to cloud';
+  } else if (_stockSyncState === 'error') {
+    txt = '⚠ Sync error · retry'; color = '#fff'; bg = '#B71C1C'; title = 'Last error: ' + _stockSyncLastError;
+  } else if (_stockSyncPendingCount > 0) {
+    txt = '⏳ ' + _stockSyncPendingCount + ' pending'; color = '#5c4502'; bg = '#FFF3D0'; title = 'Local changes queued for sync';
+  } else if (_stockSyncLastAt) {
+    const min = Math.floor((Date.now() - _stockSyncLastAt) / 60000);
+    txt = '✓ Synced ' + (min < 1 ? 'just now' : (min + 'm ago'));
+    color = '#1A5C1A'; bg = '#E6F4EA'; title = new Date(_stockSyncLastAt).toLocaleString();
+  } else {
+    txt = '○ Not yet synced'; color = '#444'; bg = '#f0f0f0'; title = 'Tap to sync now';
+  }
+  el.textContent = txt;
+  el.style.background = bg;
+  el.style.color = color;
+  el.style.webkitTextFillColor = color;
+  el.title = title;
+}
+
+// Public — operator can tap the badge to force-sync immediately.
+function manualStockSync() {
+  if (_stockSyncDebounceTimer) { clearTimeout(_stockSyncDebounceTimer); _stockSyncDebounceTimer = null; }
+  _runStockSync_(true).then(res => {
+    if (res && res.ok) showToast('✓ Stock synced to cloud (' + (res.written || 0) + ' items)');
+    else showToast('⚠ Sync failed: ' + ((res && res.error) || 'unknown'));
+  });
 }
 
 // Stock status values:
@@ -4790,6 +4944,19 @@ function renderItems() {
     migrateWrap.style.display = legacyMigrationStatus() ? 'none' : 'block';
   }
   refreshItemSyncStatus();
+  _updateStockSyncBadge_();
+  // v10.213 path B — pull latest from server on tab open. Background
+  // merge; re-renders if anything was applied. The first paint shows
+  // local data immediately (no blocking on the network round-trip).
+  if (typeof _stockBootSynced === 'undefined' || !_stockBootSynced) {
+    _stockBootSynced = true;
+    _loadStockFromServer_().then(res => {
+      if (res && res.ok && res.applied > 0) {
+        // Re-render once server merged in new/updated items
+        renderItems();
+      }
+    }).catch(err => console.warn('Stock initial server load failed:', err));
+  }
 
   const activeItems = items.filter(i => !i.deleted);
 
@@ -14887,7 +15054,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.212"></script>
+<script src="./pack.js?v=10.213"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14896,7 +15063,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.212<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.213<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
