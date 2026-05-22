@@ -1694,7 +1694,14 @@ input::placeholder, textarea::placeholder {
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
         <button onclick="seedStarterItems()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">🌱 Seed Starter Items</button>
-        <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearItems()">✕ Clear All</button>
+        <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearItems()">✕ Clear All Items</button>
+      </div>
+      <!-- v10.188 — Zero counts (for fresh inventory). Keeps the item
+           definitions intact; resets onHand + locations to zero. Per
+           Zac: "how do we completely clear all stock counts to do a
+           fresh count today". -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button onclick="zeroAllInventoryCounts()" style="flex:1;min-width:140px;background:linear-gradient(135deg,#8B4000,#5a2900);color:#fff;border:none;border-radius:8px;padding:13px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;box-shadow:0 2px 6px rgba(139,64,0,.25)">🔢 Zero All Counts (Fresh Count)</button>
       </div>
       <!-- Cloud sync card -->
       <div style="background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px">
@@ -6281,6 +6288,62 @@ function exportItems() {
     XLSX.writeFile(wb, 'MBD_Items_' + new Date().toISOString().slice(0,10) + '.xlsx');
     showToast('Downloaded!');
   } catch(e) { showToast('Export error: ' + e.message); }
+}
+
+// v10.189 — Zero all stock counts for a fresh inventory pass. Keeps
+// item definitions intact (name, SKU, vendor, reorder point, etc.) —
+// just resets onHand to 0, clears every item's _locations[] entries,
+// and marks each as _changed so the next cloud sync propagates the
+// reset to the spreadsheet. Heavy confirm dialog because this is
+// irreversible without restoring from a backup.
+function zeroAllInventoryCounts() {
+  const active = items.filter(i => !i.deleted);
+  if (!active.length) { showToast('No items to zero'); return; }
+  const withCounts = active.filter(i => {
+    const total = (i._locations || []).reduce((s, e) => s + (parseFloat(e.qty) || 0), 0) + (Number(i.onHand) || 0);
+    return total > 0;
+  });
+  const msg = 'ZERO OUT ALL STOCK COUNTS?\n\n'
+    + active.length + ' total items · ' + withCounts.length + ' currently have a count > 0.\n\n'
+    + 'This will:\n'
+    + '  • Set onHand = 0 on every item\n'
+    + '  • Clear every item\'s location entries\n'
+    + '  • Keep item definitions (SKU, name, vendor, reorder points) intact\n'
+    + '  • Mark all items as changed so next cloud sync propagates the reset\n\n'
+    + 'This is for a fresh full-warehouse inventory. NOT undoable without restoring from backup.\n\n'
+    + 'Type "ZERO" to confirm:';
+  const typed = prompt(msg);
+  if (typed !== 'ZERO') {
+    if (typed !== null) showToast('Did not type ZERO — counts left as-is');
+    return;
+  }
+  const ts = nowStamp();
+  items.forEach(i => {
+    if (i.deleted) return;
+    i.onHand = 0;
+    i._locations = [{ qty: '', loc: '' }];
+    i._changed = true;
+    i.updatedAt = ts;
+  });
+  saveItems();
+  // Log it for visibility in Activity Log
+  if (typeof scanLog !== 'undefined') {
+    scanLog.unshift({
+      time: new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+      name: '(ZERO ALL COUNTS)',
+      mode: 'reset',
+      qty: 0, delta: 0, onHand: 0,
+      loc: 'Cleared ' + active.length + ' items for fresh count',
+      entries: [],
+    });
+    if (typeof updateBadge === 'function') updateBadge();
+    if (typeof renderLog === 'function') renderLog();
+  }
+  if (typeof renderItemResult === 'function') {
+    const inp = document.getElementById('itemSearchInput');
+    if (inp) renderItemResult(inp.value || '');
+  }
+  showToast('✓ Zeroed counts on ' + active.length + ' items — fresh count ready');
 }
 
 function clearItems() {
@@ -13872,7 +13935,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.188"></script>
+<script src="./pack.js?v=10.189"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -13881,7 +13944,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.188<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.189<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
