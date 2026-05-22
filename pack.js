@@ -3496,7 +3496,28 @@ function paintShipConfInboxSectioned_(legendEl, listEl) {
   const arrived = items.filter(i => i.source === 'arrived_packqueue' || !i.source).sort(_inboxItemSort_);
   const upcoming = items.filter(i => i.source === 'upcoming_arch').sort(_inboxItemSort_);
 
+  // v10.201 Ken persona — stats banner. _shipConfInboxStats has been
+  // populated since v10.171 but never surfaced in the UI. Ken sends
+  // ShipConf emails all day; a "X sent today · Y queued · Z past due"
+  // header gives him daily progress at a glance without doing math.
+  const stats = _shipConfInboxStats || { sent_today: 0, queued: 0, past_due: 0, skipped: 0 };
+  const sentToday = Number(stats.sent_today || 0);
+  const pastDue = items.filter(i => {
+    const arrival = String(i.arrival_date || '');
+    if (!arrival) return false;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const ship = new Date(arrival + 'T00:00:00');
+    return (ship - today) / 86400000 < 0;
+  }).length;
+  const queued = items.length;
   const sections = [];
+  sections.push('<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin-bottom:14px;background:rgba(206,147,216,.08);border:1px solid rgba(206,147,216,.35);border-radius:8px;font-size:12px;color:var(--text)">'
+    + '<span style="font-weight:900;letter-spacing:1px;text-transform:uppercase;color:#CE93D8">📊 Ship Conf today</span>'
+    + '<span style="background:rgba(0,200,83,.20);color:#00e676;border:1px solid #00e67655;padding:2px 8px;border-radius:999px;font-weight:800">🟢 ' + sentToday + ' sent</span>'
+    + '<span style="background:rgba(255,179,0,.20);color:#FFB300;border:1px solid #FFB30055;padding:2px 8px;border-radius:999px;font-weight:800">🟡 ' + queued + ' queued</span>'
+    + (pastDue ? '<span style="background:rgba(255,82,82,.20);color:#ff5252;border:1px solid #ff525255;padding:2px 8px;border-radius:999px;font-weight:800">🔴 ' + pastDue + ' past due</span>' : '')
+    + (stats.skipped ? '<span style="background:rgba(120,120,120,.18);color:#aaa;border:1px solid #88888855;padding:2px 8px;border-radius:999px;font-weight:800">🚫 ' + Number(stats.skipped) + ' skipped</span>' : '')
+    + '</div>');
   if (upcoming.length) {
     sections.push('<div style="margin-bottom:14px"><div style="font-size:12px;color:#42a5f5;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;padding-left:4px;display:flex;align-items:center;gap:8px"><span>📅 Arriving Soon (ARCH-confirmed)</span><span style="background:rgba(66,165,245,.18);border:1px solid #42a5f588;color:#42a5f5;font-size:10px;padding:1px 7px;border-radius:999px">' + upcoming.length + '</span></div>' + upcoming.map(_renderShipConfInboxCard_).join('') + '</div>');
   }
