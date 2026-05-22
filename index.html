@@ -1668,6 +1668,29 @@ input::placeholder, textarea::placeholder {
     </button>
   </div>
 
+  <!-- v10.192 Build A.2 — Locations as first-class entity inside
+       Stock tab. Per Zac Q2=A+C: occupied-dot in dropdown (A.1) +
+       a Locations view, but inside Stock (not a separate menu tab).
+       Collapsed by default so it doesn't crowd the existing item
+       search/list view. -->
+  <details id="stockLocationsDetails" style="margin-bottom:14px">
+    <summary style="background:#0F0B08;color:var(--text-dim);padding:10px 12px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;border:1px solid var(--border);border-radius:8px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>📍 Locations · <span id="stockLocSummary" style="opacity:.85;letter-spacing:.5px;text-transform:none">tap to expand</span></span>
+      <span style="font-size:11px;opacity:.6">▾</span>
+    </summary>
+    <div style="background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 8px 8px;padding:12px;margin-top:-1px" class="keep-dark-text">
+      <!-- Filter chips -->
+      <div id="stockLocFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <!-- List -->
+      <div id="stockLocList" style="max-height:340px;overflow-y:auto;border:1px solid #eee;border-radius:6px;padding:4px"></div>
+      <!-- Add custom location inline -->
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="stockAddCustomLocInput" placeholder="Add custom location (e.g. Shelf A3)" style="flex:1;min-width:160px;padding:9px 12px !important;font-size:13px !important;border:1.5px solid #ccc !important;border-radius:6px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">
+        <button onclick="addCustomLocationFromStock_()" style="padding:9px 14px !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:6px !important;font-size:12px !important;font-weight:800 !important;cursor:pointer !important;text-transform:uppercase !important;letter-spacing:.5px !important">+ Add</button>
+      </div>
+    </div>
+  </details>
+
   <!-- EMPTY STATE -->
   <div id="itemEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
     <strong>📦 No stock yet</strong>
@@ -3127,6 +3150,243 @@ function _isBinOccupied_(bin) {
   });
   return n;
 }
+
+// v10.192 Build A.2 — Locations as first-class entity inside Stock.
+// Builds the full list (266 standard bins + user customs) with their
+// current state (occupant count + total qty + last-counted timestamp
+// derived from item.updatedAt of any contributing item).
+function _allStockLocations_() {
+  const out = [];
+  STOCK_BIN_ZONES.forEach(zone => {
+    _stockBaysForZone_(zone.code).forEach(bay => {
+      out.push({ code: zone.code + '.' + bay, custom: false });
+    });
+  });
+  getStockUserLocations_().forEach(loc => {
+    out.push({ code: loc, custom: true });
+  });
+  return out;
+}
+function _locationDetails_(binCode) {
+  let occupants = 0, qty = 0, lastUpdated = '';
+  if (typeof items !== 'undefined') {
+    items.forEach(i => {
+      if (i.deleted) return;
+      (i._locations || []).forEach(l => {
+        if (String(l.loc || '').trim() === binCode) {
+          const q = parseFloat(l.qty) || 0;
+          if (q > 0) { occupants++; qty += q; }
+          const ts = String(i.updatedAt || '');
+          if (ts > lastUpdated) lastUpdated = ts;
+        }
+      });
+    });
+  }
+  return { occupants, qty, lastUpdated };
+}
+
+let _stockLocFilter = 'all'; // 'all' | 'occupied' | 'empty' | 'never_counted'
+
+function setStockLocFilter(f) {
+  _stockLocFilter = f;
+  renderStockLocations_();
+}
+
+function renderStockLocations_() {
+  const listEl = document.getElementById('stockLocList');
+  const sumEl = document.getElementById('stockLocSummary');
+  const filtersEl = document.getElementById('stockLocFilters');
+  if (!listEl) return;
+  const all = _allStockLocations_();
+  const enriched = all.map(l => Object.assign({}, l, _locationDetails_(l.code)));
+  const counts = {
+    all: enriched.length,
+    occupied: enriched.filter(l => l.occupants > 0).length,
+    empty: enriched.filter(l => l.occupants === 0 && l.lastUpdated).length,
+    never_counted: enriched.filter(l => !l.lastUpdated).length,
+  };
+  // Filter
+  let filtered = enriched;
+  if (_stockLocFilter === 'occupied') filtered = enriched.filter(l => l.occupants > 0);
+  else if (_stockLocFilter === 'empty') filtered = enriched.filter(l => l.occupants === 0 && l.lastUpdated);
+  else if (_stockLocFilter === 'never_counted') filtered = enriched.filter(l => !l.lastUpdated);
+  // Sort: occupied first, then alpha by code
+  filtered.sort((a, b) => {
+    if ((b.occupants > 0) - (a.occupants > 0)) return (b.occupants > 0) - (a.occupants > 0);
+    return a.code.localeCompare(b.code);
+  });
+  // Summary in <summary>
+  if (sumEl) sumEl.textContent = counts.occupied + ' occupied · ' + counts.empty + ' empty · ' + counts.never_counted + ' never counted';
+  // Filter chips
+  if (filtersEl) {
+    const chip = (key, label, n, color) => {
+      const active = _stockLocFilter === key;
+      return '<button onclick="setStockLocFilter(\'' + key + '\')" style="padding:6px 12px !important;background:' + (active ? color : '#fff') + ' !important;color:' + (active ? '#fff' : color) + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : color) + ' !important;border:1.5px solid ' + color + ' !important;border-radius:999px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important;letter-spacing:.5px !important">' + label + ' ' + n + '</button>';
+    };
+    filtersEl.innerHTML = chip('all', 'ALL', counts.all, '#003087')
+      + chip('occupied', '● OCCUPIED', counts.occupied, '#106c34')
+      + chip('empty', '○ EMPTY (counted)', counts.empty, '#8B4F00')
+      + chip('never_counted', '? NEVER COUNTED', counts.never_counted, '#888');
+  }
+  // List
+  if (!filtered.length) {
+    listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#888;font-size:13px">No locations match the filter.</div>';
+    return;
+  }
+  listEl.innerHTML = filtered.map(l => {
+    const isOcc = l.occupants > 0;
+    const dot = isOcc ? '●' : (l.lastUpdated ? '○' : '?');
+    const dotColor = isOcc ? '#106c34' : (l.lastUpdated ? '#8B4F00' : '#888');
+    const lastStr = l.lastUpdated ? new Date(l.lastUpdated).toLocaleString([], {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'}) : 'never';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a1a">'
+      + '<span style="color:' + dotColor + ';font-size:14px;font-weight:900;width:14px">' + dot + '</span>'
+      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#1a1a1a;min-width:80px">' + l.code + '</span>'
+      + (l.custom ? '<span style="font-size:10px;background:#FFF8E1;color:#8B4F00;border:1px solid #FFC107;padding:1px 6px;border-radius:999px;font-weight:700">CUSTOM</span>' : '')
+      + '<span style="flex:1;color:#666;font-size:12px">' + (isOcc ? l.occupants + ' item' + (l.occupants===1?'':'s') + ' · qty ' + l.qty : 'empty') + '</span>'
+      + '<span style="color:#888;font-size:11px;white-space:nowrap">' + lastStr + '</span>'
+      + '<button onclick="openLocationFirstCount_(\'' + l.code + '\')" title="Count items at this location" style="padding:5px 10px !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important;text-transform:uppercase !important;letter-spacing:.5px !important">📝 Count</button>'
+      + '</div>';
+  }).join('');
+}
+
+function addCustomLocationFromStock_() {
+  const inp = document.getElementById('stockAddCustomLocInput');
+  if (!inp) return;
+  const v = String(inp.value || '').trim();
+  if (!v) { showToast('Type a location name first'); return; }
+  if (_isBinFormat_(v)) {
+    showToast('That matches the standard bin format — already in the dropdown');
+    inp.value = '';
+    return;
+  }
+  if (addStockUserLocation_(v)) {
+    inp.value = '';
+    showToast('✓ Added custom location: ' + v);
+    renderStockLocations_();
+  } else {
+    showToast('Already in the list');
+  }
+}
+
+// Location-first count entry — pops a small modal letting the
+// operator pick the bin (pre-filled), pick an item (search), enter
+// qty, save. Updates the chosen item's _locations[] entry for the bin.
+function openLocationFirstCount_(binCode) {
+  const prior = document.getElementById('locFirstCountOverlay');
+  if (prior) prior.remove();
+  const det = _locationDetails_(binCode);
+
+  const ov = document.createElement('div');
+  ov.id = 'locFirstCountOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+  const panel = document.createElement('div');
+  panel.className = 'keep-dark-text';
+  panel.style.cssText = 'background:#fff;border-radius:14px;padding:18px 20px;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px;box-sizing:border-box';
+  panel.addEventListener('click', e => e.stopPropagation());
+
+  // Build current-occupants summary
+  const occupants = [];
+  (typeof items !== 'undefined' ? items : []).forEach(i => {
+    if (i.deleted) return;
+    (i._locations || []).forEach(l => {
+      if (String(l.loc || '').trim() === binCode && (parseFloat(l.qty) || 0) > 0) {
+        occupants.push({ sku: i.sku || i.name, name: i.name, qty: parseFloat(l.qty), itemRow: i.row });
+      }
+    });
+  });
+  const occupantsHtml = occupants.length
+    ? '<div style="margin-top:8px"><strong>Currently here:</strong><ul style="margin:4px 0 0;padding-left:18px;font-size:12px;color:#333">' + occupants.map(o => '<li>' + esc(o.sku || '') + (o.name && o.name !== o.sku ? ' — ' + esc(o.name) : '') + ' · qty ' + o.qty + '</li>').join('') + '</ul></div>'
+    : '<div style="margin-top:8px;color:#888;font-size:12px">No items currently logged at this location.</div>';
+
+  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">📝 Count at <span style="font-family:\'JetBrains Mono\',monospace;color:#003087">' + esc(binCode) + '</span></div>'
+    +   '<button onclick="document.getElementById(\'locFirstCountOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="background:#F5F7FA;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;color:#333">'
+    +   occupantsHtml
+    + '</div>'
+    + '<label style="display:block;font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;letter-spacing:1px">Find or scan SKU:</label>'
+    + '<input type="text" id="locFirstSkuInput" placeholder="SKU or product name…" autocomplete="off" style="padding:11px 14px !important;font-size:14px !important;border:2px solid #ccc !important;border-radius:8px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+    + '<div id="locFirstSkuResults" style="max-height:200px;overflow-y:auto"></div>'
+    + '<div style="font-size:11px;color:#888">Tip: tapping a result jumps to its item card with this location pre-selected, so you can record the qty on the existing flow.</div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px">'
+    +   '<button onclick="document.getElementById(\'locFirstCountOverlay\').remove()" style="padding:10px 14px !important;background:#f5f5f5 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1px solid #ccc !important;border-radius:8px !important;font-size:13px !important;font-weight:700 !important;cursor:pointer !important">Cancel</button>'
+    + '</div>';
+
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
+
+  // Search wiring
+  const skuInp = document.getElementById('locFirstSkuInput');
+  const resultsEl = document.getElementById('locFirstSkuResults');
+  function _renderResults() {
+    const q = String(skuInp.value || '').toLowerCase().trim();
+    if (!q || q.length < 1) { resultsEl.innerHTML = ''; return; }
+    const matches = (typeof items !== 'undefined' ? items : [])
+      .filter(i => !i.deleted)
+      .filter(i => (String(i.sku || '').toLowerCase().includes(q) || String(i.name || '').toLowerCase().includes(q)))
+      .slice(0, 20);
+    if (!matches.length) {
+      resultsEl.innerHTML = '<div style="padding:10px;color:#888;font-size:12px">No items match "' + esc(q) + '". You can add the item via the main Stock search.</div>';
+      return;
+    }
+    resultsEl.innerHTML = matches.map(i => '<div onclick="jumpToItemForLocationCount_(' + i.row + ', \'' + binCode + '\')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #eee;cursor:pointer;color:#1a1a1a;font-size:13px">'
+      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#003087;min-width:80px">' + esc(i.sku || '') + '</span>'
+      + '<span style="flex:1;color:#1a1a1a">' + esc(i.name || '') + '</span>'
+      + '<span style="color:#666;font-size:11px">on hand: ' + (i.onHand || 0) + '</span>'
+      + '</div>').join('');
+  }
+  skuInp.addEventListener('input', _renderResults);
+  setTimeout(() => skuInp.focus(), 50);
+}
+
+// Jump to a specific item's card with a target location pre-staged
+// (adds an empty entry for the bin if none exists, then renders).
+function jumpToItemForLocationCount_(itemRow, binCode) {
+  const ov = document.getElementById('locFirstCountOverlay');
+  if (ov) ov.remove();
+  const item = invByRow[itemRow];
+  if (!item) { showToast('Item not found'); return; }
+  // Ensure there's a location entry for this bin (empty qty so the
+  // user types it in). If one already exists with a qty, keep it.
+  item._locations = item._locations || [];
+  const existing = item._locations.find(l => String(l.loc || '').trim() === binCode);
+  if (!existing) {
+    // Replace the leading blank entry if there is one, else push.
+    const blank = item._locations.findIndex(l => !l.loc && !l.qty);
+    if (blank >= 0) item._locations[blank] = { qty: '', loc: binCode };
+    else item._locations.push({ qty: '', loc: binCode });
+  }
+  // Open the item card. The main item search uses renderItemResult /
+  // renderCard via row click — easiest path: set selRow + renderCard.
+  if (typeof renderCard === 'function') renderCard(item);
+  // Scroll to qty input on the row matching our bin
+  setTimeout(() => {
+    const rows = document.querySelectorAll('#locEntries .loc-entry');
+    rows.forEach(r => {
+      const sel = r.querySelector('select.loc-entry-loc');
+      const txt = r.querySelector('input.loc-entry-loc');
+      if ((sel && sel.value === binCode) || (txt && txt.value === binCode)) {
+        const qty = r.querySelector('input.loc-entry-qty');
+        if (qty) { qty.focus(); qty.select && qty.select(); }
+        r.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  }, 200);
+}
+
+// Auto-render the Locations section when its <details> opens
+// (lazy; doesn't compute on every Stock tab visit).
+document.addEventListener('DOMContentLoaded', () => {
+  const det = document.getElementById('stockLocationsDetails');
+  if (det) {
+    det.addEventListener('toggle', () => {
+      if (det.open) renderStockLocations_();
+    });
+  }
+});
 function _buildStockLocationSelect_(currentValue) {
   const sel = document.createElement('select');
   sel.className = 'loc-entry-loc';
@@ -14009,7 +14269,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.191"></script>
+<script src="./pack.js?v=10.192"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14018,7 +14278,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.191<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.192<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
