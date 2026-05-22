@@ -3317,6 +3317,13 @@ function _renderScheduleFilterBar_(payload) {
     if (_scheduleOrderMatchesMode_(o, 'stalled')) counts.stalled++;
     if (_scheduleOrderInShipConfInbox_(o)) counts.shipconf_inbox++;
   }));
+  // v10.183 Phase 0d — when server _shipConfInboxMap is loaded, it
+  // includes BOTH PackingQueue cabinets AND ARCH-upcoming cabinets
+  // (the latter have no backing Schedule row, so the iteration above
+  // misses them). Use the map size as authoritative count.
+  if (_shipConfInboxMap) {
+    counts.shipconf_inbox = Object.keys(_shipConfInboxMap).length;
+  }
   bar.innerHTML = SCHEDULE_VIEW_MODES.map(m => {
     const active = m.key === _scheduleViewMode;
     const n = counts[m.key];
@@ -3369,6 +3376,17 @@ function paintSchedule_(payloadRaw) {
   // below render the FILTERED payload.
   _renderScheduleFilterBar_(payloadRaw);
   _renderScheduleFindBox_();
+
+  // v10.183 Phase 0d — in Ship Conf inbox view, ARCH-upcoming items
+  // don't have backing Schedule rows (they come from
+  // listUpcomingCabinets, not from PackingQueue). Render entirely
+  // from _shipConfInboxMap with two visual sections per Zac
+  // Q1 = C (sectioned) + B (colored left border).
+  if (_scheduleViewMode === 'shipconf_inbox' && _shipConfInboxMap) {
+    paintShipConfInboxSectioned_(legendEl, listEl);
+    return;
+  }
+
   const payload = _applyScheduleViewFilter_(payloadRaw);
 
   // ── Legend (shared) ──
@@ -3438,6 +3456,85 @@ function paintSchedule_(payloadRaw) {
   } else {
     paintScheduleMobileList_(payload, listEl);
   }
+}
+
+// v10.183 Phase 0d — sectioned inbox render. Items in _shipConfInboxMap
+// come from two server sources (per ShippingConfirmation.js):
+//   - source='arrived_packqueue' — cabinet has arrived, in PackingQueue
+//   - source='upcoming_arch'     — ARCH-confirmed delivery date, not yet arrived
+// Per Zac Q1=C+B: render two sections with colored left borders.
+function paintShipConfInboxSectioned_(legendEl, listEl) {
+  // Lightweight legend: just the stalled/awaiting/book chips, no carriers
+  // here (inbox view has its own context). Repaint via the standard helper
+  // by passing empty days so other chips compute correctly.
+  // (legend already painted via _renderScheduleFilterBar_; no changes here)
+
+  const items = Object.values(_shipConfInboxMap || {});
+  if (!items.length) {
+    listEl.innerHTML = '<div style="padding:32px 24px;text-align:center;color:#0a8a3f;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">✓ Nothing in <strong>📧 Ship Conf</strong> right now.<br><span style="font-size:12px">Tap <strong>All</strong> above to see the full schedule.</span></div>';
+    return;
+  }
+
+  const arrived = items.filter(i => i.source === 'arrived_packqueue' || !i.source).sort(_inboxItemSort_);
+  const upcoming = items.filter(i => i.source === 'upcoming_arch').sort(_inboxItemSort_);
+
+  const sections = [];
+  if (upcoming.length) {
+    sections.push('<div style="margin-bottom:14px"><div style="font-size:12px;color:#42a5f5;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;padding-left:4px;display:flex;align-items:center;gap:8px"><span>📅 Arriving Soon (ARCH-confirmed)</span><span style="background:rgba(66,165,245,.18);border:1px solid #42a5f588;color:#42a5f5;font-size:10px;padding:1px 7px;border-radius:999px">' + upcoming.length + '</span></div>' + upcoming.map(_renderShipConfInboxCard_).join('') + '</div>');
+  }
+  if (arrived.length) {
+    sections.push('<div><div style="font-size:12px;color:#CE93D8;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;padding-left:4px;display:flex;align-items:center;gap:8px"><span>📦 In Pack Queue (arrived)</span><span style="background:rgba(206,147,216,.18);border:1px solid #CE93D888;color:#CE93D8;font-size:10px;padding:1px 7px;border-radius:999px">' + arrived.length + '</span></div>' + arrived.map(_renderShipConfInboxCard_).join('') + '</div>');
+  }
+  listEl.innerHTML = sections.join('');
+}
+
+function _inboxItemSort_(a, b) {
+  const aDate = String(a.auto_offered_date || a.arrival_date || '9999');
+  const bDate = String(b.auto_offered_date || b.arrival_date || '9999');
+  return aDate.localeCompare(bDate);
+}
+
+// Renders a single inbox card. ARCH-upcoming gets a blue left border;
+// arrived gets purple. Send button on ARCH-upcoming is visible-but-
+// disabled with a tooltip (per Phase 0d Pass 1: customer email lookup
+// from Shopify is Phase 0e, not in this MVP). Per Zac Q2=yes for the
+// long-term intent — the visual scaffolding is here.
+function _renderShipConfInboxCard_(item) {
+  const isUpcoming = item.source === 'upcoming_arch';
+  const borderColor = isUpcoming ? '#42a5f5' : '#CE93D8';
+  const bg = isUpcoming ? 'rgba(66,165,245,.10)' : 'rgba(206,147,216,.10)';
+  const orderNum = esc(String(item.order_number || ''));
+  const arrivalLabel = isUpcoming ? 'Arriving Week of' : 'Arrived';
+  const arrivalDate = item.arrival_date ? esc(String(item.arrival_date)) : '—';
+  const customerName = item.customer_name ? esc(item.customer_name) : (isUpcoming ? '<span style="color:var(--text-dim);font-style:italic">(name pending — Shopify lookup)</span>' : '—');
+  const autoDate = item.auto_offered_date || '—';
+  const tplKey = item.template_key || 'cc_default';
+
+  // Send button — disabled on ARCH-upcoming because no customer_email yet.
+  const hasEmail = !!item.customer_email;
+  const sendBtn = hasEmail
+    ? '<button onclick="event.stopPropagation();openShipConfPreviewModal(\'' + orderNum + '\')" style="margin-left:auto;padding:7px 14px;background:linear-gradient(135deg,#CE93D8,#9C27B0);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35);text-shadow:0 1px 2px rgba(0,0,0,.4)">📧 Preview &amp; Send</button>'
+    : '<button disabled title="Customer email lookup not wired yet (Phase 0e — Shopify Admin API). Tap once order arrives in PackingQueue." style="margin-left:auto;padding:7px 14px;background:rgba(255,255,255,.08);color:var(--text-dim);border:1px dashed rgba(255,255,255,.20);border-radius:6px;font-size:11px;font-weight:800;cursor:not-allowed;letter-spacing:.5px;text-transform:uppercase">📧 Send (email pending)</button>';
+
+  const skipBtn = '<button onclick="event.stopPropagation();openShipConfSkipModal(\'' + orderNum + '\')" style="padding:7px 14px;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.40);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.5px">⊘ Skip</button>';
+
+  const rowTap = ' onclick="jumpToLookup_(\'' + orderNum + '\')" title="Tap for full order detail"';
+
+  return '<div' + rowTap + ' style="background:' + bg + ';border-left:4px solid ' + borderColor + ';border-radius:6px;margin-bottom:6px;padding:10px 12px;cursor:pointer;color:var(--text)">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px">'
+    +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#fff;background:rgba(0,0,0,.30);padding:2px 8px;border-radius:4px">#' + orderNum + '</span>'
+    +   '<span style="flex:1;min-width:0;color:var(--text)">' + customerName + '</span>'
+    + '</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;margin-top:8px;color:var(--text)">'
+    +   '<span style="color:var(--text-dim);font-weight:700">' + arrivalLabel + ':</span><strong style="color:#fff;font-family:\'JetBrains Mono\',monospace;background:rgba(0,0,0,.30);padding:1px 6px;border-radius:3px">' + arrivalDate + '</strong>'
+    +   '<span style="color:var(--text-dim);font-weight:700">· Auto Date:</span><strong title="' + esc(item.auto_offered_date_explain || '') + '" style="color:#fff;font-family:\'JetBrains Mono\',monospace;background:rgba(0,0,0,.30);padding:1px 6px;border-radius:3px">' + esc(autoDate) + '</strong>'
+    +   '<span style="color:var(--text-dim);font-weight:700">· Template:</span><code style="font-family:\'JetBrains Mono\',monospace;color:#fff;background:rgba(0,0,0,.30);padding:1px 6px;border-radius:3px">' + esc(tplKey) + '</code>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;margin-top:10px;align-items:center" onclick="event.stopPropagation()">'
+    +   sendBtn
+    +   skipBtn
+    + '</div>'
+    + '</div>';
 }
 
 // Booker roster — Kim does most freight booking (VA), Seth oversees.
