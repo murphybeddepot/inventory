@@ -1678,11 +1678,11 @@ input::placeholder, textarea::placeholder {
       <span>📍 Locations · <span id="stockLocSummary" style="opacity:.85;letter-spacing:.5px;text-transform:none">tap to expand</span></span>
       <span style="font-size:11px;opacity:.6">▾</span>
     </summary>
-    <div style="background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 8px 8px;padding:12px;margin-top:-1px" class="keep-dark-text">
+    <div style="background:#fff !important;border:1px solid #ddd;border-top:none;border-radius:0 0 8px 8px;padding:12px;margin-top:-1px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important" class="keep-dark-text">
       <!-- Filter chips -->
       <div id="stockLocFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
       <!-- List -->
-      <div id="stockLocList" style="max-height:340px;overflow-y:auto;border:1px solid #eee;border-radius:6px;padding:4px"></div>
+      <div id="stockLocList" style="max-height:340px;overflow-y:auto;border:1px solid #eee;border-radius:6px;padding:4px;background:#fff !important"></div>
       <!-- Add custom location inline -->
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
         <input type="text" id="stockAddCustomLocInput" placeholder="Add custom location (e.g. Shelf A3)" style="flex:1;min-width:160px;padding:9px 12px !important;font-size:13px !important;border:1.5px solid #ccc !important;border-radius:6px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">
@@ -2450,6 +2450,65 @@ function showUnmappedBarcode(code) {
 }
 
 // ── TABS ──────────────────────────────────────────
+// v10.193 Build B — per-device pinning of secondary tabs to the
+// main tab bar. localStorage state; max 3 pins; pin toggle inline
+// on each More-menu card. Lets each user keep their daily tabs one
+// tap away without crowding everyone's view with the global default.
+const TAB_PINS_KEY = 'mbd_pinned_tabs';
+const TAB_PINS_MAX = 3;
+const TAB_PIN_LABELS = {
+  lookup: 'Lookup', prepack: 'Pre-Pack', pack: 'Pack',
+  schedule: 'Schedule', items: 'Stock', cycle: 'Count',
+  scan: 'Inventory', barcodes: 'Barcodes', log: 'Log', export: 'Export',
+};
+function getPinnedTabs_() {
+  try {
+    const raw = localStorage.getItem(TAB_PINS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(t => TAB_PIN_LABELS[t]) : [];
+  } catch (e) { return []; }
+}
+function setPinnedTabs_(list) {
+  list = (list || []).filter(t => TAB_PIN_LABELS[t]).slice(0, TAB_PINS_MAX);
+  try { localStorage.setItem(TAB_PINS_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function togglePinnedTab_(name) {
+  const list = getPinnedTabs_();
+  const idx = list.indexOf(name);
+  if (idx >= 0) {
+    list.splice(idx, 1);
+  } else {
+    if (list.length >= TAB_PINS_MAX) {
+      showToast('Max ' + TAB_PINS_MAX + ' pinned — unpin one first');
+      return false;
+    }
+    list.push(name);
+  }
+  setPinnedTabs_(list);
+  applyPinnedTabs_();
+  return true;
+}
+function applyPinnedTabs_() {
+  const pinned = getPinnedTabs_();
+  Object.keys(TAB_PIN_LABELS).forEach(name => {
+    const btn = document.getElementById('tab-' + name + '-btn');
+    if (!btn) return;
+    if (pinned.includes(name)) {
+      btn.style.display = '';
+    } else {
+      // Don't blindly hide — switchTab may have just set display:''
+      // on the active panel's button to make it visible. We only hide
+      // tabs that aren't currently active.
+      const activeName = (function(){ try { return localStorage.getItem('mbd_active_tab') || ''; } catch(e){return '';} })();
+      if (activeName !== name) btn.style.display = 'none';
+    }
+  });
+}
+// Apply pins on initial paint (DOMContentLoaded fires before user
+// can tap, so the bar populates with their saved selection).
+document.addEventListener('DOMContentLoaded', applyPinnedTabs_);
+
 function switchTab(name) {
   ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
@@ -3233,17 +3292,21 @@ function renderStockLocations_() {
     listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#888;font-size:13px">No locations match the filter.</div>';
     return;
   }
+  // v10.193 contrast fix — !important + -webkit-text-fill-color on
+  // every text/bg property because the global dark-theme CSS rules
+  // (on div / span) have !important and were rendering this section
+  // dark-on-dark per Zac 11:00 EDT screenshot.
   listEl.innerHTML = filtered.map(l => {
     const isOcc = l.occupants > 0;
     const dot = isOcc ? '●' : (l.lastUpdated ? '○' : '?');
     const dotColor = isOcc ? '#106c34' : (l.lastUpdated ? '#8B4F00' : '#888');
     const lastStr = l.lastUpdated ? new Date(l.lastUpdated).toLocaleString([], {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'}) : 'never';
-    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#1a1a1a">'
-      + '<span style="color:' + dotColor + ';font-size:14px;font-weight:900;width:14px">' + dot + '</span>'
-      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#1a1a1a;min-width:80px">' + l.code + '</span>'
-      + (l.custom ? '<span style="font-size:10px;background:#FFF8E1;color:#8B4F00;border:1px solid #FFC107;padding:1px 6px;border-radius:999px;font-weight:700">CUSTOM</span>' : '')
-      + '<span style="flex:1;color:#666;font-size:12px">' + (isOcc ? l.occupants + ' item' + (l.occupants===1?'':'s') + ' · qty ' + l.qty : 'empty') + '</span>'
-      + '<span style="color:#888;font-size:11px;white-space:nowrap">' + lastStr + '</span>'
+    return '<div style="display:flex !important;align-items:center !important;gap:10px !important;padding:8px 10px !important;border-bottom:1px solid #f0f0f0 !important;font-size:13px !important;color:#1a1a1a !important;background:#fff !important">'
+      + '<span style="color:' + dotColor + ' !important;-webkit-text-fill-color:' + dotColor + ' !important;font-size:14px !important;font-weight:900 !important;width:14px !important">' + dot + '</span>'
+      + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:800 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;min-width:80px !important">' + l.code + '</span>'
+      + (l.custom ? '<span style="font-size:10px !important;background:#FFF8E1 !important;color:#8B4F00 !important;-webkit-text-fill-color:#8B4F00 !important;border:1px solid #FFC107 !important;padding:1px 6px !important;border-radius:999px !important;font-weight:700 !important">CUSTOM</span>' : '')
+      + '<span style="flex:1 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:12px !important">' + (isOcc ? l.occupants + ' item' + (l.occupants===1?'':'s') + ' · qty ' + l.qty : 'empty') + '</span>'
+      + '<span style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:11px !important;white-space:nowrap !important">' + lastStr + '</span>'
       + '<button onclick="openLocationFirstCount_(\'' + l.code + '\')" title="Count items at this location" style="padding:5px 10px !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important;text-transform:uppercase !important;letter-spacing:.5px !important">📝 Count</button>'
       + '</div>';
   }).join('');
@@ -14269,7 +14332,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.192"></script>
+<script src="./pack.js?v=10.193"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14278,7 +14341,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.192<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.193<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
