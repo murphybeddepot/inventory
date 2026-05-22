@@ -7009,9 +7009,34 @@ async function reprintAllLabelsFromLookup_(orderNumber, btn) {
     const res = await groundApi('reprintAllLabelsForOrder', { orderNumber: orderNumber });
     if (loader && loader.stop) loader.stop();
     if (btn) btn.disabled = false;
+    // v10.202 — Seth persona: when reprint returns ok=false but has
+    // per-box failure detail (e.g. all boxes have "No Drive PDF" because
+    // MGR-bypass skipped the Drive upload step), surface that detail
+    // instead of "unknown error". Also detect the MGR-bypass pattern +
+    // suggest ShipStation as the manual workaround.
     if (!res || !res.ok) {
-      const msg = (res && res.error) || 'unknown error';
-      showToast('⚠ Reprint failed: ' + msg);
+      let msg = (res && res.error) || 'unknown error';
+      if (res && res.results && res.results.length) {
+        const failures = res.results.filter(r => !r.ok);
+        const noPdfCount = failures.filter(r => /no drive pdf|missing.*pdf/i.test(String(r.error || ''))).length;
+        if (noPdfCount === failures.length && failures.length > 0) {
+          // ALL boxes failed with No Drive PDF — classic MGR-bypass
+          alert('⚠ No stored label PDFs for order #' + orderNumber + '.\n\n'
+            + 'This usually means the order was shipped via MGR-bypass before label-PDF capture was wired up. Reprint can\'t recover labels that were never saved to Drive.\n\n'
+            + 'Workaround: open ShipStation directly + reprint from there.\n\n'
+            + 'Box failures (' + failures.length + '):\n'
+            + failures.map(r => '  Box ' + r.sequence + ': ' + (r.error || 'No Drive PDF')).join('\n'));
+          showToast('⚠ No stored label PDFs (MGR-bypass) — use ShipStation');
+        } else {
+          // Mixed or other failures — show detailed list
+          const lines = ['⚠ Reprint failed for #' + orderNumber, '', 'Box failures:'];
+          failures.forEach(r => lines.push('  Box ' + r.sequence + ': ' + (r.error || 'unknown')));
+          alert(lines.join('\n'));
+          showToast('⚠ Reprint failed: ' + failures.length + ' box(es)');
+        }
+      } else {
+        showToast('⚠ Reprint failed: ' + msg);
+      }
       if (btn) btn.textContent = '🖨 Reprint All Labels';
       return;
     }
