@@ -3036,6 +3036,53 @@ function renderCountCard(item, el, sc) {
   document.getElementById('applyBtn').addEventListener('click', () => applyCount(item.row));
 }
 
+// v10.184 — bin location dropdown. 12 series × 18 bins = 216 standard
+// warehouse bins. Format NNN.NNN (e.g. 001.005). Native <select> with
+// <optgroup> per series renders as a section-headered iOS-native picker
+// on iPad/iPhone — fastest 2-tap UX for Seth's inventory work today.
+// "Other (type)" toggles a free-text fallback for legacy locations
+// like "Shelf A3" or "Bin 12" that don't follow the bin convention.
+const STOCK_BIN_SERIES = ['001','002','003','004','005','006','007','008','009','010','011','012'];
+const STOCK_BIN_BAYS = (function(){
+  const out = [];
+  for (let i = 1; i <= 18; i++) out.push(String(i).padStart(3, '0'));
+  return out;
+})();
+function _buildStockLocationSelect_(currentValue) {
+  const sel = document.createElement('select');
+  sel.className = 'loc-entry-loc';
+  // Placeholder
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = '— pick location —';
+  ph.disabled = true;
+  sel.appendChild(ph);
+  // Determine if current value matches the NNN.NNN bin format
+  const isBin = currentValue && /^\d{3}\.\d{3}$/.test(currentValue);
+  const isLegacy = currentValue && !isBin;
+  STOCK_BIN_SERIES.forEach(series => {
+    const grp = document.createElement('optgroup');
+    grp.label = 'Series ' + series;
+    STOCK_BIN_BAYS.forEach(bay => {
+      const opt = document.createElement('option');
+      opt.value = series + '.' + bay;
+      opt.textContent = series + '.' + bay;
+      if (currentValue === opt.value) opt.selected = true;
+      grp.appendChild(opt);
+    });
+    sel.appendChild(grp);
+  });
+  // Escape hatch for non-standard bin labels
+  const other = document.createElement('option');
+  other.value = '__OTHER__';
+  other.textContent = 'Other (type custom)…';
+  if (isLegacy) other.selected = true;
+  sel.appendChild(other);
+  // If nothing selected by either path, the placeholder stays selected
+  if (!currentValue) ph.selected = true;
+  return sel;
+}
+
 function renderLocRow(item, idx) {
   const container = document.getElementById('locEntries');
   const entry = item._locations[idx];
@@ -3058,12 +3105,60 @@ function renderLocRow(item, idx) {
     updateTotal(item);
   });
 
+  // v10.184 — dropdown + optional free-text fallback for legacy
+  // location labels. Container holds either the select OR a text
+  // input depending on what the user picks. Swap on "Other" select.
+  const locWrap = document.createElement('div');
+  locWrap.className = 'loc-entry-locwrap';
+  locWrap.style.cssText = 'flex:1;min-width:0;display:flex;gap:4px;align-items:center';
+  const locSelect = _buildStockLocationSelect_(entry.loc || '');
+  // Free-text fallback input (hidden until needed)
   const locIn = document.createElement('input');
   locIn.className = 'loc-entry-loc';
   locIn.type = 'text';
-  locIn.placeholder = 'Location (e.g. Shelf A3)';
-  locIn.value = entry.loc || '';
+  locIn.placeholder = 'Type location (e.g. Shelf A3)';
+  locIn.value = (entry.loc && !/^\d{3}\.\d{3}$/.test(entry.loc)) ? entry.loc : '';
+  locIn.style.display = (entry.loc && !/^\d{3}\.\d{3}$/.test(entry.loc)) ? '' : 'none';
+  locSelect.style.display = (entry.loc && !/^\d{3}\.\d{3}$/.test(entry.loc)) ? 'none' : '';
+  locSelect.addEventListener('change', () => {
+    if (locSelect.value === '__OTHER__') {
+      // Toggle to free-text fallback. Stash select state by hiding;
+      // can come back via clicking the locSwap button.
+      locSelect.style.display = 'none';
+      locIn.style.display = '';
+      locIn.focus();
+      item._locations[idx].loc = locIn.value || '';
+    } else {
+      item._locations[idx].loc = locSelect.value;
+    }
+  });
   locIn.addEventListener('input', () => { item._locations[idx].loc = locIn.value; });
+  // Small swap-back button so user isn't stranded in free-text mode
+  const locSwap = document.createElement('button');
+  locSwap.type = 'button';
+  locSwap.title = 'Back to bin dropdown';
+  locSwap.textContent = '↺';
+  locSwap.style.cssText = 'padding:4px 8px;background:transparent;border:1px solid #ccc;border-radius:6px;font-size:13px;color:#666;cursor:pointer;display:none';
+  locSwap.addEventListener('click', () => {
+    locIn.value = '';
+    item._locations[idx].loc = '';
+    locIn.style.display = 'none';
+    locSwap.style.display = 'none';
+    locSelect.style.display = '';
+    locSelect.selectedIndex = 0; // back to placeholder
+  });
+  // Show swap button whenever the free-text input is visible
+  function _refreshSwapVisibility_() {
+    locSwap.style.display = (locIn.style.display === 'none') ? 'none' : '';
+  }
+  // Patch the original toggle to also update swap visibility
+  const origLocSelectChange = locSelect.onchange;
+  locSelect.addEventListener('change', _refreshSwapVisibility_);
+  locIn.addEventListener('focus', _refreshSwapVisibility_);
+  _refreshSwapVisibility_();
+  locWrap.appendChild(locSelect);
+  locWrap.appendChild(locIn);
+  locWrap.appendChild(locSwap);
 
   // Small scan button to fill the location field from a barcode
   const scanLocBtn = document.createElement('button');
@@ -3072,8 +3167,21 @@ function renderLocRow(item, idx) {
   scanLocBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="15" x2="17" y2="15"/></svg>';
   scanLocBtn.addEventListener('click', () => {
     startLocationScan(code => {
-      locIn.value = code;
+      // v10.184 — when scan yields a bin-format code, select it in
+      // the dropdown; for non-bin codes, fall through to the text input.
       item._locations[idx].loc = code;
+      if (/^\d{3}\.\d{3}$/.test(code)) {
+        // Set in select + show select, hide text input
+        locSelect.value = code;
+        locSelect.style.display = '';
+        locIn.style.display = 'none';
+        locIn.value = '';
+      } else {
+        // Legacy / custom location → toggle to text input
+        locIn.value = code;
+        locIn.style.display = '';
+        locSelect.style.display = 'none';
+      }
     });
   });
 
@@ -3086,7 +3194,7 @@ function renderLocRow(item, idx) {
     renderCard(item);
   });
 
-  row.appendChild(num); row.appendChild(qtyIn); row.appendChild(locIn); row.appendChild(scanLocBtn); row.appendChild(delBtn);
+  row.appendChild(num); row.appendChild(qtyIn); row.appendChild(locWrap); row.appendChild(scanLocBtn); row.appendChild(delBtn);
   container.appendChild(row);
 }
 
@@ -13579,7 +13687,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.183"></script>
+<script src="./pack.js?v=10.184"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -13588,7 +13696,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.183<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.184<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
