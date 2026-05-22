@@ -6853,11 +6853,20 @@ function _lkFld(label, value, opts) {
   // tap-to-call tel: link (live on the iPad/phone CS uses; an inert
   // styled span on desktop). Copy button is preserved below.
   const _telDigits = /phone/i.test(String(label)) ? strVal.replace(/[^\d+]/g, '') : '';
+  // v10.206 Jessica CS-rep persona: address fields become tap-to-open
+  // Maps links. Uses generic "?q=<encoded>" URL which iOS Safari and
+  // Android Chrome both resolve to native Maps. CS rep typically asks
+  // "let me look up where this is shipping to" mid-call; saves a
+  // copy-paste-tab-switch.
+  const _isAddress = /^address$/i.test(String(label));
   let link;
   if (opts && opts.link) {
     link = '<a href="' + esc(strVal) + '" target="_blank" style="color:#42a5f5;text-decoration:underline">open ↗</a>';
   } else if (_telDigits.replace(/\D/g, '').length >= 7) {
     link = '<a href="tel:' + esc(_telDigits) + '" style="color:#42a5f5;text-decoration:underline;font-weight:700" title="Tap to call">' + esc(strVal) + ' 📞</a>';
+  } else if (_isAddress) {
+    const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(strVal);
+    link = '<a href="' + esc(mapsUrl) + '" target="_blank" rel="noopener" style="color:#42a5f5;text-decoration:underline" title="Open in Maps">' + esc(strVal) + ' 🗺</a>';
   } else {
     link = esc(strVal);
   }
