@@ -5535,6 +5535,66 @@ let _remakesCacheById = {};
 // v10.198 — stuck = pending/ready_to_ship for 5+ days. Same threshold
 // as the per-row stuck chip in the renderer (line ~5587). Centralizing
 // so the sort + the chip stay in lockstep.
+// v10.207 — carrier-claims roll-up. Aggregates over ALL fetched rows
+// (irrespective of carrier filter so the topline doesn't shift when
+// Jessica drills into FedEx vs UPS). Shows only when there's at least
+// one claim row; otherwise hidden so the panel stays tight for the
+// non-CS-VP workflows.
+function _renderRemakeClaimsRollup_(rows) {
+  const el = document.getElementById('remakeClaimsRollup');
+  if (!el) return;
+  const claimRows = (rows || []).filter(r =>
+    r && (String(r.carrier_claim_id || '').trim() || String(r.damage_source || '').toLowerCase() === 'carrier')
+  );
+  if (!claimRows.length) { el.style.display = 'none'; return; }
+
+  // Aggregates
+  const byCarrier = {};
+  let openCount = 0;
+  let recoveredUsd = 0;
+  let approvedCount = 0;
+  let deniedCount = 0;
+  claimRows.forEach(r => {
+    const carrier = String(r.damaged_carrier || 'other').toLowerCase();
+    const status = String(r.carrier_claim_status || '').toLowerCase();
+    const recov = Number(r.carrier_claim_recovered_usd || 0) || 0;
+    if (!byCarrier[carrier]) byCarrier[carrier] = { count: 0, recovered: 0 };
+    byCarrier[carrier].count += 1;
+    byCarrier[carrier].recovered += recov;
+    recoveredUsd += recov;
+    if (status === 'open' || status === 'submitted') openCount += 1;
+    if (status === 'approved') approvedCount += 1;
+    if (status === 'denied') deniedCount += 1;
+  });
+
+  // $K formatter — "3.2 K" / "12 K" / "$847" for sub-1K
+  const formatUsd = (n) => {
+    if (n >= 1000) return '$' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return '$' + Math.round(n);
+  };
+
+  // Sort carriers by claim count desc
+  const carrierBreakdown = Object.entries(byCarrier)
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([k, v]) => '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;background:rgba(92,69,2,.08) !important;color:#5c4502 !important;-webkit-text-fill-color:#5c4502 !important;border:1px solid rgba(92,69,2,.20) !important;border-radius:999px !important;font-size:11px !important;font-weight:800 !important">'
+      + esc(k.toUpperCase()) + ': ' + v.count + (v.recovered ? ' · ' + formatUsd(v.recovered) : '') + '</span>')
+    .join('');
+
+  el.style.display = '';
+  el.innerHTML =
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+    +   '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#5c4502 !important;-webkit-text-fill-color:#5c4502 !important;letter-spacing:.5px;text-transform:uppercase">🛡 Carrier Claims</span>'
+    +   '<span style="font-size:11px;color:#5c4502 !important;-webkit-text-fill-color:#5c4502 !important;opacity:.85">' + claimRows.length + ' total in view</span>'
+    + '</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px">'
+    +   '<span style="background:rgba(255,179,0,.16) !important;color:#8b6500 !important;-webkit-text-fill-color:#8b6500 !important;border:1px solid rgba(139,101,0,.30) !important;padding:2px 9px !important;border-radius:999px !important;font-size:11px !important;font-weight:800 !important">⏳ ' + openCount + ' open/submitted</span>'
+    +   (approvedCount ? '<span style="background:rgba(0,200,83,.16) !important;color:#1a5c1a !important;-webkit-text-fill-color:#1a5c1a !important;border:1px solid rgba(26,92,26,.30) !important;padding:2px 9px !important;border-radius:999px !important;font-size:11px !important;font-weight:800 !important">✓ ' + approvedCount + ' approved</span>' : '')
+    +   (deniedCount ? '<span style="background:rgba(255,82,82,.16) !important;color:#a30000 !important;-webkit-text-fill-color:#a30000 !important;border:1px solid rgba(163,0,0,.30) !important;padding:2px 9px !important;border-radius:999px !important;font-size:11px !important;font-weight:800 !important">✗ ' + deniedCount + ' denied</span>' : '')
+    +   (recoveredUsd ? '<span style="background:rgba(0,48,135,.10) !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:1px solid rgba(0,48,135,.30) !important;padding:2px 9px !important;border-radius:999px !important;font-size:11px !important;font-weight:800 !important">💵 ' + formatUsd(recoveredUsd) + ' recovered</span>' : '')
+    + '</div>'
+    + (carrierBreakdown ? '<div style="font-size:11px;color:#5c4502 !important;-webkit-text-fill-color:#5c4502 !important">By carrier: ' + carrierBreakdown + '</div>' : '');
+}
+
 function _remakeIsStuck_(r) {
   if (!r || !r.created_at) return false;
   const st = String(r.status || '');
@@ -5608,6 +5668,9 @@ async function openRemakesPanel(statusFilter) {
     // — uses the alert-red gradient + 🚨 icon so it's clearly the
     // "customer reported damage" path, not the routine remake flow.
     + '<button onclick="openRemakeDamageIntake()" style="width:100%;padding:13px;margin-bottom:12px;background:linear-gradient(135deg,#FF6B00,#B71C1C);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🚨 Report Customer Damage</button>'
+    // v10.207 Jessica CS-VP roll-up — populated post-fetch by
+    // _renderRemakeClaimsRollup_(). Hidden if no claim data.
+    + '<div id="remakeClaimsRollup" style="display:none;background:#fff8e7 !important;color:#5c4502 !important;-webkit-text-fill-color:#5c4502 !important;border:1px solid #e6c870 !important;border-radius:10px !important;padding:12px 14px !important;margin-bottom:10px !important;font-size:12px !important"></div>'
     + '<div style="display:flex;gap:6px;margin-bottom:8px">'
     + ['open', 'pending', 'ready_to_ship', 'shipped', 'all'].map(s => '<button onclick="openRemakesPanel(\'' + s + '\')" style="flex:1;padding:8px 4px;background:' + (s === statusFilter ? '#003087' : '#f5f5f5') + ';color:' + (s === statusFilter ? '#fff' : '#333') + ';border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + s.replace(/_/g, ' ') + '</button>').join('')
     + '</div>'
@@ -5648,6 +5711,12 @@ async function openRemakesPanel(statusFilter) {
   _remakesCacheById = {};
   (res.rows || []).forEach(r => { if (r && r.remake_id) _remakesCacheById[r.remake_id] = r; });
 
+  // v10.207 Jessica CS-VP roll-up: aggregate carrier-claim metrics
+  // across ALL fetched rows (before client-side carrier filter), so
+  // Jessica sees dollar-impact at a glance. Shows only if any row
+  // has a carrier_claim_id OR damage_source='carrier'. Recovered $
+  // formats as compact (12.4 K) for ops-glance readability.
+  _renderRemakeClaimsRollup_(res.remakes || []);
 
   let rows = res.remakes || [];
   // v10.150: apply client-side carrier filter (Jessica's J3).
