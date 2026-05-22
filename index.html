@@ -1662,23 +1662,31 @@ input::placeholder, textarea::placeholder {
       + Add Item
     </button>
   </div>
-  <!-- v72: open a printable page of kanban cards (one per item with QR
-       code) — scan any card to fire a re-order request email to Seth. -->
-  <div style="display:flex;gap:8px;margin-bottom:14px">
-    <button onclick="openPrintKanbanCards()" style="flex:2;padding:13px 14px;background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 6px rgba(0,48,135,.25)">
-      🖨 Print Cards (QR)
-    </button>
-    <button onclick="openPrintKanbanInstructions()" style="flex:1;padding:13px 14px;background:#fff;color:#8B4F00;border:2px solid #8B4F00;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
-      📋 Print Guide
-    </button>
-  </div>
-  <!-- v10.185 Print bin location labels — same row, dedicated CTA so Seth
-       can re-print warehouse aisle/bay tags when needed. -->
-  <div style="display:flex;gap:8px;margin-bottom:14px">
-    <button onclick="openPrintLocationLabels()" style="flex:1;padding:13px 14px;background:linear-gradient(135deg,#0a8a3f,#106c34);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 6px rgba(10,138,63,.25)">
-      📍 Print Location Labels (QR)
-    </button>
-  </div>
+  <!-- v10.214 Zac inventory: "there are now so many buttons it's
+       overwhelming". Collapsed the 3 print buttons (Cards / Guide /
+       Location Labels) under a Print expander so they're discoverable
+       but not crowding the daily-use surface. -->
+  <details style="margin-bottom:14px">
+    <summary style="background:#0F0B08;color:var(--text-dim);padding:10px 12px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;border:1px solid var(--border);border-radius:8px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>🖨 Print · <span style="opacity:.85;letter-spacing:.5px;text-transform:none">QR cards · guide · location labels</span></span>
+      <span style="font-size:11px;opacity:.6">▾</span>
+    </summary>
+    <div style="margin-top:8px">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button onclick="openPrintKanbanCards()" style="flex:2;padding:13px 14px;background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 6px rgba(0,48,135,.25)">
+          🖨 Print Cards (QR)
+        </button>
+        <button onclick="openPrintKanbanInstructions()" style="flex:1;padding:13px 14px;background:#fff;color:#8B4F00;border:2px solid #8B4F00;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
+          📋 Print Guide
+        </button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:0">
+        <button onclick="openPrintLocationLabels()" style="flex:1;padding:13px 14px;background:linear-gradient(135deg,#0a8a3f,#106c34);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 6px rgba(10,138,63,.25)">
+          📍 Print Location Labels (QR)
+        </button>
+      </div>
+    </div>
+  </details>
 
   <!-- v10.192 Build A.2 — Locations as first-class entity inside
        Stock tab. Per Zac Q2=A+C: occupied-dot in dropdown (A.1) +
@@ -6522,19 +6530,29 @@ function itemDetailHtml(item) {
     ? 'linear-gradient(135deg,#8B0000,#C42121)'
     : 'linear-gradient(135deg,#0D1520,#111D2E)';
   const locs = (item.locations || []);
+  // v10.214 Zac inventory screenshot: this row was rendering dark-on-dark
+  // because the global dark-theme CSS rewrote the inline bg:#fff/color:#003087
+  // (no !important on the inline → global rules win, per the standing
+  // contrast rule). Fix: !important + -webkit-text-fill-color on every
+  // inline bg + color. Brighter blue (#1A4FB0) for the location code too.
+  // Also: row is now a tap target — opens the batch-count modal pinned
+  // to that location so the user can re-count / undo / add without
+  // re-typing the SKU. Hover hint added.
   const locsHtml = locs.length
     ? locs.map(l => {
         const status = locStatus(l);
         const meta = STOCK_STATUS_META[status] || STOCK_STATUS_META.OK;
-        return '<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1.5px solid #ccc;border-radius:8px;padding:10px 12px;margin-bottom:6px;gap:10px">'
-        + '<div style="min-width:0;flex:1">'
-        +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:700;color:#003087">📍 '+esc(l.code||'—')+'</div>'
-        +   '<div style="display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:'+meta.color+';background:'+meta.bg+';padding:2px 8px;border-radius:4px;margin-top:3px">'+meta.label+'</div>'
+        const binCode = String(l.code || '—');
+        return '<div onclick="openLocationBatchCount_(\'' + esc(binCode) + '\')" title="Tap to open ' + esc(binCode) + ' for re-count / edit" style="display:flex !important;justify-content:space-between !important;align-items:center !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc !important;border-radius:8px !important;padding:12px 14px !important;margin-bottom:6px !important;gap:10px !important;cursor:pointer !important;transition:background .12s ease,border-color .12s ease !important" onmouseover="this.style.background=\'#F0F4FB\';this.style.borderColor=\'#1A4FB0\'" onmouseout="this.style.background=\'#fff\';this.style.borderColor=\'#ccc\'">'
+        + '<div style="min-width:0 !important;flex:1 !important">'
+        +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px !important;font-weight:900 !important;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;letter-spacing:.5px !important">📍 '+esc(binCode)+'</div>'
+        +   '<div style="display:inline-block !important;font-size:10px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:'+meta.color+' !important;-webkit-text-fill-color:'+meta.color+' !important;background:'+meta.bg+' !important;padding:2px 8px !important;border-radius:4px !important;margin-top:3px !important">'+meta.label+'</div>'
         + '</div>'
-        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#1a1a1a;flex-shrink:0">'+fmt(parseFloat(l.qty)||0)+'</div>'
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;flex-shrink:0 !important">'+fmt(parseFloat(l.qty)||0)+'</div>'
+        + '<span style="color:#999 !important;-webkit-text-fill-color:#999 !important;font-size:18px !important;flex-shrink:0 !important">›</span>'
         + '</div>';
       }).join('')
-    : '<div style="text-align:center;color:#444;font-size:13px;padding:14px;background:#f5f5f5;border-radius:8px">No locations yet. Tap <strong>📥 Add Stock</strong> below to add some.</div>';
+    : '<div style="text-align:center !important;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:13px !important;padding:14px !important;background:#f5f5f5 !important;border-radius:8px !important">No locations yet. Tap <strong>📥 Add Stock</strong> below to add some.</div>';
 
   // Build the breakdown summary line (ok / pending / dnu)
   const breakdownLine = (bd.pending > 0 || bd.dnu > 0)
@@ -15054,7 +15072,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.213"></script>
+<script src="./pack.js?v=10.214"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15063,7 +15081,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.213<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.214<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
