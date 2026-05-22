@@ -5452,6 +5452,17 @@ function renderCabinetAttentionStrip_() {
 // record without re-fetching.
 let _remakesCacheById = {};
 
+// v10.198 — stuck = pending/ready_to_ship for 5+ days. Same threshold
+// as the per-row stuck chip in the renderer (line ~5587). Centralizing
+// so the sort + the chip stay in lockstep.
+function _remakeIsStuck_(r) {
+  if (!r || !r.created_at) return false;
+  const st = String(r.status || '');
+  if (st !== 'pending' && st !== 'ready_to_ship') return false;
+  const ageDays = (new Date() - new Date(r.created_at)) / 86400000;
+  return ageDays >= 5;
+}
+
 // Stuck-remake escalate: opens a pre-filled mailto: to flag a
 // remake that's been sitting too long. Server-free; uses the
 // platform's mail composer (works on iPad + desktop). Pulls
@@ -5506,7 +5517,7 @@ async function openRemakesPanel(statusFilter) {
     + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
     + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">🔧 Remakes</div>'
-    +   '<button onclick="document.getElementById(\'remakesOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px">✕</button>'
+    +   '<button onclick="document.getElementById(\'remakesOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#444;cursor:pointer;padding:0 4px" aria-label="Close Remakes panel">✕</button>'
     + '</div>'
     + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:12px">Replacement parts to ship to customers. Creating one emails the warehouse and logs to the Remakes tab.</div>'
     + '<div style="display:flex;gap:8px;margin-bottom:8px">'
@@ -5565,6 +5576,18 @@ async function openRemakesPanel(statusFilter) {
   } else if (_remakesCarrierFilter) {
     rows = rows.filter(r => r && String(r.damaged_carrier || '').toLowerCase() === _remakesCarrierFilter.toLowerCase());
   }
+  // v10.198 — auto-sort so STUCK remakes (5+ days in pending/ready)
+  // float to the top, then oldest-first within each bucket. Jessica
+  // shouldn't have to scan the whole list to find what's overdue.
+  rows = rows.slice().sort((a, b) => {
+    const stuckA = _remakeIsStuck_(a) ? 1 : 0;
+    const stuckB = _remakeIsStuck_(b) ? 1 : 0;
+    if (stuckA !== stuckB) return stuckB - stuckA; // stuck first
+    // Then by age ascending (oldest = most-overdue at top)
+    const ta = a && a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b && b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ta - tb;
+  });
   if (!rows.length) {
     const noteFilter = _remakesCarrierFilter
       ? ' for carrier filter "' + (_remakesCarrierFilter === '__damaged__' ? 'Damaged' : _remakesCarrierFilter.toUpperCase()) + '"'
