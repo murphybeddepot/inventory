@@ -6437,7 +6437,10 @@ const stockReceiveSession = {
   currentSku: null,    // the SKU input was scanned/typed
   qty: '',             // the qty being entered (string for keypad input)
   location: '',        // location string
-  status: 'OK',        // OK / PENDING / DNU
+  status: '',          // v10.210: was 'OK' default — Zac: "there should
+                       // NEVER be a default status, you should have to
+                       // choose every time". Empty = no pick yet; Save
+                       // is gated until one is picked.
   note: '',            // optional per-receipt note
   recentReceipts: [],  // [{sku, qty, location, status, ts}] — shown as a feed
 };
@@ -6449,7 +6452,7 @@ function openReceiveStock(preItemUuid) {
   stockReceiveSession.currentSku = '';
   stockReceiveSession.qty = '';
   stockReceiveSession.location = '';
-  stockReceiveSession.status = 'OK';
+  stockReceiveSession.status = '';  // v10.210: no default, must pick
   stockReceiveSession.note = '';
   stockReceiveSession.recentReceipts = [];
 
@@ -6508,7 +6511,12 @@ function renderReceiveStock() {
     // Location chips + input + keypad
     + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px;margin-top:14px">Location</label>'
     + zoneChipsHtml('stockReceiveLoc')
-    + '<input type="text" id="stockReceiveLoc" value="'+esc(sess.location)+'" placeholder="—————" autocomplete="off" autocorrect="off" inputmode="none" readonly style="width:100%;padding:14px 12px;font-size:28px;font-weight:900;font-family:\'JetBrains Mono\',\'Barlow Condensed\',monospace;letter-spacing:5px;text-align:center;border:2px solid #444;border-radius:0;outline:none;margin-bottom:8px;-webkit-appearance:none;background:#000;color:#00E676;text-shadow:0 0 12px rgba(0,230,118,.5);box-shadow:inset 0 2px 10px rgba(0,0,0,.7)">'
+    // v10.210 Zac inventory: was readonly → no blinking caret. Removed
+    // readonly + kept inputmode="none" so iOS doesn't pop the soft
+    // keyboard. caret-color forces a clearly-visible green caret on
+    // the dark background. The keypad below still drives input via
+    // receiveStockLocKey() — typing on a real keyboard now also works.
+    + '<input type="text" id="stockReceiveLoc" value="'+esc(sess.location)+'" placeholder="—————" autocomplete="off" autocorrect="off" inputmode="none" style="width:100%;padding:14px 12px;font-size:28px;font-weight:900;font-family:\'JetBrains Mono\',\'Barlow Condensed\',monospace;letter-spacing:5px;text-align:center;border:2px solid #444;border-radius:0;outline:none;margin-bottom:8px;-webkit-appearance:none;background:#000;color:#00E676;caret-color:#00E676;text-shadow:0 0 12px rgba(0,230,118,.5);box-shadow:inset 0 2px 10px rgba(0,0,0,.7)">'
     // Keypad below the location display
     + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">'
     +   ['1','2','3','4','5','6','7','8','9'].map(n =>
@@ -6624,10 +6632,28 @@ function refreshSaveButtonState() {
   const btn = document.getElementById('stockReceiveSave');
   if (!btn) return;
   const sess = stockReceiveSession;
-  const valid = sess.currentSku && sess.qty && parseFloat(sess.qty) > 0 && sess.location;
+  // v10.210: status is now required (no default) per Zac's inventory
+  // ask. Save stays disabled until SKU + qty + location + status are
+  // all set. The button text changes to surface what's missing so the
+  // user doesn't tap a disabled button wondering why.
+  const haveSku = !!sess.currentSku;
+  const haveQty = sess.qty && parseFloat(sess.qty) > 0;
+  const haveLoc = !!sess.location;
+  const haveStatus = !!sess.status;
+  const valid = haveSku && haveQty && haveLoc && haveStatus;
   btn.disabled = !valid;
   btn.style.opacity = valid ? '1' : '.5';
   btn.style.cursor = valid ? 'pointer' : 'not-allowed';
+  if (valid) {
+    btn.textContent = '✓ Save & Receive Next';
+  } else {
+    const missing = [];
+    if (!haveSku) missing.push('SKU');
+    if (!haveQty) missing.push('qty');
+    if (!haveLoc) missing.push('location');
+    if (!haveStatus) missing.push('status');
+    btn.textContent = 'Pick: ' + missing.join(' · ');
+  }
 }
 
 // On-screen numeric keypad. Big tap targets, works without iOS soft keyboard.
@@ -6729,6 +6755,9 @@ function saveReceiveStock() {
   const qty = parseFloat(sess.qty);
   if (!qty || qty <= 0) { showToast('⚠ Enter a quantity'); FB.error(); return; }
   if (!sess.location) { showToast('⚠ Enter a location'); FB.error(); return; }
+  // v10.210: status required (no default). Zac: "you should have to
+  // choose every time".
+  if (!sess.status) { showToast('⚠ Pick a status (OK / PENDING / DNU)'); FB.error(); return; }
 
   let item = findItemBySku(sess.currentSku);
   let autoCreated = false;
@@ -6783,10 +6812,14 @@ function saveReceiveStock() {
     + (autoCreated ? ' (auto-created)' : '')
     + ' at ' + sess.location);
 
-  // Reset only the qty + sku for the next scan; keep location and status
-  // for rapid-fire entry of multiple items going to the same place
+  // v10.210 Zac: "you should have to choose [status] every time" —
+  // also reset status to blank after each save so the next item
+  // forces a fresh pick. Was: kept status across saves for
+  // rapid-fire entry. Now: only location persists (still common for
+  // batch-counting one location's contents).
   sess.currentSku = '';
   sess.qty = '';
+  sess.status = '';
   renderReceiveStock();
   renderItems();
 }
@@ -6826,7 +6859,7 @@ function editReceiveStockEntry_(origIdx) {
   sess.currentSku = entry.sku;
   sess.qty = String(entry.qty);
   sess.location = entry.location;
-  sess.status = entry.status || 'OK';
+  sess.status = entry.status || '';  // v10.210: no default fallback
   showToast('✎ Loaded for edit — fix and tap Save');
   FB.tap();
   renderReceiveStock();
@@ -14533,7 +14566,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.209"></script>
+<script src="./pack.js?v=10.210"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14542,7 +14575,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.209<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.210<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
