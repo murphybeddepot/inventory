@@ -3428,13 +3428,26 @@ function paintSchedule_(payloadRaw) {
   // v10.17 pass 9: Kim's "to book" chip. Counted from the FULL cache
   // (not the filtered payload) so it always shows the true total and
   // matches openNeedsBookingList's contents regardless of active view.
+  // v10.200 — also breakdown per-carrier and surface as a tooltip on
+  // the chip so Kim can see "4 FedEx Freight · 2 ABF · 1 unassigned"
+  // without first switching to needs_booking view-mode.
   let bookChip = '';
   let bookCount = 0;
+  const bookByCarrier = {};
   ((_scheduleCache && _scheduleCache.days) || []).forEach(d => (d.orders || []).forEach(o => {
-    if (_scheduleOrderMatchesMode_(o, 'needs_booking')) bookCount++;
+    if (_scheduleOrderMatchesMode_(o, 'needs_booking')) {
+      bookCount++;
+      const ck = o.carrier_display || o.carrier_key || 'unassigned';
+      bookByCarrier[ck] = (bookByCarrier[ck] || 0) + 1;
+    }
   }));
   if (bookCount > 0) {
-    bookChip = '<button onclick="openNeedsBookingList()" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#FFB300,#995c00);color:#1a1a1a;border:1px solid #FFB300;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">📋 ' + bookCount + ' TO BOOK</button>';
+    const breakdown = Object.entries(bookByCarrier)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => n + ' ' + k)
+      .join(' · ');
+    const titleAttr = 'By carrier: ' + breakdown;
+    bookChip = '<button onclick="openNeedsBookingList()" title="' + esc(titleAttr) + '" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:linear-gradient(135deg,#FFB300,#995c00);color:#1a1a1a;border:1px solid #FFB300;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;margin-right:6px">📋 ' + bookCount + ' TO BOOK</button>';
   }
   const adminBtns = '<button onclick="openCarrierEditor()" title="Edit carriers + colors" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.3);border-radius:999px;font-size:11px;font-weight:800;color:var(--text-dim);letter-spacing:.5px;cursor:pointer">✎ Carriers</button>'
     + '<button onclick="openFreightDefaultsEditor()" title="Edit freight weights/dims/links by SKU" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;margin-left:6px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.3);border-radius:999px;font-size:11px;font-weight:800;color:var(--text-dim);letter-spacing:.5px;cursor:pointer">✎ Freight</button>';
