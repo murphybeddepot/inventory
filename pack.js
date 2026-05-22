@@ -92,13 +92,30 @@ function showPackEosBanner_(myClaims) {
   bar = document.createElement('div');
   bar.id = 'packEosReminderBanner';
   bar.style.cssText = 'position:sticky;top:0;z-index:50;background:linear-gradient(135deg,#FFC107 0%,#FF9800 100%);color:#3d2400;border:2px solid #B26500;border-radius:12px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 12px rgba(0,0,0,.25);font-family:-apple-system,Helvetica,Arial,sans-serif';
-  const list = myClaims.map(c => '#' + esc(c.order_number) + ' (' + esc(c.status) + ')').join(' · ');
+  // v10.204 Shane persona: make each #order in the EOS banner a tap
+  // target that jumps straight to its detail view. Was: comma-separated
+  // plain text that gave Shane the order # but no way to act on it
+  // without scrolling the Pack list. Was usability hostile during the
+  // exact moment (end of shift) when speed matters.
+  const list = myClaims.map(c =>
+    '<button onclick="openPackDetail(\'' + esc(c.order_number) + '\');dismissPackEosReminder_()" '
+    + 'style="background:rgba(255,255,255,.55) !important;color:#3d2400 !important;'
+    + '-webkit-text-fill-color:#3d2400 !important;border:1.5px solid rgba(0,0,0,.30) !important;'
+    + 'border-radius:6px !important;padding:3px 9px !important;font-size:13px !important;'
+    + 'font-weight:900 !important;cursor:pointer !important;font-family:inherit !important;'
+    + 'margin:2px 4px 2px 0 !important;display:inline-flex !important;align-items:center !important;'
+    + 'gap:5px !important">'
+    + '<span>#' + esc(c.order_number) + '</span>'
+    + '<span style="font-size:10px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.5px">' + esc(c.status) + '</span>'
+    + '</button>'
+  ).join('');
   bar.innerHTML =
     '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">'
     + '<div style="font-size:32px">🌙</div>'
     + '<div style="flex:1;min-width:200px">'
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;letter-spacing:1px;text-transform:uppercase">End of Shift Check-in</div>'
-    +   '<div style="font-size:13px;margin-top:4px;font-weight:600">You still have <strong>' + myClaims.length + ' active claim' + (myClaims.length === 1 ? '' : 's') + '</strong>: ' + list + '</div>'
+    +   '<div style="font-size:13px;margin-top:4px;font-weight:600">You still have <strong>' + myClaims.length + ' active claim' + (myClaims.length === 1 ? '' : 's') + '</strong>:</div>'
+    +   '<div style="margin-top:6px;line-height:1.9">' + list + '</div>'
     +   '<div style="font-size:12px;margin-top:6px;opacity:.85">If you\'re done, mark them Ready-for-Check or release the claim so they\'re free for tomorrow.</div>'
     + '</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
