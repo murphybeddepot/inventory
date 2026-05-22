@@ -1586,8 +1586,17 @@ input::placeholder, textarea::placeholder {
 <!-- ── ITEMS TAB ─────────────────────────────────────────────────────────────-->
 <div id="tab-items" class="panel">
 
+  <!-- v10.217 Zac: "find an item section to be a choice between
+       location and item as the starting point". 2-chip toggle picks
+       the search mode; the matching card is shown, the other hidden.
+       Mode persists in localStorage so the next visit remembers. -->
+  <div id="stockFinderToggle" style="display:flex !important;gap:6px !important;margin-bottom:10px !important;background:rgba(0,0,0,.18) !important;padding:4px !important;border-radius:10px !important;border:1px solid var(--border) !important">
+    <button type="button" id="stockFinderModeSku" onclick="setStockFinderMode('sku')" style="flex:1 !important;padding:11px !important;font-family:'Barlow Condensed',Arial,sans-serif !important;font-size:14px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:1px !important;border:none !important;border-radius:8px !important;cursor:pointer !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important">🔍 by SKU</button>
+    <button type="button" id="stockFinderModeLoc" onclick="setStockFinderMode('location')" style="flex:1 !important;padding:11px !important;font-family:'Barlow Condensed',Arial,sans-serif !important;font-size:14px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:1px !important;border:none !important;border-radius:8px !important;cursor:pointer !important;background:transparent !important;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">📍 by Location</button>
+  </div>
+
   <!-- BIG SEARCH BAR -->
-  <div style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+  <div id="stockFinderSkuCard" style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
     <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Find an Item</label>
     <div style="position:relative">
       <input type="text" id="itemSearchInput" placeholder="Type or scan SKU…"
@@ -1601,16 +1610,14 @@ input::placeholder, textarea::placeholder {
     </div>
   </div>
 
-  <!-- FIND BY LOCATION — collapsible Fender-amp keypad rig.
-       Used when a worker wants to know "what's in bin 001.005?" rather than
-       searching by SKU. Closed by default — rare use, mostly for managers
-       hunting down the location of a specific SKU. -->
-  <details id="findByLocationDetails" style="margin-bottom:14px">
-    <summary style="background:#0F0B08;color:var(--text-dim);padding:8px 12px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;border:1px solid var(--border);border-radius:0;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px">
-      <span>🔍 Find by Location (uncommon)</span>
-      <span style="font-size:10px;opacity:.6">▾</span>
-    </summary>
-    <div class="search-rig" style="margin-top:0;border-top:none">
+  <!-- FIND BY LOCATION — first-class search mode (v10.217). When mode
+       is 'location', this card is shown + the SKU card is hidden.
+       Was: collapsed <details> labeled "(uncommon)". -->
+  <div id="stockFinderLocationCard" style="display:none;margin-bottom:14px">
+    <div class="search-rig" style="margin-top:0">
+      <div class="search-rig-label">
+        <span style="display:flex;align-items:center;gap:8px"><span class="brass-led"></span>BIN LOCATION</span>
+      </div>
       <div class="search-rig-label">
         <span style="display:flex;align-items:center;gap:8px"><span class="brass-led"></span>BIN LOCATION</span>
       </div>
@@ -1639,7 +1646,7 @@ input::placeholder, textarea::placeholder {
     </div>
     <!-- Location search results -->
     <div id="itemLocResult" style="margin-top:10px"></div>
-  </details>
+  </div>
 
   <!-- CATEGORY FILTER CHIPS -->
   <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap" id="itemCategoryChips">
@@ -3322,6 +3329,52 @@ function _iterItemLocs_(item, fn) {
 // v10.191 — count items currently assigned to a bin. Used for the
 // occupied-dot indicator in the count dropdown. Iterates `items`
 // once + checks each item via _iterItemLocs_ (covers both schemas).
+// v10.217 — Stock-tab finder mode toggle: SKU search vs Location search.
+// Per Zac: "find an item section to be a choice between location and
+// item as the starting point". Persists last mode in localStorage so
+// the next visit defaults to whatever the operator was last using.
+const STOCK_FINDER_MODE_KEY = 'mbd_stock_finder_mode';
+function setStockFinderMode(mode) {
+  if (mode !== 'sku' && mode !== 'location') mode = 'sku';
+  try { localStorage.setItem(STOCK_FINDER_MODE_KEY, mode); } catch (e) {}
+  const skuCard = document.getElementById('stockFinderSkuCard');
+  const locCard = document.getElementById('stockFinderLocationCard');
+  const skuBtn = document.getElementById('stockFinderModeSku');
+  const locBtn = document.getElementById('stockFinderModeLoc');
+  if (skuCard) skuCard.style.display = mode === 'location' ? 'none' : '';
+  if (locCard) locCard.style.display = mode === 'location' ? '' : 'none';
+  // Active button styling — blue bg with white text; inactive is
+  // transparent with dim text.
+  if (skuBtn) {
+    const active = mode === 'sku';
+    skuBtn.style.background = active ? '#003087' : 'transparent';
+    skuBtn.style.color = active ? '#fff' : 'var(--text-dim)';
+    skuBtn.style.webkitTextFillColor = active ? '#fff' : 'var(--text-dim)';
+    skuBtn.style.setProperty('background', active ? '#003087' : 'transparent', 'important');
+    skuBtn.style.setProperty('color', active ? '#fff' : 'var(--text-dim)', 'important');
+  }
+  if (locBtn) {
+    const active = mode === 'location';
+    locBtn.style.setProperty('background', active ? '#003087' : 'transparent', 'important');
+    locBtn.style.setProperty('color', active ? '#fff' : 'var(--text-dim)', 'important');
+  }
+  // Auto-focus the active input
+  setTimeout(() => {
+    if (mode === 'sku') {
+      const inp = document.getElementById('itemSearchInput');
+      if (inp) inp.focus();
+    }
+    // Location keypad has no editable input to focus (it's readonly +
+    // driven by on-screen keypad), so no focus action here.
+  }, 50);
+}
+// Apply persisted mode on DOM ready so the right card paints initially.
+document.addEventListener('DOMContentLoaded', () => {
+  let mode = 'sku';
+  try { mode = localStorage.getItem(STOCK_FINDER_MODE_KEY) || 'sku'; } catch (e) {}
+  setStockFinderMode(mode);
+});
+
 function _isBinOccupied_(bin) {
   if (!bin || typeof items === 'undefined' || !items.length) return 0;
   let n = 0;
@@ -15301,7 +15354,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.216"></script>
+<script src="./pack.js?v=10.217"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15310,7 +15363,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.216<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.217<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
