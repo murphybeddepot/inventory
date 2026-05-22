@@ -97,18 +97,31 @@ function showPackEosBanner_(myClaims) {
   // plain text that gave Shane the order # but no way to act on it
   // without scrolling the Pack list. Was usability hostile during the
   // exact moment (end of shift) when speed matters.
-  const list = myClaims.map(c =>
-    '<button onclick="openPackDetail(\'' + esc(c.order_number) + '\');dismissPackEosReminder_()" '
-    + 'style="background:rgba(255,255,255,.55) !important;color:#3d2400 !important;'
-    + '-webkit-text-fill-color:#3d2400 !important;border:1.5px solid rgba(0,0,0,.30) !important;'
-    + 'border-radius:6px !important;padding:3px 9px !important;font-size:13px !important;'
-    + 'font-weight:900 !important;cursor:pointer !important;font-family:inherit !important;'
-    + 'margin:2px 4px 2px 0 !important;display:inline-flex !important;align-items:center !important;'
-    + 'gap:5px !important">'
-    + '<span>#' + esc(c.order_number) + '</span>'
-    + '<span style="font-size:10px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.5px">' + esc(c.status) + '</span>'
-    + '</button>'
-  ).join('');
+  // v10.219 Jonah pain #4: add a "↻ release" pill next to each
+  // tap-to-jump button. Was: only path to release a claim required
+  // opening detail → marking ready-for-check (heavyweight if he just
+  // wants to free it for tomorrow without finishing). Now: one tap
+  // confirms + calls releasePackJob endpoint + redraws.
+  const list = myClaims.map(c => {
+    const onum = esc(c.order_number);
+    return '<span style="display:inline-flex !important;align-items:center !important;gap:3px !important;margin:2px 6px 2px 0 !important">'
+      + '<button onclick="openPackDetail(\'' + onum + '\');dismissPackEosReminder_()" '
+      + 'style="background:rgba(255,255,255,.55) !important;color:#3d2400 !important;'
+      + '-webkit-text-fill-color:#3d2400 !important;border:1.5px solid rgba(0,0,0,.30) !important;'
+      + 'border-radius:6px 0 0 6px !important;border-right-width:0 !important;padding:3px 9px !important;font-size:13px !important;'
+      + 'font-weight:900 !important;cursor:pointer !important;font-family:inherit !important;'
+      + 'display:inline-flex !important;align-items:center !important;gap:5px !important">'
+      + '<span>#' + onum + '</span>'
+      + '<span style="font-size:10px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.5px">' + esc(c.status) + '</span>'
+      + '</button>'
+      + '<button onclick="eosReleaseClaim_(\'' + onum + '\')" title="Release this claim — frees the order for tomorrow"'
+      + ' style="background:rgba(139,0,0,.85) !important;color:#fff !important;'
+      + '-webkit-text-fill-color:#fff !important;border:1.5px solid #5c0000 !important;'
+      + 'border-radius:0 6px 6px 0 !important;padding:3px 9px !important;font-size:11px !important;'
+      + 'font-weight:900 !important;cursor:pointer !important;font-family:inherit !important;'
+      + 'display:inline-flex !important;align-items:center !important;gap:3px !important">↻ release</button>'
+      + '</span>';
+  }).join('');
   bar.innerHTML =
     '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">'
     + '<div style="font-size:32px">🌙</div>'
@@ -140,6 +153,43 @@ function snoozePackEosReminder_(minutes) {
   localStorage.removeItem(EOS_REMINDER_KEY_LASTDATE);
   dismissPackEosReminder_();
   if (typeof showToast === 'function') showToast('Reminder snoozed ' + minutes + ' min');
+}
+
+// v10.219 — release a claim straight from the EOS banner. One confirm
+// then calls releasePackJob (existing endpoint, PackingQueue.js:494).
+// On success: refreshes the local pack queue cache so the banner
+// rebuilds with the remaining claims. If that was the last claim,
+// the banner auto-dismisses.
+async function eosReleaseClaim_(orderNumber) {
+  if (!orderNumber) return;
+  if (!confirm('Release claim on #' + orderNumber + '?\n\nThis returns the order to "pending" so anyone can pick it up tomorrow. Scan progress is preserved (next packer can resume).')) return;
+  try {
+    const res = await groundApi('releasePackJob', {
+      orderNumber: orderNumber,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      if (typeof showToast === 'function') showToast('⚠ Release failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    if (typeof showToast === 'function') showToast('↻ Released #' + orderNumber);
+    // Refresh queue + rebuild banner with the remaining claims.
+    if (typeof refreshPackQueue === 'function') {
+      await refreshPackQueue();
+      const myDevice = getPackDeviceId_();
+      const remaining = (_packQueueCache || []).filter(r => {
+        if (r.status === 'in_progress' && r.started_by === myDevice) return true;
+        if (r.status === 'checking' && r.checker_started_by === myDevice) return true;
+        return false;
+      });
+      if (remaining.length) showPackEosBanner_(remaining);
+      else dismissPackEosReminder_();
+    } else {
+      dismissPackEosReminder_();
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('⚠ Release error: ' + (e.message || String(e)));
+  }
 }
 
 function dismissPackEosReminder_() {
