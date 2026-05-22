@@ -144,6 +144,9 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .scan-dot{width:8px;height:8px;border-radius:50%;background:#fff;opacity:.5;animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 @keyframes mbdSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+/* v10.212 — qty caret pulse for Stock Receive + Batch Count keypads. */
+@keyframes mbdCaretBlink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+.mbd-qty-caret { display:inline-block; margin-left:2px; animation:mbdCaretBlink 1s steps(1) infinite; color:inherit; font-weight:inherit; }
 /* v10.165 Sable S1 — skeleton pulse for loading placeholders. */
 @keyframes mbdSkelPulse{0%,100%{opacity:1}50%{opacity:.55}}
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
@@ -2513,6 +2516,17 @@ function applyPinnedTabs_() {
       if (activeName !== name) btn.style.display = 'none';
     }
   });
+  // v10.212 Zac: "when more items are pinned to the main menu, the ⋯
+  // should still be on the far right (at the end)". The ⋯ button is
+  // defined in HTML before the hidden tab buttons, so when pins
+  // un-hide them they render AFTER the ⋯. Move ⋯ to the end of the
+  // .tabs container so pinned tabs sit before it.
+  try {
+    const moreBtn = document.getElementById('tab-more-btn');
+    if (moreBtn && moreBtn.parentNode) {
+      moreBtn.parentNode.appendChild(moreBtn);  // appendChild on existing element moves it
+    }
+  } catch (e) { /* non-fatal */ }
 }
 // Apply pins on initial paint (DOMContentLoaded fires before user
 // can tap, so the bar populates with their saved selection).
@@ -3371,13 +3385,20 @@ function renderStockLocations_() {
     const dot = isOcc ? '●' : (l.lastUpdated ? '○' : '?');
     const dotColor = isOcc ? '#106c34' : (l.lastUpdated ? '#8B4F00' : '#888');
     const lastStr = l.lastUpdated ? new Date(l.lastUpdated).toLocaleString([], {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'}) : 'never';
-    return '<div style="display:flex !important;align-items:center !important;gap:10px !important;padding:8px 10px !important;border-bottom:1px solid #f0f0f0 !important;font-size:13px !important;color:#1a1a1a !important;background:#fff !important">'
-      + '<span style="color:' + dotColor + ' !important;-webkit-text-fill-color:' + dotColor + ' !important;font-size:14px !important;font-weight:900 !important;width:14px !important">' + dot + '</span>'
-      + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:800 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;min-width:80px !important">' + l.code + '</span>'
+    // v10.212 Zac: "the locations dropdown on the stock page needs to
+    // be larger and more prominent and the count buttons are small ...
+    // maybe clicking anywhere on the row should open that location for
+    // review and/or count instead". Bumped padding + font sizes,
+    // whole-row tap target (cursor:pointer + onclick), kept the inline
+    // 📝 button as a visual hint of what tap does but it's now
+    // redundant — same handler.
+    return '<div onclick="openLocationBatchCount_(\'' + l.code + '\')" style="display:flex !important;align-items:center !important;gap:12px !important;padding:14px 14px !important;border-bottom:1px solid #f0f0f0 !important;font-size:15px !important;color:#1a1a1a !important;background:#fff !important;cursor:pointer !important;transition:background .12s ease !important" onmouseover="this.style.background=\'#F5F8FF\'" onmouseout="this.style.background=\'#fff\'" title="Tap anywhere to open batch count at ' + esc(l.code) + '">'
+      + '<span style="color:' + dotColor + ' !important;-webkit-text-fill-color:' + dotColor + ' !important;font-size:18px !important;font-weight:900 !important;width:18px !important">' + dot + '</span>'
+      + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-size:17px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;min-width:96px !important">' + l.code + '</span>'
       + (l.custom ? '<span style="font-size:10px !important;background:#FFF8E1 !important;color:#8B4F00 !important;-webkit-text-fill-color:#8B4F00 !important;border:1px solid #FFC107 !important;padding:1px 6px !important;border-radius:999px !important;font-weight:700 !important">CUSTOM</span>' : '')
-      + '<span style="flex:1 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:12px !important">' + (isOcc ? l.occupants + ' item' + (l.occupants===1?'':'s') + ' · qty ' + l.qty : 'empty') + '</span>'
+      + '<span style="flex:1 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:13px !important">' + (isOcc ? l.occupants + ' item' + (l.occupants===1?'':'s') + ' · qty ' + l.qty : 'empty') + '</span>'
       + '<span style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:11px !important;white-space:nowrap !important">' + lastStr + '</span>'
-      + '<button onclick="openLocationBatchCount_(\'' + l.code + '\')" title="Batch count items at this location (scan, qty, status, save, next SKU)" style="padding:5px 10px !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:5px !important;font-size:11px !important;font-weight:800 !important;cursor:pointer !important;text-transform:uppercase !important;letter-spacing:.5px !important">📝 Count</button>'
+      + '<span style="padding:7px 14px !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:7px !important;font-size:13px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:.5px !important;flex-shrink:0 !important">📝 Count</span>'
       + '</div>';
   }).join('');
 }
@@ -3512,8 +3533,13 @@ function _renderLocationBatchCount_() {
     : '';
 
   ov.innerHTML = '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px !important;padding:18px 20px !important;max-width:560px !important;width:100% !important;max-height:94vh !important;overflow-y:auto !important;box-shadow:0 8px 40px rgba(0,0,0,.4) !important;box-sizing:border-box !important">'
+    // v10.212 Zac: "one should also be able to change the location with
+    // a dropdown by clicking on the location in the header". Native
+    // <select> populated with all locations; onChange → openLocationBatchCount_(newBin).
     + '<div style="display:flex !important;justify-content:space-between !important;align-items:center !important;gap:10px !important;margin-bottom:10px">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase !important;letter-spacing:.5px !important">📝 Count at <span style="font-family:\'JetBrains Mono\',monospace;color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(sess.binCode) + '</span></div>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase !important;letter-spacing:.5px !important;display:flex !important;align-items:center !important;gap:6px !important">📝 Count at <select id="batchCountLocSelect" onchange="_batchCountSwitchLocation_(this.value)" style="font-family:\'JetBrains Mono\',monospace !important;font-size:18px !important;font-weight:900 !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;background:#fff !important;border:2px solid #003087 !important;border-radius:6px !important;padding:4px 8px !important;cursor:pointer !important">'
+    +     allLocs.map(l => '<option value="' + esc(l.code) + '"' + (l.code === sess.binCode ? ' selected' : '') + '>' + esc(l.code) + (l.custom ? ' (custom)' : '') + '</option>').join('')
+    +   '</select></div>'
     +   '<button onclick="document.getElementById(\'locBatchCountOverlay\').remove()" style="background:none !important;border:none !important;font-size:22px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer !important">✕</button>'
     + '</div>'
     + occupantsHtml
@@ -3525,7 +3551,11 @@ function _renderLocationBatchCount_() {
         : isUnknownSku ? '<div style="background:#FFF8E1 !important;border:1.5px solid #FF9100 !important;border-radius:8px !important;padding:10px 12px !important;margin-bottom:14px !important;font-size:12px !important;color:#8B4000 !important;-webkit-text-fill-color:#8B4000 !important;line-height:1.5"><strong>Unknown SKU "' + esc(sess.currentSku) + '"</strong><div style="margin-top:4px">Continuing will auto-create a placeholder item flagged for review.</div></div>' : '')
     // Qty
     + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">Quantity</label>'
-    + '<div id="batchCountQtyDisplay" style="background:#fff !important;border:2.5px solid #003087 !important;border-radius:10px !important;padding:14px !important;margin-bottom:8px !important;text-align:center !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:42px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;letter-spacing:1px !important;min-height:74px !important;line-height:1 !important">' + (sess.qty || '<span style="color:#bbb !important;-webkit-text-fill-color:#bbb !important;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>') + '</div>'
+    + '<div id="batchCountQtyDisplay" style="background:#fff !important;border:2.5px solid #003087 !important;border-radius:10px !important;padding:14px !important;margin-bottom:8px !important;text-align:center !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:42px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;letter-spacing:1px !important;min-height:74px !important;line-height:1 !important">'
+    + (sess.qty
+        ? esc(sess.qty) + '<span class="mbd-qty-caret">▌</span>'
+        : '<span style="color:#bbb !important;-webkit-text-fill-color:#bbb !important;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span><span class="mbd-qty-caret" style="color:#003087;margin-left:6px">▌</span>')
+    + '</div>'
     + _renderBatchCountKeypad_()
     // Status
     + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin:14px 0 6px !important">Status — <span style="color:#B71C1C !important;-webkit-text-fill-color:#B71C1C !important">pick one (required)</span></label>'
@@ -3669,6 +3699,23 @@ function advanceBatchCountToNext_() {
   }
   const nextBin = allLocs[sess.binIdx + 1];
   openLocationBatchCount_(nextBin.code);
+}
+
+// v10.212 — header dropdown switch. Selecting a new location replays
+// openLocationBatchCount_() with the target. Warn on unsaved
+// in-flight values (parallel to advanceBatchCountToNext_).
+function _batchCountSwitchLocation_(newBin) {
+  const sess = stockBatchCountSession;
+  if (!newBin || newBin === sess.binCode) return;
+  if (sess.currentSku || sess.qty) {
+    if (!confirm('You have unsaved values for ' + sess.binCode + '. Switch to ' + newBin + ' anyway? (Unsaved SKU/qty will be lost.)')) {
+      // Revert the <select> back to the original location
+      const sel = document.getElementById('batchCountLocSelect');
+      if (sel) sel.value = sess.binCode;
+      return;
+    }
+  }
+  openLocationBatchCount_(newBin);
 }
 
 // Old v10.192 search-and-jump flow — kept as the secondary path for
@@ -6772,7 +6819,9 @@ function renderReceiveStock() {
     // Qty section + on-screen keypad
     + '<label style="display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">Quantity</label>'
     + '<div id="stockReceiveQtyDisplay" style="background:#fff;border:2.5px solid #003087;border-radius:10px;padding:14px;margin-bottom:8px;text-align:center;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:42px;font-weight:900;color:#1a1a1a;letter-spacing:1px;min-height:74px;line-height:1">'
-    +   (sess.qty || '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>')
+    +   (sess.qty
+          ? esc(sess.qty) + '<span class="mbd-qty-caret">▌</span>'
+          : '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span><span class="mbd-qty-caret" style="color:#003087;margin-left:6px">▌</span>')
     + '</div>'
     + renderKeypad()
     // Photo estimate button — sends a photo to Claude Vision, returns count + confidence
@@ -6960,7 +7009,9 @@ function keypadTap(k) {
   // Update only the qty display + save button — don't re-render everything
   const disp = document.getElementById('stockReceiveQtyDisplay');
   if (disp) {
-    disp.innerHTML = sess.qty || '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>';
+    disp.innerHTML = sess.qty
+      ? esc(sess.qty) + '<span class="mbd-qty-caret">▌</span>'
+      : '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span><span class="mbd-qty-caret" style="color:#003087;margin-left:6px">▌</span>';
   }
   refreshSaveButtonState();
   FB.scan();
@@ -6969,7 +7020,7 @@ function keypadTap(k) {
 function keypadClear() {
   stockReceiveSession.qty = '';
   const disp = document.getElementById('stockReceiveQtyDisplay');
-  if (disp) disp.innerHTML = '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span>';
+  if (disp) disp.innerHTML = '<span style="color:#bbb;font-size:18px;font-weight:600;letter-spacing:.5px">tap numbers below</span><span class="mbd-qty-caret" style="color:#003087;margin-left:6px">▌</span>';
   refreshSaveButtonState();
 }
 
@@ -14836,7 +14887,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.211"></script>
+<script src="./pack.js?v=10.212"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -14845,7 +14896,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.211<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.212<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
