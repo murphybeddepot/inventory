@@ -3163,6 +3163,16 @@ async function refreshScheduleTab() {
 // stays in the mode its user works in (Kim → needs_booking).
 let _scheduleViewMode = 'all';
 try { _scheduleViewMode = localStorage.getItem('mbd_sched_view') || 'all'; } catch(e) {}
+// v10.220 Seth pain #2 — stalled sub-filter. When view-mode='stalled',
+// a second chip row appears letting Seth narrow to a single stall
+// reason. Persists across reload.
+let _scheduleStallReasonFilter = 'all';
+try { _scheduleStallReasonFilter = localStorage.getItem('mbd_sched_stall_reason') || 'all'; } catch(e) {}
+function setScheduleStallReasonFilter(r) {
+  _scheduleStallReasonFilter = String(r || 'all');
+  try { localStorage.setItem('mbd_sched_stall_reason', _scheduleStallReasonFilter); } catch(e) {}
+  if (_scheduleCache) paintSchedule_(_scheduleCache);
+}
 
 const SCHEDULE_VIEW_MODES = [
   { key: 'all',              label: 'All',              color: '#9AAAC0' },
@@ -3221,7 +3231,17 @@ function _scheduleOrderInShipConfInbox_(o) {
 
 function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
-  if (mode === 'stalled') return !!o.stalled;
+  if (mode === 'stalled') {
+    if (!o.stalled) return false;
+    // v10.220 Seth pain #2: optional secondary filter by single
+    // stall reason. 'all' = any reason; otherwise stall_reasons
+    // must include the picked code.
+    if (_scheduleStallReasonFilter && _scheduleStallReasonFilter !== 'all') {
+      const reasons = Array.isArray(o.stall_reasons) ? o.stall_reasons : [];
+      if (!reasons.includes(_scheduleStallReasonFilter)) return false;
+    }
+    return true;
+  }
   if (mode === 'needs_booking') {
     // Calendar/JS2-sourced rows are committed-schedule visibility,
     // not Bedrock freight-booking actionable — exclude so Kim's
@@ -3428,6 +3448,36 @@ function _renderScheduleFilterBar_(payload) {
       + '<span style="font-size:10px;font-weight:900;opacity:.85;background:rgba(0,0,0,' + (active ? '.18' : '0') + ');padding:0 5px;border-radius:999px">' + n + '</span>'
       + '</button>';
   }).join('');
+
+  // v10.220 Seth pain #2 — when stalled mode is active, append a
+  // second chip row showing per-reason filter. Counts computed over
+  // payload's stalled orders only.
+  if (_scheduleViewMode === 'stalled') {
+    const reasonCounts = { all: 0, past_ship_date: 0, needs_booking: 0, awaiting_customer_confirm: 0, missing_instructions: 0 };
+    (payload.days || []).forEach(d => (d.orders || []).forEach(o => {
+      if (!o.stalled) return;
+      reasonCounts.all++;
+      (o.stall_reasons || []).forEach(r => { if (reasonCounts[r] != null) reasonCounts[r]++; });
+    }));
+    const REASONS = [
+      { key: 'all',                        label: 'Any',             color: '#FF5252' },
+      { key: 'past_ship_date',             label: 'Past Due',        color: '#ff5252' },
+      { key: 'needs_booking',              label: 'Needs Booking',   color: '#FFB300' },
+      { key: 'awaiting_customer_confirm',  label: 'Needs Customer',  color: '#42a5f5' },
+      { key: 'missing_instructions',       label: 'No Instructions', color: '#ab47bc' },
+    ];
+    const subBar = REASONS.map(r => {
+      const active = r.key === (_scheduleStallReasonFilter || 'all');
+      const n = reasonCounts[r.key] || 0;
+      // Hide chips with 0 count (except 'all' which always shows)
+      if (n === 0 && r.key !== 'all') return '';
+      return '<button onclick="setScheduleStallReasonFilter(\'' + r.key + '\')" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.4px;cursor:pointer;text-transform:uppercase;border:1px solid ' + r.color + (active ? ';background:' + r.color + ';color:#0a0a0a' : '88;background:transparent;color:' + r.color) + '">'
+        + esc(r.label)
+        + '<span style="font-size:10px;font-weight:900;opacity:.85;background:rgba(0,0,0,' + (active ? '.18' : '0') + ');padding:0 4px;border-radius:999px">' + n + '</span>'
+        + '</button>';
+    }).join(' ');
+    bar.innerHTML += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;padding:6px 10px;background:rgba(255,82,82,.06);border:1px dashed rgba(255,82,82,.4);border-radius:8px;width:100%"><span style="font-size:10px;color:#FF5252;font-weight:900;letter-spacing:1px;align-self:center;margin-right:4px">REASON →</span>' + subBar + '</div>';
+  }
 }
 
 // Render-once so typing never loses focus on the 60s auto-refresh
