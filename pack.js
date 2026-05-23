@@ -4321,35 +4321,41 @@ function openHowItWorks() {
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">How Bedrock Works</div>'
     +   '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.143.</div>'
+    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.231 (2026-05-23).</div>'
 
     + H('An order today, start → ship')
-    + step(1, 'Schedule', 'Upcoming freight/cabinet shipments by day; a carrier on the calendar means it\'s booked. Kim works the to-book list, taps an order to open a FedEx Freight quote and book in two clicks. BOL auto-prints (4 copies) + a landscape order-# label sheet (2 copies) on the default printer.')
-    + step(2, 'Cabinets / Ground', 'Cabinet shipments arrive as PICK LIST emails (parsed into Cabinets receive list); ground orders import from ShipStation. Cabinets search now also surfaces ARCH-announced future cabinets with "📅 Arriving Week of MMM D" before the truck lands. Damaged cabinets hide from pulls automatically.')
-    + step(3, 'Pre-Pack', 'Zoe builds the hardware box the day before, scan-verified with haptic/audio feedback on each scan, with a 4×6 OPEN-ME-FIRST label (hero order #, QR to assembly PDF) auto-printed.')
-    + step(4, 'Pack', 'Packer scans every item; a second checker re-scans (catches mistakes before they ship). Photos + freight booking. Manager ✓ MGR check-off for catch-all/parts orders that lack scannable SKUs.')
-    + step(5, 'Ship', 'Label is bought, ShipStation + Shopify are told, the customer gets tracking. View cost / rate in ShipStation\'s V2 Shipments tab (V1\'s Order#/Rate columns are blank for Bedrock shipments by design — use V2).')
-    + step(6, 'Lookup / Tracking / Remakes / Damage', 'CS answers "where\'s my order", files a 🚨 customer-damage report with photo uploads + carrier-claim tracking, sends replacement parts, sees the whole history.')
+    + step(1, 'Schedule', 'Upcoming freight/cabinet shipments by day; a carrier on the calendar means it\'s booked. Kim works the to-book list (📋 N TO BOOK chip shows per-carrier breakdown on hover), taps an order to open a FedEx Freight quote and book in two clicks. Stalled view has sub-filter chips (Past Due / Needs Booking / Needs Customer / No Instructions). 14-day lookback keeps past-due cabinets visible.')
+    + step(2, 'Cabinets / Ground', 'Cabinet shipments arrive as PICK LIST emails (parsed into Cabinets receive list); ground orders import from ShipStation. Cabinets search surfaces ARCH-announced future cabinets ("📅 Arriving Week of MMM D") before the truck lands. Damaged cabinets hide from pulls automatically.')
+    + step(3, 'Pre-Pack', 'Zoe builds the hardware box the day before, scan-verified with haptic/audio feedback. 4×6 OPEN-ME-FIRST label auto-prints. Pre-Pack status line surfaces 🔥 past-due count.')
+    + step(4, 'Pack', 'Packer scans every item; a second checker re-scans (catches mistakes before they ship). Photos + freight booking. EOS banner has tap-to-jump + release-claim buttons for end-of-shift cleanup. Card body is full-area-tappable for mobile.')
+    + step(5, 'Ship', 'Label is bought, ShipStation + Shopify told, customer gets tracking. View cost in ShipStation V2 Shipments tab (V1\'s Rate column is blank for Bedrock by design).')
+    + step(6, 'Lookup / Tracking / Remakes / Damage', 'CS answers "where\'s my order" (phone fields auto-tel, address fields auto-Map), files a 🚨 customer-damage report with photo uploads + carrier-claim tracking, sends replacement parts.')
 
     + H('Ops surfaces (More menu ⋯)')
     + pill('live', '📦 Tracking', 'Recent shipments across all sources for CS escalations.')
-    + pill('live', '🔧 Remakes', 'Structured replacement-part log: + New Remake (CS associate creates one) OR 🚨 Report Customer Damage (Jessica\'s flow — captures damaged carrier + tracking, photo uploads to Drive, optional claim ID, emails warehouse + Jessica with photo links + carrier claims-portal URL).')
-    + pill('live', '🔨 Damage Log', 'Open damage records — inspect, parts due date, remake-in-transit, mark complete (auto-clears the cabinet\'s damaged flag so it re-appears for pulls).')
-    + pill('live', '📝 Email Templates', 'WYSIWYG editor (Quill) for ShipConf + Customer Ready templates. Live preview with sample data, send-test to [Zac/Seth/Jessica/Ken/Kim], auto-save to a versioned tab (50 versions retained), auto-Slack diff to #claude_bedrock on every edit.')
-    + pill('live', '🚦 Holds', 'Orders blocked from packing — Beacon, manual hold, hidden.')
-    + pill('live', '🩹 Damage Log + 🩹 Returns', 'Cabinet damage workflow incl. post-commit damage reporting from the Cabinets-tab lookup view (when a cabinet is damaged AFTER the receive session committed).')
+    + pill('live', '🔧 Remakes', 'Structured replacement-part log + 🚨 Report Customer Damage flow with photo uploads + carrier-claim tracking. Auto-sort by age (stuck first). Carrier-claims roll-up banner at top (Jessica\'s CS-VP view).')
+    + pill('live', '🔨 Damage Log', 'Open damage records w/ due-date filter chips (Overdue / 7 days / 30 days / No date) — Seth\'s "due this week" view.')
+    + pill('live', '📝 Email Templates', 'WYSIWYG editor (Quill). Mail-merge variables as tap-to-insert chips. Live preview with sample data substituted. Auto-Slack diff to #claude_bedrock on every save.')
+    + pill('live', '🚦 Holds', 'Orders blocked from packing — Beacon / manual / cabinet. NEW: 🗑 Delete (PIN) permanently clears stale holds.')
+    + pill('live', '🏭 Manufacturing', 'NEW Phase 0: cabinet jobs through the 5-stage CNC pipeline (CNC → Denester → 6-Drill → Edgebander → Stacker). Intake form + sign-off pills (Designer + Ops-PIN) + stage advance. Status boards Phase 4+.')
+    + pill('live', '🧬 Pick-List BOM', 'NEW 3-mode panel from PickList migration: BOM Expand (bundle SKU → flat elements), Variant Resolve (Shopify variant SKU → walks variant map + recursive BOM → flat element list), Admin (4 ingest buttons to re-sync from Kristine\'s sheet).')
+    + pill('live', '📑 Purchase Orders', 'NEW Odoo-style PO emailer: reorder needs grouped by vendor (sorted by qty desc), drill into vendor → editable qty rows → preview composed PO body → send via Gmail or mailto.')
+    + pill('live', '✅ Customer Ready', 'NEW shadow-log inspector. Reads CustomerReady tab + shows composed body preview on tap. CUSTREADY_LIVE flag gates real sends (currently off).')
 
-    + H('Stock kanban (Hardware Inventory tab)')
-    + P('Lane view (🔴 Reorder / 📦 On Order / 🟡 Low / ✓ OK). Tap a tile or open SKU detail to <b>📦 Mark Ordered</b> with qty + ETA. Print kanban cards in batches with a selection modal (checkbox list + destination picker: 4×6 label printer / paper N-up grid / custom size). Scan a card\'s QR on the warehouse floor → opens Bedrock with prefilled <b>📦 I Just Ordered This</b> button (taps mark the SKU on-order without going to your desk).')
+    + H('Stock tab')
+    + P('Element-level inventory + locations. Cloud-synced via StockSync.js (v10.213) — local-first, syncs to PickListBundleBOM after every save (10s debounce). 🔍 SKU / 📍 Location toggle at top (per-device persisted). Locations section has dropdown for aisle/bay (266 standard bins + HDWR zone + custom). Per-row tap → batch-count modal pinned to location (scan + qty + status). Per-item card: tap a location row to re-count or edit qty/status/move. Print Location Labels modal w/ "+ bay" inline-add per aisle.')
 
     + H('FedEx Freight quote → book (live)')
-    + P('From any cabinet/freight order, tap "📦 Get FedEx Quote" → review rates across both MBD FedEx accounts (commercial + FXFD Direct with By Appt / Premium tiers) → pick service → tap Book. Real-money flow gated by two clicks; pickup is a separate explicit opt-in. BOL (×4) auto-prints to default printer via PrintNode; 2-page landscape order-# label sheet auto-prints alongside.')
+    + P('From any cabinet/freight order, tap "📦 Get FedEx Quote" → review rates across both MBD accounts → pick service → Book. Two-click confirm; pickup is a separate opt-in. BOL (×4) + landscape order-# label sheet (×2) auto-print via PrintNode.')
 
     + H('What\'s pending design + build')
-    + pill('safe', '📋 Shipping Confirmation migration', 'Phase 1 shadow-log live (logs what Bedrock WOULD send to compare against JS2\'s actual sends for parity). Phases 2-4 ship after the shadow comparison validates. End state: Bedrock replaces JS2 for the customer-facing Shipping Confirmation flow.')
-    + pill('safe', '✅ Customer Ready takeover', 'Scaffold + templates ready. Build phases 1-6 stage after Shipping Confirmation Phase 2: per-product-type pick-list PDFs, per-ship-week Drive folder, JURG inline-on-status-flip, WG-downgrade button.')
-    + pill('gated', '💸 Multi-carrier parcel quote', 'UPS + FedEx + USPS rate compare side-by-side. Needs carrier-API credentials before build.')
-    + pill('gated', '🔒 Hardware QR scan-to-verify', 'Hardware box QR scanned during pack to confirm correct box. Investigation pending — Ground pack flow is sensitive.')
+    + pill('safe', '📋 Shipping Confirmation Phase 1+', 'Shadow infrastructure live (Phases 0a-0d). Phase 1 (real customer sends) waits on Zac flipping SHIPCONF_LIVE Script Property.')
+    + pill('safe', '✅ Customer Ready Phase 2+', 'Phase 1 scaffold + inspector live. Phase 2 (auto-trigger + GmailApp send + pick-list PDF + Calendar event) waits on ShipConf-live + customer-response webhook.')
+    + pill('safe', '🧬 PickList Phase 4-5', 'Phases 0-3 done (BOM / Variant Map / Per-warehouse inventory / Purchase Orders). Phase 4 (Shopify-webhook-driven order commitment + Ground bridge) and Phase 5 (multi-warehouse routing) pending.')
+    + pill('safe', '🏭 Manufacturing Phase 1+', 'Phase 0 intake live. Phase 1 (Shopify diff for the auto-check sign-off) + Phase 4 (status boards for warehouse/office TVs) pending.')
+    + pill('gated', '💸 Multi-carrier parcel quote', 'UPS + FedEx + USPS rate compare. Needs carrier-API credentials + Zac at the keyboard (real money).')
+    + pill('gated', '🔒 Hardware QR scan-to-verify', 'HW box QR scanned during pack. Risky to ship unattended because it modifies the production HW box label format.')
+    + pill('gated', '☁ GAS Phase 1 — Cloudflare Workers', 'Move off Apps Script as primary backend. Zac queued for a separate focused session.')
 
     + '<div style="margin-top:16px;font-size:11px;color:#5E6A7E;line-height:1.5">Bedrock builds additively and reversibly — nothing risky happens without explicit sign-off. Design docs live in <code style="color:#8FA3BD">docs/VISION.md</code> · <code style="color:#8FA3BD">docs/SHIPPING_CONFIRMATION.md</code> · <code style="color:#8FA3BD">docs/CUSTOMER_READY.md</code> · <code style="color:#8FA3BD">docs/EMAIL_TEMPLATES_EDITOR.md</code>.</div>'
     + '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="width:100%;margin-top:18px;padding:14px;background:#1f2630;color:#C7D2E0;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Close</button>'
