@@ -93,6 +93,7 @@ h2 { font: 900 18px/1.2 'Barlow Condensed', 'Barlow', Arial, sans-serif; text-tr
 
 <div class="footer">
 <div class="score" id="score">Loading…</div>
+<button class="submit" id="download" onclick="downloadResults()" disabled style="background:linear-gradient(135deg,#444,#222);min-width:130px">📥 Download TXT</button>
 <button class="submit" id="submit" onclick="submitResults()" disabled>Submit to Slack</button>
 </div>
 <div class="toast" id="toast"></div>
@@ -162,7 +163,9 @@ function updateScore() {
     + '<span class="skip">' + skip + ' skip</span> · '
     + '<span class="pending">' + pending + ' pending</span>';
   const sub = document.getElementById('submit');
-  sub.disabled = (pass + fail + skip) === 0;
+  if (sub) sub.disabled = (pass + fail + skip) === 0;
+  const dl = document.getElementById('download');
+  if (dl) dl.disabled = (pass + fail + skip) === 0;
 }
 
 function render() {
@@ -202,7 +205,7 @@ function toast(msg, color) {
   setTimeout(() => t.classList.remove('show'), 2400);
 }
 
-async function submitResults() {
+function buildResultsText() {
   save();
   let summary = ['📋 *Runbook results from Zac* (' + new Date().toLocaleString() + ')', ''];
   let pass = 0, fail = 0, skip = 0;
@@ -224,28 +227,61 @@ async function submitResults() {
     const v = (state[k] || '').trim();
     if (v) summary.push('*' + k.toUpperCase() + ':* ' + v);
   });
-  const text = summary.join('\n');
+  return summary.join('\n');
+}
+
+async function submitResults() {
+  const text = buildResultsText();
   toast('Sending to Slack…', '#1A4FB0');
+  // v10.236: Apps Script /exec doesn't return CORS headers, so regular
+  // cross-origin fetch with mode:'cors' fails. Two fire-and-forget paths:
+  // sendBeacon first (most reliable, queued by browser), no-cors fetch
+  // fallback. Both can't read the response — we trust the server-side
+  // POST landed and surface a "Sent (no confirm)" toast. The Download
+  // TXT button below is the recoverable backup.
+  const payload = JSON.stringify({ action: 'claudeNotify', claude_key: CLAUDE_KEY, message: text });
+  let sent = false;
   try {
-    const resp = await fetch(ORCH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'claudeNotify', claude_key: CLAUDE_KEY, message: text }),
-    });
-    const data = await resp.json();
-    if (data && data.ok) {
-      toast('✓ Sent to #claude_bedrock', '#1A5C1A');
-    } else {
-      toast('⚠ ' + ((data && data.error) || 'failed'), '#8B0000');
+    if (navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: 'application/json' });
+      sent = navigator.sendBeacon(ORCH_URL, blob);
     }
-  } catch (err) {
-    toast('⚠ Network error: ' + err.message, '#8B0000');
+  } catch (e) { /* fall through */ }
+  if (!sent) {
+    try {
+      await fetch(ORCH_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      sent = true;
+    } catch (e) {
+      toast('⚠ Both paths failed — use Download TXT', '#8B0000');
+      return;
+    }
   }
+  toast('✓ Sent (no confirm — claude can\'t verify from browser). If you don\'t see it in #claude_bedrock in 60s, use Download TXT.', '#1A5C1A');
+}
+
+function downloadResults() {
+  const text = buildResultsText();
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'bedrock-runbook-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('✓ Downloaded — paste anywhere (Slack DM, email, etc.)', '#1A5C1A');
 }
 
 window.setStatus = setStatus;
 window.save = save;
 window.submitResults = submitResults;
+window.downloadResults = downloadResults;
 render();
 </script>
 
