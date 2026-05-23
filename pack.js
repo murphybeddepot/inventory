@@ -5403,10 +5403,13 @@ async function openHoldsPanel(opts) {
     // override Beacon directly). PackingQueue cabinet holds — manager
     // would use the existing cabinet flow.
     const resumeBtn = (h.kind === 'orderpack_hold' && h.order_id)
-      ? '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center">↩ Resume to queue</button>'
+      ? '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px">↩ Resume to queue</button>'
       : (h.kind === 'beacon_hold'
           ? '<div style="font-size:10px;color:#9C27B0;margin-top:6px;font-weight:700">↪ Clear in ShipStation (Beacon)</div>'
           : '');
+    // v10.223 — permanent-delete button (manager-PIN gated). Per Zac:
+    // stale ShipStation holds had no way to be cleared from Bedrock.
+    const deleteBtn = '<button onclick="deleteHoldFromPanel_(\'' + esc(h.order_id || '') + '\',\'' + esc(h.order_number) + '\',\'' + esc(h.kind || '') + '\')" style="padding:10px 14px;background:rgba(139,0,0,.10);color:#8B0000;border:1px solid #8B0000;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center" title="Permanently remove this hold row from the underlying tab (manager PIN required)">🗑 Delete (PIN)</button>';
     return '<div style="padding:12px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
       +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">#' + esc(h.order_number) + '</span> ' + total + '</div>'
@@ -5417,7 +5420,7 @@ async function openHoldsPanel(opts) {
       + (itemsList ? '<div style="font-size:12px;color:#666;margin-top:4px">' + itemsList + '</div>' : '')
       + '<div style="font-size:11px;color:#888;font-style:italic;margin-top:6px">' + esc(h.hold_reason || '(no reason)') + '</div>'
       + (dateStr ? '<div style="font-size:10px;color:#aaa;margin-top:3px;font-family:monospace">' + dateStr + '</div>' : '')
-      + resumeBtn
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + resumeBtn + deleteBtn + '</div>'
       + '</div>';
   }).join('');
 }
@@ -5431,6 +5434,250 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
     openHoldsPanel();
   } catch (err) {
     showToast('Resume error: ' + err.message);
+  }
+}
+
+// v10.223 — permanent-delete a hold record. Per Zac 2026-05-22 20:00
+// EDT: "you have the old orders that got stuck from ShipStation in
+// 'holds' as though they're anything legitimate, with no way to
+// permanently delete/clear them". Manager-PIN gated so a stray tap
+// doesn't lose data.
+async function deleteHoldFromPanel_(orderId, orderNumber, holdKind) {
+  if (!confirm('Permanently DELETE the hold record for #' + orderNumber + '?\n\nThis removes the row from the underlying tab. The order itself in ShipStation/PackingQueue is NOT touched. Use this when a hold is stale + you want it out of the list.')) return;
+  const pin = prompt('Manager PIN (delete is irreversible):');
+  if (!pin) return;
+  try {
+    const res = await groundApi('deleteHold', {
+      orderId: Number(orderId) || 0,
+      orderNumber: String(orderNumber),
+      holdKind: String(holdKind || ''),
+      managerPin: pin,
+    });
+    if (!res || !res.ok) { showToast('Delete failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('🗑 #' + orderNumber + ' removed from holds');
+    openHoldsPanel();
+  } catch (err) {
+    showToast('Delete error: ' + err.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// v10.223 — Manufacturing panel (Phase 0 UI on top of v10.222 server)
+// ══════════════════════════════════════════════════════════════════
+
+const MFG_STATUS_META = {
+  awaiting_designer: { label: 'Awaiting Designer', color: '#FFB300', bg: 'rgba(255,179,0,.12)' },
+  awaiting_ops:      { label: 'Awaiting Ops',      color: '#FF6B00', bg: 'rgba(255,107,0,.12)' },
+  ready_for_cnc:     { label: 'Ready for CNC',     color: '#003087', bg: 'rgba(0,48,135,.12)' },
+  in_progress:       { label: 'In Progress',       color: '#42a5f5', bg: 'rgba(66,165,245,.12)' },
+  done:              { label: 'Done',              color: '#00C853', bg: 'rgba(0,200,83,.10)' },
+};
+const MFG_STAGES = [
+  { key: 'queued',     label: 'Queued',     color: '#888' },
+  { key: 'cnc',        label: 'CNC',        color: '#1A4FB0' },
+  { key: 'denester',   label: 'Denester',   color: '#9C27B0' },
+  { key: 'drill_6',    label: '6-Drill',    color: '#FF6B00' },
+  { key: 'edgebander', label: 'Edgebander', color: '#FFB300' },
+  { key: 'stacker',    label: 'Stacker',    color: '#42a5f5' },
+  { key: 'done',       label: 'Done',       color: '#00C853' },
+];
+
+async function openManufacturingPanel(opts) {
+  opts = opts || {};
+  const statusFilter = String(opts.status || '');
+  const prior = document.getElementById('mfgOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'mfgOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:780px;max-height:94vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);box-sizing:border-box">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🏭 Manufacturing</div>'
+    +   '<button onclick="document.getElementById(\'mfgOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Cabinet jobs through the 5-stage pipeline (CNC → Denester → 6-Drill → Edgebander → Stacker). Phase 0: ingest + sign-off + stage advance. Phase 1+ adds Shopify diff + status boards.</div>'
+    + '<button onclick="_openMfgIngestForm_()" style="width:100%;padding:13px;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">+ New Job (ingest Mozaik file)</button>'
+    + '<div id="mfgStatusFilters" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
+    +   ['', 'awaiting_designer', 'awaiting_ops', 'ready_for_cnc', 'in_progress', 'done'].map(s => {
+          const active = s === statusFilter;
+          const lbl = s === '' ? 'All' : (MFG_STATUS_META[s] && MFG_STATUS_META[s].label) || s;
+          return '<button onclick="openManufacturingPanel({status:\'' + s + '\'})" style="flex:1;min-width:80px;padding:7px 4px;background:' + (active ? '#003087' : '#f5f5f5') + ' !important;color:' + (active ? '#fff' : '#444') + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : '#444') + ' !important;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + esc(lbl) + '</button>';
+        }).join('')
+    + '</div>'
+    + '<div id="mfgListBody" style="min-height:60px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  let res;
+  try { res = await groundApi('manufacturingListJobs', statusFilter ? { status: statusFilter } : {}); }
+  catch (err) {
+    document.getElementById('mfgListBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+    return;
+  }
+  if (!res || !res.ok) {
+    document.getElementById('mfgListBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+  const jobs = res.jobs || [];
+  if (!jobs.length) {
+    document.getElementById('mfgListBody').innerHTML = '<div style="padding:24px;text-align:center;color:#0a8a3f !important;-webkit-text-fill-color:#0a8a3f !important;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">No jobs in this view. Tap "+ New Job" to ingest one.</div>';
+    return;
+  }
+  document.getElementById('mfgListBody').innerHTML = jobs.map(j => {
+    const meta = MFG_STATUS_META[j.status] || MFG_STATUS_META.awaiting_designer;
+    const designerSigned = !!j.designer_signed_at;
+    const opsSigned = !!j.ops_signed_at;
+    const stageMeta = MFG_STAGES.find(s => s.key === j.stage) || MFG_STAGES[0];
+    const ingestedDate = String(j.ingested_at || '').slice(0, 16).replace('T', ' ');
+    return '<div style="padding:12px;background:' + meta.bg + ' !important;border-left:3px solid ' + meta.color + ' !important;border-radius:8px;margin-bottom:8px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+      +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:900">#' + esc(j.order_number) + '</span> <span style="color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(j.customer_name || '') + '</span></div>'
+      +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + meta.color + ' !important;-webkit-text-fill-color:' + meta.color + ' !important">' + meta.label + '</span>'
+      + '</div>'
+      + (j.mozaik_source_url ? '<div style="font-size:11px;margin-top:4px"><a href="' + esc(j.mozaik_source_url) + '" target="_blank" style="color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important">📁 Mozaik file ↗</a></div>' : '')
+      + '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'
+      +   '<span style="padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:' + (designerSigned ? '#1A5C1A' : '#ccc') + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important">' + (designerSigned ? '✓' : '○') + ' Designer</span>'
+      +   '<span style="padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:' + (opsSigned ? '#1A5C1A' : '#ccc') + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important">' + (opsSigned ? '✓' : '○') + ' Ops</span>'
+      +   '<span style="padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:' + stageMeta.color + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important">Stage: ' + esc(stageMeta.label) + '</span>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'
+      +   (!designerSigned ? '<button onclick="_mfgSignDesigner_(\'' + esc(j.job_id) + '\')" style="padding:7px 12px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">✓ Sign as Designer</button>' : '')
+      +   (designerSigned && !opsSigned ? '<button onclick="_mfgSignOps_(\'' + esc(j.job_id) + '\')" style="padding:7px 12px;background:#FF6B00 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">✓ Sign as Ops (PIN)</button>' : '')
+      +   (j.status === 'ready_for_cnc' || j.status === 'in_progress' ? '<button onclick="_mfgAdvanceStage_(\'' + esc(j.job_id) + '\', \'' + esc(j.stage) + '\')" style="padding:7px 12px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">→ Advance Stage</button>' : '')
+      + '</div>'
+      + '<div style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999 !important;margin-top:6px;font-family:monospace">' + esc(j.job_id) + ' · ingested ' + esc(ingestedDate) + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function _openMfgIngestForm_() {
+  const orderNumber = prompt('Order # (Shopify):');
+  if (!orderNumber) return;
+  const customerName = prompt('Customer name:', '') || '';
+  const mozaikUrl = prompt('Mozaik file link (Drive URL or any URL):', '') || '';
+  const notes = prompt('Notes (optional):', '') || '';
+  groundApi('manufacturingIngestJob', {
+    orderNumber: orderNumber.trim(),
+    customerName: customerName.trim(),
+    mozaikUrl: mozaikUrl.trim(),
+    notes: notes.trim(),
+    deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
+  }).then(res => {
+    if (!res || !res.ok) { showToast('Ingest failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Job ' + res.job_id + ' ingested');
+    openManufacturingPanel();
+  }).catch(err => showToast('Ingest error: ' + err.message));
+}
+
+function _mfgSignDesigner_(jobId) {
+  if (!confirm('Sign as Designer for ' + jobId + '?\n\nThis confirms the Mozaik file matches the spec.')) return;
+  groundApi('manufacturingSignDesigner', {
+    jobId: jobId,
+    deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
+  }).then(res => {
+    if (!res || !res.ok) { showToast('Sign failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Signed (designer)');
+    openManufacturingPanel();
+  });
+}
+
+function _mfgSignOps_(jobId) {
+  const pin = prompt('Manager PIN to sign as Ops:');
+  if (!pin) return;
+  groundApi('manufacturingSignOps', {
+    jobId: jobId,
+    deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
+    managerPin: pin,
+  }).then(res => {
+    if (!res || !res.ok) { showToast('Sign failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Signed (ops) — job ready for CNC');
+    openManufacturingPanel();
+  });
+}
+
+function _mfgAdvanceStage_(jobId, currentStage) {
+  // Auto-pick the next stage in the pipeline
+  const order = ['queued', 'cnc', 'denester', 'drill_6', 'edgebander', 'stacker', 'done'];
+  const idx = order.indexOf(currentStage);
+  if (idx === -1 || idx >= order.length - 1) { showToast('Already at final stage'); return; }
+  const nextStage = order[idx + 1];
+  const next = MFG_STAGES.find(s => s.key === nextStage);
+  if (!confirm('Advance to next stage: ' + (next ? next.label : nextStage) + '?')) return;
+  groundApi('manufacturingAdvanceStage', {
+    jobId: jobId,
+    stage: nextStage,
+    deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
+  }).then(res => {
+    if (!res || !res.ok) { showToast('Advance failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('→ Advanced to ' + (next ? next.label : nextStage));
+    openManufacturingPanel();
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// v10.223 — Pick-List BOM expander (Phase 0 UI on top of v10.222 server)
+// ══════════════════════════════════════════════════════════════════
+
+async function openPickListPanel() {
+  const prior = document.getElementById('pickListOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'pickListOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:680px;max-height:94vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);box-sizing:border-box">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🧬 Pick-List BOM</div>'
+    +   '<button onclick="document.getElementById(\'pickListOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Recursive bundle expansion from Kristine\'s sheet, now in Bedrock. Type a bundle SKU (e.g. <code>BOAZ-BUNDLE</code>) → see every leaf element + quantity per 1 parent.</div>'
+    + '<div style="background:#FFF8E1 !important;border:1px solid #FFC107 !important;border-radius:8px !important;padding:10px 12px;font-size:11px;color:#5a3e00 !important;-webkit-text-fill-color:#5a3e00 !important;margin-bottom:12px">First time: run <code>runPickListBundleBomIngest</code> in the Apps Script editor to populate the BOM from Kristine\'s sheet (~430 rows). Re-run anytime to re-sync.</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:10px">'
+    +   '<input id="pickListExpandInput" type="text" placeholder="bundle SKU (e.g. BOAZ-BUNDLE)" autocomplete="off" autocapitalize="characters" style="flex:1;padding:11px 14px;font-family:\'JetBrains Mono\',monospace !important;font-size:14px;border:2px solid #1A4FB0 !important;border-radius:8px;outline:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+    +   '<button onclick="_pickListExpand_()" style="padding:11px 18px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">Expand</button>'
+    + '</div>'
+    + '<div id="pickListExpandResult" style="min-height:120px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => {
+    const inp = document.getElementById('pickListExpandInput');
+    if (inp) {
+      inp.focus();
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _pickListExpand_(); } });
+    }
+  }, 50);
+}
+
+async function _pickListExpand_() {
+  const inp = document.getElementById('pickListExpandInput');
+  const out = document.getElementById('pickListExpandResult');
+  if (!inp || !out) return;
+  const sku = String(inp.value || '').trim().toUpperCase();
+  if (!sku) { out.innerHTML = '<div style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:13px">Type a SKU above.</div>'; return; }
+  out.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px">Expanding…</div>';
+  try {
+    const res = await groundApi('pickListExpandBundle', { sku: sku });
+    if (!res || !res.ok) { out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:13px;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>'; return; }
+    const elements = res.elements || [];
+    if (!elements.length) {
+      out.innerHTML = '<div style="background:#FFF8E1 !important;border:1px solid #FFC107 !important;border-radius:8px;padding:14px;color:#5a3e00 !important;-webkit-text-fill-color:#5a3e00 !important;font-size:13px">No expansion found for <strong>' + esc(sku) + '</strong>. Either the BOM is empty (run the editor ingest) or this SKU isn\'t a known bundle parent.</div>';
+      return;
+    }
+    let html = '<div style="font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:8px"><strong>' + esc(sku) + '</strong> → <strong>' + elements.length + '</strong> distinct element(s):</div>';
+    html += elements.map(e => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fafafa !important;border:1px solid #eee !important;border-radius:6px;margin-bottom:4px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700">' + esc(e.sku) + '</span>'
+      + '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">×' + e.qty + '</span>'
+      + '</div>').join('');
+    out.innerHTML = html;
+  } catch (err) {
+    out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:13px;padding:14px">Error: ' + esc(err.message) + '</div>';
   }
 }
 
