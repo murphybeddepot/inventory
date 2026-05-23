@@ -5655,6 +5655,201 @@ async function openPickListPanel() {
   }, 50);
 }
 
+// ══════════════════════════════════════════════════════════════════
+// v10.226 — Purchase Orders panel (PickList Phase 3 UI)
+// ══════════════════════════════════════════════════════════════════
+//
+// Two-mode panel:
+//   Mode 'reorder' (default): list vendors needing reorder, drill
+//                              into a vendor → review shortages →
+//                              create + email PO
+//   Mode 'history': recent PO ledger entries
+
+let _poPanelMode = 'reorder';
+let _poPanelVendorSel = '';
+let _poDraftLines = [];
+
+async function openPurchaseOrdersPanel(opts) {
+  opts = opts || {};
+  _poPanelMode = opts.mode || _poPanelMode || 'reorder';
+  _poPanelVendorSel = opts.vendor || _poPanelVendorSel || '';
+  const prior = document.getElementById('poPanelOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'poPanelOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:780px;max-height:94vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);box-sizing:border-box">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">📑 Purchase Orders</div>'
+    +   '<button onclick="document.getElementById(\'poPanelOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:12px">'
+    +   ['reorder', 'history'].map(m => {
+          const active = m === _poPanelMode;
+          const lbl = m === 'reorder' ? '🔄 Reorder Needs' : '📋 PO History';
+          return '<button onclick="openPurchaseOrdersPanel({mode:\'' + m + '\'})" style="flex:1;padding:9px;background:' + (active ? '#003087' : '#f5f5f5') + ' !important;color:' + (active ? '#fff' : '#444') + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : '#444') + ' !important;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.5px">' + lbl + '</button>';
+        }).join('')
+    + '</div>'
+    + '<div id="poPanelBody" style="min-height:60px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  if (_poPanelMode === 'reorder') {
+    _renderPOReorderMode_();
+  } else {
+    _renderPOHistoryMode_();
+  }
+}
+
+async function _renderPOReorderMode_() {
+  const body = document.getElementById('poPanelBody');
+  if (!body) return;
+  try {
+    const res = await groundApi('pickListReorderByVendor', {});
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    const byVendor = res.by_vendor || {};
+    const vendors = Object.keys(byVendor).sort((a, b) => byVendor[b].total_qty - byVendor[a].total_qty);
+    if (!vendors.length) {
+      body.innerHTML = '<div style="padding:24px;text-align:center;color:#0a8a3f !important;-webkit-text-fill-color:#0a8a3f !important;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">✓ No reorder needs across any vendor.<br><span style="font-size:11px;font-weight:500;color:#666 !important;-webkit-text-fill-color:#666 !important">If you haven\'t bootstrapped yet, run runPickListInventoryIngest from the Apps Script editor first.</span></div>';
+      return;
+    }
+    let html = '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:700">' + res.vendor_count + ' vendor(s) · ' + res.total_reorder_qty + ' total qty</div>';
+    if (_poPanelVendorSel && byVendor[_poPanelVendorSel]) {
+      // Drill-in view for selected vendor
+      const v = byVendor[_poPanelVendorSel];
+      _poDraftLines = v.items.map(i => ({ sku: i.element_sku, qty: i.reorder_qty, on_hand: i.on_hand, threshold: i.threshold, warehouse: i.warehouse }));
+      html += '<button onclick="openPurchaseOrdersPanel({mode:\'reorder\',vendor:\'\'})" style="background:none !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:none !important;font-size:12px;cursor:pointer;margin-bottom:10px;padding:4px 0">‹ back to vendor list</button>';
+      html += '<div style="background:#F0F4FB !important;border:1.5px solid #1A4FB0 !important;border-radius:10px;padding:12px 14px;margin-bottom:12px">';
+      html += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px;font-weight:900;color:#003087 !important;-webkit-text-fill-color:#003087 !important;text-transform:uppercase;letter-spacing:.5px">' + esc(_poPanelVendorSel) + '</div>';
+      html += '<div style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:2px">' + v.line_count + ' shortage(s) · ' + v.total_qty + ' total qty needed</div>';
+      html += '</div>';
+      html += '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;font-weight:700">Edit quantities below, then create the PO.</div>';
+      html += '<div id="poDraftLines">';
+      _poDraftLines.forEach((l, idx) => {
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fafafa !important;border:1px solid #eee !important;border-radius:6px;margin-bottom:4px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+          + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700;flex:1;min-width:0">' + esc(l.sku) + '</span>'
+          + '<span style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important">on-hand ' + l.on_hand + ' · threshold ' + l.threshold + '</span>'
+          + '<input type="number" min="0" step="1" value="' + l.qty + '" onchange="_poDraftSetQty_(' + idx + ', this.value)" style="width:80px;padding:6px 8px;border:1.5px solid #1A4FB0 !important;border-radius:6px;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px;font-weight:900;text-align:center;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important">'
+          + '</div>';
+      });
+      html += '</div>';
+      html += '<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        + '<input id="poRecipient" type="email" placeholder="vendor email (optional)" style="flex:1;min-width:200px;padding:9px 12px;font-size:13px;border:1.5px solid #ccc !important;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+        + '<button onclick="_poCreateAndPreview_()" style="padding:10px 16px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">Create PO + Preview</button>'
+        + '</div>';
+    } else {
+      // Vendor list view
+      html += vendors.map(v => {
+        const data = byVendor[v];
+        return '<div onclick="openPurchaseOrdersPanel({mode:\'reorder\',vendor:\'' + esc(v) + '\'})" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#fff !important;border:1.5px solid #ddd !important;border-radius:8px;margin-bottom:6px;cursor:pointer;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important" onmouseover="this.style.background=\'#F0F4FB\';this.style.borderColor=\'#1A4FB0\'" onmouseout="this.style.background=\'#fff\';this.style.borderColor=\'#ddd\'">'
+          + '<div><strong>' + esc(v) + '</strong><div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">' + data.line_count + ' shortage(s)</div></div>'
+          + '<div style="text-align:right"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px;font-weight:900;color:#FF6B00 !important;-webkit-text-fill-color:#FF6B00 !important">' + data.total_qty + '</div><div style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;text-transform:uppercase;letter-spacing:1px">total qty</div></div>'
+          + '<span style="color:#999 !important;-webkit-text-fill-color:#999 !important;font-size:18px;margin-left:8px">›</span>'
+          + '</div>';
+      }).join('');
+    }
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+  }
+}
+
+function _poDraftSetQty_(idx, value) {
+  if (!_poDraftLines[idx]) return;
+  _poDraftLines[idx].qty = Math.max(0, Number(value) || 0);
+}
+
+async function _poCreateAndPreview_() {
+  const recipient = (document.getElementById('poRecipient') || {}).value || '';
+  const linesToSend = _poDraftLines.filter(l => l.qty > 0);
+  if (!linesToSend.length) { showToast('All quantities are 0 — nothing to order'); return; }
+  try {
+    const res = await groundApi('pickListCreatePO', {
+      vendor: _poPanelVendorSel,
+      lines: linesToSend,
+      recipient: recipient.trim(),
+      deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
+    });
+    if (!res || !res.ok) { showToast('Create failed: ' + ((res && res.error) || 'unknown')); return; }
+    _showPOPreview_(res, recipient);
+  } catch (err) {
+    showToast('Create error: ' + err.message);
+  }
+}
+
+function _showPOPreview_(po, recipient) {
+  const prior = document.getElementById('poPreviewOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'poPreviewOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10005;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const sendBtn = recipient
+    ? '<button onclick="_poSendNow_(\'' + esc(po.po_id) + '\')" style="flex:1;padding:14px;background:linear-gradient(135deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">✉ Send via Gmail Now</button>'
+    : '';
+  const mailtoBtn = po.mailto_url
+    ? '<a href="' + esc(po.mailto_url) + '" style="flex:1;padding:14px;background:#fff !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:1.5px solid #003087 !important;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;text-align:center;text-decoration:none">📧 Open in Mail App</a>'
+    : '';
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px;max-width:620px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.5)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">📑 PO Draft — ' + esc(po.po_id) + '</div>'
+    +   '<button onclick="document.getElementById(\'poPreviewOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:10px">' + esc(po.vendor) + ' · ' + po.line_count + ' SKU(s) · qty ' + po.total_qty + '</div>'
+    + '<div style="background:#F5F7FA !important;border:1px solid #ddd !important;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-family:monospace !important;font-size:12px !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;white-space:pre-wrap;max-height:300px;overflow-y:auto">' + esc(po.composed_body) + '</div>'
+    + '<div style="display:flex;gap:8px">' + sendBtn + mailtoBtn + '</div>'
+    + (recipient ? '' : '<div style="margin-top:10px;font-size:11px;color:#FF6B00 !important;-webkit-text-fill-color:#FF6B00 !important">Add a recipient email above to enable Gmail send.</div>')
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+async function _poSendNow_(poId) {
+  if (!confirm('Send PO ' + poId + ' via Gmail now?\n\nFires a real email. Recipient is whatever you typed in the form.')) return;
+  try {
+    const res = await groundApi('pickListSendPOEmail', { poId: poId });
+    if (!res || !res.ok) { showToast('Send failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Sent PO ' + poId + ' to ' + res.recipient);
+    document.getElementById('poPreviewOverlay').remove();
+    openPurchaseOrdersPanel({ mode: 'history' });
+  } catch (err) {
+    showToast('Send error: ' + err.message);
+  }
+}
+
+async function _renderPOHistoryMode_() {
+  const body = document.getElementById('poPanelBody');
+  if (!body) return;
+  try {
+    const res = await groundApi('pickListListPOs', {});
+    if (!res || !res.ok) { body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>'; return; }
+    const pos = res.pos || [];
+    if (!pos.length) {
+      body.innerHTML = '<div style="padding:24px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;background:#fafafa !important;border:1px dashed #ccc !important;border-radius:10px;font-size:13px">No POs yet.</div>';
+      return;
+    }
+    body.innerHTML = pos.map(p => {
+      const stColor = p.status === 'sent' ? '#1A5C1A' : p.status === 'cancelled' ? '#888' : p.status === 'received' ? '#1A4FB0' : '#FF6B00';
+      return '<div style="padding:12px 14px;background:#fff !important;border:1.5px solid #ddd !important;border-left:3px solid ' + stColor + ' !important;border-radius:8px;margin-bottom:6px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+        + '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">'
+        +   '<div><span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:900">' + esc(p.po_id) + '</span> <span style="color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(p.vendor) + '</span></div>'
+        +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + stColor + ' !important;-webkit-text-fill-color:' + stColor + ' !important">' + esc(p.status) + '</span>'
+        + '</div>'
+        + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">' + p.line_count + ' SKU(s) · qty ' + p.total_qty + ' · ' + esc(String(p.created_at || '').slice(0, 16).replace('T', ' ')) + (p.recipient_email ? ' · ' + esc(p.recipient_email) : '') + '</div>'
+        + '</div>';
+    }).join('');
+  } catch (err) {
+    body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+  }
+}
+
 async function _pickListExpand_() {
   const inp = document.getElementById('pickListExpandInput');
   const out = document.getElementById('pickListExpandResult');
