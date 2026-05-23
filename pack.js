@@ -5698,6 +5698,7 @@ function _mfgAdvanceStage_(jobId, currentStage) {
 
 // v10.228 — 3-mode panel: BOM expand / Variant resolve / Admin.
 let _pickListPanelMode = 'bom';
+let _pickListPickerVisibleOnly = false;  // v10.235 F2 client toggle
 
 async function openPickListPanel(opts) {
   opts = opts || {};
@@ -5732,13 +5733,20 @@ async function openPickListPanel(opts) {
       +   '<input id="pickListVariantInput" type="text" placeholder="variant SKU (e.g. BOAZ-QUEEN)" autocomplete="off" autocapitalize="characters" style="flex:1;padding:11px 14px;font-family:\'JetBrains Mono\',monospace !important;font-size:14px;border:2px solid #1A4FB0 !important;border-radius:8px;outline:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
       +   '<button onclick="_pickListResolveVariant_()" style="padding:11px 18px;background:#9C27B0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">Resolve</button>'
       + '</div>'
+      // v10.235 F2 client toggle — pickerVisibleOnly filters packaging items
+      // (BUMPER, PALLET, STRETCH, STRAPPING) so the list matches Kristine\'s
+      // physical pick PDF format instead of the full inventory BOM.
+      + '<label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;user-select:none">'
+      +   '<input type="checkbox" id="pickListPickerOnly" ' + (_pickListPickerVisibleOnly ? 'checked' : '') + ' onchange="_pickListPickerVisibleOnly = this.checked; const inp = document.getElementById(\'pickListVariantInput\'); if (inp && inp.value.trim()) _pickListResolveVariant_();" style="width:18px;height:18px;cursor:pointer;accent-color:#9C27B0">'
+      +   '<span>📋 <strong>Picker view</strong> — hide packaging items (BUMPER BOARD, PALLET CARDBOARD, STRAPPING). Matches Kristine\'s pick PDF format.</span>'
+      + '</label>'
       + '<div id="pickListVariantResult" style="min-height:120px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>';
   } else {
     // Admin mode — ingest helpers + status
     bodyHtml = ''
       + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Re-ingest from Kristine\'s sheet. Tap each in order on first-time setup or whenever the source sheet changes. Each runs in ~5-15s.</div>'
       + '<div id="pickListAdminBtns" style="display:flex;flex-direction:column;gap:8px">'
-      +   _pickListAdminButton_('pickListIngestBundleBom',       '1. Ingest Bundle BOM',           '~430 rows from "ALL BUNDLES" tab',           '#003087')
+      +   _pickListAdminButton_('pickListIngestBundleBom',       '1. Ingest Bundle BOM',           '~430 rows (auto-discovers TREND tab)',      '#003087')
       +   _pickListAdminButton_('pickListIngestVariantMap',      '2. Ingest Variant Map',          '~92 rows (Shopify variant → bundle map)',    '#1A4FB0')
       +   _pickListAdminButton_('pickListIngestVendorMap',       '3. Ingest Vendor Map',           '~190 rows (element → vendor)',                '#9C27B0')
       +   _pickListAdminButton_('pickListIngestElementInventory','4. Ingest Element Inventory',    '~80 elements × 5 warehouses (slowest)',       '#FF6B00')
@@ -5811,20 +5819,30 @@ async function _pickListResolveVariant_() {
   if (!sku) { out.innerHTML = '<div style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:13px">Type a variant SKU above.</div>'; return; }
   out.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px">Resolving…</div>';
   try {
-    const res = await groundApi('pickListResolveVariant', { variantSku: sku });
+    const res = await groundApi('pickListResolveVariant', { variantSku: sku, pickerVisibleOnly: _pickListPickerVisibleOnly });
     if (!res || !res.ok) {
       out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:13px;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
       return;
     }
+    // v10.235 F2: show picker-visible / full counts so the toggle\'s effect is visible.
+    const fullCount = res.full_distinct_count != null ? res.full_distinct_count : res.distinct_count;
+    const visibleCount = res.picker_visible_count != null ? res.picker_visible_count : res.distinct_count;
+    const filterNote = _pickListPickerVisibleOnly
+      ? ' <span style="color:#9C27B0 !important;-webkit-text-fill-color:#9C27B0 !important;font-weight:700">(picker view: ' + visibleCount + ' of ' + fullCount + ' elements shown)</span>'
+      : (visibleCount !== fullCount ? ' <span style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:11px">(' + (fullCount - visibleCount) + ' packaging items will hide in picker view)</span>' : '');
     let html = '<div style="font-size:13px;margin-bottom:10px">'
-      + '<strong>' + esc(sku) + '</strong> resolves to <strong>' + res.distinct_count + '</strong> distinct element(s) across ' + (res.bundles || []).length + ' bundle(s):'
+      + '<strong>' + esc(sku) + '</strong> resolves to <strong>' + res.distinct_count + '</strong> distinct element(s) across ' + (res.bundles || []).length + ' bundle(s)' + filterNote + ':'
       + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">Bundles: ' + (res.bundles || []).map(b => '<code>' + esc(b) + '</code>').join(', ') + '</div>'
       + '</div>';
     html += '<div style="margin-top:8px">';
-    html += (res.elements || []).map(e => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fafafa !important;border:1px solid #eee !important;border-radius:6px;margin-bottom:4px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
-      + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700">' + esc(e.sku) + '</span>'
-      + '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">×' + e.qty + '</span>'
-      + '</div>').join('');
+    html += (res.elements || []).map(e => {
+      // v10.235 F2: dim packaging items + pkg tag when in full-view mode
+      const isPkg = e.picker_visible === false;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:' + (isPkg ? '#f5f5f5' : '#fafafa') + ' !important;border:1px solid ' + (isPkg ? '#e0e0e0' : '#eee') + ' !important;border-radius:6px;margin-bottom:4px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;opacity:' + (isPkg ? '.6' : '1') + '">'
+        + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700">' + esc(e.sku) + (isPkg ? ' <span style="font-size:9px;background:#888 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;font-family:Arial,sans-serif !important">PKG</span>' : '') + '</span>'
+        + '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px;font-weight:900;color:' + (isPkg ? '#888' : '#1A5C1A') + ' !important;-webkit-text-fill-color:' + (isPkg ? '#888' : '#1A5C1A') + ' !important">×' + e.qty + '</span>'
+        + '</div>';
+    }).join('');
     html += '</div>';
     // Per-bundle breakdown (debug)
     if (res.per_bundle && res.per_bundle.length) {
