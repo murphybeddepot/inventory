@@ -12190,7 +12190,9 @@ async function refreshDamageLog() {
       try { localStorage.setItem(cacheKey, JSON.stringify({ records: [], at: Date.now() })); } catch(e) {}
       return;
     }
-    body.innerHTML = records.map(damageRecordCardHtml_).join('');
+    // v10.227 Seth pain #8 — "due this week" filter chips. Renders
+    // above the cards; tap to narrow by parts_due_date proximity.
+    body.innerHTML = _damageRenderDueFilterChips_(records) + records.filter(_damageMatchesDueFilter_).map(damageRecordCardHtml_).join('');
     // v10.163 — persist for next-open stale-while-revalidate.
     try { localStorage.setItem(cacheKey, JSON.stringify({ records: records, at: Date.now() })); } catch(e) {}
   } catch (err) {
@@ -12198,6 +12200,64 @@ async function refreshDamageLog() {
     body.style.opacity = '';
     body.innerHTML = '<div style="text-align:center;color:#8B0000;padding:40px 10px;font-size:14px">Error: '+esc(String(err && err.message || err))+'</div>';
   }
+}
+
+// v10.227 Seth pain #8 — Damage Log due-date filter chips.
+// Filter the visible damage records by parts_due_date proximity.
+// Persists per-device in localStorage.
+let _damageDueFilter = 'all';
+try { _damageDueFilter = localStorage.getItem('mbd_damage_due_filter') || 'all'; } catch (e) {}
+
+function _setDamageDueFilter_(f) {
+  _damageDueFilter = String(f || 'all');
+  try { localStorage.setItem('mbd_damage_due_filter', _damageDueFilter); } catch (e) {}
+  if (typeof refreshDamageLog === 'function') refreshDamageLog();
+}
+
+function _damageMatchesDueFilter_(r) {
+  if (!_damageDueFilter || _damageDueFilter === 'all') return true;
+  const due = String(r.parts_due_date || '').slice(0, 10);
+  if (_damageDueFilter === 'no_date') return !due;
+  if (!due) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(due + 'T00:00:00');
+  if (isNaN(d.getTime())) return false;
+  const diffDays = Math.round((d - today) / 86400000);
+  if (_damageDueFilter === 'overdue') return diffDays < 0;
+  if (_damageDueFilter === 'this_week') return diffDays >= 0 && diffDays <= 7;
+  if (_damageDueFilter === 'next_30') return diffDays >= 0 && diffDays <= 30;
+  return true;
+}
+
+function _damageRenderDueFilterChips_(records) {
+  const counts = { all: records.length, overdue: 0, this_week: 0, next_30: 0, no_date: 0 };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  records.forEach(r => {
+    const due = String(r.parts_due_date || '').slice(0, 10);
+    if (!due) { counts.no_date++; return; }
+    const d = new Date(due + 'T00:00:00');
+    if (isNaN(d.getTime())) return;
+    const diffDays = Math.round((d - today) / 86400000);
+    if (diffDays < 0) counts.overdue++;
+    if (diffDays >= 0 && diffDays <= 7) counts.this_week++;
+    if (diffDays >= 0 && diffDays <= 30) counts.next_30++;
+  });
+  const CHIPS = [
+    { k: 'all',       label: 'All',         color: '#444' },
+    { k: 'overdue',   label: 'Overdue',     color: '#8B0000' },
+    { k: 'this_week', label: 'Due 7 days',  color: '#FF6B00' },
+    { k: 'next_30',   label: 'Due 30 days', color: '#1A4FB0' },
+    { k: 'no_date',   label: 'No date',     color: '#888' },
+  ];
+  return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding:6px 0">'
+    + CHIPS.map(c => {
+        const active = c.k === _damageDueFilter;
+        const n = counts[c.k] || 0;
+        if (n === 0 && c.k !== 'all') return '';  // hide empty chips
+        return '<button onclick="_setDamageDueFilter_(\'' + c.k + '\')" style="padding:5px 11px;background:' + (active ? c.color : '#fff') + ';color:' + (active ? '#fff' : c.color) + ';border:1.5px solid ' + c.color + ';border-radius:999px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">'
+          + c.label + ' <span style="opacity:.85;background:rgba(0,0,0,' + (active ? '.18' : '0') + ');padding:0 5px;border-radius:999px">' + n + '</span></button>';
+      }).join('')
+    + '</div>';
 }
 
 function damageRecordCardHtml_(r) {
@@ -15476,7 +15536,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.226"></script>
+<script src="./pack.js?v=10.227"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15485,7 +15545,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.226<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.227<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

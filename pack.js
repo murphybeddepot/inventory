@@ -3665,6 +3665,32 @@ function paintShipConfInboxSectioned_(legendEl, listEl) {
   if (arrived.length) {
     sections.push('<div><div style="font-size:12px;color:#CE93D8;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;padding-left:4px;display:flex;align-items:center;gap:8px"><span>📦 In Pack Queue (arrived)</span><span style="background:rgba(206,147,216,.18);border:1px solid #CE93D888;color:#CE93D8;font-size:10px;padding:1px 7px;border-radius:999px">' + arrived.length + '</span></div>' + arrived.map(_renderShipConfInboxCard_).join('') + '</div>');
   }
+
+  // v10.227 Ken pain #6 — "Recent skipped" expander. Surfaces the
+  // last 15 orders skipped (status='skipped' in _shipConfStatusMap)
+  // with their reason inline. Was: invisible in the inbox view (only
+  // viewable by querying the shadow log directly). Now Ken can see
+  // why each was skipped + spot patterns.
+  if (_shipConfStatusMap) {
+    const skippedEntries = Object.keys(_shipConfStatusMap)
+      .filter(k => _shipConfStatusMap[k] && _shipConfStatusMap[k].status === 'skipped')
+      .map(k => Object.assign({ order_number: k }, _shipConfStatusMap[k]))
+      .sort((a, b) => String(b.skipped_at || '').localeCompare(String(a.skipped_at || '')))
+      .slice(0, 15);
+    if (skippedEntries.length) {
+      const rows = skippedEntries.map(s => {
+        const reason = s.skipped_reason || '(no reason)';
+        const when = String(s.skipped_at || '').slice(0, 16).replace('T', ' ');
+        return '<div onclick="jumpToLookup_(\'' + esc(s.order_number) + '\')" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(120,120,120,.10);border-left:3px solid #aaa;border-radius:4px;margin-bottom:4px;cursor:pointer;font-size:12px;color:var(--text)" title="Tap for full order detail">'
+          + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#fff;background:rgba(0,0,0,.30);padding:1px 7px;border-radius:3px">#' + esc(s.order_number) + '</span>'
+          + '<span style="flex:1;color:var(--text-dim);min-width:0">' + esc(reason) + '</span>'
+          + '<span style="font-size:10px;color:var(--text-dim);font-family:monospace;flex-shrink:0">' + esc(when) + '</span>'
+          + '</div>';
+      }).join('');
+      sections.push('<details style="margin-top:14px"><summary style="background:rgba(120,120,120,.08);color:#aaa;padding:8px 12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;border:1px solid rgba(120,120,120,.30);border-radius:8px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px"><span>🚫 Recent skipped (' + skippedEntries.length + ')</span><span style="font-size:10px;opacity:.7">▾</span></summary><div style="padding:8px 0 0">' + rows + '</div></details>');
+    }
+  }
+
   listEl.innerHTML = sections.join('');
 }
 
