@@ -5796,6 +5796,100 @@ async function _pickListResolveVariant_() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// v10.230 — Customer Ready shadow-log inspector (Phase 1 UI)
+// ══════════════════════════════════════════════════════════════════
+//
+// Read-only for Phase 1. Shows the CustomerReady tab rows server-side
+// (listCustomerReadyLog). Status filter chips. Tap a row → expand to
+// show composed subject + body preview.
+//
+// Send/Skip/Compose actions deferred until Phase 2 wires the real
+// pipeline (auto-trigger + GmailApp send + pick-list PDF + Calendar
+// event creation).
+
+let _custReadyPanelStatusFilter = '';
+let _custReadyExpandedRow = null;
+
+async function openCustomerReadyPanel(opts) {
+  opts = opts || {};
+  if (opts.status != null) _custReadyPanelStatusFilter = String(opts.status);
+  const prior = document.getElementById('custReadyOverlay');
+  if (prior) prior.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'custReadyOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:780px;max-height:94vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);box-sizing:border-box">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">✅ Customer Ready</div>'
+    +   '<button onclick="document.getElementById(\'custReadyOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:10px">Phase 1 shadow log — what <em>would</em> be sent. No real customer email fires until you flip the <code>CUSTREADY_LIVE</code> Script Property to <code>true</code>.</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
+    +   ['', 'shadow_logged', 'pending_send', 'sent', 'skipped', 'error'].map(s => {
+          const active = s === _custReadyPanelStatusFilter;
+          const lbl = s === '' ? 'All' : s.replace(/_/g, ' ');
+          return '<button onclick="openCustomerReadyPanel({status:\'' + s + '\'})" style="flex:1;min-width:90px;padding:7px 4px;background:' + (active ? '#003087' : '#f5f5f5') + ' !important;color:' + (active ? '#fff' : '#444') + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : '#444') + ' !important;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + lbl + '</button>';
+        }).join('')
+    + '</div>'
+    + '<div id="custReadyListBody" style="min-height:60px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  try {
+    const params = _custReadyPanelStatusFilter ? { status: _custReadyPanelStatusFilter } : {};
+    const res = await groundApi('listCustomerReadyLog', params);
+    const body = document.getElementById('custReadyListBody');
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    const rows = res.rows || [];
+    if (!rows.length) {
+      body.innerHTML = '<div style="padding:24px;text-align:center;color:#0a8a3f !important;-webkit-text-fill-color:#0a8a3f !important;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">No rows yet — nothing has been shadow-logged.<br><span style="font-size:11px;font-weight:500;color:#666 !important;-webkit-text-fill-color:#666 !important">Phase 2 (auto-trigger) lands once ShipConf is live + customer-response webhook is wired.</span></div>';
+      return;
+    }
+    body.innerHTML = rows.map(_custReadyRowHtml_).join('');
+  } catch (err) {
+    const body = document.getElementById('custReadyListBody');
+    if (body) body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+  }
+}
+
+function _custReadyRowHtml_(r) {
+  const STATUS_META = {
+    shadow_logged: { color: '#888',    bg: 'rgba(120,120,120,.10)', label: 'Shadow' },
+    pending_send:  { color: '#FFB300', bg: 'rgba(255,179,0,.10)',   label: 'Pending Send' },
+    sent:          { color: '#1A5C1A', bg: 'rgba(26,92,26,.10)',    label: 'Sent' },
+    skipped:       { color: '#8B0000', bg: 'rgba(139,0,0,.10)',     label: 'Skipped' },
+    error:         { color: '#c33',    bg: 'rgba(204,51,51,.10)',   label: 'Error' },
+  };
+  const meta = STATUS_META[r.status] || STATUS_META.shadow_logged;
+  const expanded = _custReadyExpandedRow === r.order_number;
+  const subj = r.composed_subject || '(no subject)';
+  const dateStr = String(r.shadow_logged_at || '').slice(0, 16).replace('T', ' ');
+  const orderNum = esc(String(r.order_number || ''));
+  return '<div style="padding:12px 14px;background:' + meta.bg + ' !important;border-left:3px solid ' + meta.color + ' !important;border-radius:8px;margin-bottom:6px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;cursor:pointer" onclick="_custReadyToggleRow_(\'' + orderNum + '\')">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">'
+    +   '<div><span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:900">#' + orderNum + '</span> <span style="color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(r.customer_name || '') + '</span></div>'
+    +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + meta.color + ' !important;-webkit-text-fill-color:' + meta.color + ' !important">' + meta.label + '</span>'
+    + '</div>'
+    + '<div style="font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:4px"><strong>' + esc(subj) + '</strong></div>'
+    + '<div style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-top:4px;font-family:monospace">template: ' + esc(r.template_key || '') + ' · ' + esc(dateStr) + ' by ' + esc(String(r.shadow_logged_by || '')) + (r.skipped_reason ? ' · skipped: ' + esc(r.skipped_reason) : '') + '</div>'
+    + (expanded ? '<div style="margin-top:10px;padding:10px 12px;background:rgba(0,0,0,.04) !important;border:1px solid #eee !important;border-radius:6px;font-family:monospace !important;font-size:11px !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;white-space:pre-wrap;max-height:280px;overflow-y:auto">' + esc(String(r.composed_body_text || '(no body)')) + '</div>' : '')
+    + '</div>';
+}
+
+function _custReadyToggleRow_(orderNum) {
+  _custReadyExpandedRow = (_custReadyExpandedRow === orderNum) ? null : orderNum;
+  openCustomerReadyPanel({});
+}
+
+// ══════════════════════════════════════════════════════════════════
 // v10.226 — Purchase Orders panel (PickList Phase 3 UI)
 // ══════════════════════════════════════════════════════════════════
 //
