@@ -6008,10 +6008,18 @@ async function openPurchaseOrdersPanel(opts) {
 async function _renderPOReorderMode_() {
   const body = document.getElementById('poPanelBody');
   if (!body) return;
+  // v10.237 FIX: Zac runbook #8 — "Load failed" generic toast was unactionable.
+  // Add explicit Retry button + helpful hint pointing at the most common cause
+  // (un-bootstrapped inventory) when fetch rejects.
+  body.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px;padding:14px">Loading reorder needs…</div>';
   try {
     const res = await groundApi('pickListReorderByVendor', {});
     if (!res || !res.ok) {
-      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px;background:rgba(204,51,51,.05);border:1px solid rgba(204,51,51,.3);border-radius:10px">'
+        + '<div style="font-weight:900;margin-bottom:6px">Server returned an error</div>'
+        + '<div style="font-size:13px;margin-bottom:10px;font-family:monospace !important">' + esc((res && res.error) || 'unknown') + '</div>'
+        + '<button onclick="_renderPOReorderMode_()" style="padding:8px 14px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-weight:800;cursor:pointer">↻ Retry</button>'
+        + '</div>';
       return;
     }
     const byVendor = res.by_vendor || {};
@@ -6057,7 +6065,14 @@ async function _renderPOReorderMode_() {
     }
     body.innerHTML = html;
   } catch (err) {
-    body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+    // v10.237 FIX: actionable failure path. iOS "Load failed" is opaque —
+    // surface likely causes + Retry button so Zac doesn't have to dig.
+    body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px;background:rgba(204,51,51,.05);border:1px solid rgba(204,51,51,.3);border-radius:10px">'
+      + '<div style="font-weight:900;margin-bottom:6px;font-size:14px">Load failed</div>'
+      + '<div style="font-size:12px;margin-bottom:8px;font-family:monospace !important">' + esc(err.message || 'unknown') + '</div>'
+      + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:10px;line-height:1.5">Likely causes:<br>• Network blip (most common on iOS) — tap Retry<br>• Orchestrator slow (Apps Script wakes from cold start) — Retry usually wins second attempt<br>• PickListElementInventory not bootstrapped yet — run Ingest Element Inventory under 🧬 Pick-List BOM → ⚙ Admin first</div>'
+      + '<button onclick="_renderPOReorderMode_()" style="padding:10px 16px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-weight:900;cursor:pointer;font-size:13px">↻ Retry</button>'
+      + '</div>';
   }
 }
 
@@ -6127,9 +6142,10 @@ async function _poSendNow_(poId) {
 async function _renderPOHistoryMode_() {
   const body = document.getElementById('poPanelBody');
   if (!body) return;
+  body.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px;padding:14px">Loading PO history…</div>';
   try {
     const res = await groundApi('pickListListPOs', {});
-    if (!res || !res.ok) { body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>'; return; }
+    if (!res || !res.ok) { body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + ' <button onclick="_renderPOHistoryMode_()" style="margin-left:10px;padding:6px 12px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:5px;font-weight:800;cursor:pointer">↻ Retry</button></div>'; return; }
     const pos = res.pos || [];
     if (!pos.length) {
       body.innerHTML = '<div style="padding:24px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;background:#fafafa !important;border:1px dashed #ccc !important;border-radius:10px;font-size:13px">No POs yet.</div>';

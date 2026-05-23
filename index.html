@@ -3675,7 +3675,12 @@ function _renderLocationBatchCount_() {
             const statusMeta = STOCK_STATUS_META[o.status] || STOCK_STATUS_META.OK;
             const sku = esc(o.sku);
             const bin = esc(sess.binCode);
-            return '<div onclick="openBatchCountOccupantEdit_(\'' + sku + '\',\'' + bin + '\')" style="display:flex !important;align-items:center !important;gap:8px !important;padding:8px 10px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ddd !important;border-radius:6px !important;margin-bottom:4px !important;cursor:pointer !important" onmouseover="this.style.background=\'#F0F4FB\';this.style.borderColor=\'#1A4FB0\'" onmouseout="this.style.background=\'#fff\';this.style.borderColor=\'#ddd\'">'
+            // v10.237 FIX: pass status so the modal can disambiguate when
+            // two entries exist at the same bin with different statuses
+            // (e.g. OK + DNU split). Without this the modal opened the
+            // first match every time → "some work, some don't" bug.
+            const occStatus = esc(o.status || 'OK');
+            return '<div onclick="openBatchCountOccupantEdit_(\'' + sku + '\',\'' + bin + '\',\'' + occStatus + '\')" style="display:flex !important;align-items:center !important;gap:8px !important;padding:8px 10px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ddd !important;border-radius:6px !important;margin-bottom:4px !important;cursor:pointer !important" onmouseover="this.style.background=\'#F0F4FB\';this.style.borderColor=\'#1A4FB0\'" onmouseout="this.style.background=\'#fff\';this.style.borderColor=\'#ddd\'">'
               + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:800 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;flex:1 !important;min-width:0 !important">' + sku + '</span>'
               + '<span style="background:' + statusMeta.bg + ' !important;color:' + statusMeta.color + ' !important;-webkit-text-fill-color:' + statusMeta.color + ' !important;font-size:9px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:.5px !important;padding:1px 6px !important;border-radius:3px !important;flex-shrink:0 !important">' + statusMeta.label + '</span>'
               + '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;flex-shrink:0 !important">' + o.qty + '</span>'
@@ -3894,17 +3899,28 @@ function advanceBatchCountToNext_() {
 // item.locations (mirrors saveBatchCountEntry_'s write semantics).
 let _batchOccupantEditState = null;
 
-function openBatchCountOccupantEdit_(sku, binCode) {
+function openBatchCountOccupantEdit_(sku, binCode, occStatus) {
   const item = findItemBySku(sku);
   if (!item) { showToast('Item not found: ' + sku); return; }
-  const loc = (item.locations || []).find(l =>
-    String(l.code || '').trim().toUpperCase() === String(binCode).trim().toUpperCase()
-  );
+  // v10.237 FIX: prefer bin+status match (disambiguates same-bin entries
+  // with different statuses). Fall back to bin-only if status arg wasn\'t
+  // passed (older callers).
+  const upBin = String(binCode).trim().toUpperCase();
+  const upStatus = occStatus ? String(occStatus).trim().toUpperCase() : '';
+  const matchByBinAndStatus = upStatus
+    ? (item.locations || []).find(l =>
+        String(l.code || '').trim().toUpperCase() === upBin
+        && String(locStatus(l) || 'OK').toUpperCase() === upStatus)
+    : null;
+  const loc = matchByBinAndStatus
+    || (item.locations || []).find(l =>
+        String(l.code || '').trim().toUpperCase() === upBin);
   if (!loc) { showToast('Entry not found for ' + sku + ' at ' + binCode); return; }
   _batchOccupantEditState = {
     sku: sku,
     fromBin: binCode,
     targetBin: binCode,
+    originalStatus: locStatus(loc) || 'OK',  // v10.237: remember the row we opened
     qty: String(loc.qty || 0),
     status: locStatus(loc) || 'OK',
   };
@@ -3931,18 +3947,20 @@ function _renderBatchOccupantEdit_() {
       + (active ? '● ' : '') + meta.label + '</button>';
   }).join('');
 
-  ov.innerHTML = '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px !important;padding:18px 20px !important;max-width:460px !important;width:100% !important;max-height:94vh !important;overflow-y:auto !important;box-shadow:0 8px 40px rgba(0,0,0,.5) !important;box-sizing:border-box !important">'
+  ov.innerHTML = '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px !important;padding:14px !important;max-width:460px !important;width:100% !important;max-height:94vh !important;overflow-y:auto !important;overflow-x:hidden !important;box-shadow:0 8px 40px rgba(0,0,0,.5) !important;box-sizing:border-box !important">'
     + '<div style="display:flex !important;justify-content:space-between !important;align-items:center !important;gap:10px !important;margin-bottom:12px">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase !important;letter-spacing:.5px !important">✎ Edit <span style="color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;font-family:\'JetBrains Mono\',monospace">' + esc(st.sku) + '</span></div>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase !important;letter-spacing:.5px !important;min-width:0 !important;overflow:hidden !important;text-overflow:ellipsis !important">✎ Edit <span style="color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;font-family:\'JetBrains Mono\',monospace">' + esc(st.sku) + '</span></div>'
     +   '<button onclick="document.getElementById(\'batchOccupantEditOverlay\').remove()" style="background:none !important;border:none !important;font-size:22px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer !important">✕</button>'
     + '</div>'
     + '<div style="font-size:12px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px !important">at <strong style="font-family:\'JetBrains Mono\',monospace;color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(st.fromBin) + '</strong></div>'
-    // Qty
+    // Qty — v10.237: CSS Grid (auto / 1fr / auto) prevents the +
+    // button from getting pushed off-screen on narrow phones. Also
+    // explicit flex-shrink:0 on the buttons + min-width:0 on input.
     + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">Quantity</label>'
-    + '<div style="display:flex !important;align-items:center !important;gap:8px !important;margin-bottom:14px !important">'
-    +   '<button onclick="batchOccupantEditQtyStep_(-1)" style="padding:14px 18px !important;background:#FDECEA !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:2px solid #8B0000 !important;border-radius:10px !important;font-size:20px !important;font-weight:900 !important;cursor:pointer !important">−</button>'
-    +   '<input type="number" id="batchOccupantEditQty" value="' + qtyDisplay + '" min="0" step="1" inputmode="numeric" oninput="batchOccupantEditQtySet_(this.value)" style="flex:1 !important;padding:14px !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:32px !important;font-weight:900 !important;text-align:center !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:2.5px solid #003087 !important;border-radius:10px !important;outline:none !important">'
-    +   '<button onclick="batchOccupantEditQtyStep_(1)" style="padding:14px 18px !important;background:#E6F4EA !important;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;border:2px solid #1A5C1A !important;border-radius:10px !important;font-size:20px !important;font-weight:900 !important;cursor:pointer !important">+</button>'
+    + '<div style="display:grid !important;grid-template-columns:auto minmax(0,1fr) auto !important;align-items:center !important;gap:6px !important;margin-bottom:14px !important">'
+    +   '<button onclick="batchOccupantEditQtyStep_(-1)" style="padding:12px 14px !important;background:#FDECEA !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:2px solid #8B0000 !important;border-radius:10px !important;font-size:22px !important;font-weight:900 !important;cursor:pointer !important;min-width:48px !important;min-height:48px !important;flex-shrink:0 !important">−</button>'
+    +   '<input type="number" id="batchOccupantEditQty" value="' + qtyDisplay + '" min="0" step="1" inputmode="numeric" oninput="batchOccupantEditQtySet_(this.value)" style="width:100% !important;min-width:0 !important;padding:12px 8px !important;font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:28px !important;font-weight:900 !important;text-align:center !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:2.5px solid #003087 !important;border-radius:10px !important;outline:none !important;box-sizing:border-box !important">'
+    +   '<button onclick="batchOccupantEditQtyStep_(1)" style="padding:12px 14px !important;background:#E6F4EA !important;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;border:2px solid #1A5C1A !important;border-radius:10px !important;font-size:22px !important;font-weight:900 !important;cursor:pointer !important;min-width:48px !important;min-height:48px !important;flex-shrink:0 !important">+</button>'
     + '</div>'
     // Status
     + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;text-transform:uppercase !important;letter-spacing:1px !important;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:6px !important">Status</label>'
@@ -3997,11 +4015,20 @@ function saveBatchOccupantEdit_() {
   const newQty = parseFloat(st.qty) || 0;
   const fromBin = String(st.fromBin).trim().toUpperCase();
   const toBin = String(st.targetBin).trim().toUpperCase();
-  // Find the source entry (matching fromBin + current status — or
-  // match by fromBin alone if the status changed during this edit).
-  const srcIdx = item.locations.findIndex(l =>
+  // v10.237 FIX: locate the row by bin + original status (the one the
+  // user opened). Falls back to bin-only if no exact match (e.g. status
+  // got mutated by an external write between open + save). Prevents the
+  // "wrong row got modified" bug when 2 rows share a bin.
+  const origStatus = String(st.originalStatus || st.status || 'OK').toUpperCase();
+  let srcIdx = item.locations.findIndex(l =>
     String(l.code || '').trim().toUpperCase() === fromBin
+    && String(locStatus(l) || 'OK').toUpperCase() === origStatus
   );
+  if (srcIdx < 0) {
+    srcIdx = item.locations.findIndex(l =>
+      String(l.code || '').trim().toUpperCase() === fromBin
+    );
+  }
   if (srcIdx < 0) { showToast('Source entry not found'); return; }
   if (newQty <= 0) {
     // Quantity zeroed → remove entry
@@ -4047,9 +4074,17 @@ function deleteBatchOccupant_() {
   const item = findItemBySku(st.sku);
   if (!item || !Array.isArray(item.locations)) return;
   const fromBin = String(st.fromBin).trim().toUpperCase();
-  const idx = item.locations.findIndex(l =>
+  // v10.237 FIX: same bin+status disambiguation as save path.
+  const origStatus = String(st.originalStatus || st.status || 'OK').toUpperCase();
+  let idx = item.locations.findIndex(l =>
     String(l.code || '').trim().toUpperCase() === fromBin
+    && String(locStatus(l) || 'OK').toUpperCase() === origStatus
   );
+  if (idx < 0) {
+    idx = item.locations.findIndex(l =>
+      String(l.code || '').trim().toUpperCase() === fromBin
+    );
+  }
   if (idx >= 0) item.locations.splice(idx, 1);
   item.updatedAt = nowStamp();
   saveItems();
@@ -15544,7 +15579,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.236"></script>
+<script src="./pack.js?v=10.237"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15553,7 +15588,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.236<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.237<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
