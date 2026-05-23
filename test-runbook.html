@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Bedrock weekend ships — interactive smoke test</title>
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; background: #0F1419; color: #E6E9F0; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.wrap { max-width: 820px; margin: 0 auto; padding: 18px 18px 120px; }
+h1 { font: 900 28px/1.1 'Barlow Condensed', 'Barlow', Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 6px; color: #fff; }
+h2 { font: 900 18px/1.2 'Barlow Condensed', 'Barlow', Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 22px 0 10px; color: #5BB3FF; border-bottom: 1px solid rgba(91,179,255,.25); padding-bottom: 4px; }
+.sub { color: #9AAAC0; font-size: 13px; line-height: 1.55; margin: 0 0 14px; }
+.item { background: #1A2027; border: 1px solid #2A3340; border-left: 4px solid #5BB3FF; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.item.pass { border-left-color: #00C853; background: rgba(0,200,83,.05); }
+.item.fail { border-left-color: #FF5252; background: rgba(255,82,82,.07); }
+.item.skip { border-left-color: #FFB300; background: rgba(255,179,0,.05); }
+.row { display: flex; gap: 10px; align-items: flex-start; }
+.row > .num { flex: 0 0 28px; height: 28px; border-radius: 50%; background: rgba(91,179,255,.16); color: #5BB3FF; font: 900 13px/28px monospace; text-align: center; flex-shrink: 0; }
+.row > .body { flex: 1; min-width: 0; }
+.tap { font: 700 14px/1.4 inherit; color: #fff; }
+.tap code { background: rgba(0,0,0,.30); color: #7CCDFF; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-family: ui-monospace, "JetBrains Mono", Menlo, Monaco, Consolas, monospace; }
+.exp { color: #9AAAC0; font-size: 13px; margin-top: 4px; }
+.exp b { color: #C7D2E0; }
+.notes { width: 100%; margin-top: 8px; padding: 8px 10px; border: 1px solid #2A3340; border-radius: 6px; background: #0F1419; color: #E6E9F0; font: 13px/1.4 inherit; resize: vertical; min-height: 36px; }
+.btnrow { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.btn { padding: 6px 12px; border-radius: 6px; border: 1.5px solid; background: transparent; cursor: pointer; font: 700 11px/1 inherit; text-transform: uppercase; letter-spacing: .5px; min-height: 32px; }
+.btn.pass { color: #00C853; border-color: #00C853; }
+.btn.pass.active { background: #00C853; color: #0F1419; }
+.btn.fail { color: #FF5252; border-color: #FF5252; }
+.btn.fail.active { background: #FF5252; color: #fff; }
+.btn.skip { color: #FFB300; border-color: #FFB300; }
+.btn.skip.active { background: #FFB300; color: #0F1419; }
+.footer { position: fixed; bottom: 0; left: 0; right: 0; background: #14181F; border-top: 2px solid #2A3340; padding: 12px 18px; box-shadow: 0 -4px 16px rgba(0,0,0,.5); display: flex; gap: 10px; align-items: center; z-index: 100; }
+.score { flex: 1; font-size: 13px; color: #C7D2E0; }
+.score .pass { color: #00C853; font-weight: 900; }
+.score .fail { color: #FF5252; font-weight: 900; }
+.score .skip { color: #FFB300; font-weight: 900; }
+.score .pending { color: #5BB3FF; font-weight: 900; }
+.submit { padding: 12px 20px; background: linear-gradient(135deg, #1A4FB0, #003087); color: #fff; border: none; border-radius: 8px; font: 900 14px/1 inherit; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; min-height: 44px; }
+.submit:disabled { opacity: .5; cursor: not-allowed; }
+.q-section { background: #1A2027; border: 1px solid #2A3340; border-radius: 10px; padding: 14px 16px; margin: 18px 0; }
+.q-section h3 { margin: 0 0 6px; font: 900 15px/1.2 'Barlow Condensed', Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px; color: #FFB300; }
+.q-section textarea { width: 100%; padding: 9px 11px; border: 1px solid #2A3340; border-radius: 6px; background: #0F1419; color: #E6E9F0; font: 13px/1.5 inherit; resize: vertical; min-height: 60px; }
+.toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #1A5C1A; color: #fff; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; z-index: 200; opacity: 0; transition: opacity .2s ease; pointer-events: none; }
+.toast.show { opacity: 1; }
+.banner { background: linear-gradient(135deg, rgba(91,179,255,.10), rgba(91,179,255,.04)); border: 1px solid rgba(91,179,255,.35); border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; font-size: 13px; color: #C7D2E0; line-height: 1.55; }
+.banner b { color: #fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Bedrock weekend ships — interactive smoke test</h1>
+<div class="sub">v10.201 → v10.232 (Fri 5pm → Sat 11am). Tap each row PASS / FAIL / SKIP as you verify. Add notes per row. When done, tap <b>Submit to Slack</b> at the bottom — your results land in <code>#claude_bedrock</code> so I can see them on my next loop tick.</div>
+
+<div class="banner">
+<b>Before you start:</b> refresh the iPad/phone PWA once. Version pill bottom-right should read <code>v10.232</code>. Your progress is auto-saved to this browser's localStorage so you can leave + come back.
+</div>
+
+<h2>5-minute smoke (must-verify)</h2>
+
+<div id="smokeList"></div>
+
+<h2>Open questions for you</h2>
+<div class="q-section">
+<h3>Q1 — Shopify webhook for PickList Phase 4</h3>
+<div class="sub">Phase 4 (order commitment + Ground bridge) needs a Shopify <code>orders/create</code> webhook to feed per-order element decrements. Do you have one already, or should I scaffold a doPost endpoint + give you the URL to plug into Shopify admin?</div>
+<textarea id="q1" placeholder="Your answer…"></textarea>
+</div>
+<div class="q-section">
+<h3>Q2 — SHIPCONF_LIVE flip readiness</h3>
+<div class="sub">Phase 0a-0d shipped + you've been able to look at the inbox for a week. What's the gating concern for flipping <code>SHIPCONF_LIVE=true</code> to start sending real customer emails? Template quality? Send-side telemetry? Or do you just want a parity diff run first against JS2's actual sends?</div>
+<textarea id="q2" placeholder="Your answer…"></textarea>
+</div>
+<div class="q-section">
+<h3>Q3 — Mozaik real-file follow-up</h3>
+<div class="sub">When you have a real Mozaik export file from a recent cabinet order, drop it in Drive + paste the link here. I'll auto-detect the format + build the Phase 1 Shopify diff against a real example instead of speculating.</div>
+<textarea id="q3" placeholder="Drive URL or 'not yet'…"></textarea>
+</div>
+<div class="q-section">
+<h3>Q4 — Pick-list validation test (your 10:50 EDT ask)</h3>
+<div class="sub">"Look at the 20 most recent Shopify orders that you have picklist emails for and see if your pick list generator matches those." Best approach to find those 20 orders + their picklist emails: Shopify-admin list of recent orders ± a Gmail search? Or do you have a known-good sample set (specific order numbers I should start with)?</div>
+<textarea id="q4" placeholder="Your answer…"></textarea>
+</div>
+<div class="q-section">
+<h3>Q5 — Anything broken or annoying?</h3>
+<div class="sub">Free-text dump of whatever you noticed last 24h that isn't on my radar. Bug reports, contrast misses, UX nits, "this is dumb" — anything goes.</div>
+<textarea id="q5" placeholder="Your answer…"></textarea>
+</div>
+
+</div>
+
+<div class="footer">
+<div class="score" id="score">Loading…</div>
+<button class="submit" id="submit" onclick="submitResults()" disabled>Submit to Slack</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// Orchestrator endpoint — same one Bedrock uses
+const ORCH_URL = 'https://script.google.com/macros/s/AKfycbzVbS4Ofd3ScWvzyw5FUtCk5rtYx61GcNFB8GFdsnlB33WnDJssPj8L8LF66w8dGKCt/exec';
+const CLAUDE_KEY = 'b6f8169c30dba2622d23d118b5ba1042';
+
+const SMOKE = [
+  { n: 1, tap: 'Stock tab → SKU input → type any SKU', exp: 'Item detail card with locations + Stock by Location row showing real qty (no "empty" mismatch with v10.215)' },
+  { n: 2, tap: 'Stock tab → 🔍 SKU / 📍 Location toggle at top', exp: 'Switching to Location → two dropdowns (aisle / bay) instead of the old keypad' },
+  { n: 3, tap: 'Stock tab → Locations expander → tap any row', exp: 'Batch-count modal opens pinned to that location, "Currently here" lists occupants' },
+  { n: 4, tap: 'Batch-count modal → tap any "Currently here" row', exp: 'Per-occupant edit overlay opens with ± qty steppers + status pills + Move-to dropdown + Remove' },
+  { n: 5, tap: 'Schedule tab → Stalled view-mode chip', exp: 'Sub-filter row appears below (Past Due / Needs Booking / Needs Customer / No Instructions) with counts' },
+  { n: 6, tap: 'More menu → 🏭 Manufacturing → + New Job', exp: 'Proper modal form with 4 fields + Notes textarea (NOT 4 sequential prompt() popups)' },
+  { n: 7, tap: 'More menu → 🧬 Pick-List BOM → tap ⚙ Admin tab', exp: '4 ingest buttons visible (Bundle BOM / Variant Map / Vendor Map / Element Inventory)' },
+  { n: 8, tap: 'More menu → 📑 Purchase Orders', exp: 'Vendor list (or empty-state if PickList not bootstrapped yet — that\'s fine)' },
+  { n: 9, tap: 'More menu → ✅ Customer Ready', exp: 'Empty shadow log message ("nothing has been shadow-logged"). Status filter chips visible.' },
+  { n: 10, tap: 'More menu → 🚀 How Bedrock Works', exp: '"Updated through v10.231" appears under the title. New ops surfaces (Manufacturing, PickList, PO, Customer Ready) listed.' },
+];
+
+const STORAGE_KEY = 'mbd_runbook_state_v1';
+let state = (function () {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (e) { return {}; }
+})();
+
+function save() {
+  // Capture textarea values into state
+  for (let i = 1; i <= 10; i++) {
+    const el = document.getElementById('notes-' + i);
+    if (el) state['notes-' + i] = el.value;
+  }
+  ['q1','q2','q3','q4','q5'].forEach(k => {
+    const el = document.getElementById(k);
+    if (el) state[k] = el.value;
+  });
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  updateScore();
+}
+
+function setStatus(n, st) {
+  state['status-' + n] = st;
+  const item = document.getElementById('item-' + n);
+  if (item) {
+    item.classList.remove('pass', 'fail', 'skip');
+    item.classList.add(st);
+    item.querySelectorAll('.btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.s === st);
+    });
+  }
+  save();
+}
+
+function updateScore() {
+  let pass = 0, fail = 0, skip = 0, pending = 0;
+  for (let i = 1; i <= 10; i++) {
+    const st = state['status-' + i];
+    if (st === 'pass') pass++;
+    else if (st === 'fail') fail++;
+    else if (st === 'skip') skip++;
+    else pending++;
+  }
+  document.getElementById('score').innerHTML =
+    '<span class="pass">' + pass + ' pass</span> · '
+    + '<span class="fail">' + fail + ' fail</span> · '
+    + '<span class="skip">' + skip + ' skip</span> · '
+    + '<span class="pending">' + pending + ' pending</span>';
+  const sub = document.getElementById('submit');
+  sub.disabled = (pass + fail + skip) === 0;
+}
+
+function render() {
+  const list = document.getElementById('smokeList');
+  list.innerHTML = SMOKE.map(s => {
+    const st = state['status-' + s.n] || '';
+    const notes = state['notes-' + s.n] || '';
+    return '<div id="item-' + s.n + '" class="item ' + st + '">'
+      + '<div class="row">'
+      +   '<div class="num">' + s.n + '</div>'
+      +   '<div class="body">'
+      +     '<div class="tap">' + s.tap + '</div>'
+      +     '<div class="exp"><b>Expect:</b> ' + s.exp + '</div>'
+      +     '<div class="btnrow">'
+      +       '<button class="btn pass ' + (st === 'pass' ? 'active' : '') + '" data-s="pass" onclick="setStatus(' + s.n + ',\'pass\')">✓ pass</button>'
+      +       '<button class="btn fail ' + (st === 'fail' ? 'active' : '') + '" data-s="fail" onclick="setStatus(' + s.n + ',\'fail\')">✗ fail</button>'
+      +       '<button class="btn skip ' + (st === 'skip' ? 'active' : '') + '" data-s="skip" onclick="setStatus(' + s.n + ',\'skip\')">⊘ skip</button>'
+      +     '</div>'
+      +     '<textarea id="notes-' + s.n + '" class="notes" placeholder="Notes (optional)" oninput="save()">' + (notes || '') + '</textarea>'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  ['q1','q2','q3','q4','q5'].forEach(k => {
+    const el = document.getElementById(k);
+    if (el && state[k]) el.value = state[k];
+    if (el) el.addEventListener('input', save);
+  });
+  updateScore();
+}
+
+function toast(msg, color) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  if (color) t.style.background = color;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+async function submitResults() {
+  save();
+  let summary = ['📋 *Runbook results from Zac* (' + new Date().toLocaleString() + ')', ''];
+  let pass = 0, fail = 0, skip = 0;
+  for (let i = 1; i <= 10; i++) {
+    const st = state['status-' + i] || 'pending';
+    if (st === 'pass') pass++;
+    else if (st === 'fail') fail++;
+    else if (st === 'skip') skip++;
+    const notes = (state['notes-' + i] || '').trim();
+    const icon = st === 'pass' ? '✓' : st === 'fail' ? '✗' : st === 'skip' ? '⊘' : '○';
+    let line = icon + ' #' + i + ' — ' + SMOKE[i-1].tap;
+    if (notes) line += '\n    notes: ' + notes;
+    summary.push(line);
+  }
+  summary.push('');
+  summary.push('Smoke: ' + pass + ' pass · ' + fail + ' fail · ' + skip + ' skip · ' + (10 - pass - fail - skip) + ' pending');
+  summary.push('');
+  ['q1','q2','q3','q4','q5'].forEach(k => {
+    const v = (state[k] || '').trim();
+    if (v) summary.push('*' + k.toUpperCase() + ':* ' + v);
+  });
+  const text = summary.join('\n');
+  toast('Sending to Slack…', '#1A4FB0');
+  try {
+    const resp = await fetch(ORCH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'claudeNotify', claude_key: CLAUDE_KEY, message: text }),
+    });
+    const data = await resp.json();
+    if (data && data.ok) {
+      toast('✓ Sent to #claude_bedrock', '#1A5C1A');
+    } else {
+      toast('⚠ ' + ((data && data.error) || 'failed'), '#8B0000');
+    }
+  } catch (err) {
+    toast('⚠ Network error: ' + err.message, '#8B0000');
+  }
+}
+
+window.setStatus = setStatus;
+window.save = save;
+window.submitResults = submitResults;
+render();
+</script>
+
+</body>
+</html>
