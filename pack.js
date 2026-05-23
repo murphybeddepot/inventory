@@ -5580,23 +5580,65 @@ async function openManufacturingPanel(opts) {
   }).join('');
 }
 
+// v10.231 — proper form modal instead of 4 sequential prompt()s
+// (was painful on phone — modal stacking + no Cancel + no edit).
 function _openMfgIngestForm_() {
-  const orderNumber = prompt('Order # (Shopify):');
-  if (!orderNumber) return;
-  const customerName = prompt('Customer name:', '') || '';
-  const mozaikUrl = prompt('Mozaik file link (Drive URL or any URL):', '') || '';
-  const notes = prompt('Notes (optional):', '') || '';
-  groundApi('manufacturingIngestJob', {
-    orderNumber: orderNumber.trim(),
-    customerName: customerName.trim(),
-    mozaikUrl: mozaikUrl.trim(),
-    notes: notes.trim(),
-    deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
-  }).then(res => {
+  const prior = document.getElementById('mfgIngestFormOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'mfgIngestFormOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10005;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px !important;padding:20px !important;max-width:520px !important;width:100% !important;max-height:92vh !important;overflow-y:auto !important;box-shadow:0 8px 40px rgba(0,0,0,.5) !important">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">+ New Job</div>'
+    +   '<button onclick="document.getElementById(\'mfgIngestFormOverlay\').remove()" style="background:none !important;border:none !important;font-size:22px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer">✕</button>'
+    + '</div>'
+    + _mfgFormField_('mfgFormOrderNum', 'Order # (Shopify)', '', 'e.g. 31501', true)
+    + _mfgFormField_('mfgFormCustomer', 'Customer name', '', 'optional', false)
+    + _mfgFormField_('mfgFormShopifyLink', 'Shopify admin URL', '', 'optional — auto-derived in Phase 1', false)
+    + _mfgFormField_('mfgFormMozaikUrl', 'Mozaik file link', '', 'Drive URL or any URL', false)
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Notes (optional)</label>'
+    + '<textarea id="mfgFormNotes" rows="2" placeholder="Anything the designer / ops should know" style="width:100% !important;padding:11px 14px !important;font-size:14px !important;font-family:inherit !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;resize:vertical !important;box-sizing:border-box !important"></textarea>'
+    + '<div style="display:flex;gap:8px;margin-top:16px">'
+    +   '<button onclick="document.getElementById(\'mfgIngestFormOverlay\').remove()" style="flex:1 !important;padding:13px !important;background:#f5f5f5 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1.5px solid #ccc !important;border-radius:10px !important;font-size:13px !important;font-weight:700 !important;cursor:pointer !important">Cancel</button>'
+    +   '<button onclick="_mfgFormSubmit_()" style="flex:2 !important;padding:13px !important;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:900 !important;cursor:pointer !important;letter-spacing:.5px !important;text-transform:uppercase !important">Ingest Job</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const i = document.getElementById('mfgFormOrderNum'); if (i) i.focus(); }, 50);
+}
+
+function _mfgFormField_(id, label, value, placeholder, required) {
+  const reqMark = required ? ' <span style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">*</span>' : '';
+  return '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">' + label + reqMark + '</label>'
+    + '<input id="' + id + '" type="text" value="' + esc(value || '') + '" placeholder="' + esc(placeholder || '') + '" autocomplete="off" style="width:100% !important;padding:11px 14px !important;font-size:14px !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box !important">';
+}
+
+async function _mfgFormSubmit_() {
+  const orderNumber = (document.getElementById('mfgFormOrderNum') || {}).value || '';
+  if (!orderNumber.trim()) { showToast('Order # is required'); return; }
+  const customerName = (document.getElementById('mfgFormCustomer') || {}).value || '';
+  const shopifyLink = (document.getElementById('mfgFormShopifyLink') || {}).value || '';
+  const mozaikUrl = (document.getElementById('mfgFormMozaikUrl') || {}).value || '';
+  const notes = (document.getElementById('mfgFormNotes') || {}).value || '';
+  try {
+    const res = await groundApi('manufacturingIngestJob', {
+      orderNumber: orderNumber.trim(),
+      customerName: customerName.trim(),
+      shopifyLink: shopifyLink.trim(),
+      mozaikUrl: mozaikUrl.trim(),
+      notes: notes.trim(),
+      deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
+    });
     if (!res || !res.ok) { showToast('Ingest failed: ' + ((res && res.error) || 'unknown')); return; }
     showToast('✓ Job ' + res.job_id + ' ingested');
+    document.getElementById('mfgIngestFormOverlay').remove();
     openManufacturingPanel();
-  }).catch(err => showToast('Ingest error: ' + err.message));
+  } catch (err) {
+    showToast('Ingest error: ' + err.message);
+  }
 }
 
 function _mfgSignDesigner_(jobId) {
