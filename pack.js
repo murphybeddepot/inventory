@@ -5648,7 +5648,12 @@ function _mfgAdvanceStage_(jobId, currentStage) {
 // v10.223 — Pick-List BOM expander (Phase 0 UI on top of v10.222 server)
 // ══════════════════════════════════════════════════════════════════
 
-async function openPickListPanel() {
+// v10.228 — 3-mode panel: BOM expand / Variant resolve / Admin.
+let _pickListPanelMode = 'bom';
+
+async function openPickListPanel(opts) {
+  opts = opts || {};
+  _pickListPanelMode = opts.mode || _pickListPanelMode || 'bom';
   const prior = document.getElementById('pickListOverlay');
   if (prior) prior.remove();
 
@@ -5656,29 +5661,138 @@ async function openPickListPanel() {
   ov.id = 'pickListOverlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const MODES = [
+    { key: 'bom',     label: '🧬 BOM Expand' },
+    { key: 'variant', label: '🛒 Variant Resolve' },
+    { key: 'admin',   label: '⚙ Admin' },
+  ];
+
+  let bodyHtml = '';
+  if (_pickListPanelMode === 'bom') {
+    bodyHtml = ''
+      + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Recursive bundle expansion from Kristine\'s sheet. Type a bundle SKU (e.g. <code>BOAZ-BUNDLE</code>) → flat element list with cumulative qty per 1 parent.</div>'
+      + '<div style="display:flex;gap:8px;margin-bottom:10px">'
+      +   '<input id="pickListExpandInput" type="text" placeholder="bundle SKU (e.g. BOAZ-BUNDLE)" autocomplete="off" autocapitalize="characters" style="flex:1;padding:11px 14px;font-family:\'JetBrains Mono\',monospace !important;font-size:14px;border:2px solid #1A4FB0 !important;border-radius:8px;outline:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      +   '<button onclick="_pickListExpand_()" style="padding:11px 18px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">Expand</button>'
+      + '</div>'
+      + '<div id="pickListExpandResult" style="min-height:120px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>';
+  } else if (_pickListPanelMode === 'variant') {
+    bodyHtml = ''
+      + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Resolves a Shopify variant SKU → walks the Variant Map → recursive BOM expansion across all bundles → flat element list with qtys. The keystone endpoint: "what does this order actually need from inventory?".</div>'
+      + '<div style="display:flex;gap:8px;margin-bottom:10px">'
+      +   '<input id="pickListVariantInput" type="text" placeholder="variant SKU (e.g. BOAZ-QUEEN)" autocomplete="off" autocapitalize="characters" style="flex:1;padding:11px 14px;font-family:\'JetBrains Mono\',monospace !important;font-size:14px;border:2px solid #1A4FB0 !important;border-radius:8px;outline:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      +   '<button onclick="_pickListResolveVariant_()" style="padding:11px 18px;background:#9C27B0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">Resolve</button>'
+      + '</div>'
+      + '<div id="pickListVariantResult" style="min-height:120px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>';
+  } else {
+    // Admin mode — ingest helpers + status
+    bodyHtml = ''
+      + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Re-ingest from Kristine\'s sheet. Tap each in order on first-time setup or whenever the source sheet changes. Each runs in ~5-15s.</div>'
+      + '<div id="pickListAdminBtns" style="display:flex;flex-direction:column;gap:8px">'
+      +   _pickListAdminButton_('pickListIngestBundleBom',       '1. Ingest Bundle BOM',           '~430 rows from "ALL BUNDLES" tab',           '#003087')
+      +   _pickListAdminButton_('pickListIngestVariantMap',      '2. Ingest Variant Map',          '~92 rows (Shopify variant → bundle map)',    '#1A4FB0')
+      +   _pickListAdminButton_('pickListIngestVendorMap',       '3. Ingest Vendor Map',           '~190 rows (element → vendor)',                '#9C27B0')
+      +   _pickListAdminButton_('pickListIngestElementInventory','4. Ingest Element Inventory',    '~80 elements × 5 warehouses (slowest)',       '#FF6B00')
+      + '</div>'
+      + '<div id="pickListAdminResult" style="min-height:40px;margin-top:14px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-size:12px;font-family:monospace !important;white-space:pre-wrap"></div>';
+  }
+
   ov.innerHTML =
     '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:680px;max-height:94vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);box-sizing:border-box">'
     + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
     + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🧬 Pick-List BOM</div>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🧬 Pick-List</div>'
     +   '<button onclick="document.getElementById(\'pickListOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Recursive bundle expansion from Kristine\'s sheet, now in Bedrock. Type a bundle SKU (e.g. <code>BOAZ-BUNDLE</code>) → see every leaf element + quantity per 1 parent.</div>'
-    + '<div style="background:#FFF8E1 !important;border:1px solid #FFC107 !important;border-radius:8px !important;padding:10px 12px;font-size:11px;color:#5a3e00 !important;-webkit-text-fill-color:#5a3e00 !important;margin-bottom:12px">First time: run <code>runPickListBundleBomIngest</code> in the Apps Script editor to populate the BOM from Kristine\'s sheet (~430 rows). Re-run anytime to re-sync.</div>'
-    + '<div style="display:flex;gap:8px;margin-bottom:10px">'
-    +   '<input id="pickListExpandInput" type="text" placeholder="bundle SKU (e.g. BOAZ-BUNDLE)" autocomplete="off" autocapitalize="characters" style="flex:1;padding:11px 14px;font-family:\'JetBrains Mono\',monospace !important;font-size:14px;border:2px solid #1A4FB0 !important;border-radius:8px;outline:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
-    +   '<button onclick="_pickListExpand_()" style="padding:11px 18px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">Expand</button>'
+    + '<div style="display:flex;gap:6px;margin-bottom:12px">'
+    +   MODES.map(m => {
+          const active = m.key === _pickListPanelMode;
+          return '<button onclick="openPickListPanel({mode:\'' + m.key + '\'})" style="flex:1;padding:9px;background:' + (active ? '#003087' : '#f5f5f5') + ' !important;color:' + (active ? '#fff' : '#444') + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : '#444') + ' !important;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.5px">' + m.label + '</button>';
+        }).join('')
     + '</div>'
-    + '<div id="pickListExpandResult" style="min-height:120px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>'
+    + bodyHtml
     + '</div>';
   document.body.appendChild(ov);
+
   setTimeout(() => {
-    const inp = document.getElementById('pickListExpandInput');
+    const inp = document.getElementById(_pickListPanelMode === 'bom' ? 'pickListExpandInput' : 'pickListVariantInput');
     if (inp) {
       inp.focus();
-      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _pickListExpand_(); } });
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (_pickListPanelMode === 'bom') _pickListExpand_();
+          else if (_pickListPanelMode === 'variant') _pickListResolveVariant_();
+        }
+      });
     }
   }, 50);
+}
+
+function _pickListAdminButton_(endpoint, label, hint, color) {
+  return '<button onclick="_pickListAdminRun_(\'' + endpoint + '\', this)" style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid ' + color + ' !important;border-left:5px solid ' + color + ' !important;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;text-align:left">'
+    + '<div style="flex:1"><div style="color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;text-transform:uppercase;letter-spacing:.5px;font-size:13px">' + esc(label) + '</div><div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:500;margin-top:2px">' + esc(hint) + '</div></div>'
+    + '<span style="color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;font-size:18px;font-weight:900">↻</span>'
+    + '</button>';
+}
+
+async function _pickListAdminRun_(endpoint, btn) {
+  if (!confirm('Re-ingest from Kristine\'s sheet via ' + endpoint + '?\n\nClears + re-fills the target Bedrock tab. Idempotent. Takes ~5-30s.')) return;
+  const out = document.getElementById('pickListAdminResult');
+  if (btn) { btn.style.opacity = '.5'; btn.style.pointerEvents = 'none'; }
+  if (out) out.textContent = '⟳ Running ' + endpoint + '…';
+  try {
+    const res = await groundApi(endpoint, {});
+    if (out) out.textContent = JSON.stringify(res, null, 2);
+    if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = ''; }
+    if (res && res.ok) showToast('✓ ' + endpoint + ' done');
+    else showToast('⚠ ' + endpoint + ' failed: ' + ((res && res.error) || 'unknown'));
+  } catch (err) {
+    if (out) out.textContent = 'Error: ' + err.message;
+    if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = ''; }
+    showToast('⚠ ' + endpoint + ' error: ' + err.message);
+  }
+}
+
+async function _pickListResolveVariant_() {
+  const inp = document.getElementById('pickListVariantInput');
+  const out = document.getElementById('pickListVariantResult');
+  if (!inp || !out) return;
+  const sku = String(inp.value || '').trim().toUpperCase();
+  if (!sku) { out.innerHTML = '<div style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:13px">Type a variant SKU above.</div>'; return; }
+  out.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px">Resolving…</div>';
+  try {
+    const res = await groundApi('pickListResolveVariant', { variantSku: sku });
+    if (!res || !res.ok) {
+      out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:13px;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    let html = '<div style="font-size:13px;margin-bottom:10px">'
+      + '<strong>' + esc(sku) + '</strong> resolves to <strong>' + res.distinct_count + '</strong> distinct element(s) across ' + (res.bundles || []).length + ' bundle(s):'
+      + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">Bundles: ' + (res.bundles || []).map(b => '<code>' + esc(b) + '</code>').join(', ') + '</div>'
+      + '</div>';
+    html += '<div style="margin-top:8px">';
+    html += (res.elements || []).map(e => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fafafa !important;border:1px solid #eee !important;border-radius:6px;margin-bottom:4px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700">' + esc(e.sku) + '</span>'
+      + '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">×' + e.qty + '</span>'
+      + '</div>').join('');
+    html += '</div>';
+    // Per-bundle breakdown (debug)
+    if (res.per_bundle && res.per_bundle.length) {
+      html += '<details style="margin-top:12px"><summary style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;cursor:pointer;text-transform:uppercase;letter-spacing:1px;font-weight:700;padding:6px 0">per-bundle breakdown</summary>';
+      html += res.per_bundle.map(b => {
+        const bodyContent = b.elements
+          ? '<div style="font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important">' + b.elements.length + ' element(s)</div>'
+          : '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:11px">' + esc(b.error || '?') + '</div>';
+        return '<div style="padding:6px 10px;border-left:2px solid #ddd;margin-top:4px;font-size:12px"><strong>' + esc(b.bundle) + '</strong> ' + bodyContent + '</div>';
+      }).join('');
+      html += '</details>';
+    }
+    out.innerHTML = html;
+  } catch (err) {
+    out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:13px;padding:14px">Error: ' + esc(err.message) + '</div>';
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
