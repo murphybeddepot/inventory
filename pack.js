@@ -5811,6 +5811,13 @@ async function _pickListAdminRun_(endpoint, btn) {
   }
 }
 
+// v10.240 — picking a partial-match suggestion fills the input + re-resolves.
+function _pickListResolvePickMatch_(sku) {
+  const inp = document.getElementById('pickListVariantInput');
+  if (inp) inp.value = sku;
+  _pickListResolveVariant_();
+}
+
 async function _pickListResolveVariant_() {
   const inp = document.getElementById('pickListVariantInput');
   const out = document.getElementById('pickListVariantResult');
@@ -5819,8 +5826,19 @@ async function _pickListResolveVariant_() {
   if (!sku) { out.innerHTML = '<div style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:13px">Type a variant SKU above.</div>'; return; }
   out.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px">Resolving…</div>';
   try {
-    const res = await groundApi('pickListResolveVariant', { variantSku: sku, pickerVisibleOnly: _pickListPickerVisibleOnly });
+    const res = await groundApi('pickListResolveVariant', { variantSku: sku, pickerVisibleOnly: _pickListPickerVisibleOnly, partialOk: true });
     if (!res || !res.ok) {
+      // v10.240 — surface partial-match suggestions as tappable chips
+      // (Zac 19:08 EDT: "should show all matches to a partial search
+      // like qpw4m or qbz or Boaz-v2").
+      if (res && res.partial_match && Array.isArray(res.matches) && res.matches.length) {
+        out.innerHTML = '<div style="font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:8px">'
+          + '<strong>' + res.matches.length + ' variant(s)</strong> contain <code>' + esc(sku) + '</code> — tap to resolve:</div>'
+          + '<div style="display:flex;flex-direction:column;gap:4px">'
+          + res.matches.map(m => '<button onclick="_pickListResolvePickMatch_(\'' + esc(m) + '\')" style="padding:9px 12px;background:#fafafa !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ddd !important;border-left:3px solid #9C27B0 !important;border-radius:6px;font-family:\'JetBrains Mono\',monospace !important;font-size:12px;text-align:left;cursor:pointer;font-weight:600" onmouseover="this.style.background=\'#F0F4FB\';this.style.borderColor=\'#1A4FB0\'" onmouseout="this.style.background=\'#fafafa\';this.style.borderColor=\'#ddd\'">' + esc(m) + '</button>').join('')
+          + '</div>';
+        return;
+      }
       out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:13px;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
       return;
     }
