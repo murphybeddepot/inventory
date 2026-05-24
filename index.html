@@ -1137,7 +1137,10 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
     </button>
-    <!-- In-development workflow tabs — primary nav has Cabinets+Ground only. -->
+    <!-- v10.244 nav reorg per Zac 22:01 EDT: section dividers + cross-link subtitles
+         flagging the upcoming merges (Pre-Pack↔Pack, Damage↔Remakes, Count→Stock,
+         Sample/Barcode→Print Tools). Actual UI merges land in v10.245+. -->
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Workflow</div>
     <button onclick="goToTabFromMore('lookup')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🔍</span>
       <div style="flex:1">
@@ -1157,15 +1160,15 @@ input::placeholder, textarea::placeholder {
     <button onclick="goToTabFromMore('prepack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🔧</span>
       <div style="flex:1">
-        <div>Pre-Pack</div>
+        <div>Pre-Pack <span style="font-size:9px;background:#FFB300;color:#1a1a1a;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">MERGING → PACK</span></div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Hardware-box prep · day-before scan-to-verify</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="goToTabFromMore('pack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
+    <button onclick="goToTabFromMore('pack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📦</span>
       <div style="flex:1">
-        <div>Pack</div>
+        <div>Pack <span style="font-size:9px;background:#FFB300;color:#1a1a1a;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">PRE-PACK MERGING IN</span></div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Cabinet / freight packing · two-phase checker workflow</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
@@ -1173,88 +1176,41 @@ input::placeholder, textarea::placeholder {
     <button onclick="goToTabFromMore('items')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📋</span>
       <div style="flex:1">
-        <div>Stock</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Hardware inventory + kanban re-order cards</div>
+        <div>Stock <span style="font-size:9px;background:#42a5f5;color:#fff;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">COUNT MERGING IN</span></div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Hardware inventory + kanban re-order cards · cycle count link inside</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="closeMoreMenu();openBarcodeTagPrinter('colors')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">🎨</span>
-      <div style="flex:1">
-        <div>Sample Color Labels</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Print scannable Code 128 stickers for the melamine sample boxes</div>
-      </div>
-      <span style="color:#999;font-size:18px">›</span>
-    </button>
-    <button onclick="closeMoreMenu();openBarcodeTagPrinter('skus')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">🏷️</span>
-      <div style="flex:1">
-        <div>SKU Barcode Tags</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Print scannable Code 128 tags for any SKU (HLR82, hardware bins, anywhere on the floor)</div>
-      </div>
-      <span style="color:#999;font-size:18px">›</span>
-    </button>
-    <button onclick="goToTabFromMore('cycle')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+    <button onclick="goToTabFromMore('cycle')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">🎯</span>
       <div style="flex:1">
-        <div>Count</div>
+        <div>Count <span style="font-size:9px;background:#42a5f5;color:#fff;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">MERGING → STOCK</span></div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Scheduled cycle counting · Tue/Thu/Fri</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="goToTabFromMore('barcodes')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">🎛</span>
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">CS · Ops</div>
+    <button onclick="closeMoreMenu();openHoldsPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🚦</span>
       <div style="flex:1">
-        <div>Barcodes</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Scanner mappings + feedback settings</div>
-      </div>
-      <span style="color:#999;font-size:18px">›</span>
-    </button>
-    <button onclick="goToTabFromMore('log')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">📋</span>
-      <div style="flex:1">
-        <div>Log</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Audit trail of everything that happened</div>
-      </div>
-      <span style="color:#999;font-size:18px">›</span>
-    </button>
-    <button onclick="goToTabFromMore('export')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">📤</span>
-      <div style="flex:1">
-        <div>Export</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Download data as spreadsheet</div>
-      </div>
-      <span style="color:#999;font-size:18px">›</span>
-    </button>
-    <button onclick="closeMoreMenu();openCatchStats()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">📊</span>
-      <div style="flex:1">
-        <div>Catch-Rate Stats</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Mistakes caught by scan-to-verify (ROI data for Norm)</div>
-      </div>
-      <span style="color:#999;font-size:18px">›</span>
-    </button>
-    <button onclick="closeMoreMenu();openRemakesPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">🔧</span>
-      <div style="flex:1">
-        <div>Remakes</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Replacement parts to ship customers (CS surface)</div>
+        <div>Holds</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Orders blocked from packing — Beacon, manual hold, hidden</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
     <button onclick="closeMoreMenu();openDamageLog()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🔨</span>
       <div style="flex:1">
-        <div>Damage Log</div>
+        <div>Damage Log <span style="font-size:9px;background:#FFB300;color:#1a1a1a;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">MERGING W/ REMAKES</span></div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Open damage records — inspect, parts, remake, close</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="closeMoreMenu();openEmailTemplatesEditor()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">📝</span>
+    <button onclick="closeMoreMenu();openRemakesPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🔧</span>
       <div style="flex:1">
-        <div>Email Templates</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Edit Shipping Conf / Customer Ready / Reorder / Mattress email bodies</div>
+        <div>Remakes <span style="font-size:9px;background:#FFB300;color:#1a1a1a;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">MERGING W/ DAMAGE</span></div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Replacement parts to ship customers (CS surface)</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
@@ -1266,19 +1222,20 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="closeMoreMenu();openHoldsPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">🚦</span>
+    <button onclick="closeMoreMenu();openCatchStats()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
+      <span style="font-size:22px">📊</span>
       <div style="flex:1">
-        <div>Holds</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Orders blocked from packing — Beacon, manual hold, hidden</div>
+        <div>Catch-Rate Stats</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Mistakes caught by scan-to-verify (ROI data for Norm)</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Production · BOM</div>
     <button onclick="closeMoreMenu();openManufacturingPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
       <div style="flex:1">
         <div>Manufacturing</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Cabinet jobs from Mozaik through 5-stage pipeline</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Cabinet jobs · 5-stage pipeline · gcode folder mapping</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
@@ -1298,11 +1255,61 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="closeMoreMenu();openCustomerReadyPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px">
+    <button onclick="closeMoreMenu();openCustomerReadyPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">✅</span>
       <div style="flex:1">
         <div>Customer Ready</div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Shadow log inspector — what would-be-sent (Phase 1)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Print Tools</div>
+    <button onclick="closeMoreMenu();openBarcodeTagPrinter('colors')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🎨</span>
+      <div style="flex:1">
+        <div>Sample Color Labels</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Print scannable Code 128 stickers for the melamine sample boxes</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="closeMoreMenu();openBarcodeTagPrinter('skus')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🏷️</span>
+      <div style="flex:1">
+        <div>SKU Barcode Tags</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Print scannable Code 128 tags for any SKU (HLR82, hardware bins, anywhere on the floor)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="closeMoreMenu();openEmailTemplatesEditor()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
+      <span style="font-size:22px">📝</span>
+      <div style="flex:1">
+        <div>Email Templates</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Edit Shipping Conf / Customer Ready / Reorder / Mattress email bodies</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Devices · Diagnostics</div>
+    <button onclick="goToTabFromMore('barcodes')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🎛</span>
+      <div style="flex:1">
+        <div>Barcodes</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Scanner mappings + feedback settings</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('log')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📋</span>
+      <div style="flex:1">
+        <div>Log</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Audit trail of everything that happened</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="goToTabFromMore('export')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
+      <span style="font-size:22px">📤</span>
+      <div style="flex:1">
+        <div>Export</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Download data as spreadsheet</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
@@ -15579,7 +15586,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.243"></script>
+<script src="./pack.js?v=10.244"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15588,7 +15595,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.243<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.244<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
