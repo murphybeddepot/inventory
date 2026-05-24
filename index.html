@@ -9707,10 +9707,29 @@ function renderItemLocResult(query) {
     });
   });
 
-  if (!hits.length) {
+  // v10.250 Cabinet↔Stock Phase A — render-time join: also show cabinet
+  // bodies stored at this location. Reads from the cabinets[] array
+  // populated by the Cabinets tab. No data migration, no extra fetch.
+  const cabinetHits = (typeof cabinets !== 'undefined' && Array.isArray(cabinets))
+    ? cabinets.filter(c => {
+        if (!c || c.deleted) return false;
+        const loc = String(c.location || '').toLowerCase();
+        if (!loc) return false;
+        return loc === q || loc.startsWith(q) || loc.includes(q);
+      })
+    : [];
+
+  if (!hits.length && !cabinetHits.length) {
     el.innerHTML = '<div style="background:rgba(255,179,0,.12);border:1.5px solid var(--orange-bright);border-radius:0;padding:14px;color:var(--orange-bright);font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:700;letter-spacing:1px;text-align:center">'
       + 'Nothing stored at <span style="color:var(--shellac);font-family:JetBrains Mono,monospace;letter-spacing:2px">' + esc(query) + '</span>'
       + '</div>';
+    return;
+  }
+
+  if (!hits.length && cabinetHits.length) {
+    // Only cabinets present → skip the stock-grouping logic, jump
+    // straight to the cabinets section. Stock summary line is empty.
+    el.innerHTML = _renderCabinetsAtLocation_(cabinetHits, query);
     return;
   }
 
@@ -9756,7 +9775,65 @@ function renderItemLocResult(query) {
                 + '</div>';
             }).join('')
           + '</div>';
-      }).join('');
+      }).join('')
+    // v10.250 Cabinet↔Stock Phase A — render-time join: append cabinet
+    // bodies stored at this location below the stock SKUs section.
+    + (cabinetHits.length ? _renderCabinetsAtLocation_(cabinetHits, query) : '');
+}
+
+// v10.250 Cabinet↔Stock Phase A render helper. Renders a "🪵 Cabinets
+// at this slot" sub-section using the Cabinets-tab data shape (cab
+// has .cabinet/.location/.uuid). Tap a row jumps to the cabinet's
+// detail via openCabinetDetail (which lives in the Cabinets tab JS).
+function _renderCabinetsAtLocation_(cabinetHits, query) {
+  if (!cabinetHits || !cabinetHits.length) return '';
+  // Sort: exact-location matches first, then by location code, then by cabinet code.
+  const q = (query || '').toLowerCase();
+  cabinetHits.sort((a, b) => {
+    const aExact = String(a.location || '').toLowerCase() === q ? 0 : 1;
+    const bExact = String(b.location || '').toLowerCase() === q ? 0 : 1;
+    if (aExact !== bExact) return aExact - bExact;
+    if (a.location !== b.location) return String(a.location || '').localeCompare(String(b.location || ''));
+    return String(a.cabinet || '').localeCompare(String(b.cabinet || ''));
+  });
+  // Group by location for visual consistency with the stock-SKU section.
+  const grouped = {};
+  cabinetHits.forEach(c => {
+    const code = c.location || '?';
+    if (!grouped[code]) grouped[code] = [];
+    grouped[code].push(c);
+  });
+  const codes = Object.keys(grouped);
+  return '<div style="margin-top:14px;padding-top:14px;border-top:1px dashed rgba(232,237,244,.18)">'
+    + '<div style="font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:800;color:#8B5A3C;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">🪵 '
+    +   cabinetHits.length + ' Cabinet' + (cabinetHits.length!==1?'s':'') + ' at ' + codes.length + ' location' + (codes.length!==1?'s':'')
+    + '</div>'
+    + codes.map(code => {
+        const rows = grouped[code];
+        return '<div style="background:var(--surface);border:1.5px solid #8B5A3C;border-radius:0;margin-bottom:8px;overflow:hidden">'
+          + '<div style="background:linear-gradient(180deg,#1F170E,#15100A);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #000">'
+          +   '<span style="font-family:JetBrains Mono,monospace;color:#D4A574;font-size:16px;font-weight:900;letter-spacing:2px">🪵 ' + esc(code) + '</span>'
+          +   '<span style="font-family:Barlow Condensed,sans-serif;color:var(--text-dim);font-size:11px;font-weight:700;letter-spacing:1.5px">' + rows.length + ' cabinet' + (rows.length!==1?'s':'') + '</span>'
+          + '</div>'
+          + rows.map(c => {
+              const isPulled = !!c.pulled;
+              const isDamaged = !!c.damaged;
+              const flags = [];
+              if (isPulled) flags.push('<span style="font-size:9px;background:#666;color:#fff;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">PULLED</span>');
+              if (isDamaged) flags.push('<span style="font-size:9px;background:#8B0000;color:#fff;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">🚫 DAMAGED</span>');
+              const cabLabel = esc(c.cabinet || c.uuid || '?');
+              const subline = [c.orderNumber && 'Order #' + esc(c.orderNumber), c.color && esc(c.color)].filter(Boolean).join(' · ');
+              return '<div onclick="if(typeof openCabinetDetail===\'function\')openCabinetDetail(\''+esc(c.uuid||'')+'\')" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;border-top:1px solid rgba(232,237,244,.06);opacity:'+(isPulled?'.55':'1')+'">'
+                + '<div style="min-width:0;flex:1">'
+                +   '<div style="font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + cabLabel + (flags.length ? ' ' + flags.join(' ') : '') + '</div>'
+                +   (subline ? '<div style="font-size:11px;color:var(--text-dim);margin-top:1px">' + subline + '</div>' : '')
+                + '</div>'
+                + '<span style="color:var(--text-dim);font-size:18px">›</span>'
+                + '</div>';
+            }).join('')
+          + '</div>';
+      }).join('')
+    + '</div>';
 }
 
 // Hook scanner-input handling: when something gets typed via the BT scanner,
@@ -15725,7 +15802,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.249"></script>
+<script src="./pack.js?v=10.250"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15734,7 +15811,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.249<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.250<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
