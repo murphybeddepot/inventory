@@ -2866,7 +2866,21 @@ async function confirmMarkHardwareReady(orderNumber) {
       showPrePackBanner_((res && res.error) || 'Mark failed', '#ff5252');
       return;
     }
-    showPrePackBanner_('✓ HW ready for ' + orderNumber, '#00e676');
+    // v10.265 (Zac 19:29 EDT) — surface the gcal writeback result
+    // so packer sees 🅑 actually landed on the calendar (not a
+    // silent "trust me bro" success). 4 possible outcomes:
+    //   • added     → 🅑 newly stamped this run
+    //   • already_present → idempotent re-run
+    //   • not_found → no event in ±21d (real or test bug)
+    //   • <error>   → CalendarApp failure
+    const g = res.gcal || {};
+    let calLine = '';
+    if (g.ok && g.action === 'added') calLine = ' · 🅑 added to calendar';
+    else if (g.ok && g.action === 'already_present') calLine = ' · 🅑 already on calendar';
+    else if (g.ok && g.action === 'skipped_disabled') calLine = ' · ⏸ gcal writeback disabled';
+    else if (g.action === 'not_found') calLine = ' · ⚠ no gcal event for order';
+    else if (g.error) calLine = ' · ⚠ gcal: ' + g.error.slice(0, 40);
+    showPrePackBanner_('✓ HW ready for ' + orderNumber + calLine, '#00e676');
     // Await the label print and only auto-close on success. If the
     // OPEN-ME-FIRST label fails (no printer / PrintNode / network),
     // keep the detail OPEN so Zoe sees the failure + the 🖨 Reprint
