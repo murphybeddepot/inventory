@@ -2604,6 +2604,27 @@ async function autoLoadPrePackPdfIfThin_(row) {
   }
 }
 
+// v10.255 — Häfele part-number lead-with helpers for pre-pack rows.
+// Picker can't ID an item from "overlay" alone — the Häfele# is what's
+// printed on the bag (e.g. 329.17.552). Extract it from sku OR name and
+// lead with it when present; show the cleaned descriptive text as subtitle.
+const _HAFELE_PART_RE_ = /([0-9]{3}\.[0-9]{2}\.[0-9]{3})/;
+function _prePackDisplayTitle_(sku, name) {
+  const both = String(sku || '') + ' ' + String(name || '');
+  const m = both.match(_HAFELE_PART_RE_);
+  return m ? m[1] : (String(sku || '').trim() || String(name || '').trim());
+}
+function _prePackDisplaySubtitle_(sku, name, lead) {
+  const strip = (s) => String(s || '').replace(/\s*[(\[]?[0-9]{3}\.[0-9]{2}\.[0-9]{3}[)\]]?\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (lead && _HAFELE_PART_RE_.test(lead)) {
+    const skuClean = strip(sku);
+    const nameClean = strip(name);
+    if (skuClean && nameClean && skuClean.toUpperCase() !== nameClean.toUpperCase()) return skuClean + ' · ' + nameClean;
+    return skuClean || nameClean;
+  }
+  return String(name || '').trim();
+}
+
 function paintPrePackDetail_(row) {
   const detail = document.getElementById('prePackQueueDetail');
   const hwLines = Array.isArray(row.hardware_sku_lines) ? row.hardware_sku_lines : [];
@@ -2622,14 +2643,19 @@ function paintPrePackDetail_(row) {
     const scanned = scannedBySku[sku] || 0;
     const done = scanned >= qty;
     const accent = done ? '#00e676' : '#ff9800';
+    // v10.255 — lead with Häfele part # (NNN.NN.NNN) when present in either sku or name.
+    // Picker can't ID an item from "overlay" alone (Zac 09:32 EDT bug report); the
+    // Häfele# is what's printed on the bag. Fall back to SKU when no Häfele# found.
+    const lead = _prePackDisplayTitle_(sku, l.name);
+    const sub = _prePackDisplaySubtitle_(sku, l.name, lead);
     return `<div style="display:flex;align-items:center;gap:12px;padding:14px;background:${accent}14;border:1.5px solid ${accent}55;border-radius:10px">
       <div style="flex:0 0 70px;text-align:center;cursor:pointer;padding:4px;border-radius:8px;background:rgba(255,255,255,.04)" onclick="promptPrePackCount('${esc(row.order_number)}','${esc(sku)}',${scanned},${qty})" title="Tap to set the count directly (e.g. 40 screws)">
         <div style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:900;color:${accent}">${scanned}/${qty}</div>
         <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;margin-top:2px">${done?'DONE':'TAP TO SET'}</div>
       </div>
       <div style="flex:1;min-width:0">
-        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text)">${esc(sku)}</div>
-        ${l.name ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">'+esc(l.name)+'</div>' : ''}
+        <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:900;color:var(--text);letter-spacing:.5px">${esc(lead)}</div>
+        ${sub ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">'+esc(sub)+'</div>' : ''}
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         ${done ? '' : '<button onclick="bumpPrePackSku(\''+esc(row.order_number)+'\',\''+esc(sku)+'\','+(qty-scanned)+')" class="amp-btn" style="padding:6px 10px;font-size:13px;min-width:0;flex:0 0 auto;background:#00e676;color:#000" title="Mark this SKU fully scanned">✓</button>'}
@@ -6353,7 +6379,13 @@ let _poDraftLines = [];
 async function openPurchaseOrdersPanel(opts) {
   opts = opts || {};
   _poPanelMode = opts.mode || _poPanelMode || 'reorder';
-  _poPanelVendorSel = opts.vendor || _poPanelVendorSel || '';
+  // v10.255 — fix: opts.vendor === '' (empty string from back button)
+  // is a deliberate clear, not "use previous." `||` treats '' as falsy
+  // and falls through to the stale state, leaving the user stuck on
+  // the previously-selected vendor (Zac 09:29 EDT bug report).
+  if (opts.vendor !== undefined) {
+    _poPanelVendorSel = String(opts.vendor || '');
+  }
   const prior = document.getElementById('poPanelOverlay');
   if (prior) prior.remove();
 
@@ -6414,7 +6446,7 @@ async function _renderPOReorderMode_() {
       // Drill-in view for selected vendor
       const v = byVendor[_poPanelVendorSel];
       _poDraftLines = v.items.map(i => ({ sku: i.element_sku, qty: i.reorder_qty, on_hand: i.on_hand, threshold: i.threshold, warehouse: i.warehouse }));
-      html += '<button onclick="openPurchaseOrdersPanel({mode:\'reorder\',vendor:\'\'})" style="background:none !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:none !important;font-size:12px;cursor:pointer;margin-bottom:10px;padding:4px 0">‹ back to vendor list</button>';
+      html += '<button onclick="openPurchaseOrdersPanel({mode:\'reorder\',vendor:\'\'})" style="background:none !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:none !important;font-size:12px;cursor:pointer;margin-bottom:10px;padding:4px 0">‹ back to reorder list</button>';
       html += '<div style="background:#F0F4FB !important;border:1.5px solid #1A4FB0 !important;border-radius:10px;padding:12px 14px;margin-bottom:12px">';
       html += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px;font-weight:900;color:#003087 !important;-webkit-text-fill-color:#003087 !important;text-transform:uppercase;letter-spacing:.5px">' + esc(_poPanelVendorSel) + '</div>';
       html += '<div style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:2px">' + v.line_count + ' shortage(s) · ' + v.total_qty + ' total qty needed</div>';
