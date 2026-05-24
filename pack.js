@@ -5591,7 +5591,11 @@ async function openManufacturingPanel(opts) {
     +   '<button onclick="document.getElementById(\'mfgOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
     + '</div>'
     + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Cabinet jobs through the 5-stage pipeline (CNC → Denester → 6-Drill → Edgebander → Stacker). Phase 0: ingest + sign-off + stage advance. Phase 1+ adds Shopify diff + status boards.</div>'
-    + '<button onclick="_openMfgIngestForm_()" style="width:100%;padding:13px;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">+ New Job (ingest Mozaik file)</button>'
+    + '<div style="display:flex;gap:8px;margin-bottom:12px">'
+    +   '<button onclick="_openMfgIngestForm_()" style="flex:2;padding:13px;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">+ New Job</button>'
+    // v10.249 Phase 1 client UI — open the SkuGcodeMap authoring panel.
+    +   '<button onclick="openSkuGcodeMapPanel()" style="flex:1;padding:13px;background:transparent !important;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;border:1.5px solid #1A4FB0 !important;border-radius:10px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">🧬 gcode Map</button>'
+    + '</div>'
     + '<div id="mfgStatusFilters" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
     +   ['', 'awaiting_designer', 'awaiting_ops', 'ready_for_cnc', 'in_progress', 'done'].map(s => {
           const active = s === statusFilter;
@@ -5663,7 +5667,11 @@ function _openMfgIngestForm_() {
     + _mfgFormField_('mfgFormOrderNum', 'Order # (Shopify)', '', 'e.g. 31501', true)
     + _mfgFormField_('mfgFormCustomer', 'Customer name', '', 'optional', false)
     + _mfgFormField_('mfgFormShopifyLink', 'Shopify admin URL', '', 'optional — auto-derived in Phase 1', false)
-    + _mfgFormField_('mfgFormMozaikUrl', 'Mozaik file link', '', 'Drive URL or any URL', false)
+    // v10.249 Phase 1 client wiring — SKU populates gcode_folder_id at
+    // ingest if mapped + auto-skips awaiting_designer. Optional; leave
+    // blank for custom/one-off orders that need designer review.
+    + _mfgFormField_('mfgFormSku', 'SKU (for gcode lookup)', '', 'optional — e.g. QBZW00-BOAZ-V2-INSTOCK. If mapped in SkuGcodeMap → designer phase auto-skipped', false)
+    + _mfgFormField_('mfgFormMozaikUrl', 'Mozaik file link', '', 'Drive URL or any URL (only needed for custom/unmapped orders)', false)
     + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Notes (optional)</label>'
     + '<textarea id="mfgFormNotes" rows="2" placeholder="Anything the designer / ops should know" style="width:100% !important;padding:11px 14px !important;font-size:14px !important;font-family:inherit !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;resize:vertical !important;box-sizing:border-box !important"></textarea>'
     + '<div style="display:flex;gap:8px;margin-top:16px">'
@@ -5687,6 +5695,7 @@ async function _mfgFormSubmit_() {
   const customerName = (document.getElementById('mfgFormCustomer') || {}).value || '';
   const shopifyLink = (document.getElementById('mfgFormShopifyLink') || {}).value || '';
   const mozaikUrl = (document.getElementById('mfgFormMozaikUrl') || {}).value || '';
+  const sku = (document.getElementById('mfgFormSku') || {}).value || '';
   const notes = (document.getElementById('mfgFormNotes') || {}).value || '';
   try {
     const res = await groundApi('manufacturingIngestJob', {
@@ -5694,11 +5703,16 @@ async function _mfgFormSubmit_() {
       customerName: customerName.trim(),
       shopifyLink: shopifyLink.trim(),
       mozaikUrl: mozaikUrl.trim(),
+      sku: sku.trim().toUpperCase(),  // v10.249 — server looks up SkuGcodeMap if present
       notes: notes.trim(),
       deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
     });
     if (!res || !res.ok) { showToast('Ingest failed: ' + ((res && res.error) || 'unknown')); return; }
-    showToast('✓ Job ' + res.job_id + ' ingested');
+    // v10.249 — clearer feedback when designer phase is auto-skipped
+    // (SKU was mapped to a gcode folder).
+    let msg = '✓ Job ' + res.job_id + ' ingested';
+    if (res.designer_phase_skipped) msg += ' (gcode mapped, designer phase skipped — awaiting ops)';
+    showToast(msg);
     document.getElementById('mfgIngestFormOverlay').remove();
     openManufacturingPanel();
   } catch (err) {
@@ -5935,6 +5949,137 @@ async function _pickListResolveVariant_() {
     out.innerHTML = html;
   } catch (err) {
     out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:13px;padding:14px">Error: ' + esc(err.message) + '</div>';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// v10.249 — SkuGcodeMap authoring panel (Manufacturing Phase 1 UI)
+// ══════════════════════════════════════════════════════════════════
+//
+// Surfaces the v10.238 server-side mapping. Browse existing SKU →
+// gcode-folder mappings + add/edit them. When an order's SKU is
+// mapped, manufacturingIngestJob skips the designer phase and goes
+// straight to awaiting_ops (designer signed once when authoring).
+
+async function openSkuGcodeMapPanel(opts) {
+  opts = opts || {};
+  const search = String(opts.search || '');
+  const prior = document.getElementById('skuGcodeMapOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'skuGcodeMapOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:680px;max-height:94vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);box-sizing:border-box">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🧬 SKU → gcode Folder Map</div>'
+    +   '<button onclick="document.getElementById(\'skuGcodeMapOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;line-height:1.5;margin-bottom:12px">Maps a cabinet SKU to its pre-baked Drive folder of gcode files. Authoring is one-time per SKU — once mapped, every future Manufacturing job for this SKU auto-skips the designer phase and goes straight to ops sign-off.</div>'
+    + '<button onclick="_openSkuGcodeMapForm_()" style="width:100%;padding:13px;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">+ New / Edit Mapping</button>'
+    + '<div style="display:flex;gap:8px;margin-bottom:10px">'
+    +   '<input id="skuGcodeMapSearch" type="text" value="' + esc(search) + '" placeholder="filter by SKU (substring)" oninput="_skuGcodeMapSearchInput_(this.value)" style="flex:1;padding:9px 12px;font-size:13px;font-family:\'JetBrains Mono\',monospace !important;border:1.5px solid #ccc !important;border-radius:8px;outline:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+    + '</div>'
+    + '<div id="skuGcodeMapBody" style="min-height:60px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  try {
+    const res = await groundApi('skuGcodeMapList', { search: search, activeOnly: false });
+    const body = document.getElementById('skuGcodeMapBody');
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    const mappings = res.mappings || [];
+    if (!mappings.length) {
+      body.innerHTML = '<div style="padding:24px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;background:#fafafa !important;border:1px dashed #ccc !important;border-radius:10px;font-size:13px">No SKU → gcode mappings yet. Tap <strong>+ New / Edit Mapping</strong> to author the first one.</div>';
+      return;
+    }
+    body.innerHTML = mappings.map(m => {
+      const isInactive = String(m.active || '').toUpperCase() === 'FALSE';
+      const folderLink = m.drive_folder_id ? '<a href="https://drive.google.com/drive/folders/' + esc(m.drive_folder_id) + '" target="_blank" style="color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;text-decoration:underline">Drive folder ↗</a>' : '<span style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">no folder</span>';
+      return '<div style="padding:10px 12px;background:' + (isInactive ? '#f5f5f5' : '#fff') + ' !important;border:1px solid #ddd !important;border-left:3px solid #1A4FB0 !important;border-radius:8px;margin-bottom:6px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;opacity:' + (isInactive ? '.55' : '1') + '">'
+        + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">'
+        +   '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:900;font-size:13px">' + esc(m.sku) + '</span>'
+        +   '<span style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:700">rev <strong>' + esc(m.revision || 'v1.0.0') + '</strong>' + (isInactive ? ' · <span style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">INACTIVE</span>' : '') + '</span>'
+        + '</div>'
+        + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">' + folderLink + ' · authored by ' + esc(m.authored_by || '—') + ' · ' + esc(String(m.authored_at || '').slice(0, 16).replace('T', ' ')) + '</div>'
+        + (m.notes ? '<div style="font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:4px;font-style:italic">' + esc(m.notes) + '</div>' : '')
+        + '<div style="margin-top:8px;display:flex;gap:6px">'
+        +   '<button onclick="_openSkuGcodeMapForm_(\'' + esc(m.sku) + '\')" style="padding:6px 12px;background:#fff !important;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;border:1px solid #1A4FB0 !important;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✎ Edit</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  } catch (err) {
+    const body = document.getElementById('skuGcodeMapBody');
+    if (body) body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+  }
+}
+
+let _skuGcodeMapSearchTimer = null;
+function _skuGcodeMapSearchInput_(value) {
+  if (_skuGcodeMapSearchTimer) clearTimeout(_skuGcodeMapSearchTimer);
+  _skuGcodeMapSearchTimer = setTimeout(() => openSkuGcodeMapPanel({ search: value }), 300);
+}
+
+function _openSkuGcodeMapForm_(existingSku) {
+  const isEdit = !!existingSku;
+  const prior = document.getElementById('skuGcodeMapFormOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'skuGcodeMapFormOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px;max-width:480px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.5)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">' + (isEdit ? '✎ Edit' : '+ New') + ' SKU Mapping</div>'
+    +   '<button onclick="document.getElementById(\'skuGcodeMapFormOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer">✕</button>'
+    + '</div>'
+    + _mfgFormField_('skuGcodeFormSku', 'SKU', existingSku || '', 'e.g. QBZW00-BOAZ-V2-INSTOCK', true)
+    + _mfgFormField_('skuGcodeFormFolderId', 'Drive folder ID or URL', '', 'paste the folder share-URL or the ID', true)
+    + _mfgFormField_('skuGcodeFormFileIds', 'File IDs JSON (optional)', '', 'e.g. [\"id1\",\"id2\"]', false)
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Notes (optional)</label>'
+    + '<textarea id="skuGcodeFormNotes" rows="2" placeholder="e.g. uses Blum 110° hinges; switch to Hettich after 2026-08" style="width:100% !important;padding:11px 14px !important;font-size:13px !important;font-family:inherit !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;resize:vertical !important;box-sizing:border-box !important"></textarea>'
+    + (isEdit ? '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"><input type="checkbox" id="skuGcodeFormBumpRev" style="width:18px;height:18px;cursor:pointer;accent-color:#1A4FB0">Bump revision (e.g. v1.0.0 → v1.0.1) — for hardware swaps</label>' : '')
+    + '<div style="display:flex;gap:8px;margin-top:16px">'
+    +   '<button onclick="document.getElementById(\'skuGcodeMapFormOverlay\').remove()" style="flex:1;padding:13px;background:#f5f5f5 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1.5px solid #ccc !important;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="_skuGcodeMapFormSubmit_()" style="flex:2;padding:13px;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">' + (isEdit ? 'Save Changes' : 'Create Mapping') + '</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const i = document.getElementById(isEdit ? 'skuGcodeFormFolderId' : 'skuGcodeFormSku'); if (i) i.focus(); }, 50);
+}
+
+async function _skuGcodeMapFormSubmit_() {
+  const sku = ((document.getElementById('skuGcodeFormSku') || {}).value || '').trim().toUpperCase();
+  if (!sku) { showToast('SKU required'); return; }
+  const folderInput = ((document.getElementById('skuGcodeFormFolderId') || {}).value || '').trim();
+  if (!folderInput) { showToast('Drive folder ID required'); return; }
+  // Accept full Drive URL or just the ID. Extract the ID if it's a URL.
+  const folderMatch = folderInput.match(/folders\/([a-zA-Z0-9_-]+)/);
+  const folderId = folderMatch ? folderMatch[1] : folderInput;
+  const fileIdsJson = ((document.getElementById('skuGcodeFormFileIds') || {}).value || '').trim();
+  const notes = ((document.getElementById('skuGcodeFormNotes') || {}).value || '').trim();
+  const bumpRev = !!(document.getElementById('skuGcodeFormBumpRev') || {}).checked;
+  try {
+    const res = await groundApi('skuGcodeMapUpsert', {
+      sku: sku,
+      driveFolderId: folderId,
+      fileIdsJson: fileIdsJson,
+      notes: notes,
+      revisionBump: bumpRev,
+      deviceId: (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : 'unknown'),
+    });
+    if (!res || !res.ok) { showToast('Upsert failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ ' + res.action + ' ' + sku + ' (rev ' + res.revision + ')');
+    document.getElementById('skuGcodeMapFormOverlay').remove();
+    openSkuGcodeMapPanel();
+  } catch (err) {
+    showToast('Upsert error: ' + err.message);
   }
 }
 
