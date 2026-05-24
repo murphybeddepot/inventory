@@ -6326,16 +6326,25 @@ function _hafelePanelRender_(body, list, gaps) {
   const rows = (list && list.rows) || [];
   const gapList = (gaps && gaps.gaps) || [];
   const totalBom = (gaps && gaps.total_unique_bom_elements) || 0;
-  const coverage = totalBom > 0 ? Math.round(100 * (totalBom - gapList.length) / totalBom) : 100;
+  // v10.259 — when BOM is empty we can\'t compute real coverage.
+  // Show "—" instead of misleading 100%.
+  const coverage = totalBom > 0 ? Math.round(100 * (totalBom - gapList.length) / totalBom) : null;
   let html = '';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">';
   html += '  <div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🔩 Häfele Map</div>';
   html += '  <button onclick="document.getElementById(\'hafeleMapOverlay\').remove()" class="amp-btn" style="font-size:13px;padding:6px 14px">✕ Close</button>';
   html += '</div>';
+  // v10.259 — when BOM tab is empty, "0 gaps / 100% coverage" is
+  // misleading. Surface the truth: gap analysis is blind until the
+  // BOM is bootstrapped (Zac 14:31 EDT — Runhardwarehafelemapgaps
+  // didn\'t show any elements).
+  if (totalBom === 0) {
+    html += '<div style="padding:14px;background:#FFF3E0 !important;border:1.5px solid #FB8C00 !important;border-radius:10px;margin-bottom:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:15px !important;font-weight:900 !important;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important;letter-spacing:.5px">⚠ BOM tab is empty — gap analysis is blind</div><div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:6px;line-height:1.5">The seed populated the inline 25 patterns, but the <code>PickListBundleBOM</code> tab has zero rows so we can\'t tell what BOM elements are still missing a Häfele#. Bootstrap it from <strong>🧬 Pick-List BOM → ⚙ Admin → Ingest BOM</strong> first, then re-open this panel.</div></div>';
+  }
   html += '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
   html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:#E8F5E9 !important;border:1.5px solid #00C853 !important;border-radius:10px"><div style="font-size:11px;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Mapped</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important">' + rows.length + '</div></div>';
   html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:' + (gapList.length === 0 ? '#E8F5E9' : '#FFEBEE') + ' !important;border:1.5px solid ' + (gapList.length === 0 ? '#00C853' : '#EF5350') + ' !important;border-radius:10px"><div style="font-size:11px;color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important;-webkit-text-fill-color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Unmapped</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important;-webkit-text-fill-color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important">' + gapList.length + '</div></div>';
-  html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:#E3F2FD !important;border:1.5px solid #1976D2 !important;border-radius:10px"><div style="font-size:11px;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Coverage</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important">' + coverage + '%</div></div>';
+  html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:#E3F2FD !important;border:1.5px solid #1976D2 !important;border-radius:10px"><div style="font-size:11px;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Coverage</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important">' + (coverage === null ? '—' : coverage + '%') + '</div></div>';
   html += '</div>';
   html += '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:14px;line-height:1.5">Resolves <strong>every BOM element</strong> to a Häfele part #. Pre-Pack rows lead with this number instead of the descriptive name (e.g. \"329.17.552\" instead of \"OVERLAY HINGE\") so the picker can find the bag without translating.</div>';
   // Gaps section first — these are the call-to-action rows.
