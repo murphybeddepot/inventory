@@ -6454,6 +6454,83 @@ async function _hafeleFormSubmit_() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// v10.260 — Gcal Pack Pipeline preview panel (Phase 0 client)
+// ══════════════════════════════════════════════════════════════════
+//
+// Visual companion to runGcalPackPipelineDump. One-touch modal that
+// shows the buckets sliced from gcal's H-but-not-P orders. Phase 0
+// is read-only; this is a preview so Zac can validate the bucket
+// math before we wire it as the canonical Pack queue source.
+
+async function openGcalPipelinePanel() {
+  const prior = document.getElementById('gcalPipeOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'gcalPipeOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.className = 'keep-dark-text';
+  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px 14px 0 0;width:100%;max-width:820px;max-height:90vh;overflow-y:auto;padding:18px';
+  body.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:#666 !important;-webkit-text-fill-color:#666 !important">Reading MBD:FL SHIPMENTS gcal…</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+  try {
+    const res = await groundApi('gcalPackPipeline', { bucketSize: 10, bucketCount: 5 });
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Load failed: ' + esc((res && res.error) || 'unknown') + '<br><br><button onclick="openGcalPipelinePanel()" class="amp-btn" style="padding:10px 18px">Retry</button></div>';
+      return;
+    }
+    _renderGcalPipelinePanel_(body, res);
+  } catch (err) {
+    body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Error: ' + esc(err.message) + '<br><br><button onclick="openGcalPipelinePanel()" class="amp-btn" style="padding:10px 18px">Retry</button></div>';
+  }
+}
+
+function _renderGcalPipelinePanel_(body, res) {
+  let html = '';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">';
+  html += '  <div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">📅 Gcal Pack Pipeline</div>';
+  html += '  <button onclick="document.getElementById(\'gcalPipeOverlay\').remove()" class="amp-btn" style="font-size:13px;padding:6px 14px">✕ Close</button>';
+  html += '</div>';
+  html += '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:14px;line-height:1.5">Phase 0 (read-only). Pulls next 60 days from MBD:FL SHIPMENTS gcal, filters orders with 🅗 but no 🅟, sorts ship-date then order#, slices into ' + res.bucket_size + '-per-day buckets walking business days from <strong>' + esc(res.start_date) + '</strong>. <em>Validate against your gcal — if buckets look wrong I\'ll fix the math.</em></div>';
+  html += '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;font-size:12px">';
+  html += '  <div style="padding:6px 12px;background:#E3F2FD !important;border:1px solid #1976D2 !important;border-radius:6px;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important"><strong>' + res.total_candidates + '</strong> total H-but-not-P</div>';
+  html += '  <div style="padding:6px 12px;background:#E8F5E9 !important;border:1px solid #00C853 !important;border-radius:6px;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important"><strong>' + res.bucket_count + '</strong> buckets emitted</div>';
+  html += '  <div style="padding:6px 12px;background:#F5F5F5 !important;border:1px solid #BDBDBD !important;border-radius:6px;color:#424242 !important;-webkit-text-fill-color:#424242 !important">window ' + esc(res.window_start) + ' → ' + esc(res.window_end) + '</div>';
+  html += '</div>';
+  if (!res.buckets || res.buckets.length === 0) {
+    html += '<div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;background:#fafafa;border-radius:10px">No H-but-not-P gcal events in the +60d window. Either nothing\'s been pre-packed yet (no 🅗 icons), or the calendar isn\'t reading.</div>';
+    body.innerHTML = html;
+    return;
+  }
+  res.buckets.forEach(bk => {
+    const isHoliday = !!bk.holiday_name;
+    html += '<div style="margin-bottom:14px;background:#fff !important;border:1.5px solid ' + (isHoliday ? '#FB8C00' : '#1976D2') + ' !important;border-radius:10px;overflow:hidden">';
+    html += '  <div style="padding:10px 14px;background:' + (isHoliday ? '#FFF3E0' : '#E3F2FD') + ' !important;border-bottom:1px solid ' + (isHoliday ? '#FFB74D' : '#90CAF9') + ' !important;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">';
+    html += '    <div><span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px !important;font-weight:900 !important;color:' + (isHoliday ? '#E65100' : '#0D47A1') + ' !important;-webkit-text-fill-color:' + (isHoliday ? '#E65100' : '#0D47A1') + ' !important;text-transform:uppercase;letter-spacing:1px">' + esc(bk.day_label) + '</span><span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-left:10px">' + esc(bk.pack_date) + '</span>' + (isHoliday ? '<span style="margin-left:10px;font-size:11px;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important;font-weight:700">⚠ ' + esc(bk.holiday_name) + '</span>' : '') + '</div>';
+    html += '    <div style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-weight:700">' + bk.orders.length + ' / ' + res.bucket_size + '</div>';
+    html += '  </div>';
+    if (bk.orders.length === 0) {
+      html += '  <div style="padding:14px;text-align:center;font-size:12px;color:#888 !important;-webkit-text-fill-color:#888 !important">(no more H-but-not-P jobs)</div>';
+    } else {
+      bk.orders.forEach((o, i) => {
+        html += '  <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid #eee">';
+        html += '    <div style="flex:0 0 24px;font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important">#' + (i + 1) + '</div>';
+        html += '    <div style="flex:0 0 70px;font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(o.order_number) + '</div>';
+        html += '    <div style="flex:0 0 90px;font-family:\'JetBrains Mono\',monospace;font-size:12px;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important">' + esc(o.ship_date) + '</div>';
+        html += '    <div style="flex:0 0 80px;font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important">' + esc(o.carrier_raw) + '</div>';
+        html += '    <div style="flex:0 0 60px;font-size:14px;letter-spacing:1px">' + esc(o.icons) + '</div>';
+        html += '    <div style="flex:1;min-width:0;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(String(o.label).slice(0, 60)) + '</div>';
+        html += '  </div>';
+      });
+    }
+    html += '</div>';
+  });
+  body.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════════
 // v10.230 — Customer Ready shadow-log inspector (Phase 1 UI)
 // ══════════════════════════════════════════════════════════════════
 //
