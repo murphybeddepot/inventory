@@ -1644,39 +1644,52 @@ input::placeholder, textarea::placeholder {
 <!-- ── ITEMS TAB ─────────────────────────────────────────────────────────────-->
 <div id="tab-items" class="panel">
 
-  <!-- v10.245 Phase D — Cycle Count jump button. Count tab is merging
-       INTO Stock per Zac 22:01 EDT. Phase A flagged it with a chip in
-       the More menu; this is the actual one-tap entry point so the
-       user doesn't have to bounce through the More menu. The Cycle tab
-       itself stays in place during the merge window. -->
-  <div style="display:flex !important;gap:8px !important;margin-bottom:10px !important;align-items:center !important;flex-wrap:wrap !important">
-    <button type="button" onclick="switchTab('cycle')" style="padding:9px 14px !important;font-family:'Barlow Condensed',Arial,sans-serif !important;font-size:13px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:.5px !important;border:1.5px solid #42a5f5 !important;border-radius:999px !important;cursor:pointer !important;background:transparent !important;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important">🎯 Cycle Count →</button>
-    <span style="font-size:10px !important;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">Tue/Thu/Fri scheduled counts (merging into Stock)</span>
+  <!-- v10.247 Stock-tab cleanup pass — Zac 23:52 EDT "messy looking and
+       a bit ugly. Not intuitive and welcoming." Replaces 4 stacked
+       sections (cycle-count row, mode toggle, SKU card, loc card) with
+       a unified welcoming header + a single, tighter find module.
+       - Header introduces what the tab does + groups all top-level
+         actions in one place
+       - Stats line (populated by renderItems) shows the at-a-glance
+         numbers: SKU count, occupied locations, last count age
+       - Find module: thinner border (1.5px → 1px, neutral gray vs
+         electric blue), tighter padding, mode-chip + search input in
+         one row instead of stacked -->
+  <div id="stockTabHeader" style="margin-bottom:14px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">📋 Stock</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" onclick="switchTab('cycle')" style="padding:8px 12px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid #42a5f5;border-radius:999px;cursor:pointer;background:transparent;color:#42a5f5;-webkit-text-fill-color:#42a5f5">🎯 Cycle Count</button>
+        <button type="button" onclick="openReceiveStock()" style="padding:8px 12px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--green-bright);border-radius:999px;cursor:pointer;background:transparent;color:var(--green-bright);-webkit-text-fill-color:var(--green-bright)">+ Receive</button>
+        <button type="button" onclick="openPrintLocationLabels()" style="padding:8px 12px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--text-dim);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">🖨 Labels</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">Hardware SKUs, bin locations, and cycle counts. Find an item or location below — tap a row to receive stock, adjust qty, or move between bins.</div>
+    <!-- Stats line — populated by renderItems(). Hidden until populated. -->
+    <div id="stockTabStatsLine" style="display:none;font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:8px 12px;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:8px;margin-bottom:10px"></div>
   </div>
 
-  <!-- v10.217 Zac: "find an item section to be a choice between
-       location and item as the starting point". 2-chip toggle picks
-       the search mode; the matching card is shown, the other hidden.
-       Mode persists in localStorage so the next visit remembers. -->
-  <div id="stockFinderToggle" style="display:flex !important;gap:6px !important;margin-bottom:10px !important;background:rgba(0,0,0,.18) !important;padding:4px !important;border-radius:10px !important;border:1px solid var(--border) !important">
-    <button type="button" id="stockFinderModeSku" onclick="setStockFinderMode('sku')" style="flex:1 !important;padding:11px !important;font-family:'Barlow Condensed',Arial,sans-serif !important;font-size:14px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:1px !important;border:none !important;border-radius:8px !important;cursor:pointer !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important">🔍 by SKU</button>
-    <button type="button" id="stockFinderModeLoc" onclick="setStockFinderMode('location')" style="flex:1 !important;padding:11px !important;font-family:'Barlow Condensed',Arial,sans-serif !important;font-size:14px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:1px !important;border:none !important;border-radius:8px !important;cursor:pointer !important;background:transparent !important;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">📍 by Location</button>
-  </div>
+  <!-- v10.247 — Find module: SKU/Location toggle + search input,
+       cleaner visual weight. Mode persists in localStorage. -->
+  <div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:14px;background:rgba(0,0,0,.10)">
+    <div id="stockFinderToggle" style="display:flex !important;gap:6px !important;margin-bottom:10px !important;background:rgba(0,0,0,.22) !important;padding:3px !important;border-radius:8px !important;border:1px solid var(--border) !important">
+      <button type="button" id="stockFinderModeSku" onclick="setStockFinderMode('sku')" style="flex:1 !important;padding:9px !important;font-family:'Barlow Condensed',Arial,sans-serif !important;font-size:13px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:1px !important;border:none !important;border-radius:6px !important;cursor:pointer !important;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important">🔍 by SKU</button>
+      <button type="button" id="stockFinderModeLoc" onclick="setStockFinderMode('location')" style="flex:1 !important;padding:9px !important;font-family:'Barlow Condensed',Arial,sans-serif !important;font-size:13px !important;font-weight:900 !important;text-transform:uppercase !important;letter-spacing:1px !important;border:none !important;border-radius:6px !important;cursor:pointer !important;background:transparent !important;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">📍 by Location</button>
+    </div>
 
-  <!-- BIG SEARCH BAR -->
-  <div id="stockFinderSkuCard" style="background:#fff;border:2px solid #003087;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
-    <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Find an Item</label>
-    <div style="position:relative">
-      <input type="text" id="itemSearchInput" placeholder="Type or scan SKU…"
-        style="width:100%;padding:14px 40px 14px 16px;font-size:18px;font-weight:600;border:2px solid #ccc;border-radius:10px;outline:none;font-family:inherit;-webkit-appearance:none;box-sizing:border-box"
-        autocomplete="off" autocorrect="off" autocapitalize="characters">
-      <button type="button" id="itemSearchClear" onclick="_clearItemSearch_()" aria-label="Clear search"
-        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;border:none;background:#e9ecef;color:#666;font-size:18px;line-height:1;cursor:pointer;padding:0;display:none;align-items:center;justify-content:center">×</button>
+    <!-- BIG SEARCH BAR (SKU mode) -->
+    <div id="stockFinderSkuCard" style="background:#fff;border:1px solid #ccc;border-radius:10px;padding:12px">
+      <div style="position:relative">
+        <input type="text" id="itemSearchInput" placeholder="Type or scan SKU…"
+          style="width:100%;padding:12px 36px 12px 14px;font-size:17px;font-weight:600;border:1.5px solid #bbb;border-radius:8px;outline:none;font-family:inherit;-webkit-appearance:none;box-sizing:border-box"
+          autocomplete="off" autocorrect="off" autocapitalize="characters">
+        <button type="button" id="itemSearchClear" onclick="_clearItemSearch_()" aria-label="Clear search"
+          style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;border:none;background:#e9ecef;color:#666;font-size:18px;line-height:1;cursor:pointer;padding:0;display:none;align-items:center;justify-content:center">×</button>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.4">
+        Scan or type any part of a SKU, product name, or category.
+      </div>
     </div>
-    <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.5">
-      Tip: scan a SKU barcode, or type any part of the SKU or product name. You can also search by category.
-    </div>
-  </div>
 
   <!-- FIND BY LOCATION — first-class search mode (v10.217 toggle).
        v10.221: replaced the keypad rig with two dropdowns (aisle/zone
@@ -1706,6 +1719,8 @@ input::placeholder, textarea::placeholder {
     <!-- Location search results -->
     <div id="itemLocResult" style="margin-top:10px"></div>
   </div>
+  </div>
+  <!-- end v10.247 find-module wrapper -->
 
   <!-- CATEGORY FILTER CHIPS -->
   <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap" id="itemCategoryChips">
@@ -5398,6 +5413,53 @@ function _clearItemSearch_() {
   inp.focus();
 }
 
+// v10.247 — Stock tab stats banner. Renders a one-line summary in
+// #stockTabStatsLine populated by renderItems(). Lightweight aggregation
+// over the in-memory items array — no extra fetches.
+function _updateStockStatsLine_(activeItems) {
+  const line = document.getElementById('stockTabStatsLine');
+  if (!line) return;
+  if (!activeItems || !activeItems.length) {
+    line.style.display = 'none';
+    return;
+  }
+  // Aggregate: SKU count, distinct occupied locations, most recent
+  // updatedAt across all items (proxy for "last count activity").
+  const skuCount = activeItems.length;
+  const occupiedLocs = new Set();
+  let lastTs = 0;
+  activeItems.forEach(it => {
+    (it.locations || []).forEach(l => {
+      if (!l || !l.code) return;
+      const qty = parseFloat(l.qty);
+      if (!isFinite(qty) || qty <= 0) return;
+      occupiedLocs.add(String(l.code).trim().toUpperCase());
+    });
+    // Some entries use legacy _locations[]
+    (it._locations || []).forEach(l => {
+      if (!l || !l.loc) return;
+      const qty = parseFloat(l.qty);
+      if (!isFinite(qty) || qty <= 0) return;
+      occupiedLocs.add(String(l.loc).trim().toUpperCase());
+    });
+    const ts = it.updatedAt ? Date.parse(it.updatedAt) : 0;
+    if (ts && ts > lastTs) lastTs = ts;
+  });
+  let ageStr = '—';
+  if (lastTs) {
+    const ageMs = Date.now() - lastTs;
+    const ageHours = Math.floor(ageMs / (3600 * 1000));
+    if (ageHours < 1) ageStr = 'just now';
+    else if (ageHours < 24) ageStr = ageHours + 'h ago';
+    else ageStr = Math.floor(ageHours / 24) + 'd ago';
+  }
+  line.innerHTML =
+    '<span style="color:var(--green-bright);font-weight:900">' + skuCount + '</span> SKUs · '
+    + '<span style="color:#42a5f5;font-weight:900">' + occupiedLocs.size + '</span> occupied bins · '
+    + 'last update <span style="color:var(--text);font-weight:900">' + ageStr + '</span>';
+  line.style.display = '';
+}
+
 function renderItems() {
   const empty = document.getElementById('itemEmpty');
   const count = document.getElementById('itemCount');
@@ -5425,6 +5487,11 @@ function renderItems() {
   }
 
   const activeItems = items.filter(i => !i.deleted);
+
+  // v10.247 — populate Stock-tab welcoming stats line: SKU count,
+  // occupied locations, latest count age. Helps the tab feel less
+  // empty/abstract per Zac 23:52 "messy and ugly, not welcoming."
+  _updateStockStatsLine_(activeItems);
 
   if (!activeItems.length) {
     if (empty) empty.style.display = 'block';
@@ -15658,7 +15725,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.246"></script>
+<script src="./pack.js?v=10.247"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15667,7 +15734,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.246<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.247<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
