@@ -4197,28 +4197,41 @@ async function _shipConfSkipConfirm_(orderNumber) {
 // Stalled-only filter panel — taps the red "N STALLED" chip in the
 // header. Lists every stalled order grouped by reason so Seth can
 // triage in one sweep.
-async function openStalledList() {
-  const cache = await _ensureScheduleCache_();
-  if (!cache || !cache.days) { showToast('Schedule data unavailable — check connection'); return; }
-  const stalled = [];
-  cache.days.forEach(d => {
-    (d.orders || []).forEach(o => { if (o.stalled) stalled.push(o); });
-  });
-  if (!stalled.length) { showToast('No stalled orders'); return; }
+// v10.243 — stalled popup gets sub-filter chips matching the Schedule
+// view-mode chips (Zac 14:02 EDT "stalled popup should have filter too").
+// Keeps a module-level filter state so re-opening the popup remembers
+// the user's last selection within the session.
+let _stalledPopupFilter = 'all';
 
+function setStalledPopupFilter(key) {
+  _stalledPopupFilter = key || 'all';
+  // Re-render the popup body without recreating the whole overlay so
+  // the user's scroll position survives chip taps.
+  const body = document.getElementById('stalledPopupBody');
+  if (body && body.dataset.allStalledJson) {
+    _renderStalledPopupBody_(JSON.parse(body.dataset.allStalledJson));
+  }
+}
+
+function _renderStalledPopupBody_(stalled) {
+  const body = document.getElementById('stalledPopupBody');
+  if (!body) return;
+  const filter = _stalledPopupFilter || 'all';
+  const matching = filter === 'all'
+    ? stalled
+    : stalled.filter(o => (o.stall_reasons || []).indexOf(filter) !== -1);
   // Group by primary reason for triage clarity.
   const byReason = {};
-  stalled.forEach(o => {
+  matching.forEach(o => {
     const r = (o.stall_reasons || ['other'])[0];
     if (!byReason[r]) byReason[r] = [];
     byReason[r].push(o);
   });
-
-  const ov = document.createElement('div');
-  ov.id = 'stalledListOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  const body = Object.keys(byReason).map(r => {
+  if (!matching.length) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:#9AAAC0;font-size:13px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px">No stalled orders match the <strong>' + esc(filter) + '</strong> filter. Try another chip above.</div>';
+    return;
+  }
+  body.innerHTML = Object.keys(byReason).map(r => {
     const label = SCHEDULE_STALL_DESCRIPTIONS[r] || r;
     return '<div style="margin-bottom:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;color:#ff5252;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">⚠ ' + esc(label) + ' (' + byReason[r].length + ')</div>'
       + byReason[r].map(o => '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,82,82,.06);border-left:3px solid #ff5252;border-radius:6px;font-size:13px;color:#fff;margin-bottom:4px">'
@@ -4229,15 +4242,61 @@ async function openStalledList() {
         + '</div>').join('')
       + '</div>';
   }).join('');
+}
+
+async function openStalledList() {
+  const cache = await _ensureScheduleCache_();
+  if (!cache || !cache.days) { showToast('Schedule data unavailable — check connection'); return; }
+  const stalled = [];
+  cache.days.forEach(d => {
+    (d.orders || []).forEach(o => { if (o.stalled) stalled.push(o); });
+  });
+  if (!stalled.length) { showToast('No stalled orders'); return; }
+
+  // v10.243 — per-reason counts for the filter-chip bar in the header.
+  // Each order can have multiple stall reasons; chips show how many
+  // orders match each reason (not summed — same as the inline view).
+  const reasonCounts = { all: stalled.length, past_ship_date: 0, needs_booking: 0, awaiting_customer_confirm: 0, missing_instructions: 0 };
+  stalled.forEach(o => {
+    (o.stall_reasons || []).forEach(r => { if (reasonCounts[r] != null) reasonCounts[r]++; });
+  });
+  const REASONS = [
+    { key: 'all',                        label: 'Any',             color: '#FF5252' },
+    { key: 'past_ship_date',             label: 'Past Due',        color: '#ff5252' },
+    { key: 'needs_booking',              label: 'Needs Booking',   color: '#FFB300' },
+    { key: 'awaiting_customer_confirm',  label: 'Needs Customer',  color: '#42a5f5' },
+    { key: 'missing_instructions',       label: 'No Instructions', color: '#ab47bc' },
+  ];
+  const chipBar = REASONS.map(r => {
+    const active = r.key === (_stalledPopupFilter || 'all');
+    const n = reasonCounts[r.key] || 0;
+    if (n === 0 && r.key !== 'all') return '';
+    return '<button onclick="setStalledPopupFilter(\'' + r.key + '\')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.4px;cursor:pointer;text-transform:uppercase;border:1px solid ' + r.color + (active ? ';background:' + r.color + ';color:#0a0a0a' : '88;background:transparent;color:' + r.color) + '">'
+      + esc(r.label)
+      + '<span style="font-size:10px;font-weight:900;opacity:.85;background:rgba(0,0,0,' + (active ? '.18' : '0') + ');padding:0 5px;border-radius:999px">' + n + '</span>'
+      + '</button>';
+  }).join(' ');
+
+  const ov = document.createElement('div');
+  ov.id = 'stalledListOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
 
   ov.innerHTML =
     '<div onclick="event.stopPropagation()" style="background:#1a1a1a;color:#fff;width:100%;max-width:680px;max-height:85vh;border-radius:14px 14px 0 0;padding:18px 18px 24px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.6);border-top:2px solid #ff5252">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">⚠ ' + stalled.length + ' Stalled</div><button onclick="document.getElementById(\'stalledListOverlay\').remove()" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;padding:0 4px">✕</button></div>'
-    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:14px">Orders flagged for pipeline review — past ship date, missing booking, missing PDF, or waiting on customer confirmation.</div>'
-    + body
+    + '<div style="font-size:12px;color:#9AAAC0;margin-bottom:10px">Orders flagged for pipeline review — past ship date, missing booking, missing PDF, or waiting on customer confirmation.</div>'
+    // v10.243: filter chips
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;padding:6px 10px;background:rgba(255,82,82,.06);border:1px dashed rgba(255,82,82,.4);border-radius:8px"><span style="font-size:10px;color:#FF5252;font-weight:900;letter-spacing:1px;align-self:center;margin-right:4px">FILTER →</span>' + chipBar + '</div>'
+    + '<div id="stalledPopupBody"></div>'
     + '<button onclick="document.getElementById(\'stalledListOverlay\').remove()" style="width:100%;margin-top:8px;padding:12px;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Close</button>'
     + '</div>';
   document.body.appendChild(ov);
+  // Stash the full stalled list on the body element so chip taps can
+  // re-render without re-fetching the schedule cache.
+  const body = document.getElementById('stalledPopupBody');
+  if (body) body.dataset.allStalledJson = JSON.stringify(stalled);
+  _renderStalledPopupBody_(stalled);
 }
 
 // v10.17 pass 9: Kim's flat "to book" worklist. The calendar shows
