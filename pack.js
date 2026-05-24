@@ -2604,12 +2604,18 @@ async function autoLoadPrePackPdfIfThin_(row) {
   }
 }
 
-// v10.255 — Häfele part-number lead-with helpers for pre-pack rows.
+// v10.255 + v10.256 — Häfele part-number lead-with helpers for pre-pack rows.
 // Picker can't ID an item from "overlay" alone — the Häfele# is what's
-// printed on the bag (e.g. 329.17.552). Extract it from sku OR name and
-// lead with it when present; show the cleaned descriptive text as subtitle.
+// printed on the bag (e.g. 329.17.552).
+//
+// v10.256 (Zac 2026-05-24 13:19 EDT) — server now supplies `l.hafele_part`
+// via HardwareHafeleMap tab + inline HAFELE_SKU_MAP + embedded regex,
+// so we prefer that when present. Client-side regex stays as a fallback
+// for orders that pre-date the enrichment.
 const _HAFELE_PART_RE_ = /([0-9]{3}\.[0-9]{2}\.[0-9]{3})/;
-function _prePackDisplayTitle_(sku, name) {
+function _prePackDisplayTitle_(sku, name, serverHafele) {
+  const sv = String(serverHafele || '').trim();
+  if (sv) return sv;
   const both = String(sku || '') + ' ' + String(name || '');
   const m = both.match(_HAFELE_PART_RE_);
   return m ? m[1] : (String(sku || '').trim() || String(name || '').trim());
@@ -2644,9 +2650,10 @@ function paintPrePackDetail_(row) {
     const done = scanned >= qty;
     const accent = done ? '#00e676' : '#ff9800';
     // v10.255 — lead with Häfele part # (NNN.NN.NNN) when present in either sku or name.
-    // Picker can't ID an item from "overlay" alone (Zac 09:32 EDT bug report); the
-    // Häfele# is what's printed on the bag. Fall back to SKU when no Häfele# found.
-    const lead = _prePackDisplayTitle_(sku, l.name);
+    // v10.256 — server-supplied `l.hafele_part` wins when set (tab + inline map lookup);
+    // client regex stays as fallback. Picker can't ID an item from "overlay" alone (Zac
+    // 09:32 EDT bug report); the Häfele# is what's printed on the bag.
+    const lead = _prePackDisplayTitle_(sku, l.name, l.hafele_part);
     const sub = _prePackDisplaySubtitle_(sku, l.name, lead);
     return `<div style="display:flex;align-items:center;gap:12px;padding:14px;background:${accent}14;border:1.5px solid ${accent}55;border-radius:10px">
       <div style="flex:0 0 70px;text-align:center;cursor:pointer;padding:4px;border-radius:8px;background:rgba(255,255,255,.04)" onclick="promptPrePackCount('${esc(row.order_number)}','${esc(sku)}',${scanned},${qty})" title="Tap to set the count directly (e.g. 40 screws)">
