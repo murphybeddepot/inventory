@@ -6276,6 +6276,175 @@ async function _skuGcodeMapFormSubmit_() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// v10.258 — Häfele Map panel (one-touch — Zac 2026-05-24 14:12 EDT)
+// ══════════════════════════════════════════════════════════════════
+//
+// "Make it a one-touch setup for me not all that stuff."
+// Single button → panel opens → auto-seeds if tab is empty → shows
+// current rows + BOM-gap list → tap a row to add/edit Häfele#.
+// No editor trips, no curl, no JSON payloads.
+
+let _hafelePanelLoading = false;
+
+async function openHafeleMapPanel() {
+  const prior = document.getElementById('hafeleMapOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'hafeleMapOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.className = 'keep-dark-text';
+  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px 14px 0 0;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;padding:18px';
+  body.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading Häfele map…</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+  await _hafelePanelLoad_(body);
+}
+
+async function _hafelePanelLoad_(body) {
+  if (_hafelePanelLoading) return;
+  _hafelePanelLoading = true;
+  try {
+    let list = await groundApi('hardwareHafeleMapList');
+    // Auto-seed if tab is empty (truly one-touch — no editor trip needed).
+    if (list && list.ok && (!list.rows || list.rows.length === 0)) {
+      body.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important">Seeding 25 patterns from inline map…</div>';
+      const seed = await groundApi('runSeedHardwareHafeleMap');
+      if (seed && seed.ok) list = await groundApi('hardwareHafeleMapList');
+    }
+    const gaps = await groundApi('hardwareHafeleMapListGaps', { limit: 500 });
+    _hafelePanelRender_(body, list, gaps);
+  } catch (err) {
+    body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Load failed: ' + esc(err.message) + '<br><br><button onclick="openHafeleMapPanel()" class="amp-btn" style="padding:10px 18px">Retry</button></div>';
+  } finally {
+    _hafelePanelLoading = false;
+  }
+}
+
+function _hafelePanelRender_(body, list, gaps) {
+  const rows = (list && list.rows) || [];
+  const gapList = (gaps && gaps.gaps) || [];
+  const totalBom = (gaps && gaps.total_unique_bom_elements) || 0;
+  const coverage = totalBom > 0 ? Math.round(100 * (totalBom - gapList.length) / totalBom) : 100;
+  let html = '';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">';
+  html += '  <div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🔩 Häfele Map</div>';
+  html += '  <button onclick="document.getElementById(\'hafeleMapOverlay\').remove()" class="amp-btn" style="font-size:13px;padding:6px 14px">✕ Close</button>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
+  html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:#E8F5E9 !important;border:1.5px solid #00C853 !important;border-radius:10px"><div style="font-size:11px;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Mapped</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important">' + rows.length + '</div></div>';
+  html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:' + (gapList.length === 0 ? '#E8F5E9' : '#FFEBEE') + ' !important;border:1.5px solid ' + (gapList.length === 0 ? '#00C853' : '#EF5350') + ' !important;border-radius:10px"><div style="font-size:11px;color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important;-webkit-text-fill-color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Unmapped</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important;-webkit-text-fill-color:' + (gapList.length === 0 ? '#1B5E20' : '#B71C1C') + ' !important">' + gapList.length + '</div></div>';
+  html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:#E3F2FD !important;border:1.5px solid #1976D2 !important;border-radius:10px"><div style="font-size:11px;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Coverage</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:#0D47A1 !important;-webkit-text-fill-color:#0D47A1 !important">' + coverage + '%</div></div>';
+  html += '</div>';
+  html += '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:14px;line-height:1.5">Resolves <strong>every BOM element</strong> to a Häfele part #. Pre-Pack rows lead with this number instead of the descriptive name (e.g. \"329.17.552\" instead of \"OVERLAY HINGE\") so the picker can find the bag without translating.</div>';
+  // Gaps section first — these are the call-to-action rows.
+  if (gapList.length > 0) {
+    html += '<div style="margin-bottom:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:16px !important;font-weight:900 !important;color:#B71C1C !important;-webkit-text-fill-color:#B71C1C !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">⚠ ' + gapList.length + ' BOM element' + (gapList.length === 1 ? '' : 's') + ' need a Häfele#</div>';
+    gapList.slice(0, 50).forEach(g => {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#FFF5F5 !important;border:1px solid #FFCDD2 !important;border-radius:8px;margin-bottom:6px">';
+      html += '  <div style="flex:1;min-width:0"><div style="font-family:\'JetBrains Mono\',monospace !important;font-size:13px !important;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(g.element_sku) + '</div>' + (g.element_name ? '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(g.element_name) + '</div>' : '') + '</div>';
+      html += '  <button onclick="_openHafeleFormForGap_(\'' + esc(g.element_sku).replace(/'/g,'\\\'') + '\')" class="amp-btn go" style="padding:6px 14px;font-size:12px;font-weight:900">+ Add Häfele#</button>';
+      html += '</div>';
+    });
+    if (gapList.length > 50) {
+      html += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-align:center;padding:6px">Showing first 50 of ' + gapList.length + '. Add some, refresh, see the rest.</div>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div style="padding:14px;background:#E8F5E9 !important;border:1.5px solid #00C853 !important;border-radius:10px;margin-bottom:14px;font-size:14px;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important;font-weight:700;text-align:center">✓ Every BOM element resolves to a Häfele#.</div>';
+  }
+  // Mapped section.
+  html += '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:16px !important;font-weight:900 !important;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">✓ Currently mapped (' + rows.length + ')</div>';
+  rows.slice().sort((a, b) => String(a.pattern || '').localeCompare(String(b.pattern || ''))).forEach(r => {
+    const isInactive = String(r.active || '').toUpperCase() === 'FALSE';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:#fff !important;border:1px solid #ddd !important;border-radius:8px;margin-bottom:4px;opacity:' + (isInactive ? '.5' : '1') + '">';
+    html += '  <div style="flex:1;min-width:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+    html += '    <div style="font-family:\'JetBrains Mono\',monospace !important;font-size:13px !important;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(r.pattern) + '</div>';
+    html += '    <div style="font-family:\'JetBrains Mono\',monospace !important;font-size:13px !important;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;font-weight:900">→ ' + esc(r.hafele_part) + '</div>';
+    if (r.source) html += '    <div style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;text-transform:uppercase;letter-spacing:.5px">' + esc(r.source) + '</div>';
+    html += '  </div>';
+    html += '  <button onclick="_openHafeleFormEdit_(' + JSON.stringify(JSON.stringify(r)) + ')" class="amp-btn" style="padding:5px 10px;font-size:11px">✎</button>';
+    html += '</div>';
+  });
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function _openHafeleFormForGap_(elementSku) {
+  _openHafeleForm_({ pattern: elementSku, hafele_part: '', source: 'manual', isNew: true });
+}
+
+function _openHafeleFormEdit_(rowJsonStr) {
+  let row = {};
+  try { row = JSON.parse(rowJsonStr); } catch (e) {}
+  _openHafeleForm_({
+    pattern: row.pattern || '',
+    hafele_part: row.hafele_part || '',
+    description: row.description || '',
+    notes: row.notes || '',
+    active: String(row.active || 'TRUE').toUpperCase() !== 'FALSE',
+    isNew: false,
+  });
+}
+
+function _openHafeleForm_(opts) {
+  const prior = document.getElementById('hafeleFormOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'hafeleFormOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10001;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.className = 'keep-dark-text';
+  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;width:100%;max-width:480px;padding:20px';
+  body.innerHTML =
+    '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">' + (opts.isNew ? '+ Add Häfele#' : '✎ Edit mapping') + '</div>'
+  + '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:700;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">BOM Pattern / Element SKU</label>'
+  + '  <input id="hafeleFormPattern" type="text" value="' + esc(opts.pattern || '') + '" style="width:100%;padding:10px;font-family:\'JetBrains Mono\',monospace !important;font-size:14px;background:#f5f5f5 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc !important;border-radius:6px;outline:none">'
+  + '  <div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">Case-insensitive substring match against BOM lines (sku + name blob).</div></div>'
+  + '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:700;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Häfele Part #</label>'
+  + '  <input id="hafeleFormPart" type="text" value="' + esc(opts.hafele_part || '') + '" placeholder="329.17.552" style="width:100%;padding:10px;font-family:\'JetBrains Mono\',monospace !important;font-size:16px;font-weight:700;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:2px solid #1A4FB0 !important;border-radius:6px;outline:none">'
+  + '  <div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">Format must be <code>NNN.NN.NNN</code> (3-2-3 digits, dot-separated).</div></div>'
+  + '<div style="margin-bottom:14px"><label style="display:block;font-size:11px;font-weight:700;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Notes (optional)</label>'
+  + '  <input id="hafeleFormNotes" type="text" value="' + esc(opts.notes || '') + '" placeholder="e.g. silver finish only" style="width:100%;padding:10px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px;outline:none"></div>'
+  + (opts.isNew ? '' : '<div style="margin-bottom:14px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;cursor:pointer"><input id="hafeleFormActive" type="checkbox" ' + (opts.active ? 'checked' : '') + ' style="width:18px;height:18px"><span>Active (uncheck to disable without deleting)</span></label></div>')
+  + '<div style="display:flex;gap:10px;justify-content:flex-end">'
+  + '  <button onclick="document.getElementById(\'hafeleFormOverlay\').remove()" class="amp-btn" style="padding:10px 18px;font-size:13px">Cancel</button>'
+  + '  <button onclick="_hafeleFormSubmit_()" class="amp-btn go" style="padding:10px 18px;font-size:13px;font-weight:900">' + (opts.isNew ? 'Add' : 'Save') + '</button>'
+  + '</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+  setTimeout(() => { const i = document.getElementById('hafeleFormPart'); if (i) i.focus(); }, 100);
+}
+
+async function _hafeleFormSubmit_() {
+  const pattern = ((document.getElementById('hafeleFormPattern') || {}).value || '').trim();
+  const hafele = ((document.getElementById('hafeleFormPart') || {}).value || '').trim();
+  const notes = ((document.getElementById('hafeleFormNotes') || {}).value || '').trim();
+  const activeBox = document.getElementById('hafeleFormActive');
+  const active = activeBox ? activeBox.checked : true;
+  if (!pattern) { showToast('Pattern required'); return; }
+  if (!/^[0-9]{3}\.[0-9]{2}\.[0-9]{3}$/.test(hafele)) {
+    showToast('Häfele# must be NNN.NN.NNN format'); return;
+  }
+  try {
+    const res = await groundApi('hardwareHafeleMapUpsert', {
+      pattern: pattern,
+      hafele_part: hafele,
+      notes: notes,
+      active: active ? 'TRUE' : 'FALSE',
+    });
+    if (!res || !res.ok) { showToast('Save failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ ' + res.action + ' ' + pattern + ' → ' + hafele);
+    document.getElementById('hafeleFormOverlay').remove();
+    openHafeleMapPanel();
+  } catch (err) {
+    showToast('Save error: ' + err.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // v10.230 — Customer Ready shadow-log inspector (Phase 1 UI)
 // ══════════════════════════════════════════════════════════════════
 //
