@@ -6590,9 +6590,13 @@ async function openRemakesPanel(statusFilter) {
   ov.innerHTML =
     '<div onclick="event.stopPropagation()" style="background:#fff;width:100%;max-width:720px;max-height:92vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">'
     + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
-    + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;gap:10px;flex-wrap:wrap">'
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">🔧 Remakes</div>'
-    +   '<button onclick="document.getElementById(\'remakesOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#444;cursor:pointer;padding:0 4px" aria-label="Close Remakes panel">✕</button>'
+    // v10.245 Phase C — jump button to Damage Log panel (the two are merging).
+    +   '<div style="display:flex;gap:6px;align-items:center">'
+    +     '<button onclick="document.getElementById(\'remakesOverlay\').remove();openDamageLog()" title="Switch to Damage Log panel" style="background:#fff !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:1.5px solid #8B0000 !important;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">🚫 Damage Log →</button>'
+    +     '<button onclick="document.getElementById(\'remakesOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#444;cursor:pointer;padding:0 4px" aria-label="Close Remakes panel">✕</button>'
+    +   '</div>'
     + '</div>'
     + '<div style="font-size:12px;color:#666;line-height:1.4;margin-bottom:12px">Replacement parts to ship to customers. Creating one emails the warehouse and logs to the Remakes tab.</div>'
     + '<div style="display:flex;gap:8px;margin-bottom:8px">'
