@@ -5953,6 +5953,165 @@ async function _pickListResolveVariant_() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// v10.254 — Manufacturing Phase 2 status board (warehouse + office)
+// ══════════════════════════════════════════════════════════════════
+//
+// Per docs/MANUFACTURING.md Phase 4 plan. Hijacks the PWA when
+// ?board=warehouse or ?board=office is in the URL. Renders a
+// full-screen kanban of the 5-stage CNC pipeline. Auto-refreshes
+// every 30s. Designed for a wall-mounted TV or kiosk — big fonts,
+// no PWA chrome, just the board.
+//
+// Two views (toggled by ?board= value):
+//   warehouse — 5-column kanban (CNC · Denester · 6-Drill ·
+//               Edgebander · Stacker). Each column shows currently-
+//               running job + queued jobs for that stage.
+//   office    — pipeline overview: today's jobs by status, total
+//               throughput, blocked jobs needing attention. Less
+//               operator-focused, more "is the line moving."
+
+let _mfgBoardMode = '';
+let _mfgBoardRefreshTimer = null;
+
+const MFG_BOARD_STAGES = [
+  { key: 'queued',     label: 'Queued',     color: '#888888' },
+  { key: 'cnc',        label: 'CNC',        color: '#1A4FB0' },
+  { key: 'denester',   label: 'Denester',   color: '#42a5f5' },
+  { key: 'drill_6',    label: '6-Drill',    color: '#9C27B0' },
+  { key: 'edgebander', label: 'Edgebander', color: '#FF6B00' },
+  { key: 'stacker',    label: 'Stacker',    color: '#00C853' },
+  { key: 'done',       label: 'Done',       color: '#1A5C1A' },
+];
+
+function _enterManufacturingBoardMode_(mode) {
+  _mfgBoardMode = (mode === 'office') ? 'office' : 'warehouse';
+  document.title = (_mfgBoardMode === 'office' ? 'Office' : 'Warehouse') + ' Board — Bedrock';
+  // Hide all PWA chrome: tabs, nav, panels, version pill.
+  document.body.style.background = '#0a0a0a';
+  document.body.style.color = '#fff';
+  document.body.style.fontFamily = "'Barlow Condensed', Arial, sans-serif";
+  document.body.style.overflow = 'hidden';
+  // Wipe everything in <body> except the version pill (still useful)
+  // and inject the board container.
+  const versionPill = document.getElementById('versionPill');
+  document.body.innerHTML = '';
+  if (versionPill) {
+    document.body.appendChild(versionPill);
+    versionPill.style.opacity = '0.35';
+  }
+  const root = document.createElement('div');
+  root.id = 'mfgBoardRoot';
+  root.style.cssText = 'position:fixed;inset:0;background:#0a0a0a;color:#fff;font-family:\'Barlow Condensed\',Arial,sans-serif;padding:16px;overflow:hidden;display:flex;flex-direction:column';
+  document.body.appendChild(root);
+  _renderManufacturingBoard_();
+  // Auto-refresh every 30s. Wall-display use case.
+  _mfgBoardRefreshTimer = setInterval(_renderManufacturingBoard_, 30000);
+}
+
+async function _renderManufacturingBoard_() {
+  const root = document.getElementById('mfgBoardRoot');
+  if (!root) return;
+  let res;
+  try { res = await groundApi('manufacturingListJobs', { limit: 200 }); }
+  catch (err) {
+    root.innerHTML = '<div style="margin:auto;color:#FF5252;font-size:36px;font-weight:900">Board fetch failed: ' + esc(err.message) + '</div>';
+    return;
+  }
+  if (!res || !res.ok) {
+    root.innerHTML = '<div style="margin:auto;color:#FF5252;font-size:36px;font-weight:900">Server error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+  const jobs = res.jobs || [];
+  // Bucket by stage. Jobs with no stage / 'queued' / awaiting status go in the Queued bucket.
+  const byStage = {};
+  MFG_BOARD_STAGES.forEach(s => { byStage[s.key] = []; });
+  jobs.forEach(j => {
+    let stage = String(j.stage || 'queued').toLowerCase();
+    if (String(j.status || '').toLowerCase() === 'done') stage = 'done';
+    else if (!stage || stage === '' || stage === 'queued') stage = 'queued';
+    if (!byStage[stage]) byStage[stage] = [];
+    byStage[stage].push(j);
+  });
+  const clock = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  const headerCol = '<div style="flex:0 0 auto;display:flex;justify-content:space-between;align-items:baseline;padding-bottom:14px;border-bottom:2px solid #222;margin-bottom:14px">'
+    + '<div style="font-size:42px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#fff">🏭 ' + (_mfgBoardMode === 'office' ? 'Office Board' : 'Warehouse Board') + '</div>'
+    + '<div style="font-size:14px;color:#9AAAC0;font-weight:700;letter-spacing:1px;text-transform:uppercase">' + jobs.length + ' total · clock ' + clock + ' · refresh 30s</div>'
+    + '</div>';
+  let bodyHtml = '';
+  if (_mfgBoardMode === 'office') {
+    bodyHtml = _renderMfgOfficeBoard_(jobs, byStage);
+  } else {
+    bodyHtml = _renderMfgWarehouseBoard_(byStage);
+  }
+  root.innerHTML = headerCol + bodyHtml;
+}
+
+function _renderMfgWarehouseBoard_(byStage) {
+  // 7-column horizontal scroller — Queued + 5 active stages + Done.
+  // Each column: title + count + scrollable job-card list.
+  return '<div style="flex:1;display:grid;grid-template-columns:repeat(' + MFG_BOARD_STAGES.length + ', 1fr);gap:10px;min-height:0">'
+    + MFG_BOARD_STAGES.map(s => {
+        const jobs = byStage[s.key] || [];
+        return '<div style="display:flex;flex-direction:column;background:#15181F;border:2px solid #222;border-top:6px solid ' + s.color + ';border-radius:10px;min-height:0;overflow:hidden">'
+          + '<div style="padding:12px 14px;background:#1A1F28;border-bottom:1px solid #222">'
+          +   '<div style="font-size:22px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:' + s.color + '">' + s.label + '</div>'
+          +   '<div style="font-size:32px;font-weight:900;color:#fff;line-height:1">' + jobs.length + '</div>'
+          + '</div>'
+          + '<div style="flex:1;overflow-y:auto;padding:8px">' + jobs.map(j => _mfgJobCardBoard_(j, s.color)).join('') + '</div>'
+          + '</div>';
+      }).join('')
+    + '</div>';
+}
+
+function _mfgJobCardBoard_(j, accentColor) {
+  const orderNum = String(j.order_number || j.job_id || '?');
+  const sku = String(j.sku || '').slice(0, 24);
+  const cust = String(j.customer_name || '').split(' ')[0] || '—';
+  return '<div style="background:#0F1419;border:1px solid #2A3340;border-left:4px solid ' + accentColor + ';border-radius:6px;padding:8px 10px;margin-bottom:6px">'
+    + '<div style="font-size:24px;font-weight:900;color:#fff;font-family:\'JetBrains Mono\',monospace;letter-spacing:1px">#' + esc(orderNum) + '</div>'
+    + '<div style="font-size:11px;color:#9AAAC0;font-weight:700;margin-top:2px;text-transform:uppercase;letter-spacing:.5px">' + esc(cust) + (sku ? ' · ' + esc(sku) : '') + '</div>'
+    + '</div>';
+}
+
+function _renderMfgOfficeBoard_(jobs, byStage) {
+  // Office board: high-level metrics — counts per status bucket,
+  // today's throughput, blocked jobs needing attention.
+  const today = new Date().toISOString().slice(0, 10);
+  const finishedToday = jobs.filter(j => String(j.finished_at || '').slice(0, 10) === today).length;
+  const startedToday = jobs.filter(j => String(j.started_at || '').slice(0, 10) === today).length;
+  const blocked = jobs.filter(j => {
+    const s = String(j.status || '').toLowerCase();
+    return s === 'awaiting_designer' || s === 'awaiting_ops';
+  });
+  const inProgress = (byStage.cnc || []).concat(byStage.denester || []).concat(byStage.drill_6 || []).concat(byStage.edgebander || []).concat(byStage.stacker || []);
+  return '<div style="flex:1;display:flex;flex-direction:column;gap:14px;min-height:0">'
+    + '<div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:14px">'
+    +   _mfgOfficeStatCard_('Started Today', startedToday, '#1A4FB0')
+    +   _mfgOfficeStatCard_('Finished Today', finishedToday, '#00C853')
+    +   _mfgOfficeStatCard_('In Pipeline', inProgress.length, '#9C27B0')
+    +   _mfgOfficeStatCard_('Blocked', blocked.length, blocked.length > 0 ? '#FF5252' : '#666')
+    + '</div>'
+    + '<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:0">'
+    +   '<div style="background:#15181F;border:2px solid #222;border-radius:10px;padding:14px;overflow:hidden;display:flex;flex-direction:column">'
+    +     '<div style="font-size:20px;font-weight:900;color:#9AAAC0;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">⚠ Blocked (' + blocked.length + ')</div>'
+    +     '<div style="flex:1;overflow-y:auto">' + (blocked.length ? blocked.map(j => _mfgJobCardBoard_(j, '#FF5252')).join('') : '<div style="color:#666;font-size:16px">No blocked jobs.</div>') + '</div>'
+    +   '</div>'
+    +   '<div style="background:#15181F;border:2px solid #222;border-radius:10px;padding:14px;overflow:hidden;display:flex;flex-direction:column">'
+    +     '<div style="font-size:20px;font-weight:900;color:#9AAAC0;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">🔧 In Pipeline (' + inProgress.length + ')</div>'
+    +     '<div style="flex:1;overflow-y:auto">' + (inProgress.length ? inProgress.map(j => _mfgJobCardBoard_(j, '#9C27B0')).join('') : '<div style="color:#666;font-size:16px">Nothing running.</div>') + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function _mfgOfficeStatCard_(label, value, color) {
+  return '<div style="background:#15181F;border:2px solid #222;border-top:6px solid ' + color + ';border-radius:10px;padding:18px;text-align:center">'
+    + '<div style="font-size:14px;color:#9AAAC0;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">' + esc(label) + '</div>'
+    + '<div style="font-size:72px;font-weight:900;color:' + color + ';line-height:1">' + value + '</div>'
+    + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════
 // v10.249 — SkuGcodeMap authoring panel (Manufacturing Phase 1 UI)
 // ══════════════════════════════════════════════════════════════════
 //
