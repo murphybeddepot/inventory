@@ -3222,6 +3222,12 @@ function setScheduleStallReasonFilter(r) {
 }
 
 const SCHEDULE_VIEW_MODES = [
+  // v10.268 Phase 2a — Today view (Zac 2026-05-24 21:46 EDT):
+  // \"schedule has a today view with pack today, pack tomorrow
+  // (pre pack today), ship today.\" Replaces 'all' as default
+  // for daily warehouse rhythm. Renders 3 sections from
+  // existing payload (no extra fetch).
+  { key: 'today',            label: '📅 Today',         color: '#00E676' },
   { key: 'all',              label: 'All',              color: '#9AAAC0' },
   { key: 'needs_booking',    label: 'Needs Booking',    color: '#FFB300' },
   { key: 'awaiting_customer',label: 'Awaiting Customer', color: '#3DBEFF' },
@@ -3276,8 +3282,43 @@ function _scheduleOrderInShipConfInbox_(o) {
   return diffDays <= 20; // includes past-due (negative diff)
 }
 
+// v10.268 Phase 2a — bucket an order into one of:
+//   'ship_today'    ship_date == today (any status)
+//   'pack_today'    ship_date == today, gcal lacks 🅟 (still needs pack)
+//   'prepack_today' ship_date == tomorrow (we pre-pack today for tmrw ship),
+//                   gcal lacks 🅑
+//   null            doesn't belong to any "today" cohort
+//
+// Today = local NY date. Tomorrow = today + 1 calendar day (not
+// business day — the Pre-Pack rhythm follows the actual ship date
+// since pack happens day-of for cabinet/freight). If Zac later
+// confirms a different ship_date↔pack_date mapping, we just edit
+// these date-deltas in one place.
+function _scheduleTodayBucket_(o) {
+  if (!o || !o.ship_date) return null;
+  const tz = new Date();
+  const todayIso = tz.toISOString().slice(0, 10);
+  const tmrw = new Date(tz.getTime() + 86400000);
+  const tmrwIso = tmrw.toISOString().slice(0, 10);
+  const ship = String(o.ship_date).slice(0, 10);
+  if (ship === todayIso) {
+    // Ship today; sub-bucket on whether still needs pack.
+    if (!o.cal_p) return 'pack_today';
+    return 'ship_today';
+  }
+  if (ship === tmrwIso && !o.cal_b) return 'prepack_today';
+  return null;
+}
+
 function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
+  if (mode === 'today') {
+    // v10.268 Phase 2a — union of 3 today buckets so this single
+    // mode flag still drives the orders-per-day filter. The
+    // renderer downstream splits them into Ship Today / Pack Today
+    // / Pre-Pack Today (= pack tomorrow's prep).
+    return !!_scheduleTodayBucket_(o);
+  }
   if (mode === 'stalled') {
     if (!o.stalled) return false;
     // v10.220 Seth pain #2: optional secondary filter by single
@@ -3450,6 +3491,42 @@ function _scheduleOrderMatchesFind_(o) {
 // dropped). Both compose: find narrows within the active view mode.
 function _applyScheduleViewFilter_(payload) {
   if (_scheduleViewMode === 'all' && !_scheduleFindQuery) return payload;
+  // v10.268 Phase 2a — Today view collapses per-date days into 3
+  // virtual "days" labeled by bucket so the existing day-renderer
+  // produces 3 sections (Ship Today / Pack Today / Pre-Pack Today).
+  // Date math + filtering already done in _scheduleTodayBucket_.
+  if (_scheduleViewMode === 'today') {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const buckets = { ship_today: [], pack_today: [], prepack_today: [] };
+    (payload.days || []).forEach(d => (d.orders || []).forEach(o => {
+      if (!_scheduleOrderMatchesFind_(o)) return;
+      const b = _scheduleTodayBucket_(o);
+      if (b && buckets[b]) buckets[b].push(o);
+    }));
+    const order = [
+      { key: 'ship_today',    label: '📦 Ship Today',                hint: 'scheduled to ship today (cal_p preferred)' },
+      { key: 'pack_today',    label: '🔨 Pack Today',                hint: 'shipping today but not yet 🅟 packed' },
+      { key: 'prepack_today', label: '🔧 Pre-Pack Today (Pack Tomorrow)', hint: 'shipping tomorrow, not yet 🅑 boxed' },
+    ];
+    const synthDays = order
+      .filter(b => buckets[b.key].length)
+      .map(b => {
+        const orders = buckets[b.key];
+        return {
+          date: todayIso,
+          label: b.label,
+          hint: b.hint,
+          today_bucket: b.key,
+          orders: orders,
+          total: orders.length,
+          freight_count: orders.filter(o => o.source === 'cabinet').length,
+          ground_count: orders.filter(o => o.source === 'ground').length,
+          mattress_count: orders.filter(o => o.source === 'mattress').length,
+          counts: orders.reduce((acc, o) => { const k = o.carrier_key || 'unassigned'; acc[k] = (acc[k] || 0) + 1; return acc; }, {}),
+        };
+      });
+    return Object.assign({}, payload, { days: synthDays });
+  }
   const days = (payload.days || []).map(d => {
     const orders = (d.orders || []).filter(o => _scheduleOrderMatchesMode_(o, _scheduleViewMode) && _scheduleOrderMatchesFind_(o));
     if (!orders.length) return null;
@@ -3472,9 +3549,10 @@ function _renderScheduleFilterBar_(payload) {
   // on the chip. Computed client-side from _shipConfStatusMap +
   // arrival window (same heuristic as Phase 0c chip's queued/past_due
   // detection) so the count works regardless of view mode.
-  const counts = { all: 0, needs_booking: 0, awaiting_customer: 0, stalled: 0, shipconf_inbox: 0 };
+  const counts = { all: 0, today: 0, needs_booking: 0, awaiting_customer: 0, stalled: 0, shipconf_inbox: 0 };
   (payload.days || []).forEach(d => (d.orders || []).forEach(o => {
     counts.all++;
+    if (_scheduleOrderMatchesMode_(o, 'today')) counts.today++;
     if (_scheduleOrderMatchesMode_(o, 'needs_booking')) counts.needs_booking++;
     if (_scheduleOrderMatchesMode_(o, 'awaiting_customer')) counts.awaiting_customer++;
     if (_scheduleOrderMatchesMode_(o, 'stalled')) counts.stalled++;
@@ -7933,12 +8011,19 @@ function paintScheduleMobileList_(payload, listEl) {
       ? '<span style="margin-left:8px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.5px;background:' + (freightBooked >= freightOrders.length ? 'rgba(0,200,83,.18);color:#00e676' : 'rgba(255,179,0,.18);color:#FFB300') + '" title="freight orders booked / total">' + freightBooked + '/' + freightOrders.length + ' booked</span>'
       : '';
 
-    return '<div id="sched-day-' + d.date + '" style="padding:12px 14px;background:' + bgAccent + ';border:1px solid ' + accent + '55;border-radius:12px;' + dimStyle + '">'
+    // v10.268 Phase 2a — Today view synthesizes 3 buckets labeled
+    // "Ship Today" / "Pack Today" / "Pre-Pack Today" sharing the
+    // same date. Show the bucket label instead of date prefix.
+    const headerLeft = d.today_bucket
+      ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:' + accent + ';letter-spacing:1px;text-transform:uppercase">' + esc(d.label || '') + '</div>'
+        + (d.hint ? '<div style="font-size:10px;color:var(--text-dim);letter-spacing:.5px">' + esc(d.hint) + '</div>' : '')
+      : '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;color:' + accent + '">' + esc(d.date.slice(5)) + '</div>'
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">' + _scheduleDayName_(d.date) + '</div>';
+    return '<div id="sched-day-' + d.date + (d.today_bucket ? '-' + d.today_bucket : '') + '" style="padding:12px 14px;background:' + bgAccent + ';border:1px solid ' + accent + '55;border-radius:12px;' + dimStyle + '">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
       +   '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">'
-      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;color:' + accent + '">' + esc(d.date.slice(5)) + '</div>'
-      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">' + _scheduleDayName_(d.date) + '</div>'
-      +     todayChip + bookRollup
+      +     headerLeft
+      +     (d.today_bucket ? '' : (todayChip + bookRollup))
       +   '</div>'
       +   '<div style="font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:.5px">'
       +     d.total + ' · ' + (d.freight_count ? d.freight_count + ' freight ' : '') + (d.mattress_count ? '· ' + d.mattress_count + ' mattress ' : '') + (d.ground_count ? '· ' + d.ground_count + ' ground' : '')
