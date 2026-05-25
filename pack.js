@@ -463,6 +463,7 @@ function renderPackCard_(r) {
         ${hwChip}
         ${r.instructions_printed_at ? '<span style="color:#42a5f5;font-weight:700" title="Printed '+esc(r.instructions_printed_at)+'">· 🖨 Printed</span>' : ''}
         ${r.picked_up_at ? '<span style="color:#42a5f5;font-weight:700" title="Picked up by '+esc(String(r.picked_up_by || '?'))+' at '+esc(String(r.picked_up_at).slice(0,16))+'">· 🚛 Picked up</span>' : ''}
+        ${(r.picked_up_at || String(r.status || '').toLowerCase() === 'shipped') ? '<button onclick="event.stopPropagation();openTrackingEmailComposer(\''+esc(r.order_number)+'\')" title="Compose tracking email for customer" style="margin-left:6px;padding:2px 8px;background:#fff;color:#003087;border:1px solid #003087;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">📧 Tracking email</button>' : ''}
         <span style="margin-left:auto;padding:3px 10px;font-size:12px;font-weight:900;letter-spacing:1.2px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
         ${stateLine ? '<span style="flex-basis:100%;color:'+(accent||'var(--text-dim)')+';font-weight:700;margin-top:4px;font-size:13px;letter-spacing:1px">'+esc(stateLine)+'</span>' : ''}
       </div>
@@ -6719,6 +6720,128 @@ function _renderGcalPipelinePanel_(body, res) {
   });
   body.innerHTML = html;
 }
+
+// ══════════════════════════════════════════════════════════════════
+// v10.278 — Tracking-email composer modal (Phase 4 client)
+// ══════════════════════════════════════════════════════════════════
+//
+// Composes a tracking-email preview from the v10.275 TrackingEmail
+// server. Reuses the same overall pattern as the Häfele Map +
+// Gcal Pipeline panels: white modal wrapped in keep-dark-text.
+//
+// Trigger paths:
+//   • Pack card detail "📧 Send Tracking Email" button (added next)
+//   • URL param ?openTracking=<orderNumber> (deep-link from the
+//     v10.271 picked-up Slack post)
+
+async function openTrackingEmailComposer(orderNumber, prefillCtx) {
+  const prior = document.getElementById('trackEmailOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'trackEmailOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10001;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.className = 'keep-dark-text';
+  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;padding:18px';
+  body.innerHTML = '<div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading tracking-email preview…</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+
+  // Build ctx — caller-supplied prefill wins, then PackingQueue row
+  // from cache if it's the Pack tab, then a minimal shell.
+  const cached = (_packQueueCache || []).find(r => String(r.order_number) === String(orderNumber)) || {};
+  const ctx = Object.assign({
+    order_number: orderNumber,
+    customer_name: cached.customer_name || '',
+    carrier: cached.carrier || '',
+    tracking_number: cached.tracking_number || '',
+    fm_service: cached.fm_service || '',
+    fm_agent_name: cached.fm_agent_name || '',
+    fm_agent_phone: cached.fm_agent_phone || '',
+    recipient: cached.customer_email || '',
+  }, prefillCtx || {});
+
+  try {
+    const res = await groundApi('trackingEmailPreview', { orderCtx: ctx });
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Preview failed: ' + esc((res && res.error) || 'unknown') + '<br><br><button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="padding:10px 18px">Close</button></div>';
+      return;
+    }
+    _renderTrackingEmailComposer_(body, res, ctx);
+  } catch (err) {
+    body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Error: ' + esc(err.message) + '<br><br><button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="padding:10px 18px">Close</button></div>';
+  }
+}
+
+function _renderTrackingEmailComposer_(body, preview, ctx) {
+  const missing = Array.isArray(preview.missing_vars) ? preview.missing_vars : [];
+  let html = '';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">';
+  html += '  <div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">📧 Tracking Email · ' + esc(ctx.order_number) + '</div>';
+  html += '  <button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="font-size:13px;padding:6px 14px">✕ Close</button>';
+  html += '</div>';
+  html += '<div style="margin-bottom:10px;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px;font-weight:700">Template: <span style="color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(preview.template_key) + '</span></div>';
+  // To + CC inputs
+  html += '<div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">';
+  html += '  <div style="flex:1;min-width:200px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">To</label>';
+  html += '    <input id="trackEmailTo" type="email" value="' + esc(preview.to || '') + '" placeholder="customer@example.com" style="width:100%;padding:8px 10px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:2px solid ' + (preview.to ? '#1A4FB0' : '#c62828') + ' !important;border-radius:6px"></div>';
+  html += '  <div style="flex:1;min-width:200px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">CC</label>';
+  html += '    <input id="trackEmailCc" type="email" value="' + esc(preview.cc || '') + '" placeholder="(optional)" style="width:100%;padding:8px 10px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px"></div>';
+  html += '</div>';
+  // Subject
+  html += '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">Subject</label>';
+  html += '  <input id="trackEmailSubject" type="text" value="' + esc(preview.subject || '') + '" style="width:100%;padding:10px;font-size:14px;font-weight:700;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px"></div>';
+  // HTML preview
+  html += '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">Body preview</label>';
+  html += '  <div style="padding:14px;background:#fafafa !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ddd !important;border-radius:6px;max-height:280px;overflow-y:auto">' + (preview.html || preview.text || '<em>(empty body)</em>') + '</div></div>';
+  if (missing.length) {
+    html += '<div style="margin-bottom:12px;padding:10px 12px;background:#FFF3E0 !important;border:1px solid #FB8C00 !important;border-radius:8px;font-size:12px;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important">⚠ Missing variables: <strong>' + missing.map(esc).join(', ') + '</strong>. The email will still send but with empty values where these placeholders appear. Edit the order row to populate.</div>';
+  }
+  // Send / Cancel
+  html += '<div style="display:flex;gap:10px;justify-content:flex-end">';
+  html += '  <button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="padding:10px 18px;font-size:13px">Cancel</button>';
+  html += '  <button onclick="_trackingEmailSend_(\'' + esc(ctx.order_number) + '\', ' + JSON.stringify(JSON.stringify(ctx)) + ')" class="amp-btn go" style="padding:10px 18px;font-size:13px;font-weight:900">📨 Send</button>';
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+async function _trackingEmailSend_(orderNumber, ctxJsonStr) {
+  let ctx = {};
+  try { ctx = JSON.parse(ctxJsonStr); } catch (e) {}
+  // Pull any edited values out of the form.
+  const toEl = document.getElementById('trackEmailTo');
+  const ccEl = document.getElementById('trackEmailCc');
+  if (toEl) ctx.recipient = toEl.value.trim();
+  if (ccEl) ctx.installer_email = ccEl.value.trim();
+  ctx.sent_by = getPackDeviceName_();
+  if (!ctx.recipient) { showToast('Recipient required'); return; }
+  try {
+    const res = await groundApi('trackingEmailSend', { orderCtx: ctx });
+    if (!res || !res.ok) {
+      showToast('Send failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    const note = res.simulated ? ' (TRACKING_EMAIL_LIVE=false — logged but NOT sent)' : ' (sent)';
+    showToast('✓ Tracking email queued for ' + orderNumber + note);
+    const ov = document.getElementById('trackEmailOverlay');
+    if (ov) ov.remove();
+  } catch (err) {
+    showToast('Send error: ' + err.message);
+  }
+}
+
+// Boot handler — if URL has ?openTracking=<order>, open the composer
+// once the PWA finishes booting. Picked-up Slack DM uses this.
+(function _boot_openTrackingDeepLink_() {
+  try {
+    const u = new URL(window.location.href);
+    const t = u.searchParams.get('openTracking');
+    if (!t) return;
+    // Wait for the PWA shell to be ready.
+    setTimeout(() => { try { openTrackingEmailComposer(t); } catch (e) {} }, 1200);
+  } catch (e) {}
+})();
 
 // ══════════════════════════════════════════════════════════════════
 // v10.230 — Customer Ready shadow-log inspector (Phase 1 UI)
