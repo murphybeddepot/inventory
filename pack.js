@@ -17,6 +17,13 @@
 
 const PACK_QUEUE_CACHE_KEY = 'mbd_pack_queue_cache_v1';
 const PACK_DEVICE_ID_KEY = 'mbd_pack_device_id';
+// v10.270 — Zac 2026-05-24 19:29 EDT: "every device is iPad something
+// but should be user-namable." Device ID stays the immutable identity
+// (back-compat with existing sheet rows + claim semantics). Device
+// NAME is the user-set display string — shows in banners, packed_by
+// fields, claim ownership, etc. Falls back to a humanized form of
+// the id ("iPad abc12345") when no name is set.
+const PACK_DEVICE_NAME_KEY = 'mbd_pack_device_name';
 
 function getPackDeviceId_() {
   let id = localStorage.getItem(PACK_DEVICE_ID_KEY);
@@ -25,6 +32,46 @@ function getPackDeviceId_() {
     localStorage.setItem(PACK_DEVICE_ID_KEY, id);
   }
   return id;
+}
+
+function getPackDeviceName_() {
+  try {
+    const set = String(localStorage.getItem(PACK_DEVICE_NAME_KEY) || '').trim();
+    if (set) return set;
+  } catch (e) {}
+  // Humanize: "ipad-abc12345" → "iPad abc12345". Doesn't actually
+  // mean the device is an iPad — Zac's point — but at least it's
+  // less ugly than the raw id for un-named devices.
+  return String(getPackDeviceId_() || '').replace(/^ipad-/, 'iPad ');
+}
+
+function setPackDeviceName_(name) {
+  try {
+    const v = String(name || '').trim().slice(0, 40);
+    if (v) localStorage.setItem(PACK_DEVICE_NAME_KEY, v);
+    else localStorage.removeItem(PACK_DEVICE_NAME_KEY);
+    return true;
+  } catch (e) { return false; }
+}
+
+function promptRenameDevice_() {
+  const current = getPackDeviceName_();
+  const next = window.prompt(
+    'Name this device (e.g. "Seth phone", "warehouse iPad", "Zac MBP"):',
+    current
+  );
+  if (next === null) return; // canceled
+  const trimmed = String(next || '').trim();
+  setPackDeviceName_(trimmed);
+  if (typeof showToast === 'function') {
+    showToast('✓ Device renamed to "' + (trimmed || getPackDeviceName_()) + '"');
+  }
+  // Refresh the System Status modal so the new name shows immediately.
+  const sso = document.getElementById('systemStatusOverlay');
+  if (sso && typeof window.openSystemStatus === 'function') {
+    sso.remove();
+    setTimeout(() => window.openSystemStatus(), 50);
+  }
 }
 
 let _packQueueCache = [];
@@ -2860,7 +2907,11 @@ async function confirmMarkHardwareReady(orderNumber) {
   try {
     const res = await groundApi('markHardwarePackReady', {
       orderNumber: orderNumber,
-      packedBy: getPackDeviceId_(),
+      // v10.270 — friendly device name (falls back to humanized id
+      // when not set). Zac 19:29 EDT: \"each user should be able to
+      // name their device\" — banner + hardware_packed_by sheet col
+      // now show the name instead of \"ipad-abc123\".
+      packedBy: getPackDeviceName_(),
     });
     if (!res || !res.ok) {
       showPrePackBanner_((res && res.error) || 'Mark failed', '#ff5252');
