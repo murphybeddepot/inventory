@@ -3296,17 +3296,25 @@ function _scheduleOrderInShipConfInbox_(o) {
 // these date-deltas in one place.
 function _scheduleTodayBucket_(o) {
   if (!o || !o.ship_date) return null;
+  // v10.269 — Zac 22:49 EDT: \"if any job on gcal is P treat it like
+  // B is finished also because B preceded P.\" The workflow order
+  // H→B→P→L is monotonic — later state implies earlier states done.
+  // And Zac 23:06 EDT: \"if orders on gcal are green then Seth has
+  // marked them as shipped\" — once cal_shipped is true the order
+  // is OUT, drop from today's work queue entirely.
+  if (o.cal_shipped) return null;
+  const bDone = !!(o.cal_b || o.cal_p || o.cal_l);
+  const pDone = !!(o.cal_p || o.cal_l);
   const tz = new Date();
   const todayIso = tz.toISOString().slice(0, 10);
   const tmrw = new Date(tz.getTime() + 86400000);
   const tmrwIso = tmrw.toISOString().slice(0, 10);
   const ship = String(o.ship_date).slice(0, 10);
   if (ship === todayIso) {
-    // Ship today; sub-bucket on whether still needs pack.
-    if (!o.cal_p) return 'pack_today';
+    if (!pDone) return 'pack_today';
     return 'ship_today';
   }
-  if (ship === tmrwIso && !o.cal_b) return 'prepack_today';
+  if (ship === tmrwIso && !bDone) return 'prepack_today';
   return null;
 }
 
@@ -4033,13 +4041,21 @@ function _scheduleRenderOrderRow_(o, opts) {
   //    future "Offered" lifecycle layer (green CONFIRMED / amber
   //    PLANNED by tier).
   const _hpl = (lab, on) => '<span style="font-weight:900;color:' + (on ? '#00e676' : '#5a6472') + '">' + lab + '</span>';
-  const js2Pill = o.cal_sourced
+  // v10.269 — Zac 23:06 EDT: gcal event color green ⟹ Seth has marked shipped.
+  // Show the SHIPPED chip when it's set; suppresses the HPL pill since the
+  // order has already left the warehouse.
+  const shippedChip = o.cal_shipped
+    ? ' <span style="font-size:8px;font-weight:900;letter-spacing:1px;background:#00C853;color:#0a0a0a;padding:1px 6px;border-radius:3px;vertical-align:middle" title="Seth marked this shipped on gcal (green event)">📦 SHIPPED</span>'
+    : '';
+  const js2Pill = o.cal_shipped
+    ? shippedChip
+    : (o.cal_sourced
     ? ' <span style="font-size:8px;font-weight:900;letter-spacing:1px;background:rgba(0,200,83,.12);border:1px solid rgba(0,230,118,.45);padding:0 5px;border-radius:3px;vertical-align:middle" title="On the operational calendar' + (o.cal_name ? ' (' + esc(o.cal_name) + ')' : '') + '. Fulfillment: H=instructions printed · B=HW boxed · P=packed · L=labels sent.' + (o.cal_label ? ' — ' + esc(o.cal_label) : '') + '">✓ ' + _hpl('H', o.cal_h) + ' ' + _hpl('B', o.cal_b) + ' ' + _hpl('P', o.cal_p) + ' ' + _hpl('L', o.cal_l) + '</span>'
     : (o.js2_sourced
         ? (o.js2_tier === 'locked'
             ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — offered date confirmed">JS2 ✓ CONFIRMED</span>'
             : ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(255,179,0,.22);color:#FFB300;border:1px solid rgba(255,179,0,.55);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — planned, date may still move">JS2 ~ PLANNED</span>')
-        : '');
+        : ''));
   // v10.22 enrich: a calendar-confirmed order reads "CONFIRMED"
   // even if its underlying PackingQueue status is still pending —
   // display-only (doesn't touch o.status, so filters/sort/stall
