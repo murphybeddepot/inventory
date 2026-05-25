@@ -462,6 +462,7 @@ function renderPackCard_(r) {
         ${inStock ? '<span style="color:#00e676;font-weight:700">· IN STOCK</span>' : ''}
         ${hwChip}
         ${r.instructions_printed_at ? '<span style="color:#42a5f5;font-weight:700" title="Printed '+esc(r.instructions_printed_at)+'">· 🖨 Printed</span>' : ''}
+        ${r.picked_up_at ? '<span style="color:#42a5f5;font-weight:700" title="Picked up by '+esc(String(r.picked_up_by || '?'))+' at '+esc(String(r.picked_up_at).slice(0,16))+'">· 🚛 Picked up</span>' : ''}
         <span style="margin-left:auto;padding:3px 10px;font-size:12px;font-weight:900;letter-spacing:1.2px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
         ${stateLine ? '<span style="flex-basis:100%;color:'+(accent||'var(--text-dim)')+';font-weight:700;margin-top:4px;font-size:13px;letter-spacing:1px">'+esc(stateLine)+'</span>' : ''}
       </div>
