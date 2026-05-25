@@ -466,9 +466,11 @@ function renderPackCard_(r) {
         ${stateLine ? '<span style="flex-basis:100%;color:'+(accent||'var(--text-dim)')+';font-weight:700;margin-top:4px;font-size:13px;letter-spacing:1px">'+esc(stateLine)+'</span>' : ''}
       </div>
     </div>
-    ${status === 'packed'
-      ? '<button onclick="event.stopPropagation();confirmMarkPackJobShipped(\''+esc(r.order_number)+'\')" class="amp-btn go" style="padding:10px 16px;font-size:13px;font-weight:900;white-space:nowrap">📦 Mark Shipped</button>'
-      : '<div style="color:var(--text-dim);font-size:20px;cursor:pointer" onclick="openPackDetail(\''+esc(r.order_number)+'\')">›</div>'
+    ${status === 'shipped' && !r.picked_up_at
+      ? '<button onclick="event.stopPropagation();confirmMarkPickedUp(\''+esc(r.order_number)+'\')" class="amp-btn" style="padding:10px 16px;font-size:13px;font-weight:900;white-space:nowrap;background:#42a5f5;color:#0a0a0a">🚛 Mark Picked Up</button>'
+      : (status === 'packed'
+          ? '<button onclick="event.stopPropagation();confirmMarkPackJobShipped(\''+esc(r.order_number)+'\')" class="amp-btn go" style="padding:10px 16px;font-size:13px;font-weight:900;white-space:nowrap">📦 Mark Shipped</button>'
+          : '<div style="color:var(--text-dim);font-size:20px;cursor:pointer" onclick="openPackDetail(\''+esc(r.order_number)+'\')">›</div>')
     }
   `;
   return card;
@@ -1922,6 +1924,34 @@ async function confirmMarkPackJobShipped(orderNumber) {
     await refreshPackQueue();
   } catch (err) {
     showToast('Mark shipped error: ' + err.message);
+  }
+}
+
+// v10.271 Phase 3 — warehouse marks pickup → Slack DM Seth with
+// Shopify deep-link. No manager PIN (additive, idempotent — see
+// markOrderPickedUp server doc). Friendly device name passed as
+// pickedUpBy.
+async function confirmMarkPickedUp(orderNumber) {
+  if (!confirm('Mark order ' + orderNumber + ' as picked up by carrier?\n\nSeth will get a Slack notification with a Shopify link to send the tracking email.')) return;
+  try {
+    const res = await groundApi('markOrderPickedUp', {
+      orderNumber: orderNumber,
+      pickedUpBy: getPackDeviceName_(),
+    });
+    if (!res || !res.ok) {
+      showToast('Mark picked-up failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    if (res.noChange) {
+      showPackBanner_('Order ' + orderNumber + ' was already marked picked up · 🚛', '#42a5f5');
+      return;
+    }
+    const notified = res.notified || {};
+    const slackLine = notified.ok ? ' · Slack ✓' : (notified.error ? ' · Slack ⚠ ' + String(notified.error).slice(0, 30) : '');
+    showPackBanner_('🚛 Order ' + orderNumber + ' picked up' + slackLine, '#00e676');
+    await refreshPackQueue();
+  } catch (err) {
+    showToast('Mark picked-up error: ' + err.message);
   }
 }
 
