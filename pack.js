@@ -8085,13 +8085,43 @@ async function openCatchStats(days) {
     + kindRow('Inside-item alias pending approval', 'inside_item_alias_pending', '#FFB300');
 }
 
+// v10.274 — collapse-toggle handler for the past-days group in
+// paintScheduleMobileList_. Lives top-level so the inline onclick
+// in the header button can find it. Persists state.
+function _scheduleTogglePast_() {
+  const wrap = document.getElementById('schedPastContent');
+  const caret = document.getElementById('schedPastCaret');
+  if (!wrap) return;
+  const showing = wrap.style.display !== 'none';
+  const next = !showing;
+  wrap.style.display = next ? 'block' : 'none';
+  if (caret) caret.style.transform = 'rotate(' + (next ? '90' : '0') + 'deg)';
+  try { localStorage.setItem('mbd_sched_past_expanded', next ? '1' : '0'); } catch(e) {}
+}
+
 // ── Mobile: scrollable date-grouped list (original Phase 1 view) ──
 function paintScheduleMobileList_(payload, listEl) {
   const today = payload.today;
   const isPast = (iso) => iso < today;
   const isToday = (iso) => iso === today;
 
-  listEl.innerHTML = payload.days.map(d => {
+  // v10.274 — Zac 2026-05-25 10:13 EDT: "schedule starts on something
+  // like 5/11 (random day) and user has to scroll down to current day.
+  // Auto-scroll isn't the answer." Match gcal mobile Schedule view:
+  // today is the visual anchor; past days are reachable but collapsed
+  // by default so the list doesn't keep growing visually as time
+  // passes. Per-tab toggle persists in localStorage.
+  const allDays = (payload.days || []);
+  const pastDays = allDays.filter(d => isPast(d.date));
+  const futureDays = allDays.filter(d => !isPast(d.date));
+  const pastOrderCount = pastDays.reduce((n, d) => n + (d.orders ? d.orders.length : 0), 0);
+  const PAST_EXPANDED_KEY = 'mbd_sched_past_expanded';
+  let pastExpanded = false;
+  try { pastExpanded = localStorage.getItem(PAST_EXPANDED_KEY) === '1'; } catch(e) {}
+  // In the today view-mode the days are synthetic buckets all sharing
+  // today's iso — no past-days to collapse, skip the wrapping logic.
+  const skipCollapse = (_scheduleViewMode === 'today');
+  const dayRenderer = (d) => {
     const past = isPast(d.date);
     const todayFlag = isToday(d.date);
     const dimStyle = past ? 'opacity:.55' : '';
@@ -8131,7 +8161,25 @@ function paintScheduleMobileList_(payload, listEl) {
       + (bottom.length ? '<div style="margin-top:' + (top.length ? '8' : '0') + 'px;padding-top:' + (top.length ? '8' : '0') + 'px;' + (top.length ? 'border-top:1px dashed rgba(255,255,255,.10);' : '') + 'display:flex;flex-direction:column;gap:4px">' + '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:2px">Ground</div>' + bottom.map(o => _scheduleRenderOrderRow_(o, { compact: false })).join('') + '</div>' : '')
       + (top.length === 0 && bottom.length === 0 ? '<div style="padding:12px;text-align:center;color:var(--text-dim);font-size:12px">(no orders)</div>' : '')
       + '</div>';
-  }).join('');
+  };
+  // Compose: collapsed past block (gcal-style) + today + future.
+  if (skipCollapse) {
+    listEl.innerHTML = allDays.map(dayRenderer).join('');
+  } else {
+    let html = '';
+    if (pastDays.length) {
+      const pastInner = pastDays.map(dayRenderer).join('');
+      html += '<div id="schedPastWrap" style="margin-bottom:10px">';
+      html += '  <button id="schedPastToggle" onclick="_scheduleTogglePast_()" style="width:100%;padding:10px 14px;background:rgba(102,102,102,.08);border:1px dashed rgba(255,255,255,.18);border-radius:10px;color:var(--text-dim);font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;cursor:pointer;text-align:left;display:flex;align-items:center;gap:8px">';
+      html += '    <span id="schedPastCaret" style="display:inline-block;width:14px;transform:rotate(' + (pastExpanded ? '90' : '0') + 'deg);transition:transform .15s ease">▸</span>';
+      html += '    <span>' + pastDays.length + ' prior day' + (pastDays.length === 1 ? '' : 's') + ' · ' + pastOrderCount + ' order' + (pastOrderCount === 1 ? '' : 's') + (pastExpanded ? ' (showing)' : ' (hidden)') + '</span>';
+      html += '  </button>';
+      html += '  <div id="schedPastContent" style="display:' + (pastExpanded ? 'block' : 'none') + ';margin-top:10px">' + pastInner + '</div>';
+      html += '</div>';
+    }
+    html += futureDays.map(dayRenderer).join('');
+    listEl.innerHTML = html;
+  }
 
   // v10.166 — only auto-scroll to "today" on the FIRST paint per
   // session, not every refresh. Zac 2026-05-21 09:51 bug: "schedule
