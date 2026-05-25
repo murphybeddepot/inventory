@@ -3956,7 +3956,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   //    PLANNED by tier).
   const _hpl = (lab, on) => '<span style="font-weight:900;color:' + (on ? '#00e676' : '#5a6472') + '">' + lab + '</span>';
   const js2Pill = o.cal_sourced
-    ? ' <span style="font-size:8px;font-weight:900;letter-spacing:1px;background:rgba(0,200,83,.12);border:1px solid rgba(0,230,118,.45);padding:0 5px;border-radius:3px;vertical-align:middle" title="On the operational calendar' + (o.cal_name ? ' (' + esc(o.cal_name) + ')' : '') + '. Fulfillment: H=pick list+instructions sent · P=packed · L=labels sent.' + (o.cal_label ? ' — ' + esc(o.cal_label) : '') + '">✓ ' + _hpl('H', o.cal_h) + ' ' + _hpl('P', o.cal_p) + ' ' + _hpl('L', o.cal_l) + '</span>'
+    ? ' <span style="font-size:8px;font-weight:900;letter-spacing:1px;background:rgba(0,200,83,.12);border:1px solid rgba(0,230,118,.45);padding:0 5px;border-radius:3px;vertical-align:middle" title="On the operational calendar' + (o.cal_name ? ' (' + esc(o.cal_name) + ')' : '') + '. Fulfillment: H=instructions printed · B=HW boxed · P=packed · L=labels sent.' + (o.cal_label ? ' — ' + esc(o.cal_label) : '') + '">✓ ' + _hpl('H', o.cal_h) + ' ' + _hpl('B', o.cal_b) + ' ' + _hpl('P', o.cal_p) + ' ' + _hpl('L', o.cal_l) + '</span>'
     : (o.js2_sourced
         ? (o.js2_tier === 'locked'
             ? ' <span style="font-size:8px;font-weight:900;letter-spacing:.5px;background:rgba(0,200,83,.20);color:#00e676;border:1px solid rgba(0,230,118,.5);padding:0 4px;border-radius:3px;vertical-align:middle" title="JS2 ' + esc(o.js2_status || '') + ' — offered date confirmed">JS2 ✓ CONFIRMED</span>'
