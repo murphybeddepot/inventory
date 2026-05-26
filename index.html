@@ -1458,13 +1458,16 @@ input::placeholder, textarea::placeholder {
   <div id="packTabModePackContent">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">Orders to Pack</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;position:relative">
         <button onclick="addToTodaysListPrompt()" class="amp-btn" style="font-size:13px;padding:8px 16px">+ Add to List</button>
-        <button onclick="addOrderByNumberPrompt()" class="amp-btn" style="font-size:13px;padding:8px 16px">+ Add Order #</button>
-        <button onclick="batchAddOrdersPrompt()" class="amp-btn" style="font-size:13px;padding:8px 16px">+ Batch Add</button>
-        <button onclick="printTodaysInstructions()" class="amp-btn" style="font-size:13px;padding:8px 16px">🖨 Print All</button>
-        <button id="packManagerModeBtn" onclick="togglePackManagerMode()" class="amp-btn" style="font-size:13px;padding:8px 16px">👤 Manager</button>
         <button onclick="refreshPackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
+        <button onclick="togglePackHeaderOverflow_(event)" id="packHeaderOverflowBtn" class="amp-btn" style="font-size:18px;padding:8px 14px;line-height:1" title="More actions">⋯</button>
+        <div id="packHeaderOverflowMenu" style="display:none;position:absolute;top:100%;right:0;margin-top:6px;background:#1a1a1a;border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:6px;box-shadow:0 6px 20px rgba(0,0,0,.6);z-index:50;min-width:200px;flex-direction:column;gap:4px">
+          <button onclick="addOrderByNumberPrompt();closePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">+ Add Order #</button>
+          <button onclick="batchAddOrdersPrompt();closePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">+ Batch Add</button>
+          <button onclick="printTodaysInstructions();closePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">🖨 Print All Instructions</button>
+          <button id="packManagerModeBtn" onclick="togglePackManagerMode();closePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">👤 Manager Mode</button>
+        </div>
       </div>
     </div>
     <div id="packQueueStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
@@ -2685,7 +2688,7 @@ function setPackTabMode(mode) {
   // Pack/PrePack tab renders are async (they fetch queues); poll briefly
   // for the order to land in the cache, then open detail.
   if (activeOrder) {
-    // v10.308 — first check the CURRENT cache synchronously. If the
+    // v10.309 — first check the CURRENT cache synchronously. If the
     // order is already there, open detail INSTANTLY (no poll wait).
     // The poll then only runs as a fallback for the cache-not-yet-
     // populated case, with a tight 1.5s ceiling so an unfindable
@@ -16243,7 +16246,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.308"></script>
+<script src="./pack.js?v=10.309"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16252,7 +16255,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.308<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.309<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

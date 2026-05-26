@@ -572,8 +572,8 @@ function openPackDetail(orderNumber) {
         <div style="color:var(--text-dim)">Address</div><div style="color:var(--text)">${esc(row.customer_address || '—')}</div>
         <div style="color:var(--text-dim)">Phone</div><div style="color:var(--text)">${esc(row.customer_phone || '—')}</div>
         <div style="color:var(--text-dim)">Order details</div><div style="color:var(--text)">${esc(row.order_details || '—')}</div>
-        <div style="color:var(--text-dim)">Pick List</div><div style="color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5;flex-shrink:0">📄 Open</a> <button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;flex-shrink:0;padding:3px 8px;font-size:10px;background:#37474f;color:#fff;border:none;border-radius:4px;cursor:pointer;line-height:1.2">🖨 Print</button>' : '<span style="color:var(--text-dim)">—</span>'} <span style="color:${row.instructions_printed_at?'#42a5f5':'var(--text-dim)'};font-size:11px;flex-shrink:0">${row.instructions_printed_at ? '🖨 Printed ' + esc(String(row.instructions_printed_at).slice(0,16).replace('T',' ')) : 'Not yet printed'}</span></div>
-        <div style="color:var(--text-dim)">Instructions</div><div style="color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">${row.instructions_pdf_url ? '<a href="'+esc(row.instructions_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5;flex-shrink:0">📄 Open</a> <button onclick="printInstructionsLink_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;flex-shrink:0;padding:3px 8px;font-size:10px;background:#37474f;color:#fff;border:none;border-radius:4px;cursor:pointer;line-height:1.2">🖨 Print</button>' : '<span style="color:var(--text-dim)">—</span>'} <button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;flex-shrink:0;padding:3px 8px;font-size:10px;background:#37474f;color:#fff;border:none;border-radius:4px;cursor:pointer;line-height:1.2" title="${row.instructions_pdf_url ? 'Replace link' : 'Paste link'}">${row.instructions_pdf_url ? '✎' : '✏ Set'}</button> ${row.instructions_pdf_url ? '<span style="color:'+(row.instructions_printed_at?'#42a5f5':'var(--text-dim)')+';font-size:11px;flex-shrink:0">'+(row.instructions_printed_at ? '🖨 Printed ' + esc(String(row.instructions_printed_at).slice(0,16).replace('T',' ')) : 'Not yet printed')+'</span>' : ''}</div>
+        <div style="color:var(--text-dim)">Pick List</div><div style="color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap">${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5;flex-shrink:0;font-size:13px">📄 Open</a>' : '<span style="color:var(--text-dim)">—</span>'}</div>
+        <div style="color:var(--text-dim)">Instructions</div><div style="color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap">${row.instructions_pdf_url ? '<a href="'+esc(row.instructions_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5;flex-shrink:0;font-size:13px">📄 Open</a>' : ''}<button onclick="printInstructionsLink_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:36px;padding:6px 14px;font-size:13px;font-weight:700;background:#37474f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;line-height:1.2">🖨 Print</button><button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:36px;padding:6px 12px;font-size:13px;font-weight:700;background:rgba(255,255,255,.08);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;cursor:pointer;line-height:1.2" title="${row.instructions_pdf_url ? 'Replace link' : 'Paste link'}">${row.instructions_pdf_url ? '✎ Edit' : '✏ Set'}</button> <span style="color:${row.instructions_printed_at?'#42a5f5':'var(--text-dim)'};font-size:11px;flex-shrink:0">${row.instructions_printed_at ? '🖨 Printed ' + esc(String(row.instructions_printed_at).slice(0,16).replace('T',' ')) : 'Not yet printed'}</span></div>
       </div>
     </div>
 
@@ -2513,6 +2513,35 @@ function togglePackManagerMode() {
   if (bar) bar.style.display = _packManagerMode ? 'flex' : 'none';
   updatePackBulkBar_();
   paintPackQueue_(_packQueueCache, false);
+}
+
+// v10.309 — Pack header overflow menu (4 secondary actions hidden behind
+// ⋯ to reduce top-of-screen clutter Zac flagged at 13:00 EDT).
+function togglePackHeaderOverflow_(ev) {
+  if (ev) ev.stopPropagation();
+  const m = document.getElementById('packHeaderOverflowMenu');
+  if (!m) return;
+  const showing = m.style.display === 'flex';
+  m.style.display = showing ? 'none' : 'flex';
+  if (!showing) {
+    setTimeout(() => {
+      document.addEventListener('click', _packHeaderOverflowOutsideHandler_, { once: true });
+    }, 0);
+  }
+}
+function _packHeaderOverflowOutsideHandler_(ev) {
+  const m = document.getElementById('packHeaderOverflowMenu');
+  const btn = document.getElementById('packHeaderOverflowBtn');
+  if (!m) return;
+  if (m.contains(ev.target) || (btn && btn.contains(ev.target))) {
+    document.addEventListener('click', _packHeaderOverflowOutsideHandler_, { once: true });
+    return;
+  }
+  m.style.display = 'none';
+}
+function closePackHeaderOverflow_() {
+  const m = document.getElementById('packHeaderOverflowMenu');
+  if (m) m.style.display = 'none';
 }
 
 function togglePackBulkSelect(orderNumber, checked) {
@@ -8275,9 +8304,24 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
         const t0 = Date.now();
         const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
         const elapsed = Date.now() - t0;
-        console.log('[pack-jump] ensure response (' + elapsed + 'ms):', JSON.stringify({ ok: !!(boot && boot.ok), action: boot && boot.action, hasRow: !!(boot && boot.row), error: boot && boot.error }));
-        if (elapsed > 5000) {
-          console.log('[pack-jump] slow ensure — likely Shopify backfill on cold row. Subsequent taps will be fast.');
+        console.log('[pack-jump] ensure response (' + elapsed + 'ms):', JSON.stringify({ ok: !!(boot && boot.ok), action: boot && boot.action, hasRow: !!(boot && boot.row), error: boot && boot.error, timing: boot && boot.timing }));
+        // v10.309 — surface server-side timing breakdown into the client
+        // console + a toast on slow loads so Zac can diagnose the 13s
+        // without digging into Apps Script Execution logs.
+        if (boot && boot.timing) {
+          const t = boot.timing;
+          const network = Math.max(0, elapsed - (t.total || 0));
+          console.log('[pack-jump] TIMING server:', JSON.stringify(t),
+            'network=' + network + 'ms', 'sheetRows=' + t.rows);
+          if (elapsed > 5000) {
+            const slowest = t.readAll > (t.ensureCols||0) && t.readAll > (t.findLoop||0) ? 'sheet read (' + t.readAll + 'ms over ' + t.rows + ' rows)'
+              : (t.findLoop > (t.readAll||0) ? 'row find loop (' + t.findLoop + 'ms)'
+              : 'network (' + network + 'ms — Apps Script cold start / proxy)');
+            console.log('[pack-jump] SLOWEST: ' + slowest);
+            if (typeof showToast === 'function') showToast('Slow load: ' + Math.round(elapsed/100)/10 + 's — ' + slowest);
+          }
+        } else if (elapsed > 5000) {
+          console.log('[pack-jump] slow ensure (no timing) — likely Shopify backfill on cold row. Subsequent taps will be fast.');
         }
         if (boot && boot.ok) {
           // v10.298 — the server now returns the row directly. Inject
@@ -8681,6 +8725,11 @@ async function paintDayPlanInto_(targetElId, opts) {
   opts = opts || {};
   const el = document.getElementById(targetElId);
   if (!el) return;
+  // v10.309 — Zac 13:00 EDT: 'WAY too much going on at the top of the
+  // [Pack] screen ... a bunch of today's activity icons.' Pack tab
+  // doesn't need the activity strip — it lives on Schedule + Pre-Pack
+  // where it's relevant context. Hide on Pack.
+  if (targetElId === 'packDayPlan') { el.style.display = 'none'; return; }
   let res;
   const payload = opts.forceRefresh ? { no_cache: true } : {};
   try { res = await groundApi('getDayPlan', payload); }
