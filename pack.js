@@ -4274,7 +4274,14 @@ function _scheduleRenderOrderRow_(o, opts) {
   // v10.11 pass 3: row tap → Lookup for this order (full address,
   // items, phone, activity timeline). Chips all stopPropagation so
   // they keep their own actions. Mirrors the Tracking v9.93 pattern.
-  const rowTap = ' onclick="jumpToLookup_(\'' + esc(o.order_number) + '\')" title="Tap for full order detail"';
+  // v10.282 — Zac 23:57 EDT Q2: when rendered in a Today-view bucket
+  // (pack_today / prepack_today / ship_today), tap routes straight
+  // into Pack detail instead of generic Lookup, with the right Pack
+  // tab mode for pre-pack rows.
+  const _bucket = opts.bucket || '';
+  const rowTap = _bucket
+    ? ' onclick="jumpToPackForOrder_(\'' + esc(o.order_number) + '\',\'' + esc(_bucket) + '\')" title="Tap → open Pack detail"'
+    : ' onclick="jumpToLookup_(\'' + esc(o.order_number) + '\')" title="Tap for full order detail"';
   // v10.173 ShipConf Inbox Phase 0b — when filtering to the inbox view,
   // append a purple actions footer with Preview/Send + Skip per row.
   // Other view modes render unchanged.
@@ -7422,6 +7429,39 @@ function jumpToLookup_(orderNumber) {
   }, 120);
 }
 
+// v10.282 — Zac 23:57 EDT Q2: "From schedule what is your plan for
+// clicking an order to pre-pack or pack it? It should be easy and
+// intuitive and fast-loading." Schedule rows in Today-view buckets
+// now route here instead of the generic Lookup. We jump to the Pack
+// tab (mode prepack if the bucket is prepack_today), refresh the
+// queue, then drill into the order's detail panel. Fall back to
+// Lookup if the order isn't in the Pack queue (e.g. it's a ground
+// parcel that's not in PackingQueue).
+async function jumpToPackForOrder_(orderNumber, bucketKind) {
+  if (typeof switchTab === 'function') switchTab('pack');
+  if (bucketKind === 'prepack_today' && typeof setPackTabMode === 'function') {
+    setTimeout(() => { try { setPackTabMode('prepack'); } catch(e) {} }, 80);
+  }
+  setTimeout(async () => {
+    try {
+      if (typeof refreshPackQueue === 'function') await refreshPackQueue();
+      const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+      const row = cache.find(r => String(r.order_number) === String(orderNumber));
+      if (row && typeof openPackDetail === 'function') {
+        openPackDetail(orderNumber);
+        return;
+      }
+      if (typeof showToast === 'function') {
+        showToast('#' + orderNumber + ' not in Pack queue — opening Lookup');
+      }
+      jumpToLookup_(orderNumber);
+    } catch (e) {
+      console.warn('jumpToPackForOrder error:', e.message);
+      jumpToLookup_(orderNumber);
+    }
+  }, 250);
+}
+
 // ── Damage Log ────────────────────────────────────────────
 // The full damage UI (openDamageLog / refreshDamageLog /
 // DAMAGE_STATUSES / damageStatusLabel_ / updateDamageField) lives
@@ -8398,8 +8438,8 @@ function paintScheduleMobileList_(payload, listEl) {
       +     d.total + ' · ' + (d.freight_count ? d.freight_count + ' freight ' : '') + (d.mattress_count ? '· ' + d.mattress_count + ' mattress ' : '') + (d.ground_count ? '· ' + d.ground_count + ' ground' : '')
       +   '</div>'
       + '</div>'
-      + (top.length ? '<div style="display:flex;flex-direction:column;gap:4px">' + top.map(o => _scheduleRenderOrderRow_(o, { compact: false })).join('') + '</div>' : '')
-      + (bottom.length ? '<div style="margin-top:' + (top.length ? '8' : '0') + 'px;padding-top:' + (top.length ? '8' : '0') + 'px;' + (top.length ? 'border-top:1px dashed rgba(255,255,255,.10);' : '') + 'display:flex;flex-direction:column;gap:4px">' + '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:2px">Ground</div>' + bottom.map(o => _scheduleRenderOrderRow_(o, { compact: false })).join('') + '</div>' : '')
+      + (top.length ? '<div style="display:flex;flex-direction:column;gap:4px">' + top.map(o => _scheduleRenderOrderRow_(o, { compact: false, bucket: d.today_bucket })).join('') + '</div>' : '')
+      + (bottom.length ? '<div style="margin-top:' + (top.length ? '8' : '0') + 'px;padding-top:' + (top.length ? '8' : '0') + 'px;' + (top.length ? 'border-top:1px dashed rgba(255,255,255,.10);' : '') + 'display:flex;flex-direction:column;gap:4px">' + '<div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:2px">Ground</div>' + bottom.map(o => _scheduleRenderOrderRow_(o, { compact: false, bucket: d.today_bucket })).join('') + '</div>' : '')
       + (top.length === 0 && bottom.length === 0 ? '<div style="padding:12px;text-align:center;color:var(--text-dim);font-size:12px">(no orders)</div>' : '')
       + '</div>';
   };
