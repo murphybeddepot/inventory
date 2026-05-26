@@ -11339,23 +11339,20 @@ function renderActiveSessionBadge() {
 }
 
 async function openReceiveShipment() {
-  // Always hit the server first so cross-device state (cabinets
-  // received on another iPad / phone since this device last opened)
-  // surfaces. The previous short-circuit on local session was the
-  // root cause of Seth's phone showing stale data after Jonah had
-  // received cabinets at the warehouse iPad.
+  // v10.287 — Zac 09:55 EDT: "receive on monday should show any
+  // un-finished lists from previous weeks then this week's list right
+  // below that as another bar." Switched from single-session
+  // getActiveReceiveSession to multi-session listOpenReceiveSessions.
+  // Last Friday's incomplete session AND this week's session both
+  // render as stacked cards; tap any card to switch the active session.
   const existing = getActiveSession();
-  // v69: try to auto-load this week's expected list from the server
-  // (parsed Monday morning from the ARCH invoice email). If a session
-  // is available, start it directly — no photo/paste needed. Otherwise
-  // fall back to the manual setup modal.
-  let serverSession = null;
+  let serverSessions = [];
   if (GROUND_ORCH_URL) {
-    showToast('Syncing receive list across devices…');
+    showToast('Syncing receive lists across devices…');
     try {
-      const resp = await groundApi('getActiveReceiveSession', {});
-      if (resp && resp.ok && resp.session && resp.session.cabinets && resp.session.cabinets.length > 0) {
-        serverSession = resp.session;
+      const resp = await groundApi('listOpenReceiveSessions', { window_days: 21 });
+      if (resp && resp.ok && Array.isArray(resp.sessions) && resp.sessions.length > 0) {
+        serverSessions = resp.sessions;
       } else if (resp && !resp.ok) {
         const err = String(resp.error || '');
         if (/unauthor/i.test(err)) {
@@ -11363,39 +11360,138 @@ async function openReceiveShipment() {
         } else {
           showToast('⚠ ' + (err || 'Auto-load failed — manual setup'));
         }
-      } else if (resp && resp.ok && (!resp.session || !resp.session.cabinets || resp.session.cabinets.length === 0)) {
-        showToast('No auto-loaded list this week — manual setup');
+      } else if (resp && resp.ok && (!resp.sessions || resp.sessions.length === 0)) {
+        showToast('No open shipments — manual setup');
       }
     } catch (e) {
-      console.warn('getActiveReceiveSession failed:', e);
+      console.warn('listOpenReceiveSessions failed:', e);
       showToast('⚠ Could not reach server — using local cache');
     }
   }
 
-  if (serverSession) {
-    // If local session matches server's session_id, MERGE server's
-    // per-cabinet state into the local session (server is authoritative
-    // for received/location/etc; local keeps UI helpers like defaultLoc).
-    // Otherwise replace local entirely.
-    if (existing && existing.serverSessionId === serverSession.session_id) {
-      mergeServerSessionIntoLocal_(existing, serverSession);
-      saveReceiveSessions();
-      renderReceiveSession();
-      const doneCount = existing.cabinets.filter(c => c.received).length;
-      showToast('✓ Synced — ' + doneCount + ' received across devices');
-      return;
+  if (serverSessions.length > 0) {
+    // Merge each server session into local receiveSessions (preserve
+    // local-only state like defaultLoc) or insert fresh if not present.
+    let newlyActive = null;
+    serverSessions.forEach(ss => {
+      const localMatch = receiveSessions.find(l => l.serverSessionId === ss.session_id);
+      if (localMatch) {
+        mergeServerSessionIntoLocal_(localMatch, ss);
+      } else {
+        // Build a fresh local session from server payload.
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        let name = 'Auto-loaded';
+        if (ss.delivery_date) {
+          const parts = String(ss.delivery_date).split('-');
+          if (parts.length === 3) name = months[Number(parts[1]) - 1] + ' ' + Number(parts[2]);
+        }
+        const enriched = (ss.cabinets || []).map(c => {
+          if (typeof c === 'string') {
+            return { num: c, received: false, location: '', receivedAt: '', receivedBy: '' };
+          }
+          return {
+            num: c.num,
+            received: !!c.received,
+            location: c.location || '',
+            receivedAt: c.received_at || '',
+            receivedBy: c.received_by || '',
+            addedManually: !!c.added_manually,
+            damaged: !!c.damaged,
+            committedAt: c.received ? (c.received_at || '') : '',
+          };
+        });
+        const sess = {
+          id: 'srv:' + ss.session_id,
+          name: name,
+          createdAt: ss.created_at || new Date().toISOString(),
+          defaultLoc: '',
+          person: '',
+          cabinets: enriched,
+          serverSessionId: ss.session_id,
+          truckCount: ss.truck_count || 0,
+          deliveryDate: ss.delivery_date || '',
+          status: ss.status || 'pending',
+        };
+        receiveSessions.push(sess);
+      }
+    });
+    // Choose active: oldest-incomplete past first, otherwise top of
+    // server's sort (most current). If existing local active is still
+    // in the list, keep it.
+    const stillActive = existing && serverSessions.some(s => s.session_id === existing.serverSessionId);
+    if (stillActive) {
+      // keep activeSessionId
+    } else {
+      // server returns sorted with past-incomplete first
+      const top = serverSessions[0];
+      const localTop = receiveSessions.find(l => l.serverSessionId === top.session_id);
+      if (localTop) activeSessionId = localTop.id;
     }
-    autoStartReceiveFromServerSession(serverSession);
+    saveReceiveSessions();
+    renderReceiveSession();
+    if (serverSessions.length > 1) {
+      showToast('✓ ' + serverSessions.length + ' open shipments — last week first');
+    }
     return;
   }
 
-  // No server session — fall back to existing local if any
+  // No server sessions — fall back to existing local if any
   if (existing) {
     renderReceiveSession();
     showToast('No server session — showing local');
     return;
   }
   showReceiveSetup();
+}
+
+// v10.287 — switch active session from the chooser strip in renderReceiveSession.
+function switchActiveReceiveSession(sessionId) {
+  const s = receiveSessions.find(r => r.id === sessionId);
+  if (!s) { showToast('Session not found'); return; }
+  activeSessionId = sessionId;
+  saveReceiveSessions();
+  renderReceiveSession();
+}
+
+// v10.287 — manager-PIN gated "final approve" / archive for a session.
+async function approveArchiveReceiveSession(sessionId) {
+  const s = receiveSessions.find(r => r.id === sessionId);
+  if (!s || !s.serverSessionId) { showToast('Session not on server'); return; }
+  const stats = sessionStats(s);
+  const remaining = stats.total - stats.done;
+  let msg = 'Approve & archive ' + esc(s.name) + '?';
+  if (remaining > 0) msg += '\n\n⚠ ' + remaining + ' cabinets still un-received. They will be left as missed.';
+  msg += '\n\nThis removes the list from the active Receive view. Requires manager PIN.';
+  if (!confirm(msg)) return;
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('approve + archive ' + s.name)
+    : prompt('Manager PIN:');
+  if (!pin) return;
+  try {
+    const resp = await groundApi('completeReceiveSession', {
+      sessionId: s.serverSessionId,
+      manager_pin: pin,
+    });
+    if (!resp || !resp.ok) {
+      showToast('Archive failed: ' + ((resp && resp.error) || 'unknown'));
+      return;
+    }
+    // Drop from local + clear active if it was active
+    receiveSessions = receiveSessions.filter(r => r.id !== sessionId);
+    if (activeSessionId === sessionId) {
+      activeSessionId = receiveSessions[0] ? receiveSessions[0].id : null;
+    }
+    saveReceiveSessions();
+    showToast('✓ ' + s.name + ' archived');
+    if (receiveSessions.length === 0) {
+      closeCabModal();
+      renderCabinets();
+    } else {
+      renderReceiveSession();
+    }
+  } catch (e) {
+    showToast('Archive error: ' + e.message);
+  }
 }
 
 // Merge server's per-cabinet state into an existing local session.
@@ -11889,11 +11985,56 @@ function renderReceiveSession() {
       + '</div>';
   }).join('');
 
-  const body =
+  // v10.287 — Zac 09:55 EDT: render a chooser strip when more than one
+  // open shipment exists. Each session is a "bar" — tap to switch active
+  // (which detail view loads below). Past-incomplete sessions get amber
+  // accent so they stand out as "still has work."
+  const otherSessions = receiveSessions.filter(s => s.id !== session.id);
+  const todayIso = (() => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  })();
+  const sessionCard_ = (s, isActive) => {
+    const st = sessionStats(s);
+    const isPast = s.deliveryDate && s.deliveryDate < todayIso;
+    const isIncompletePast = isPast && st.done < st.total;
+    const accent = isActive
+      ? '#003087'
+      : (isIncompletePast ? '#FF9100' : 'rgba(0,48,135,.6)');
+    const bgAccent = isActive
+      ? 'rgba(0,48,135,.10)'
+      : (isIncompletePast ? 'rgba(255,145,0,.10)' : 'rgba(0,48,135,.04)');
+    const tag = isIncompletePast
+      ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#FF9100;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">UNFINISHED</span>'
+      : (isPast ? '' : (s.deliveryDate >= todayIso ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">THIS WEEK</span>' : ''));
+    const approveBtn = s.serverSessionId
+      ? '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;margin-left:6px" title="Manager PIN: approve + archive this list">✓ Approve</button>'
+      : '';
+    const openLabel = isActive ? '✓ Active below' : 'Tap to open ↓';
+    return '<div onclick="switchActiveReceiveSession(\'' + esc(s.id) + '\')" '
+      + 'style="background:' + bgAccent + ';border:1.5px solid ' + accent + ';border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:' + (isActive ? 'default' : 'pointer') + ';display:flex;justify-content:space-between;align-items:center;gap:10px">'
+      + '<div style="min-width:0;flex:1">'
+      +   '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">'
+      +     '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:17px;font-weight:900;color:' + accent + '">' + esc(s.name) + '</span>'
+      +     tag
+      +   '</div>'
+      +   '<div style="font-size:11px;color:#444;margin-top:2px;font-weight:700">' + st.done + ' / ' + st.total + ' received · ' + st.pct + '%' + (isActive ? '' : ' · ' + openLabel) + '</div>'
+      + '</div>'
+      + approveBtn
+      + '</div>';
+  };
+  const chooserStrip = receiveSessions.length > 1
+    ? '<div style="margin-bottom:10px">'
+      + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">📥 Open Shipments (' + receiveSessions.length + ')</div>'
+      + receiveSessions.map(s => sessionCard_(s, s.id === session.id)).join('')
+      + '</div>'
+    : '';
+
+  const body = chooserStrip
     // Compact header — shipment name + progress in one row
-    '<div style="background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    + '<div style="background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
     +   '<div style="min-width:0;flex:1">'
-    +     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Shipment</div>'
+    +     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Active Shipment</div>'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.1;margin-top:1px">'+esc(session.name)+'</div>'
     +     (session.truckCount > 0
             ? '<div style="font-size:11px;font-weight:700;opacity:.85;margin-top:3px">🚚 ' + session.truckCount + ' trucks</div>'
@@ -15865,7 +16006,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.286"></script>
+<script src="./pack.js?v=10.287"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15874,7 +16015,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.286<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.287<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
