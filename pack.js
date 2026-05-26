@@ -3957,6 +3957,14 @@ function renderScheduleTab() {
     }
   } catch(e) {}
   refreshScheduleTab();
+  // v10.313 — Zac 14:09 EDT: Network=15.8s on Pack tap even with warmup.
+  // Apps Script /exec is genuinely slow per call. Real fix: pre-fetch
+  // the Pack queue in the background while user is browsing Schedule,
+  // so when they tap an order, the row is already in _packQueueCache
+  // and jumpToPackForOrder_ can open the detail INSTANTLY.
+  if (typeof refreshPackQueue === 'function') {
+    setTimeout(() => { try { refreshPackQueue(); } catch(e) {} }, 500);
+  }
 }
 
 async function refreshScheduleTab() {
@@ -8345,14 +8353,46 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
   })();
   setTimeout(async () => {
     try {
-      // v10.299 — Zac 11:55 EDT bug fix: skip the slow initial
-      // refreshPackQueue (which can take 20s + filters out rows
-      // where on_active_list=false). Go straight to
-      // ensurePackQueueRowExists which always returns the full row
-      // (and flips on_active_list as a side-effect in v10.298).
-      // This is faster + more reliable. If the order's row IS
-      // already in local cache, we still inject the server's fresh
-      // copy on top of it.
+      // v10.313 — Zac 14:09 EDT: even with warmup pings, network is
+      // 15.8s on a Pack tap (V8 cold-starts per execution). The real
+      // fix is to AVOID the ensure call entirely when the row is
+      // already in local cache (which it should be, because Schedule
+      // tab now pre-fetches Pack queue in the background).
+      //
+      // FAST PATH: if _packQueueCache already has the order →
+      // openPackDetail IMMEDIATELY. Fire ensure in the background to
+      // refresh stale fields (on_active_list flip + customer backfill).
+      // User sees the detail screen in <100ms instead of 18s.
+      if (typeof _packQueueCache !== 'undefined' && Array.isArray(_packQueueCache)) {
+        const cachedRow = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+        if (cachedRow && typeof openPackDetail === 'function') {
+          if (_packLoadOverlay_) _packLoadOverlay_.remove();
+          showToast('⚡ Cached — opening instantly');
+          openPackDetail(orderNumber);
+          // Background refresh — no overlay, no blocking. The on_active_list
+          // flag flip + any customer-name backfill happens server-side; next
+          // refresh picks up the updated row.
+          try {
+            groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) })
+              .then(boot => {
+                if (boot && boot.ok && boot.row) {
+                  const idx = (_packQueueCache || []).findIndex(r => String(r.order_number) === String(orderNumber));
+                  if (idx >= 0) _packQueueCache[idx] = boot.row;
+                  try {
+                    if (typeof PACK_QUEUE_CACHE_KEY !== 'undefined') localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
+                  } catch(e) {}
+                  // Re-render detail with fresh row if still open.
+                  if (_packDetailOrderNumber === String(orderNumber) && typeof openPackDetail === 'function') {
+                    openPackDetail(orderNumber);
+                  }
+                }
+              })
+              .catch(()=>{});
+          } catch(e) {}
+          return;
+        }
+      }
+      // SLOW PATH (cache miss): fall through to the ensure call.
       if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Resolving order + fetching customer from Shopify…');
       try {
         console.log('[pack-jump] calling ensurePackQueueRowExists for #' + orderNumber);
