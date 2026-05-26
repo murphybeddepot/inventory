@@ -910,8 +910,19 @@ function renderPackSkuList_(orderNumber) {
   if (!list) return;
   const state = _packScanState[orderNumber];
   if (!state || !state.skus.length) {
-    list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;font-style:italic">No SKUs loaded — upload a pick list PDF/CSV or re-parse from the email.</div>';
-    if (prog) prog.textContent = '';
+    // v10.292 — Zac 10:53 EDT: "even if there's no pick list (like
+    // on a RMK order) it should still go to the pack screen with
+    // some kind of manual 'mark as packed' override." Empty SKU
+    // list now shows a clear no-scan-needed override path: tap
+    // "Mark Packed (no SKU list)" → manager PIN → flips status
+    // straight to packed bypassing scan verification.
+    list.innerHTML =
+      '<div style="background:rgba(255,179,0,.10);border:1.5px dashed rgba(255,179,0,.55);border-radius:10px;padding:14px;margin-bottom:10px">'
+      + '<div style="font-size:13px;font-weight:800;color:#FFB300;margin-bottom:6px">⚠ No SKU list available</div>'
+      + '<div style="font-size:12px;color:var(--text-dim);line-height:1.45;margin-bottom:10px">No pick list was parsed for this order (could be a remake / no email yet / gcal had no link). You can upload one below, OR use the override to mark packed without scan verification.</div>'
+      + '<button onclick="manualMarkPackedNoSku_(\'' + esc(orderNumber) + '\')" class="amp-btn go" style="width:100%;padding:12px;font-size:13px;font-weight:900;letter-spacing:.4px;text-transform:uppercase">✓ Mark Packed (no SKU list, manager PIN)</button>'
+      + '</div>';
+    if (prog) prog.textContent = '(no SKUs)';
     return;
   }
   const done = state.skus.filter(s => s.scanned >= s.qty).length;
@@ -936,6 +947,40 @@ function renderPackSkuList_(orderNumber) {
       + '</div>'
       + '</div>';
   }).join('');
+}
+
+// v10.292 — manager-PIN override: mark an order packed without scan
+// verification, for cases where there's no pick-list available (RMK
+// orders, freshly bootstrapped rows with no Drive URL, etc.). Uses
+// the existing markPackJobComplete endpoint with manager_pin which
+// bypasses the "checking + checker-scans-complete" preconditions.
+async function manualMarkPackedNoSku_(orderNumber) {
+  if (!confirm('Mark order #' + orderNumber + ' as packed without scan verification?\n\nUse this only when there is no pick list to scan against (e.g. a remake order or a manual pack). Manager PIN required.')) return;
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('manual mark packed for ' + orderNumber)
+    : prompt('Manager PIN:');
+  if (!pin) return;
+  try {
+    const res = await groundApi('markPackJobComplete', {
+      orderNumber: String(orderNumber),
+      manager_pin: pin,
+      packedBy: (typeof getPackDeviceName_ === 'function' ? getPackDeviceName_() : 'manual-override'),
+    });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) {
+        if (typeof clearManagerPin_ === 'function') clearManagerPin_();
+      }
+      showToast('Mark failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ #' + orderNumber + ' marked packed (manual override)');
+    if (typeof refreshPackQueue === 'function') await refreshPackQueue();
+    const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+    const row = cache.find(r => String(r.order_number) === String(orderNumber));
+    if (row && typeof openPackDetail === 'function') openPackDetail(orderNumber);
+  } catch (err) {
+    showToast('Mark error: ' + err.message);
+  }
 }
 
 function bumpPackSku(orderNumber, idx, delta) {
@@ -7505,35 +7550,34 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
         openPackDetail(orderNumber);
         return;
       }
-      // v10.291 — Zac 10:33 EDT: "tries to load in pack then fails and
-      // goes to order lookup (which is essentially useless unless
-      // trying to create remake or book in fedex)." Before falling
-      // back to Lookup, auto-try the v10.289 gcal bootstrap — if the
-      // cal event has a pick-list link, we can create the PackingQueue
-      // row right now + drop the user straight into Pack detail.
-      showToast('#' + orderNumber + ' not in Pack queue — pulling from gcal…');
+      // v10.292 — Zac 10:53 EDT: "even if there's no pick list (like
+      // on a RMK order) it should still go to the pack screen with
+      // some kind of manual 'mark as packed' override." Always-create
+      // path: ensurePackQueueRowExists creates a row no matter what
+      // (full from gcal, partial from gcal-no-link, or blank from
+      // order# alone). Pack detail handles the empty-SKU case with
+      // a manual-override section.
+      showToast('#' + orderNumber + ' not in Pack queue — creating row…');
       try {
-        const boot = await groundApi('bootstrapOrderFromGcal', { orderNumber: String(orderNumber) });
-        if (boot && boot.ok && (boot.action === 'bootstrapped' || boot.action === 'already_in_queue')) {
-          // Re-fetch queue + open detail. The row is now there.
+        const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
+        if (boot && boot.ok) {
           if (typeof refreshPackQueue === 'function') await refreshPackQueue();
           const cache2 = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
           const row2 = cache2.find(r => String(r.order_number) === String(orderNumber));
           if (row2 && typeof openPackDetail === 'function') {
-            showToast('✓ #' + orderNumber + ' pulled from gcal — opening Pack detail');
+            const tag = boot.action === 'bootstrapped_full' ? '✓ pulled from gcal'
+              : boot.action === 'bootstrapped_no_link' ? '⚠ gcal event found but no pick-list link — opening with manual override'
+              : boot.action === 'bootstrapped_no_event' ? '⚠ no gcal event — blank Pack row created, use manual override'
+              : '✓ opened';
+            showToast(tag);
             openPackDetail(orderNumber);
             return;
           }
         }
-        if (boot && boot.action === 'no_event') {
-          showToast('#' + orderNumber + ': no gcal event found — opening Lookup');
-        } else if (boot && boot.action === 'no_link') {
-          showToast('#' + orderNumber + ': gcal event has no pick-list URL — opening Lookup');
-        }
       } catch (e) {
-        console.warn('auto-bootstrap from gcal failed:', e.message);
+        console.warn('ensurePackQueueRowExists failed:', e.message);
       }
-      // Bootstrap didn't land — Lookup is the explicit fallback.
+      // True last-resort fallback if even the row create failed (server unreachable).
       jumpToLookup_(orderNumber);
     } catch (e) {
       console.warn('jumpToPackForOrder error:', e.message);
