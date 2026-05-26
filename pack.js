@@ -7978,12 +7978,16 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
       // This is faster + more reliable. If the order's row IS
       // already in local cache, we still inject the server's fresh
       // copy on top of it.
-      if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Resolving order…');
+      if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Resolving order + fetching customer from Shopify…');
       try {
         console.log('[pack-jump] calling ensurePackQueueRowExists for #' + orderNumber);
         const t0 = Date.now();
         const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
-        console.log('[pack-jump] ensure response (' + (Date.now()-t0) + 'ms):', JSON.stringify({ ok: !!(boot && boot.ok), action: boot && boot.action, hasRow: !!(boot && boot.row), error: boot && boot.error }));
+        const elapsed = Date.now() - t0;
+        console.log('[pack-jump] ensure response (' + elapsed + 'ms):', JSON.stringify({ ok: !!(boot && boot.ok), action: boot && boot.action, hasRow: !!(boot && boot.row), error: boot && boot.error }));
+        if (elapsed > 5000) {
+          console.log('[pack-jump] slow ensure — likely Shopify backfill on cold row. Subsequent taps will be fast.');
+        }
         if (boot && boot.ok) {
           // v10.298 — the server now returns the row directly. Inject
           // into the local cache so openPackDetail finds it without
