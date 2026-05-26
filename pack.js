@@ -982,9 +982,39 @@ function renderPackCabinetList_(row) {
       : c.source === 'photo_ai' ? '🤖 photo AI'
       : '✏ manual';
     const when = (c.captured_at || '').slice(0, 16).replace('T', ' ');
-    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;background:rgba(255,179,0,.08);border:1px solid rgba(255,179,0,.45);border-radius:8px">'
-      + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:#FFB300;flex:1;min-width:0">' + esc(c.num) + '</div>'
-      + '<div style="font-size:10px;color:var(--text-dim);font-weight:700">' + sourceTag + (when ? ' · ' + esc(when) : '') + '</div>'
+    // v10.297 — cross-reference to local cabinets[] to show
+    // pulled-from-location or 'not in inventory' (MTO-shaped).
+    let invTag = '';
+    let bg = 'rgba(255,179,0,.08)';
+    let border = 'rgba(255,179,0,.45)';
+    try {
+      if (typeof cabinets !== 'undefined' && Array.isArray(cabinets)
+          && typeof normCab === 'function') {
+        const want = normCab(c.num);
+        const cab = cabinets.find(x => x && !x.deleted && normCab(x.cabinet) === want);
+        if (cab) {
+          if (cab.pulledForOrder && String(cab.pulledForOrder) === String(row.order_number)) {
+            invTag = '<span style="font-size:10px;color:#00e676;font-weight:800;margin-left:6px">✓ pulled from ' + esc(cab.location || '?') + '</span>';
+            bg = 'rgba(0,230,118,.10)';
+            border = 'rgba(0,230,118,.45)';
+          } else if (cab.pulledAt) {
+            invTag = '<span style="font-size:10px;color:#ff5252;font-weight:800;margin-left:6px">⚠ already pulled for #' + esc(cab.pulledForOrder || '?') + '</span>';
+            bg = 'rgba(255,82,82,.10)';
+            border = 'rgba(255,82,82,.55)';
+          } else {
+            invTag = '<span style="font-size:10px;color:#FFB300;font-weight:800;margin-left:6px">📍 in inventory at ' + esc(cab.location || '?') + ' (refresh to pull)</span>';
+          }
+        } else {
+          invTag = '<span style="font-size:10px;color:var(--text-dim);font-weight:700;margin-left:6px">not in inventory (MTO?)</span>';
+        }
+      }
+    } catch (e) {}
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;background:' + bg + ';border:1px solid ' + border + ';border-radius:8px">'
+      + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:#FFB300;min-width:0">' + esc(c.num) + '</div>'
+      + '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">'
+      +   '<div style="font-size:10px;color:var(--text-dim);font-weight:700">' + sourceTag + (when ? ' · ' + esc(when) : '') + '</div>'
+      +   (invTag ? '<div>' + invTag + '</div>' : '')
+      + '</div>'
       + '<button onclick="removeCabinetPacked_(\'' + esc(row.order_number) + '\',\'' + esc(c.num) + '\')" class="amp-btn" style="padding:6px 10px;font-size:11px" title="Remove from list">×</button>'
       + '</div>';
   }).join('');
@@ -1226,7 +1256,35 @@ async function _cabCaptureSubmit_(cabinetNum, source) {
       row.cabinets_packed_json = JSON.stringify(res.cabinets || []);
       renderPackCabinetList_(row);
     }
-    showToast('✓ ' + cabinetNum + ' added (' + source + ')');
+    // v10.297 — Zac 11:42 EDT: "when a cabinet is marked as packed, it
+    // should be removed from location and be marked as pulled." Phase 2:
+    // side-effect into the Cabinets system. Find the matching local
+    // cabinet by normalized number, mark pulled (which also hides it
+    // from default Cabinets search) + tag pulledForOrder so we can
+    // cross-reference later.
+    let pullStatus = '';
+    try {
+      if (typeof cabinets !== 'undefined' && Array.isArray(cabinets)
+          && typeof normCab === 'function') {
+        const want = normCab(cabinetNum);
+        const cab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === want);
+        if (cab) {
+          if (cab.pulledAt) {
+            pullStatus = ' · ⚠ already pulled ' + String(cab.pulledAt).slice(0, 10);
+          } else {
+            cab.pulledAt = (typeof nowStamp === 'function') ? nowStamp() : new Date().toISOString();
+            cab.pulledBy = (typeof getPackDeviceName_ === 'function' ? getPackDeviceName_() : '') || 'pack';
+            cab.pulledForOrder = String(_cabCaptureOrderNumber);
+            cab.updatedAt = cab.pulledAt;
+            if (typeof saveCabinets === 'function') saveCabinets();
+            pullStatus = ' · ✓ removed from ' + String(cab.location || '?');
+          }
+        } else {
+          pullStatus = ' · ⚠ not in inventory (MTO?)';
+        }
+      }
+    } catch (e) { console.warn('cabinet pull side-effect failed:', e.message); }
+    showToast('✓ ' + cabinetNum + ' added (' + source + ')' + pullStatus);
     if (typeof FB !== 'undefined' && FB.success) FB.success();
     closeCabinetCaptureModal();
   } catch (e) {
