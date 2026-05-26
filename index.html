@@ -11292,6 +11292,23 @@ function saveReceiveSessions() {
   } catch(e) {}
 }
 
+// v10.293 — safe display name for receive sessions. Heals stale local
+// rows where s.name became a JS Date string ("Wed May 21 2026 GMT…")
+// or [object Object] or an ISO timestamp. Prefers deliveryDate.
+const _RECV_MONTHS_ = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function _safeRecvDisplayName_(s) {
+  if (s && s.deliveryDate) {
+    const iso = String(s.deliveryDate).slice(0, 10);
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return _RECV_MONTHS_[Number(m[2]) - 1] + ' ' + Number(m[3]);
+  }
+  const n = (s && s.name) ? String(s.name) : '';
+  if (!n || n === '[object Object]' || /\bGMT\b/.test(n) || /^\s*\d{4}-\d{2}-\d{2}T/.test(n)) {
+    return 'Shipment';
+  }
+  return n;
+}
+
 function getActiveSession() {
   if (!activeSessionId) return null;
   return receiveSessions.find(s => s.id === activeSessionId) || null;
@@ -11357,6 +11374,7 @@ function renderActiveSessionBadge() {
     if (aPast) return ad > bd ? -1 : 1;
     return ad < bd ? -1 : 1;
   });
+  // v10.293 — see _safeRecvDisplayName_ above. Zac 11:11 EDT.
   const barHtml = sortedSessions.map(s => {
     const st = sessionStats(s);
     const isPast = s.deliveryDate && s.deliveryDate < todayIso;
@@ -11385,7 +11403,7 @@ function renderActiveSessionBadge() {
       + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:rgba(255,255,255,.16);pointer-events:none"></div>'
       + '<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%">'
       +   '<div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">'
-      +     '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:.4px;line-height:1">' + esc(s.name) + '</span>'
+      +     '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:.4px;line-height:1">' + esc(_safeRecvDisplayName_(s)) + '</span>'
       +     tag
       +   '</div>'
       +   '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">'
@@ -11601,7 +11619,7 @@ async function approveArchiveReceiveSession(sessionId) {
   if (!s || !s.serverSessionId) { showToast('Session not on server'); return; }
   const stats = sessionStats(s);
   const remaining = stats.total - stats.done;
-  let msg = 'Approve & archive ' + esc(s.name) + '?';
+  let msg = 'Approve & archive ' + esc(_safeRecvDisplayName_(s)) + '?';
   if (remaining > 0) msg += '\n\n⚠ ' + remaining + ' cabinets still un-received. They will be left as missed.';
   msg += '\n\nThis removes the list from the active Receive view. Requires manager PIN.';
   if (!confirm(msg)) return;
@@ -12175,7 +12193,7 @@ function renderReceiveSession() {
       + '<div style="position:relative;display:flex;justify-content:space-between;align-items:center;gap:10px">'
       +   '<div style="min-width:0;flex:1">'
       +     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'
-      +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:' + accent + ';letter-spacing:.5px;line-height:1.05">' + esc(s.name) + '</span>'
+      +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:' + accent + ';letter-spacing:.5px;line-height:1.05">' + esc(_safeRecvDisplayName_(s)) + '</span>'
       +       tag
       +     '</div>'
       +     '<div style="font-size:13px;color:#444;margin-top:4px;font-weight:700">' + (isActive ? '✓ Active — detail below' : openLabel) + '</div>'
@@ -12200,7 +12218,7 @@ function renderReceiveSession() {
     + '<div style="background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
     +   '<div style="min-width:0;flex:1">'
     +     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Active Shipment</div>'
-    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.1;margin-top:1px">'+esc(session.name)+'</div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.1;margin-top:1px">'+esc(_safeRecvDisplayName_(session))+'</div>'
     +     (session.truckCount > 0
             ? '<div style="font-size:11px;font-weight:700;opacity:.85;margin-top:3px">🚚 ' + session.truckCount + ' trucks</div>'
             : '')
@@ -16172,7 +16190,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.292"></script>
+<script src="./pack.js?v=10.293"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16181,7 +16199,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.292<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.293<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
