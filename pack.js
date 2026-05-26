@@ -7581,12 +7581,49 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
   if (bucketKind === 'prepack_today' && typeof setPackTabMode === 'function') {
     setTimeout(() => { try { setPackTabMode('prepack'); } catch(e) {} }, 80);
   }
+  // v10.295 — Zac 11:30 EDT: "it goes to a weird initial screen for
+  // like 20 seconds before going to the actual pack screen. i don't
+  // like that and there's no indication it's loading the job."
+  // Cover the Pack queue list with an opaque "Opening #N…" overlay
+  // immediately + live timer while the bootstrap + refresh sequence
+  // runs. The packer never sees the queue list during the wait;
+  // overlay fades out when openPackDetail fires.
+  const _packLoadOverlay_ = (() => {
+    const list = document.getElementById('packQueueList');
+    if (!list) return null;
+    let ov = document.getElementById('packJumpOverlay');
+    if (ov) ov.remove();
+    ov = document.createElement('div');
+    ov.id = 'packJumpOverlay';
+    ov.style.cssText = 'position:absolute;inset:0;background:#0a0a0a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:100;animation:mbdFade .15s ease-out';
+    ov.innerHTML =
+      '<div style="font-size:56px;color:#42a5f5;animation:mbdSpin 1s linear infinite;line-height:1">⟳</div>'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;color:#fff;letter-spacing:.5px">Opening #' + esc(orderNumber) + '</div>'
+      + '<div id="packJumpOverlayStatus" style="font-size:13px;color:#9AAAC0;letter-spacing:.5px">Loading queue…</div>'
+      + '<div id="packJumpOverlayTimer" style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#42a5f5;opacity:.7">0.0s</div>';
+    // Position relative to the pack panel container; fallback to fixed.
+    const parent = list.offsetParent || list.parentNode || document.body;
+    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+    parent.appendChild(ov);
+    const t0 = Date.now();
+    const timer = setInterval(() => {
+      const el = document.getElementById('packJumpOverlayTimer');
+      if (!el) { clearInterval(timer); return; }
+      el.textContent = ((Date.now() - t0) / 1000).toFixed(1) + 's';
+    }, 100);
+    return {
+      remove: () => { clearInterval(timer); if (ov && ov.parentNode) ov.parentNode.removeChild(ov); },
+      setStatus: (msg) => { const el = document.getElementById('packJumpOverlayStatus'); if (el) el.textContent = msg; },
+    };
+  })();
   setTimeout(async () => {
     try {
+      if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Refreshing Pack queue…');
       if (typeof refreshPackQueue === 'function') await refreshPackQueue();
       const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
       const row = cache.find(r => String(r.order_number) === String(orderNumber));
       if (row && typeof openPackDetail === 'function') {
+        if (_packLoadOverlay_) _packLoadOverlay_.remove();
         openPackDetail(orderNumber);
         return;
       }
@@ -7597,19 +7634,21 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
       // (full from gcal, partial from gcal-no-link, or blank from
       // order# alone). Pack detail handles the empty-SKU case with
       // a manual-override section.
-      showToast('#' + orderNumber + ' not in Pack queue — creating row…');
+      if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Pulling pick list from gcal…');
       try {
         const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
         if (boot && boot.ok) {
+          if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Reloading Pack queue…');
           if (typeof refreshPackQueue === 'function') await refreshPackQueue();
           const cache2 = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
           const row2 = cache2.find(r => String(r.order_number) === String(orderNumber));
           if (row2 && typeof openPackDetail === 'function') {
             const tag = boot.action === 'bootstrapped_full' ? '✓ pulled from gcal'
-              : boot.action === 'bootstrapped_no_link' ? '⚠ gcal event found but no pick-list link — opening with manual override'
-              : boot.action === 'bootstrapped_no_event' ? '⚠ no gcal event — blank Pack row created, use manual override'
+              : boot.action === 'bootstrapped_no_link' ? '⚠ no pick-list link — manual override available'
+              : boot.action === 'bootstrapped_no_event' ? '⚠ no gcal event — blank row, manual override available'
               : '✓ opened';
             showToast(tag);
+            if (_packLoadOverlay_) _packLoadOverlay_.remove();
             openPackDetail(orderNumber);
             return;
           }
@@ -7618,9 +7657,11 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
         console.warn('ensurePackQueueRowExists failed:', e.message);
       }
       // True last-resort fallback if even the row create failed (server unreachable).
+      if (_packLoadOverlay_) _packLoadOverlay_.remove();
       jumpToLookup_(orderNumber);
     } catch (e) {
       console.warn('jumpToPackForOrder error:', e.message);
+      if (_packLoadOverlay_) _packLoadOverlay_.remove();
       jumpToLookup_(orderNumber);
     }
   }, 250);

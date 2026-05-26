@@ -2665,9 +2665,44 @@ function setPackTabMode(mode) {
     prepackBtn.style.color = (mode === 'prepack') ? '#fff' : 'var(--text-dim)';
     prepackBtn.style.webkitTextFillColor = (mode === 'prepack') ? '#fff' : 'var(--text-dim)';
   }
+  // v10.295 — Zac 11:35 EDT: "when i go to pack (or pre-pack) screen
+  // for an order, if i click the other tab it should just show that
+  // tab for the current order i'm on." Carry the active order
+  // across the mode flip: if Pack detail had #X open and user
+  // toggles to prepack, open Pre-Pack detail for #X (if it exists in
+  // the prepack queue). Same in reverse.
+  const activeOrder = (mode === 'prepack')
+    ? (typeof _packDetailOrderNumber !== 'undefined' && _packDetailOrderNumber)
+    : (typeof _prePackDetailOrderNumber !== 'undefined' && _prePackDetailOrderNumber);
   // Render the appropriate sub-flow when switching modes.
   if (mode === 'prepack' && typeof renderPrePackTab === 'function') renderPrePackTab();
   else if (mode === 'pack' && typeof renderPackTab === 'function') renderPackTab();
+  // After the render kicks off, try to open detail for the carried order.
+  // Pack/PrePack tab renders are async (they fetch queues); poll briefly
+  // for the order to land in the cache, then open detail.
+  if (activeOrder) {
+    let tries = 0;
+    const maxTries = 25; // ~5s @ 200ms
+    const tick = setInterval(() => {
+      tries++;
+      if (tries > maxTries) { clearInterval(tick); return; }
+      if (mode === 'prepack') {
+        const cache = (typeof _prePackQueueCache !== 'undefined' && _prePackQueueCache) || [];
+        const row = cache.find(r => String(r.order_number) === String(activeOrder));
+        if (row && typeof openPrePackDetail === 'function') {
+          clearInterval(tick);
+          openPrePackDetail(activeOrder);
+        }
+      } else {
+        const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+        const row = cache.find(r => String(r.order_number) === String(activeOrder));
+        if (row && typeof openPackDetail === 'function') {
+          clearInterval(tick);
+          openPackDetail(activeOrder);
+        }
+      }
+    }, 200);
+  }
 }
 function _restorePackTabMode_() {
   let mode = 'pack';
@@ -16190,7 +16225,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.294"></script>
+<script src="./pack.js?v=10.295"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16199,7 +16234,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.294<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.295<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
