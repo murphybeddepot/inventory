@@ -3261,8 +3261,47 @@ async function refreshScheduleTab() {
   if (listEl && !hasCached) {
     listEl.innerHTML = '<div style="padding:48px 24px;text-align:center;background:rgba(66,165,245,.06);border:1.5px dashed rgba(66,165,245,.35);border-radius:12px;color:#42a5f5;font-size:18px;font-weight:800;letter-spacing:.5px"><div style="font-size:36px;margin-bottom:12px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</div><div>Loading schedule…</div></div>';
   }
+  // v10.294 — Zac 11:18 EDT: "i'm not sure it's a good idea to show a
+  // list if that's not the latest load." When refreshing on top of a
+  // cached list, dim the list + show a sticky "↻ Refreshing — Xs"
+  // banner so the staleness is obvious. Also start a clock to surface
+  // how long the fetch is taking — helps diagnose the 30s slowness.
+  let refreshBanner = null;
+  let tickHandle = null;
+  if (hasCached && listEl) {
+    listEl.style.opacity = '0.45';
+    listEl.style.pointerEvents = 'none';
+    refreshBanner = document.createElement('div');
+    refreshBanner.id = 'scheduleRefreshBanner';
+    refreshBanner.style.cssText = 'position:sticky;top:0;z-index:50;background:linear-gradient(90deg,rgba(66,165,245,.18),rgba(66,165,245,.04));border:1px solid rgba(66,165,245,.55);border-radius:10px;padding:8px 14px;margin-bottom:10px;color:#42a5f5;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;display:flex;align-items:center;gap:10px';
+    refreshBanner.innerHTML = '<span style="font-size:18px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</span><span>Refreshing schedule…</span><span id="schedRefreshTimer" style="margin-left:auto;font-family:\'JetBrains Mono\',monospace;font-size:11px;opacity:.8">0.0s</span>';
+    listEl.parentNode.insertBefore(refreshBanner, listEl);
+    const t0 = Date.now();
+    const timerEl = document.getElementById('schedRefreshTimer');
+    tickHandle = setInterval(() => {
+      if (!timerEl) return;
+      timerEl.textContent = ((Date.now() - t0) / 1000).toFixed(1) + 's';
+    }, 100);
+  }
+  const _cleanupRefresh_ = () => {
+    if (tickHandle) clearInterval(tickHandle);
+    if (refreshBanner) refreshBanner.remove();
+    if (listEl) {
+      listEl.style.opacity = '';
+      listEl.style.pointerEvents = '';
+    }
+  };
+  const _scheduleT0_ = Date.now();
   try {
     const res = await groundApi('listScheduleByDateRange', {});
+    const _scheduleMs_ = Date.now() - _scheduleT0_;
+    console.log('[schedule] listScheduleByDateRange took ' + _scheduleMs_ + 'ms');
+    _cleanupRefresh_();
+    // Re-bind statusEl after cleanup since DOM may have moved.
+    const statusEl2 = document.getElementById('scheduleStatus');
+    if (statusEl2 && _scheduleMs_ > 5000) {
+      statusEl2.dataset.scheduleLoadMs = String(_scheduleMs_);
+    }
     if (!res || !res.ok) {
       if (statusEl) statusEl.textContent = 'Error: ' + ((res && res.error) || 'unknown');
       return;
@@ -3315,6 +3354,7 @@ async function refreshScheduleTab() {
     const totalOrders = (res.days || []).reduce((s, d) => s + d.total, 0);
     if (statusEl) statusEl.textContent = totalOrders + ' order' + (totalOrders === 1 ? '' : 's') + ' across ' + (res.days || []).length + ' day' + ((res.days || []).length === 1 ? '' : 's') + ' · today=' + res.today;
   } catch (err) {
+    _cleanupRefresh_();
     // v10.166 R3-style — inline Retry on Schedule load failure (Zac
     // 2026-05-21 09:59 bug report: schedule failing on phone, no way
     // to retry without finding the refresh button).
