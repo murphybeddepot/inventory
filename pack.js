@@ -3293,6 +3293,10 @@ async function refreshScheduleTab() {
 // stays in the mode its user works in (Kim → needs_booking).
 let _scheduleViewMode = 'all';
 try { _scheduleViewMode = localStorage.getItem('mbd_sched_view') || 'all'; } catch(e) {}
+// v10.281 — Zac 19:56 EDT: per-day picker so Today view can render
+// any day's pack/pre-pack lists. null = today (default); ISO date
+// string overrides _schedTodayContext_'s effective_today base.
+let _scheduleTodayPickerDate = null;
 // v10.220 Seth pain #2 — stalled sub-filter. When view-mode='stalled',
 // a second chip row appears letting Seth narrow to a single stall
 // reason. Persists across reload.
@@ -3410,22 +3414,44 @@ function _schedNextBusinessDay_(iso) {
   return iso;
 }
 function _schedTodayContext_() {
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const todayIsBiz = _schedIsBusinessDay_(todayIso);
-  // If today is a holiday or weekend, "today" for the pack/ship
+  const actualToday = new Date().toISOString().slice(0, 10);
+  // v10.281 — picker override. When set, treat that date as 'today'
+  // for bucket math. Falls back to actual today (with business-day
+  // rollover) when unset.
+  const picked = (typeof _scheduleTodayPickerDate === 'string') ? _scheduleTodayPickerDate : null;
+  const base = picked || actualToday;
+  const baseIsBiz = _schedIsBusinessDay_(base);
+  // If base is a holiday or weekend, "today" for the pack/ship
   // bucket logic = the NEXT business day. The view banner makes
-  // this clear so the user isn't confused why "today" buckets
-  // show a different date.
-  const effectiveToday = todayIsBiz ? todayIso : _schedNextBusinessDay_(todayIso);
+  // this clear so the user isn't confused.
+  const effectiveToday = baseIsBiz ? base : _schedNextBusinessDay_(base);
   const effectiveTomorrow = _schedNextBusinessDay_(effectiveToday);
   return {
-    today: todayIso,
-    today_is_business: todayIsBiz,
-    today_holiday_name: _SCHED_HOLIDAYS_[todayIso] || '',
+    today: actualToday,
+    base: base,
+    is_picker_active: !!picked,
+    today_is_business: baseIsBiz,
+    today_holiday_name: _SCHED_HOLIDAYS_[base] || '',
     effective_today: effectiveToday,
     effective_tomorrow: effectiveTomorrow,
   };
 }
+
+// v10.281 — Picker change handler. Sticky via localStorage so a
+// "looking at Friday" picker survives page reload.
+function setScheduleTodayPickerDate(iso) {
+  iso = (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso)) ? iso : null;
+  _scheduleTodayPickerDate = iso;
+  try {
+    if (iso) localStorage.setItem('mbd_sched_today_pick', iso);
+    else localStorage.removeItem('mbd_sched_today_pick');
+  } catch (e) {}
+  if (_scheduleCache) paintSchedule_(_scheduleCache);
+}
+try {
+  const saved = localStorage.getItem('mbd_sched_today_pick');
+  if (saved && /^\d{4}-\d{2}-\d{2}$/.test(saved)) _scheduleTodayPickerDate = saved;
+} catch (e) {}
 
 function _scheduleTodayBucket_(o) {
   if (!o || !o.ship_date) return null;
@@ -8348,15 +8374,24 @@ function paintScheduleMobileList_(payload, listEl) {
   };
   // Compose: collapsed past block (gcal-style) + today + future.
   if (skipCollapse) {
-    // v10.280 — Today view: prepend a holiday banner when actual
-    // today is a weekend/holiday so the user understands why
-    // "today" buckets are showing a different date.
+    // v10.280-281 — Today view prefix:
+    //   • Date picker chip (Zac 19:56 EDT — select any day to view)
+    //   • Holiday/weekend banner when applicable so it's never
+    //     ambiguous why "today" buckets show a different date.
     let prefix = '';
     if (_scheduleViewMode === 'today' && typeof _schedTodayContext_ === 'function') {
       const tctx = _schedTodayContext_();
+      // Date picker row.
+      const pickerVal = tctx.is_picker_active ? tctx.base : tctx.today;
+      prefix += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:10px;flex-wrap:wrap">';
+      prefix += '  <label style="font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:1px;text-transform:uppercase">📅 Day</label>';
+      prefix += '  <input type="date" value="' + esc(pickerVal) + '" onchange="setScheduleTodayPickerDate(this.value)" style="padding:6px 10px;font-size:13px;background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;min-height:34px">';
+      prefix += '  <button onclick="setScheduleTodayPickerDate(null)" style="padding:6px 12px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;background:' + (tctx.is_picker_active ? '#003087' : 'transparent') + ';color:' + (tctx.is_picker_active ? '#fff' : 'var(--text-dim)') + ';border:1px solid ' + (tctx.is_picker_active ? '#003087' : 'rgba(255,255,255,.15)') + ';border-radius:999px;cursor:pointer;min-height:34px">' + (tctx.is_picker_active ? '↻ Reset to today' : '✓ Showing today') + '</button>';
+      prefix += '</div>';
       if (!tctx.today_is_business) {
         const why = tctx.today_holiday_name || 'Weekend';
-        prefix = '<div style="padding:14px 16px;margin-bottom:14px;background:linear-gradient(135deg,rgba(255,179,0,.15),rgba(255,179,0,.05));border:1.5px solid rgba(255,179,0,.6);border-radius:12px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#FFB300;letter-spacing:1px;text-transform:uppercase">🎉 ' + esc(why) + ' — no work today</div><div style="font-size:13px;color:var(--text-dim);margin-top:4px">Today buckets below are for the *next business day* (' + esc(tctx.effective_today) + '). Pre-Pack bucket is for the day after.</div></div>';
+        const verb = tctx.is_picker_active ? 'No work that day' : 'No work today';
+        prefix += '<div style="padding:14px 16px;margin-bottom:14px;background:linear-gradient(135deg,rgba(255,179,0,.15),rgba(255,179,0,.05));border:1.5px solid rgba(255,179,0,.6);border-radius:12px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#FFB300;letter-spacing:1px;text-transform:uppercase">🎉 ' + esc(why) + ' — ' + verb + '</div><div style="font-size:13px;color:var(--text-dim);margin-top:4px">Buckets below are for the *next business day* (' + esc(tctx.effective_today) + '). Pre-Pack bucket is for the day after.</div></div>';
       }
     }
     const haveOrders = allDays.some(d => d.orders && d.orders.length);
