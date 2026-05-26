@@ -3377,27 +3377,74 @@ function _scheduleOrderInShipConfInbox_(o) {
 // since pack happens day-of for cabinet/freight). If Zac later
 // confirms a different ship_date↔pack_date mapping, we just edit
 // these date-deltas in one place.
+// v10.280 — Zac 21:04 EDT: "Not one job was shipping today per gcal.
+// Today is Memorial Day so nothing should be on for pre pack or pack
+// or shipping." Today buckets must (a) respect business-day +
+// holiday skipping when picking "today" + "tomorrow", and (b) only
+// include cal_sourced orders so PackingQueue rows without a matching
+// gcal entry don't pollute the gcal-truth view.
+const _SCHED_HOLIDAYS_ = {
+  '2026-01-01': "New Year's Day",
+  '2026-01-19': 'MLK Day',
+  '2026-02-16': "Presidents' Day",
+  '2026-05-25': 'Memorial Day',
+  '2026-07-04': 'Independence Day',
+  '2026-09-07': 'Labor Day',
+  '2026-11-26': 'Thanksgiving',
+  '2026-11-27': 'Day after Thanksgiving',
+  '2026-12-25': 'Christmas',
+};
+function _schedIsBusinessDay_(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const dow = d.getDay();
+  if (dow === 0 || dow === 6) return false;
+  return !_SCHED_HOLIDAYS_[iso];
+}
+function _schedNextBusinessDay_(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  for (let i = 0; i < 14; i++) {
+    d.setDate(d.getDate() + 1);
+    const next = d.toISOString().slice(0, 10);
+    if (_schedIsBusinessDay_(next)) return next;
+  }
+  return iso;
+}
+function _schedTodayContext_() {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIsBiz = _schedIsBusinessDay_(todayIso);
+  // If today is a holiday or weekend, "today" for the pack/ship
+  // bucket logic = the NEXT business day. The view banner makes
+  // this clear so the user isn't confused why "today" buckets
+  // show a different date.
+  const effectiveToday = todayIsBiz ? todayIso : _schedNextBusinessDay_(todayIso);
+  const effectiveTomorrow = _schedNextBusinessDay_(effectiveToday);
+  return {
+    today: todayIso,
+    today_is_business: todayIsBiz,
+    today_holiday_name: _SCHED_HOLIDAYS_[todayIso] || '',
+    effective_today: effectiveToday,
+    effective_tomorrow: effectiveTomorrow,
+  };
+}
+
 function _scheduleTodayBucket_(o) {
   if (!o || !o.ship_date) return null;
-  // v10.269 — Zac 22:49 EDT: \"if any job on gcal is P treat it like
-  // B is finished also because B preceded P.\" The workflow order
-  // H→B→P→L is monotonic — later state implies earlier states done.
-  // And Zac 23:06 EDT: \"if orders on gcal are green then Seth has
-  // marked them as shipped\" — once cal_shipped is true the order
-  // is OUT, drop from today's work queue entirely.
+  // v10.269 — workflow order H→B→P→L is monotonic; later state implies
+  // earlier states done.
+  // v10.269 — green gcal event = shipped (drop from today work queue).
+  // v10.280 — Zac 21:04 EDT: filter to cal_sourced only + use
+  // business-day-aware "today" so Memorial Day rolls today→Tuesday.
   if (o.cal_shipped) return null;
+  if (!o.cal_sourced) return null;
   const bDone = !!(o.cal_b || o.cal_p || o.cal_l);
   const pDone = !!(o.cal_p || o.cal_l);
-  const tz = new Date();
-  const todayIso = tz.toISOString().slice(0, 10);
-  const tmrw = new Date(tz.getTime() + 86400000);
-  const tmrwIso = tmrw.toISOString().slice(0, 10);
+  const ctx = _schedTodayContext_();
   const ship = String(o.ship_date).slice(0, 10);
-  if (ship === todayIso) {
+  if (ship === ctx.effective_today) {
     if (!pDone) return 'pack_today';
     return 'ship_today';
   }
-  if (ship === tmrwIso && !bDone) return 'prepack_today';
+  if (ship === ctx.effective_tomorrow && !bDone) return 'prepack_today';
   return null;
 }
 
@@ -3594,22 +3641,24 @@ function _applyScheduleViewFilter_(payload) {
       const b = _scheduleTodayBucket_(o);
       if (b && buckets[b]) buckets[b].push(o);
     }));
-    // v10.279 — Zac 20:07 EDT: "it should be very clear what date
-    // 'today' is displaying." Date appended to each bucket label
-    // (today for ship_today + pack_today; tomorrow for prepack_today)
-    // and shown in EEEE MMM D format so the day-of-week is unambiguous.
-    const dayLabel = (offsetDays) => {
-      const d = new Date(Date.now() + offsetDays * 86400000);
-      const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-      const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    // v10.280 — derive labels from business-day-aware context so
+    // Memorial Day, weekends, etc. roll forward correctly. The
+    // "today" buckets actually pack/ship the *next business day*
+    // when today itself is a holiday; banner above makes that
+    // explicit so it's never confusing.
+    const tctx = _schedTodayContext_();
+    const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmtIso = (iso) => {
+      const d = new Date(iso + 'T12:00:00');
       return DOW[d.getDay()] + ' ' + MON[d.getMonth()] + ' ' + d.getDate();
     };
-    const todayLabel = dayLabel(0);
-    const tmrwLabel = dayLabel(1);
+    const shipLabel = fmtIso(tctx.effective_today);
+    const tmrwLabel = fmtIso(tctx.effective_tomorrow);
     const order = [
-      { key: 'ship_today',    label: '📦 Ship Today · ' + todayLabel,           hint: 'scheduled to ship today (gcal 🅟 / 🅛 set)' },
-      { key: 'pack_today',    label: '🔨 Pack Today · ' + todayLabel,            hint: 'shipping today but not yet 🅟 packed' },
-      { key: 'prepack_today', label: '🔧 Pre-Pack Today · packs ' + tmrwLabel,   hint: 'shipping tomorrow, not yet 🅑 boxed — pre-pack today' },
+      { key: 'ship_today',    label: '📦 Ship · ' + shipLabel,                 hint: 'scheduled to ship + already 🅟 packed on gcal' },
+      { key: 'pack_today',    label: '🔨 Pack · ' + shipLabel,                  hint: 'shipping ' + shipLabel + ' but not yet 🅟 packed' },
+      { key: 'prepack_today', label: '🔧 Pre-Pack · packs ' + tmrwLabel,        hint: 'shipping ' + tmrwLabel + ', not yet 🅑 boxed — pre-pack tonight' },
     ];
     const synthDays = order
       .filter(b => buckets[b.key].length)
@@ -8299,7 +8348,23 @@ function paintScheduleMobileList_(payload, listEl) {
   };
   // Compose: collapsed past block (gcal-style) + today + future.
   if (skipCollapse) {
-    listEl.innerHTML = allDays.map(dayRenderer).join('');
+    // v10.280 — Today view: prepend a holiday banner when actual
+    // today is a weekend/holiday so the user understands why
+    // "today" buckets are showing a different date.
+    let prefix = '';
+    if (_scheduleViewMode === 'today' && typeof _schedTodayContext_ === 'function') {
+      const tctx = _schedTodayContext_();
+      if (!tctx.today_is_business) {
+        const why = tctx.today_holiday_name || 'Weekend';
+        prefix = '<div style="padding:14px 16px;margin-bottom:14px;background:linear-gradient(135deg,rgba(255,179,0,.15),rgba(255,179,0,.05));border:1.5px solid rgba(255,179,0,.6);border-radius:12px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#FFB300;letter-spacing:1px;text-transform:uppercase">🎉 ' + esc(why) + ' — no work today</div><div style="font-size:13px;color:var(--text-dim);margin-top:4px">Today buckets below are for the *next business day* (' + esc(tctx.effective_today) + '). Pre-Pack bucket is for the day after.</div></div>';
+      }
+    }
+    const haveOrders = allDays.some(d => d.orders && d.orders.length);
+    if (!haveOrders && _scheduleViewMode === 'today') {
+      listEl.innerHTML = prefix + '<div style="padding:30px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px;font-size:14px">No gcal orders scheduled to ship or pre-pack for the next business day. ✨</div>';
+    } else {
+      listEl.innerHTML = prefix + allDays.map(dayRenderer).join('');
+    }
   } else {
     let html = '';
     if (pastDays.length) {
