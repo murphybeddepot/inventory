@@ -598,6 +598,7 @@ function openPackDetail(orderNumber) {
       <div style="display:flex;gap:8px;margin-bottom:10px">
         <input type="text" id="packScanInput" placeholder="Scan or type a SKU…" autocomplete="off" autocorrect="off" spellcheck="false"
           style="flex:1;padding:11px 13px;font-size:15px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;background:#000;color:${phase==='checker'?'#ce93d8':'var(--green-bright)'};border:2px solid ${phaseAccent};border-radius:8px;outline:none;text-shadow:0 0 8px ${phaseAccent}">
+        <button onclick="openSkuCameraScan_()" class="amp-btn" style="padding:11px 14px;font-size:18px" title="Open camera to scan barcode (no external scanner needed)">📷</button>
         <button onclick="handlePackScanSubmit()" class="amp-btn go" style="padding:11px 16px;font-size:13px">Scan</button>
       </div>
       <div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:8px"></div>
@@ -1041,8 +1042,27 @@ let _cabCaptureOrderNumber = null;
 let _cabCaptureBarcodeStream = null;
 let _cabCaptureDetector = null;
 
-function openCabinetCaptureModal(orderNumber) {
+// v10.303 — Zac 12:30 EDT: "it should default to photo if it's an MTO
+// order or scan if it's a stock order." Detect MTO from task_line or
+// cal_label (which usually contains 'MTO' or 'RMK' for those orders).
+// Default mode caller-overridable.
+function _detectCabinetCaptureDefaultMode_(orderNumber) {
+  try {
+    const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+    const row = cache.find(r => String(r.order_number) === String(orderNumber));
+    if (!row) return 'barcode';
+    const hay = ((row.task_line || '') + ' ' + (row.notes || '') + ' ' + (row.cal_label || '')).toUpperCase();
+    if (/\b(MTO|RMK|REMAKE)\b/.test(hay)) return 'photo';
+    // No cabinet-number-shaped token in task_line ⟹ likely MTO.
+    const looksLikeStockNum = /\b[A-Z]\d{2,4}\b/.test(hay);
+    if (!looksLikeStockNum) return 'photo';
+    return 'barcode';
+  } catch (e) { return 'barcode'; }
+}
+
+function openCabinetCaptureModal(orderNumber, defaultMode) {
   _cabCaptureOrderNumber = String(orderNumber);
+  const mode = defaultMode || _detectCabinetCaptureDefaultMode_(orderNumber);
   const prior = document.getElementById('cabCaptureOverlay');
   if (prior) prior.remove();
   const ov = document.createElement('div');
@@ -1064,7 +1084,7 @@ function openCabinetCaptureModal(orderNumber) {
     + '<div id="cabCaptureStatus" style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:10px;min-height:16px"></div>'
     + '</div>';
   document.body.appendChild(ov);
-  _cabCaptureSetMode_('barcode');
+  _cabCaptureSetMode_(mode);
 }
 
 function closeCabinetCaptureModal() {
@@ -1290,6 +1310,99 @@ async function _cabCaptureSubmit_(cabinetNum, source) {
   } catch (e) {
     if (status) status.textContent = '⚠ Save error: ' + e.message;
   }
+}
+
+// v10.303 — Zac 12:30 EDT: "for scanning the items on pack page, there
+// should be an instant and intuitive way to use camera to scan barcodes
+// if they are not using a separate barcode scanner." Camera button next
+// to the Scan input opens a fullscreen barcode preview; the moment a
+// code is detected it fills #packScanInput + auto-submits via
+// handlePackScanSubmit, then keeps the camera open for the next scan
+// (machine-gun style for multi-SKU packing). Tap × to close.
+let _skuScanStream_ = null;
+let _skuScanDetector_ = null;
+let _skuScanLastCode_ = '';
+let _skuScanLastAt_ = 0;
+
+async function openSkuCameraScan_() {
+  if (typeof window.BarcodeDetector === 'undefined') {
+    showToast('⚠ Camera barcode scan not supported on this device — type SKU manually');
+    return;
+  }
+  const prior = document.getElementById('skuScanOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'skuScanOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:#000;z-index:10015;display:flex;flex-direction:column;align-items:stretch';
+  ov.innerHTML =
+    '<div style="background:rgba(0,0,0,.85);color:#fff;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:.5px">📷 SCAN SKU — keep scanning, tap ✕ to close</div>'
+    +   '<button onclick="closeSkuCameraScan_()" style="background:#ff5252;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:16px;font-weight:900;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="flex:1;position:relative;background:#000;overflow:hidden">'
+    +   '<video id="skuScanVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>'
+    +   '<div style="position:absolute;left:10%;right:10%;top:35%;bottom:35%;border:3px dashed #00e676;border-radius:12px;pointer-events:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.45)"></div>'
+    +   '<div id="skuScanFeedback" style="position:absolute;left:0;right:0;bottom:24px;text-align:center;color:#00e676;font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;text-shadow:0 1px 4px rgba(0,0,0,.7);min-height:28px;letter-spacing:1px;pointer-events:none">Looking for barcode…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  try {
+    _skuScanDetector_ = new window.BarcodeDetector({
+      formats: ['code_128','code_39','ean_13','ean_8','qr_code','upc_a','upc_e','itf'],
+    });
+  } catch (e) {
+    showToast('⚠ BarcodeDetector init failed: ' + e.message);
+    closeSkuCameraScan_();
+    return;
+  }
+  try {
+    _skuScanStream_ = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+    const video = document.getElementById('skuScanVideo');
+    if (video) video.srcObject = _skuScanStream_;
+    _skuScanTick_();
+  } catch (e) {
+    showToast('⚠ Camera permission denied: ' + e.message);
+    closeSkuCameraScan_();
+  }
+}
+
+async function _skuScanTick_() {
+  if (!_skuScanStream_ || !_skuScanDetector_) return;
+  const video = document.getElementById('skuScanVideo');
+  const feedback = document.getElementById('skuScanFeedback');
+  if (!video || !feedback) return;
+  try {
+    const codes = await _skuScanDetector_.detect(video);
+    if (codes && codes.length) {
+      const raw = String(codes[0].rawValue || '').trim();
+      if (raw) {
+        // Debounce: same code within 1.5s = ignore (don't double-scan).
+        const now = Date.now();
+        if (raw !== _skuScanLastCode_ || (now - _skuScanLastAt_) > 1500) {
+          _skuScanLastCode_ = raw;
+          _skuScanLastAt_ = now;
+          feedback.textContent = '✓ ' + raw;
+          feedback.style.color = '#00e676';
+          const input = document.getElementById('packScanInput');
+          if (input) input.value = raw;
+          if (typeof handlePackScanSubmit === 'function') handlePackScanSubmit();
+          if (typeof FB !== 'undefined' && FB.success) FB.success();
+        }
+      }
+    }
+  } catch (e) { /* frame errors — ignore */ }
+  setTimeout(_skuScanTick_, 300);
+}
+
+function closeSkuCameraScan_() {
+  if (_skuScanStream_) {
+    try { _skuScanStream_.getTracks().forEach(t => t.stop()); } catch(e) {}
+    _skuScanStream_ = null;
+  }
+  _skuScanDetector_ = null;
+  _skuScanLastCode_ = '';
+  _skuScanLastAt_ = 0;
+  const ov = document.getElementById('skuScanOverlay');
+  if (ov) ov.remove();
 }
 
 // v10.292 — manager-PIN override: mark an order packed without scan
