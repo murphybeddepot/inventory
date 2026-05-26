@@ -3460,19 +3460,28 @@ function _scheduleTodayBucket_(o) {
   // v10.269 — green gcal event = shipped (drop from today work queue).
   // v10.280 — Zac 21:04 EDT: filter to cal_sourced only + use
   // business-day-aware "today" so Memorial Day rolls today→Tuesday.
+  // v10.282 — Zac 23:57 EDT: "Why only 1 to pack Tuesday instead of
+  // next 10 jobs?" → pack_today + prepack_today become rolling-window
+  // worklists (any unship'd cal order needing the gate, regardless of
+  // ship_date). Top-N capping happens in _applyScheduleViewFilter_.
+  // ship_today stays strict — it's the "going out RIGHT NOW" list.
   if (o.cal_shipped) return null;
   if (!o.cal_sourced) return null;
   const bDone = !!(o.cal_b || o.cal_p || o.cal_l);
   const pDone = !!(o.cal_p || o.cal_l);
   const ctx = _schedTodayContext_();
   const ship = String(o.ship_date).slice(0, 10);
-  if (ship === ctx.effective_today) {
-    if (!pDone) return 'pack_today';
-    return 'ship_today';
-  }
-  if (ship === ctx.effective_tomorrow && !bDone) return 'prepack_today';
+  if (ship === ctx.effective_today && pDone) return 'ship_today';
+  if (!pDone && ship >= ctx.effective_today) return 'pack_today';
+  if (!bDone && ship >= ctx.effective_today) return 'prepack_today';
   return null;
 }
+
+// v10.282 — rolling-window caps for pack/prepack today buckets.
+// ship_today is uncapped (rare event — only orders actually going out
+// today). pack_today + prepack_today get next-N by ship_date ASC so
+// the worklist stays a reasonable size.
+const _SCHED_TODAY_CAP_ = { ship_today: 999, pack_today: 10, prepack_today: 10 };
 
 function _scheduleOrderMatchesMode_(o, mode) {
   if (mode === 'all') return true;
@@ -3689,18 +3698,29 @@ function _applyScheduleViewFilter_(payload) {
     const synthDays = order
       .filter(b => buckets[b.key].length)
       .map(b => {
-        const orders = buckets[b.key];
+        // v10.282 — sort by ship_date ASC (so the soonest ships float
+        // to the top of each pack worklist), then cap to per-bucket
+        // limit. Counts reflect what's *displayed*, not the raw set —
+        // an "X more queued" footer would be nicer but defer.
+        const sorted = buckets[b.key].slice().sort((a, c) => {
+          const da = String(a.ship_date || '9999-99-99');
+          const dc = String(c.ship_date || '9999-99-99');
+          return da < dc ? -1 : da > dc ? 1 : 0;
+        });
+        const cap = _SCHED_TODAY_CAP_[b.key] || 999;
+        const capped = sorted.slice(0, cap);
+        const overflow = Math.max(0, sorted.length - cap);
         return {
           date: todayIso,
-          label: b.label,
-          hint: b.hint,
+          label: b.label + (overflow ? ' · top ' + cap + ' of ' + sorted.length : ''),
+          hint: b.hint + (overflow ? ' · ' + overflow + ' more queued' : ''),
           today_bucket: b.key,
-          orders: orders,
-          total: orders.length,
-          freight_count: orders.filter(o => o.source === 'cabinet').length,
-          ground_count: orders.filter(o => o.source === 'ground').length,
-          mattress_count: orders.filter(o => o.source === 'mattress').length,
-          counts: orders.reduce((acc, o) => { const k = o.carrier_key || 'unassigned'; acc[k] = (acc[k] || 0) + 1; return acc; }, {}),
+          orders: capped,
+          total: capped.length,
+          freight_count: capped.filter(o => o.source === 'cabinet').length,
+          ground_count: capped.filter(o => o.source === 'ground').length,
+          mattress_count: capped.filter(o => o.source === 'mattress').length,
+          counts: capped.reduce((acc, o) => { const k = o.carrier_key || 'unassigned'; acc[k] = (acc[k] || 0) + 1; return acc; }, {}),
         };
       });
     return Object.assign({}, payload, { days: synthDays });
@@ -5777,25 +5797,36 @@ async function openHoldsPanel(opts) {
     + '</div>';
   document.body.appendChild(ov);
 
+  // v10.282 — guard every write to #holdsBody. User can close the
+  // sheet during the awaited listHolds call, which yanks the div from
+  // the DOM. v10.281 didn't check + crashed with "null is not an
+  // object" (per Zac 00:05 EDT 2026-05-26 issue report).
+  const _writeHoldsBody_ = (html) => {
+    const el = document.getElementById('holdsBody');
+    if (!el) return false;
+    el.innerHTML = html;
+    return true;
+  };
+
   let res;
   try { res = await groundApi('listHolds', {}); }
   catch (err) {
-    document.getElementById('holdsBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>';
+    _writeHoldsBody_('<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>');
     return;
   }
   if (!res || !res.ok) {
-    document.getElementById('holdsBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    _writeHoldsBody_('<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>');
     return;
   }
   const rows = (res.holds || []).filter(r => kindFilter === 'all' || r.kind === kindFilter);
   if (!rows.length) {
-    document.getElementById('holdsBody').innerHTML = '<div style="padding:24px;text-align:center;color:#0a8a3f;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">✓ No orders on hold in this view.</div>';
+    _writeHoldsBody_('<div style="padding:24px;text-align:center;color:#0a8a3f;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">✓ No orders on hold in this view.</div>');
     return;
   }
 
   const KIND_COLORS = { beacon_hold: '#9C27B0', orderpack_hold: '#FF6B00', packingqueue_hold: '#FFB300' };
   const KIND_LABELS = { beacon_hold: 'BEACON', orderpack_hold: 'GROUND', packingqueue_hold: 'CABINET' };
-  document.getElementById('holdsBody').innerHTML = rows.map(h => {
+  _writeHoldsBody_(rows.map(h => {
     const color = KIND_COLORS[h.kind] || '#666';
     const dateStr = String(h.held_at || h.order_date || h.ship_date || '').slice(0, 10);
     const itemsList = (h.items || []).map(i => esc(i.qty + '× ' + i.sku)).join(', ');
@@ -5824,7 +5855,7 @@ async function openHoldsPanel(opts) {
       + (dateStr ? '<div style="font-size:10px;color:#aaa;margin-top:3px;font-family:monospace">' + dateStr + '</div>' : '')
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + resumeBtn + deleteBtn + '</div>'
       + '</div>';
-  }).join('');
+  }).join(''));
 }
 
 async function resumeHoldFromPanel_(orderId, orderNumber) {
