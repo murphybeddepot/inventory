@@ -5141,6 +5141,7 @@ function renderCabinets() {
   fetchUpcomingCabinets_();
   renderRecentSearches();
   renderActiveSessionBadge();
+  if (typeof _prefetchReceiveSessions_ === 'function') _prefetchReceiveSessions_();
   if (typeof renderCabinetAttentionStrip_ === 'function') renderCabinetAttentionStrip_();
   const empty = document.getElementById('cabEmpty');
   const count = document.getElementById('cabCount');
@@ -11308,34 +11309,141 @@ function defaultShipmentName() {
   return months[d.getMonth()] + ' ' + d.getDate();
 }
 
-// Show a status banner above the Receive button if there's an active session.
+// v10.288 — Zac 10:18 EDT: "make the active shipment bar more of a
+// visual indicator of how much has been received also, and make the
+// date and numbers a bit larger/more readable from the cabinets tab."
+// Badge on the Cabinets tab now renders ONE BAR PER OPEN SHIPMENT,
+// stacked, with a fat visual progress fill behind a big date + big
+// X/Y count. UNFINISHED past-incomplete sessions get amber accent;
+// current/upcoming sessions get navy. Tap any bar to switch active
+// + open the receive sheet.
 function renderActiveSessionBadge() {
   const container = document.getElementById('receiveButtonContainer');
   if (!container) return;
-  const session = getActiveSession();
-  // Find or create the badge element
   let badge = document.getElementById('activeSessionBadge');
-  if (!session) {
+  if (!receiveSessions || receiveSessions.length === 0) {
     if (badge) badge.remove();
     return;
   }
-  const stats = sessionStats(session);
-  const html = '<div style="background:linear-gradient(135deg,#FF9100,#FFA726);color:#fff;border-radius:10px;padding:10px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openReceiveShipment()">'
-    + '<div style="min-width:0;flex:1">'
-    +   '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.9">🚚 Active Shipment · tap to resume</div>'
-    +   '<div style="font-size:14px;font-weight:800;font-family:\'Barlow Condensed\',Arial,sans-serif;margin-top:2px">'+esc(session.name)+' · '+stats.done+' / '+stats.total+'</div>'
-    + '</div>'
-    + '<div style="font-size:18px">›</div>'
+  const todayIso = (() => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  })();
+  const sortedSessions = receiveSessions.slice().sort((a, b) => {
+    const ad = String(a.deliveryDate || '');
+    const bd = String(b.deliveryDate || '');
+    const aPast = ad && ad < todayIso, bPast = bd && bd < todayIso;
+    if (aPast && !bPast) return -1;
+    if (!aPast && bPast) return 1;
+    if (aPast) return ad > bd ? -1 : 1;
+    return ad < bd ? -1 : 1;
+  });
+  const barHtml = sortedSessions.map(s => {
+    const st = sessionStats(s);
+    const isPast = s.deliveryDate && s.deliveryDate < todayIso;
+    const isIncompletePast = isPast && st.done < st.total;
+    const accent = isIncompletePast ? '#FF6B00' : '#003087';
+    const accentLight = isIncompletePast ? '#FFA726' : '#42a5f5';
+    const tag = isIncompletePast
+      ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:rgba(255,255,255,.25);color:#fff;padding:2px 8px;border-radius:999px;margin-left:8px">UNFINISHED</span>'
+      : (!isPast && s.deliveryDate >= todayIso
+          ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:rgba(255,255,255,.25);color:#fff;padding:2px 8px;border-radius:999px;margin-left:8px">THIS WEEK</span>'
+          : '');
+    // Visual progress fill — full-width bar inside the card, with
+    // the % done filled in a brighter accent on top of the dim base.
+    return '<div onclick="_recvBadgeTap_(\'' + esc(s.id) + '\')" '
+      + 'style="position:relative;overflow:hidden;background:linear-gradient(135deg,' + accent + ',' + accentLight + ');color:#fff;border-radius:12px;padding:14px 16px;margin-bottom:8px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18)">'
+      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:rgba(255,255,255,.18);transition:width .25s ease;pointer-events:none"></div>'
+      + '<div style="position:relative;display:flex;justify-content:space-between;align-items:center;gap:12px">'
+      +   '<div style="min-width:0;flex:1">'
+      +     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">'
+      +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:30px;font-weight:900;line-height:1.05;letter-spacing:.5px">' + esc(s.name) + '</span>'
+      +       tag
+      +     '</div>'
+      +     '<div style="font-size:13px;font-weight:700;opacity:.92;margin-top:4px;letter-spacing:.3px">' + (isIncompletePast ? '⚠ ' + (st.total - st.done) + ' still to receive' : (st.done > 0 ? '✓ ' + st.done + ' received' : 'Tap to start receiving')) + '</div>'
+      +   '</div>'
+      +   '<div style="text-align:right;flex-shrink:0">'
+      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:28px;font-weight:900;line-height:1">' + st.done + ' / ' + st.total + '</div>'
+      +     '<div style="font-size:12px;font-weight:800;opacity:.9;margin-top:2px">' + st.pct + '% done</div>'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  const html = '<div id="activeSessionBadge">'
+    + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#666;margin-bottom:6px;padding:0 2px">🚚 Open Shipments — tap to resume</div>'
+    + barHtml
     + '</div>';
   if (badge) {
     badge.outerHTML = html;
-    badge = document.getElementById('activeSessionBadge');
   } else {
     container.insertAdjacentHTML('afterbegin', html);
   }
-  // Tag the new element so we can find it next time
-  const newBadge = container.firstElementChild;
-  if (newBadge) newBadge.id = 'activeSessionBadge';
+}
+
+// v10.288 — tap-bar handler: set active + open the receive modal.
+function _recvBadgeTap_(sessionId) {
+  const s = receiveSessions.find(r => r.id === sessionId);
+  if (!s) { openReceiveShipment(); return; }
+  activeSessionId = s.id;
+  saveReceiveSessions();
+  openReceiveShipment();
+}
+
+// v10.288 — background-prefetch open shipments from server when the
+// Cabinets tab paints, so the badge bars populate without requiring
+// the user to open the Receive sheet first. Throttled to once per
+// 5min so we don't hammer the orchestrator on every nav.
+let _recvPrefetchAt = 0;
+async function _prefetchReceiveSessions_() {
+  const now = Date.now();
+  if (now - _recvPrefetchAt < 300000) return;
+  _recvPrefetchAt = now;
+  if (!GROUND_ORCH_URL) return;
+  try {
+    const resp = await groundApi('listOpenReceiveSessions', { window_days: 21 });
+    if (!resp || !resp.ok || !Array.isArray(resp.sessions)) return;
+    // Merge into local receiveSessions (preserve local-only state)
+    resp.sessions.forEach(ss => {
+      const localMatch = receiveSessions.find(l => l.serverSessionId === ss.session_id);
+      if (localMatch) {
+        mergeServerSessionIntoLocal_(localMatch, ss);
+      } else {
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        let name = 'Auto-loaded';
+        if (ss.delivery_date) {
+          const parts = String(ss.delivery_date).split('-');
+          if (parts.length === 3) name = months[Number(parts[1]) - 1] + ' ' + Number(parts[2]);
+        }
+        const enriched = (ss.cabinets || []).map(c => {
+          if (typeof c === 'string') return { num: c, received: false, location: '', receivedAt: '', receivedBy: '' };
+          return {
+            num: c.num,
+            received: !!c.received,
+            location: c.location || '',
+            receivedAt: c.received_at || '',
+            receivedBy: c.received_by || '',
+            addedManually: !!c.added_manually,
+            damaged: !!c.damaged,
+            committedAt: c.received ? (c.received_at || '') : '',
+          };
+        });
+        receiveSessions.push({
+          id: 'srv:' + ss.session_id,
+          name: name,
+          createdAt: ss.created_at || new Date().toISOString(),
+          defaultLoc: '',
+          person: '',
+          cabinets: enriched,
+          serverSessionId: ss.session_id,
+          truckCount: ss.truck_count || 0,
+          deliveryDate: ss.delivery_date || '',
+          status: ss.status || 'pending',
+        });
+      }
+    });
+    saveReceiveSessions();
+    renderActiveSessionBadge();
+  } catch (e) { /* silent — badge will appear next time */ }
 }
 
 async function openReceiveShipment() {
@@ -12008,19 +12116,28 @@ function renderReceiveSession() {
       ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#FF9100;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">UNFINISHED</span>'
       : (isPast ? '' : (s.deliveryDate >= todayIso ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">THIS WEEK</span>' : ''));
     const approveBtn = s.serverSessionId
-      ? '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;margin-left:6px" title="Manager PIN: approve + archive this list">✓ Approve</button>'
+      ? '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;margin-left:8px" title="Manager PIN: approve + archive this list">✓ Approve</button>'
       : '';
     const openLabel = isActive ? '✓ Active below' : 'Tap to open ↓';
+    // v10.288 — larger date + numbers + a visual progress fill bar
+    // under each card, per Zac 10:18 EDT.
     return '<div onclick="switchActiveReceiveSession(\'' + esc(s.id) + '\')" '
-      + 'style="background:' + bgAccent + ';border:1.5px solid ' + accent + ';border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:' + (isActive ? 'default' : 'pointer') + ';display:flex;justify-content:space-between;align-items:center;gap:10px">'
-      + '<div style="min-width:0;flex:1">'
-      +   '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">'
-      +     '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:17px;font-weight:900;color:' + accent + '">' + esc(s.name) + '</span>'
-      +     tag
+      + 'style="position:relative;overflow:hidden;background:' + bgAccent + ';border:1.5px solid ' + accent + ';border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:' + (isActive ? 'default' : 'pointer') + '">'
+      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:' + accent + '22;transition:width .25s ease;pointer-events:none"></div>'
+      + '<div style="position:relative;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+      +   '<div style="min-width:0;flex:1">'
+      +     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'
+      +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:' + accent + ';letter-spacing:.5px;line-height:1.05">' + esc(s.name) + '</span>'
+      +       tag
+      +     '</div>'
+      +     '<div style="font-size:13px;color:#444;margin-top:4px;font-weight:700">' + (isActive ? '✓ Active — detail below' : openLabel) + '</div>'
       +   '</div>'
-      +   '<div style="font-size:11px;color:#444;margin-top:2px;font-weight:700">' + st.done + ' / ' + st.total + ' received · ' + st.pct + '%' + (isActive ? '' : ' · ' + openLabel) + '</div>'
+      +   '<div style="text-align:right;flex-shrink:0">'
+      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:' + accent + ';line-height:1">' + st.done + ' / ' + st.total + '</div>'
+      +     '<div style="font-size:11px;font-weight:800;color:#666;margin-top:2px">' + st.pct + '% done</div>'
+      +   '</div>'
+      +   approveBtn
       + '</div>'
-      + approveBtn
       + '</div>';
   };
   const chooserStrip = receiveSessions.length > 1
@@ -12045,8 +12162,9 @@ function renderReceiveSession() {
     +     '<div style="font-size:11px;font-weight:700;opacity:.85;margin-top:2px">'+pct+'% done</div>'
     +   '</div>'
     + '</div>'
-    + '<div style="background:rgba(0,48,135,.12);border-radius:4px;height:5px;overflow:hidden;margin-bottom:12px">'
-    +   '<div style="background:#00C853;height:100%;width:'+pct+'%;transition:width .25s ease"></div>'
+    + '<div style="position:relative;background:rgba(0,48,135,.10);border-radius:8px;height:18px;overflow:hidden;margin-bottom:12px;border:1px solid rgba(0,48,135,.18)">'
+    +   '<div style="background:linear-gradient(90deg,#00C853,#1A5C1A);height:100%;width:'+pct+'%;transition:width .25s ease"></div>'
+    +   '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:'+(pct>=50?'#fff':'#003087')+';letter-spacing:.5px;text-shadow:'+(pct>=50?'0 1px 2px rgba(0,0,0,.4)':'none')+'">' + done + ' of ' + total + ' · ' + pct + '%</div>'
     + '</div>'
 
     // Compact controls — collapsible if you want to see more list
@@ -16006,7 +16124,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.287"></script>
+<script src="./pack.js?v=10.288"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16015,7 +16133,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.287<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.288<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
