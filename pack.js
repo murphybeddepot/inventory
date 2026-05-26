@@ -7487,12 +7487,7 @@ async function _pullPickListFromGcal_(orderNumber) {
 }
 
 async function jumpToPackForOrder_(orderNumber, bucketKind) {
-  // v10.286 — Zac 09:55 EDT: "we clicked on one that's shipping today
-  // and it just took us to the lookup page, not to a page where we
-  // could mark it as shipped." Ship-today rows = already packed,
-  // waiting on the actual shipment action. Route to the existing
-  // confirmMarkPackJobShipped flow (manager-PIN gated) instead of
-  // opening Pack detail or Lookup.
+  // v10.286 — Zac 09:55 EDT: ship_today routes to mark-shipped action.
   if (bucketKind === 'ship_today' && typeof confirmMarkPackJobShipped === 'function') {
     confirmMarkPackJobShipped(orderNumber);
     return;
@@ -7510,14 +7505,35 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
         openPackDetail(orderNumber);
         return;
       }
-      // v10.286 — Zac 09:55 EDT: "it tried to load the pack page then
-      // failed because you hadn't parsed the pick lists apparently."
-      // openPackDetail requires the row in cache; if it's not there
-      // (e.g. pick list not yet parsed → not in PackingQueue), be
-      // explicit rather than silently falling to Lookup.
-      if (typeof showToast === 'function') {
-        showToast('#' + orderNumber + ' not in Pack queue yet (pick list not parsed) — opening Lookup');
+      // v10.291 — Zac 10:33 EDT: "tries to load in pack then fails and
+      // goes to order lookup (which is essentially useless unless
+      // trying to create remake or book in fedex)." Before falling
+      // back to Lookup, auto-try the v10.289 gcal bootstrap — if the
+      // cal event has a pick-list link, we can create the PackingQueue
+      // row right now + drop the user straight into Pack detail.
+      showToast('#' + orderNumber + ' not in Pack queue — pulling from gcal…');
+      try {
+        const boot = await groundApi('bootstrapOrderFromGcal', { orderNumber: String(orderNumber) });
+        if (boot && boot.ok && (boot.action === 'bootstrapped' || boot.action === 'already_in_queue')) {
+          // Re-fetch queue + open detail. The row is now there.
+          if (typeof refreshPackQueue === 'function') await refreshPackQueue();
+          const cache2 = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+          const row2 = cache2.find(r => String(r.order_number) === String(orderNumber));
+          if (row2 && typeof openPackDetail === 'function') {
+            showToast('✓ #' + orderNumber + ' pulled from gcal — opening Pack detail');
+            openPackDetail(orderNumber);
+            return;
+          }
+        }
+        if (boot && boot.action === 'no_event') {
+          showToast('#' + orderNumber + ': no gcal event found — opening Lookup');
+        } else if (boot && boot.action === 'no_link') {
+          showToast('#' + orderNumber + ': gcal event has no pick-list URL — opening Lookup');
+        }
+      } catch (e) {
+        console.warn('auto-bootstrap from gcal failed:', e.message);
       }
+      // Bootstrap didn't land — Lookup is the explicit fallback.
       jumpToLookup_(orderNumber);
     } catch (e) {
       console.warn('jumpToPackForOrder error:', e.message);
