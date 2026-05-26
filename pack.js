@@ -7977,16 +7977,27 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
       // (full from gcal, partial from gcal-no-link, or blank from
       // order# alone). Pack detail handles the empty-SKU case with
       // a manual-override section.
-      if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Pulling pick list from gcal…');
+      if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Resolving order…');
       try {
         const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
         if (boot && boot.ok) {
-          if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Reloading Pack queue…');
-          if (typeof refreshPackQueue === 'function') await refreshPackQueue();
-          const cache2 = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
-          const row2 = cache2.find(r => String(r.order_number) === String(orderNumber));
-          if (row2 && typeof openPackDetail === 'function') {
-            const tag = boot.action === 'bootstrapped_full' ? '✓ pulled from gcal'
+          // v10.298 — the server now returns the row directly. Inject
+          // into the local cache so openPackDetail finds it without
+          // needing the refresh round-trip (which was missing rows
+          // whose on_active_list flag flipped concurrently).
+          if (boot.row && typeof _packQueueCache !== 'undefined') {
+            const existsIdx = (_packQueueCache || []).findIndex(r => String(r.order_number) === String(orderNumber));
+            if (existsIdx >= 0) _packQueueCache[existsIdx] = boot.row;
+            else _packQueueCache.unshift(boot.row);
+            try {
+              if (typeof PACK_QUEUE_CACHE_KEY !== 'undefined') localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
+            } catch(e) {}
+            // Repaint the queue so the order is visible if user backs out.
+            if (typeof paintPackQueue_ === 'function') paintPackQueue_(_packQueueCache, false);
+          }
+          if (typeof openPackDetail === 'function') {
+            const tag = boot.action === 'already_in_queue' ? '✓ opened'
+              : boot.action === 'bootstrapped_full' ? '✓ pulled from gcal'
               : boot.action === 'bootstrapped_no_link' ? '⚠ no pick-list link — manual override available'
               : boot.action === 'bootstrapped_no_event' ? '⚠ no gcal event — blank row, manual override available'
               : '✓ opened';
