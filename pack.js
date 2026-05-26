@@ -631,9 +631,27 @@ function openPackDetail(orderNumber) {
     </div>
   `;
 
-  // Seed scan state from the active phase's column.
-  delete _packScanState[row.order_number];
-  getPackScanState_(row.order_number, row.sku_lines_json, scannedColumnJson);
+  // v10.305 — Zac 12:47 EDT: "i clicked cabinet then closed that
+  // then the pick list went away." Root cause: openPackDetail always
+  // deletes + re-seeds _packScanState. If the row's sku_lines_json is
+  // empty at that moment (race with PDF auto-load), the re-seed
+  // produces empty state → 'No SKU list available' even if the user
+  // had a populated SKU list a moment earlier.
+  // Fix: only wipe + re-seed if the new SKU list actually has data,
+  // OR if there's no current state to preserve. Otherwise keep the
+  // existing populated state.
+  const _hasExistingSkuState_ = !!(_packScanState[row.order_number]
+    && _packScanState[row.order_number].skus
+    && _packScanState[row.order_number].skus.length);
+  let _newSkuParsed = [];
+  try {
+    const arr = JSON.parse(String(row.sku_lines_json || '[]'));
+    if (Array.isArray(arr)) _newSkuParsed = arr;
+  } catch(e) {}
+  if (!_hasExistingSkuState_ || _newSkuParsed.length > 0) {
+    delete _packScanState[row.order_number];
+    getPackScanState_(row.order_number, row.sku_lines_json, scannedColumnJson);
+  }
   renderPackSkuList_(row.order_number);
   // v10.296 — render cabinet capture list (if column exists).
   if (typeof renderPackCabinetList_ === 'function') renderPackCabinetList_(row);
@@ -1095,6 +1113,30 @@ function closeCabinetCaptureModal() {
   _cabCaptureDetector = null;
   const ov = document.getElementById('cabCaptureOverlay');
   if (ov) ov.remove();
+  // v10.305 — defensive re-render: if Pack detail is still open for
+  // the order whose cabinet modal we just closed, repaint the SKU
+  // section from current state. Belt-and-suspenders against any
+  // hidden state mutation during the modal lifecycle.
+  try {
+    const oid = _cabCaptureOrderNumber;
+    if (oid && typeof _packDetailOrderNumber !== 'undefined' && String(_packDetailOrderNumber) === String(oid)) {
+      const cached = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+      const row = cached.find(r => String(r.order_number) === String(oid));
+      if (row && typeof renderPackSkuList_ === 'function') {
+        // Re-seed if state was wiped or never populated AND row has SKUs.
+        try {
+          const arr = JSON.parse(String(row.sku_lines_json || '[]'));
+          const haveState = !!(_packScanState[oid] && _packScanState[oid].skus && _packScanState[oid].skus.length);
+          if (!haveState && Array.isArray(arr) && arr.length > 0) {
+            if (typeof getPackScanState_ === 'function') {
+              getPackScanState_(oid, row.sku_lines_json, (_packActivePhase === 'checker') ? row.checker_scanned_json : row.scanned_json);
+            }
+          }
+        } catch(e) {}
+        renderPackSkuList_(oid);
+      }
+    }
+  } catch (e) { console.warn('post-cabinet re-render skip:', e.message); }
 }
 
 function _cabCaptureSetMode_(mode) {
