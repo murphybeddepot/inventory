@@ -11309,25 +11309,44 @@ function defaultShipmentName() {
   return months[d.getMonth()] + ' ' + d.getDate();
 }
 
-// v10.288 — Zac 10:18 EDT: "make the active shipment bar more of a
-// visual indicator of how much has been received also, and make the
-// date and numbers a bit larger/more readable from the cabinets tab."
-// Badge on the Cabinets tab now renders ONE BAR PER OPEN SHIPMENT,
-// stacked, with a fat visual progress fill behind a big date + big
-// X/Y count. UNFINISHED past-incomplete sessions get amber accent;
-// current/upcoming sessions get navy. Tap any bar to switch active
-// + open the receive sheet.
+// v10.290 — Zac 10:24 EDT: "that's overwhelming!" + dup May 21 + bogus
+// 'Auto-loaded' + everyone said THIS WEEK + 100%-done bars still
+// looked like work. This compact pass:
+//   • Bars are single-row 50px tall (was 90-100px). Date + tag on
+//     left, X/Y + % on right, progress fill behind. No 30pt fonts.
+//   • Heals stale "Auto-loaded" rows. Drops local-only Auto-loaded
+//     rows that have no server backing.
+//   • THIS WEEK tag only if delivery_date is in current Mon-Sun.
+//   • 100%-done bars get green "✓ READY TO APPROVE" treatment with
+//     a prominent inline ✓ Approve button (manager PIN gated).
 function renderActiveSessionBadge() {
   const container = document.getElementById('receiveButtonContainer');
   if (!container) return;
+  // Cleanup pass: drop local-only "Auto-loaded" sessions that have no
+  // server backing — they're stale cache from before v10.287.
+  const before = receiveSessions.length;
+  receiveSessions = receiveSessions.filter(s => !(s && s.name === 'Auto-loaded' && !s.serverSessionId));
+  if (receiveSessions.length !== before) {
+    if (activeSessionId && !receiveSessions.find(s => s.id === activeSessionId)) activeSessionId = null;
+    saveReceiveSessions();
+  }
+
   let badge = document.getElementById('activeSessionBadge');
   if (!receiveSessions || receiveSessions.length === 0) {
     if (badge) badge.remove();
     return;
   }
-  const todayIso = (() => {
-    const d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const now = new Date();
+  const todayIso = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  // Current Mon-Sun window (Mon-anchored). Used to decide THIS WEEK.
+  const _weekBounds_ = (() => {
+    const d = new Date(now); d.setHours(0, 0, 0, 0);
+    const dow = d.getDay(); // 0=Sun..6=Sat
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    const mon = new Date(d); mon.setDate(d.getDate() + mondayOffset);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const iso = (x) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+    return { mon: iso(mon), sun: iso(sun) };
   })();
   const sortedSessions = receiveSessions.slice().sort((a, b) => {
     const ad = String(a.deliveryDate || '');
@@ -11341,36 +11360,46 @@ function renderActiveSessionBadge() {
   const barHtml = sortedSessions.map(s => {
     const st = sessionStats(s);
     const isPast = s.deliveryDate && s.deliveryDate < todayIso;
-    const isIncompletePast = isPast && st.done < st.total;
-    const accent = isIncompletePast ? '#FF6B00' : '#003087';
-    const accentLight = isIncompletePast ? '#FFA726' : '#42a5f5';
-    const tag = isIncompletePast
-      ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:rgba(255,255,255,.25);color:#fff;padding:2px 8px;border-radius:999px;margin-left:8px">UNFINISHED</span>'
-      : (!isPast && s.deliveryDate >= todayIso
-          ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:rgba(255,255,255,.25);color:#fff;padding:2px 8px;border-radius:999px;margin-left:8px">THIS WEEK</span>'
-          : '');
-    // Visual progress fill — full-width bar inside the card, with
-    // the % done filled in a brighter accent on top of the dim base.
+    const isReady = st.total > 0 && st.done >= st.total;
+    const isIncompletePast = isPast && !isReady;
+    const isThisWeek = s.deliveryDate && s.deliveryDate >= _weekBounds_.mon && s.deliveryDate <= _weekBounds_.sun;
+    // Color: green for ready-to-approve, amber for incomplete-past,
+    // navy for current/upcoming, grey for the rare "future + no date".
+    const accent = isReady ? '#1A5C1A' : (isIncompletePast ? '#FF6B00' : '#003087');
+    const accentLight = isReady ? '#43A047' : (isIncompletePast ? '#FFA726' : '#42a5f5');
+    let tag = '';
+    let action = '';
+    if (isReady) {
+      tag = '<span style="font-size:9px;font-weight:900;letter-spacing:.4px;background:rgba(255,255,255,.28);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px">✓ READY</span>';
+      if (s.serverSessionId) {
+        action = '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#1A5C1A;border:none;border-radius:6px;padding:5px 9px;font-size:10px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase;white-space:nowrap;margin-left:6px" title="Manager PIN: archive this list">Approve</button>';
+      }
+    } else if (isIncompletePast) {
+      tag = '<span style="font-size:9px;font-weight:900;letter-spacing:.4px;background:rgba(255,255,255,.28);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px">UNFINISHED</span>';
+    } else if (isThisWeek) {
+      tag = '<span style="font-size:9px;font-weight:900;letter-spacing:.4px;background:rgba(255,255,255,.28);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px">THIS WEEK</span>';
+    }
+    // Single-row layout — 50px tall, big date + X/Y inline, progress fill behind.
     return '<div onclick="_recvBadgeTap_(\'' + esc(s.id) + '\')" '
-      + 'style="position:relative;overflow:hidden;background:linear-gradient(135deg,' + accent + ',' + accentLight + ');color:#fff;border-radius:12px;padding:14px 16px;margin-bottom:8px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18)">'
-      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:rgba(255,255,255,.18);transition:width .25s ease;pointer-events:none"></div>'
-      + '<div style="position:relative;display:flex;justify-content:space-between;align-items:center;gap:12px">'
-      +   '<div style="min-width:0;flex:1">'
-      +     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">'
-      +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:30px;font-weight:900;line-height:1.05;letter-spacing:.5px">' + esc(s.name) + '</span>'
-      +       tag
-      +     '</div>'
-      +     '<div style="font-size:13px;font-weight:700;opacity:.92;margin-top:4px;letter-spacing:.3px">' + (isIncompletePast ? '⚠ ' + (st.total - st.done) + ' still to receive' : (st.done > 0 ? '✓ ' + st.done + ' received' : 'Tap to start receiving')) + '</div>'
+      + 'style="position:relative;overflow:hidden;background:linear-gradient(135deg,' + accent + ',' + accentLight + ');color:#fff;border-radius:9px;padding:8px 12px;margin-bottom:5px;cursor:pointer;min-height:50px;display:flex;align-items:center">'
+      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:rgba(255,255,255,.16);pointer-events:none"></div>'
+      + '<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%">'
+      +   '<div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">'
+      +     '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:.4px;line-height:1">' + esc(s.name) + '</span>'
+      +     tag
       +   '</div>'
-      +   '<div style="text-align:right;flex-shrink:0">'
-      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:28px;font-weight:900;line-height:1">' + st.done + ' / ' + st.total + '</div>'
-      +     '<div style="font-size:12px;font-weight:800;opacity:.9;margin-top:2px">' + st.pct + '% done</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">'
+      +     '<div style="text-align:right">'
+      +       '<div style="font-family:\'JetBrains Mono\',monospace;font-size:17px;font-weight:900;line-height:1">' + st.done + ' / ' + st.total + '</div>'
+      +       '<div style="font-size:10px;font-weight:800;opacity:.85;margin-top:1px">' + st.pct + '%</div>'
+      +     '</div>'
+      +     action
       +   '</div>'
       + '</div>'
       + '</div>';
   }).join('');
-  const html = '<div id="activeSessionBadge">'
-    + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#666;margin-bottom:6px;padding:0 2px">🚚 Open Shipments — tap to resume</div>'
+  const html = '<div id="activeSessionBadge" style="margin-bottom:8px">'
+    + '<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px;padding:0 2px">🚚 Open shipments — tap to resume</div>'
     + barHtml
     + '</div>';
   if (badge) {
@@ -11402,48 +11431,100 @@ async function _prefetchReceiveSessions_() {
   try {
     const resp = await groundApi('listOpenReceiveSessions', { window_days: 21 });
     if (!resp || !resp.ok || !Array.isArray(resp.sessions)) return;
-    // Merge into local receiveSessions (preserve local-only state)
-    resp.sessions.forEach(ss => {
-      const localMatch = receiveSessions.find(l => l.serverSessionId === ss.session_id);
-      if (localMatch) {
-        mergeServerSessionIntoLocal_(localMatch, ss);
-      } else {
-        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        let name = 'Auto-loaded';
-        if (ss.delivery_date) {
-          const parts = String(ss.delivery_date).split('-');
-          if (parts.length === 3) name = months[Number(parts[1]) - 1] + ' ' + Number(parts[2]);
-        }
-        const enriched = (ss.cabinets || []).map(c => {
-          if (typeof c === 'string') return { num: c, received: false, location: '', receivedAt: '', receivedBy: '' };
-          return {
-            num: c.num,
-            received: !!c.received,
-            location: c.location || '',
-            receivedAt: c.received_at || '',
-            receivedBy: c.received_by || '',
-            addedManually: !!c.added_manually,
-            damaged: !!c.damaged,
-            committedAt: c.received ? (c.received_at || '') : '',
-          };
-        });
-        receiveSessions.push({
-          id: 'srv:' + ss.session_id,
-          name: name,
-          createdAt: ss.created_at || new Date().toISOString(),
-          defaultLoc: '',
-          person: '',
-          cabinets: enriched,
-          serverSessionId: ss.session_id,
-          truckCount: ss.truck_count || 0,
-          deliveryDate: ss.delivery_date || '',
-          status: ss.status || 'pending',
-        });
-      }
-    });
+    _mergeServerReceiveSessions_(resp.sessions);
     saveReceiveSessions();
     renderActiveSessionBadge();
   } catch (e) { /* silent — badge will appear next time */ }
+}
+
+// v10.290 — shared dedupe + merge for open server sessions. Zac
+// 10:24 EDT: "why is May 21 on there twice / what's the 'auto-loaded'
+// line." Three behaviors:
+//   1. Match local by serverSessionId FIRST; if that misses, fall back
+//      to matching by deliveryDate so a pre-server local session
+//      doesn't get duplicated.
+//   2. After merging, recompute name from delivery_date if the local
+//      copy still says "Auto-loaded" (stale cache from before v10.287).
+//   3. Final pass dedupes receiveSessions by deliveryDate — last write
+//      wins. Closes the May-21-twice case.
+function _mergeServerReceiveSessions_(sessions) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const formatDateName = (iso) => {
+    if (!iso) return '';
+    const parts = String(iso).split('-');
+    if (parts.length !== 3) return '';
+    return months[Number(parts[1]) - 1] + ' ' + Number(parts[2]);
+  };
+  (sessions || []).forEach(ss => {
+    let localMatch = receiveSessions.find(l => l.serverSessionId === ss.session_id);
+    if (!localMatch && ss.delivery_date) {
+      localMatch = receiveSessions.find(l => l.deliveryDate === ss.delivery_date);
+      // Adopt the server's session_id so future merges hit the fast path.
+      if (localMatch) {
+        localMatch.serverSessionId = ss.session_id;
+        if (!localMatch.id || localMatch.id.indexOf('srv:') !== 0) {
+          // keep the same name/state but tag id so it's the canonical row
+        }
+      }
+    }
+    if (localMatch) {
+      mergeServerSessionIntoLocal_(localMatch, ss);
+      // Repair stale "Auto-loaded" name when server now has a date.
+      const derived = formatDateName(ss.delivery_date || localMatch.deliveryDate);
+      if (derived && (!localMatch.name || localMatch.name === 'Auto-loaded')) {
+        localMatch.name = derived;
+      }
+      if (!localMatch.deliveryDate && ss.delivery_date) localMatch.deliveryDate = ss.delivery_date;
+      if (!localMatch.truckCount && ss.truck_count) localMatch.truckCount = ss.truck_count;
+      localMatch.status = ss.status || localMatch.status || 'pending';
+    } else {
+      const enriched = (ss.cabinets || []).map(c => {
+        if (typeof c === 'string') return { num: c, received: false, location: '', receivedAt: '', receivedBy: '' };
+        return {
+          num: c.num,
+          received: !!c.received,
+          location: c.location || '',
+          receivedAt: c.received_at || '',
+          receivedBy: c.received_by || '',
+          addedManually: !!c.added_manually,
+          damaged: !!c.damaged,
+          committedAt: c.received ? (c.received_at || '') : '',
+        };
+      });
+      const name = formatDateName(ss.delivery_date) || 'Shipment ' + (ss.session_id || '').slice(-4);
+      receiveSessions.push({
+        id: 'srv:' + ss.session_id,
+        name: name,
+        createdAt: ss.created_at || new Date().toISOString(),
+        defaultLoc: '',
+        person: '',
+        cabinets: enriched,
+        serverSessionId: ss.session_id,
+        truckCount: ss.truck_count || 0,
+        deliveryDate: ss.delivery_date || '',
+        status: ss.status || 'pending',
+      });
+    }
+  });
+  // Final pass: dedupe by deliveryDate (or by serverSessionId for ones
+  // without a date). Keep the row with most-received cabinets — that's
+  // the one with the latest server state.
+  const byKey = {};
+  receiveSessions.forEach(s => {
+    const key = s.deliveryDate || s.serverSessionId || s.id;
+    if (!byKey[key]) { byKey[key] = s; return; }
+    const aDone = (byKey[key].cabinets || []).filter(c => c.received).length;
+    const bDone = (s.cabinets || []).filter(c => c.received).length;
+    if (bDone > aDone) byKey[key] = s;
+  });
+  receiveSessions = Object.values(byKey);
+  // Heal stale Auto-loaded names that came from old localStorage.
+  receiveSessions.forEach(s => {
+    if (s.name === 'Auto-loaded' && s.deliveryDate) {
+      const n = formatDateName(s.deliveryDate);
+      if (n) s.name = n;
+    }
+  });
 }
 
 async function openReceiveShipment() {
@@ -11478,67 +11559,20 @@ async function openReceiveShipment() {
   }
 
   if (serverSessions.length > 0) {
-    // Merge each server session into local receiveSessions (preserve
-    // local-only state like defaultLoc) or insert fresh if not present.
-    let newlyActive = null;
-    serverSessions.forEach(ss => {
-      const localMatch = receiveSessions.find(l => l.serverSessionId === ss.session_id);
-      if (localMatch) {
-        mergeServerSessionIntoLocal_(localMatch, ss);
-      } else {
-        // Build a fresh local session from server payload.
-        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        let name = 'Auto-loaded';
-        if (ss.delivery_date) {
-          const parts = String(ss.delivery_date).split('-');
-          if (parts.length === 3) name = months[Number(parts[1]) - 1] + ' ' + Number(parts[2]);
-        }
-        const enriched = (ss.cabinets || []).map(c => {
-          if (typeof c === 'string') {
-            return { num: c, received: false, location: '', receivedAt: '', receivedBy: '' };
-          }
-          return {
-            num: c.num,
-            received: !!c.received,
-            location: c.location || '',
-            receivedAt: c.received_at || '',
-            receivedBy: c.received_by || '',
-            addedManually: !!c.added_manually,
-            damaged: !!c.damaged,
-            committedAt: c.received ? (c.received_at || '') : '',
-          };
-        });
-        const sess = {
-          id: 'srv:' + ss.session_id,
-          name: name,
-          createdAt: ss.created_at || new Date().toISOString(),
-          defaultLoc: '',
-          person: '',
-          cabinets: enriched,
-          serverSessionId: ss.session_id,
-          truckCount: ss.truck_count || 0,
-          deliveryDate: ss.delivery_date || '',
-          status: ss.status || 'pending',
-        };
-        receiveSessions.push(sess);
-      }
-    });
-    // Choose active: oldest-incomplete past first, otherwise top of
-    // server's sort (most current). If existing local active is still
-    // in the list, keep it.
-    const stillActive = existing && serverSessions.some(s => s.session_id === existing.serverSessionId);
-    if (stillActive) {
-      // keep activeSessionId
-    } else {
-      // server returns sorted with past-incomplete first
+    // v10.290 — use shared merge+dedup helper (handles match-by-
+    // deliveryDate fallback + stale Auto-loaded heal + dedup-by-date
+    // final pass). Was: inline merge that allowed dups.
+    _mergeServerReceiveSessions_(serverSessions);
+    const stillActive = existing && receiveSessions.some(s => s.id === existing.id);
+    if (!stillActive) {
       const top = serverSessions[0];
       const localTop = receiveSessions.find(l => l.serverSessionId === top.session_id);
       if (localTop) activeSessionId = localTop.id;
     }
     saveReceiveSessions();
     renderReceiveSession();
-    if (serverSessions.length > 1) {
-      showToast('✓ ' + serverSessions.length + ' open shipments — last week first');
+    if (receiveSessions.length > 1) {
+      showToast('✓ ' + receiveSessions.length + ' open shipments — last week first');
     }
     return;
   }
@@ -12102,19 +12136,33 @@ function renderReceiveSession() {
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   })();
+  // v10.290 — Mon-Sun week bounds for THIS WEEK tag (was: any future).
+  const _weekBoundsMod_ = (() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    const dow = d.getDay();
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    const mon = new Date(d); mon.setDate(d.getDate() + mondayOffset);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const iso = (x) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+    return { mon: iso(mon), sun: iso(sun) };
+  })();
   const sessionCard_ = (s, isActive) => {
     const st = sessionStats(s);
     const isPast = s.deliveryDate && s.deliveryDate < todayIso;
-    const isIncompletePast = isPast && st.done < st.total;
+    const isReady = st.total > 0 && st.done >= st.total;
+    const isIncompletePast = isPast && !isReady;
+    const isThisWeek = s.deliveryDate && s.deliveryDate >= _weekBoundsMod_.mon && s.deliveryDate <= _weekBoundsMod_.sun;
     const accent = isActive
       ? '#003087'
-      : (isIncompletePast ? '#FF9100' : 'rgba(0,48,135,.6)');
+      : (isReady ? '#1A5C1A' : (isIncompletePast ? '#FF9100' : 'rgba(0,48,135,.6)'));
     const bgAccent = isActive
       ? 'rgba(0,48,135,.10)'
-      : (isIncompletePast ? 'rgba(255,145,0,.10)' : 'rgba(0,48,135,.04)');
-    const tag = isIncompletePast
-      ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#FF9100;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">UNFINISHED</span>'
-      : (isPast ? '' : (s.deliveryDate >= todayIso ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">THIS WEEK</span>' : ''));
+      : (isReady ? 'rgba(26,92,26,.10)' : (isIncompletePast ? 'rgba(255,145,0,.10)' : 'rgba(0,48,135,.04)'));
+    const tag = isReady
+      ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#1A5C1A;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">✓ READY</span>'
+      : (isIncompletePast
+          ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#FF9100;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">UNFINISHED</span>'
+          : (isThisWeek ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">THIS WEEK</span>' : ''));
     const approveBtn = s.serverSessionId
       ? '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;margin-left:8px" title="Manager PIN: approve + archive this list">✓ Approve</button>'
       : '';
@@ -16124,7 +16172,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.289"></script>
+<script src="./pack.js?v=10.290"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16133,7 +16181,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.289<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.290<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
