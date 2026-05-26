@@ -4049,7 +4049,19 @@ function _scheduleOrderMatchesMode_(o, mode) {
     // not Bedrock freight-booking actionable — exclude so Kim's
     // "to book" worklist/chip isn't flooded by the calendar feed.
     if (o.cal_sourced || o.js2_sourced) return false;
-    return o.source === 'cabinet' && !o.booked_at;
+    if (o.source !== 'cabinet') return false;
+    if (o.booked_at) return false;
+    // v10.304 — Zac 12:43 EDT: "the 📋 5 To Book list — check against
+    // gcal and i'd bet they're all clear and booked and shipped." Bug:
+    // shipped/cancelled orders were still surfacing because the filter
+    // only checked booked_at. Drop them by status too. Plus gcal-truth:
+    // any of cal_l (labels printed) / cal_shipped (green event) /
+    // cal_p (packed) mean it's beyond the booking step regardless of
+    // booked_at value.
+    if (o.cal_l || o.cal_shipped || o.cal_p) return false;
+    const st = String(o.status || '').toLowerCase();
+    if (st === 'shipped' || st === 'cancelled') return false;
+    return true;
   }
   if (mode === 'awaiting_customer') {
     if (o.source !== 'cabinet' || o.customer_ready) return false;
