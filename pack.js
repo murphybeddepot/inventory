@@ -7921,8 +7921,17 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
     return;
   }
   if (typeof switchTab === 'function') switchTab('pack');
-  if (bucketKind === 'prepack_today' && typeof setPackTabMode === 'function') {
-    setTimeout(() => { try { setPackTabMode('prepack'); } catch(e) {} }, 80);
+  // v10.299 — Zac 11:55 EDT: clicked Pack-Today rows but ended up on
+  // pre-pack tab + still showing list. Two bugs: (a) mode wasn't
+  // explicitly set to 'pack' so the last persisted mode (could be
+  // prepack) was sticky; (b) v10.295 carry-over poll was racing
+  // with our openPackDetail call. Fix: ALWAYS set the correct mode
+  // first, and bypass the carry-over via a flag the poll respects.
+  const targetMode = (bucketKind === 'prepack_today') ? 'prepack' : 'pack';
+  if (typeof setPackTabMode === 'function') {
+    window._suppressPackModeCarryover_ = true;
+    setPackTabMode(targetMode);
+    setTimeout(() => { window._suppressPackModeCarryover_ = false; }, 1500);
   }
   // v10.295 — Zac 11:30 EDT: "it goes to a weird initial screen for
   // like 20 seconds before going to the actual pack screen. i don't
@@ -7961,22 +7970,14 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
   })();
   setTimeout(async () => {
     try {
-      if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Refreshing Pack queue…');
-      if (typeof refreshPackQueue === 'function') await refreshPackQueue();
-      const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
-      const row = cache.find(r => String(r.order_number) === String(orderNumber));
-      if (row && typeof openPackDetail === 'function') {
-        if (_packLoadOverlay_) _packLoadOverlay_.remove();
-        openPackDetail(orderNumber);
-        return;
-      }
-      // v10.292 — Zac 10:53 EDT: "even if there's no pick list (like
-      // on a RMK order) it should still go to the pack screen with
-      // some kind of manual 'mark as packed' override." Always-create
-      // path: ensurePackQueueRowExists creates a row no matter what
-      // (full from gcal, partial from gcal-no-link, or blank from
-      // order# alone). Pack detail handles the empty-SKU case with
-      // a manual-override section.
+      // v10.299 — Zac 11:55 EDT bug fix: skip the slow initial
+      // refreshPackQueue (which can take 20s + filters out rows
+      // where on_active_list=false). Go straight to
+      // ensurePackQueueRowExists which always returns the full row
+      // (and flips on_active_list as a side-effect in v10.298).
+      // This is faster + more reliable. If the order's row IS
+      // already in local cache, we still inject the server's fresh
+      // copy on top of it.
       if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Resolving order…');
       try {
         const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
