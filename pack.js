@@ -576,6 +576,15 @@ function openPackDetail(orderNumber) {
       </div>
     </div>
 
+    <div id="packCabinetSection" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px">🗄 Cabinets <span id="packCabinetCount" style="color:var(--text-dim);font-size:12px;letter-spacing:0;margin-left:6px;font-weight:700"></span></div>
+        <button onclick="openCabinetCaptureModal('${esc(row.order_number)}')" class="amp-btn go" style="padding:10px 16px;font-size:13px">📷 Scan / Photo Cabinet</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">Scan the barcode on stock cabinets, or snap a photo of the handwritten label on MTO cabinets. Each capture appends to this order's cabinet list.</div>
+      <div id="packCabinetList"></div>
+    </div>
+
     <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;color:${phase==='checker'?'#ab47bc':'#00e676'};text-transform:uppercase;letter-spacing:1.5px">${phaseLabel} <span id="packSkuProgress" style="color:var(--text-dim);font-size:12px;letter-spacing:0;margin-left:6px;font-weight:700"></span></div>
@@ -625,6 +634,8 @@ function openPackDetail(orderNumber) {
   delete _packScanState[row.order_number];
   getPackScanState_(row.order_number, row.sku_lines_json, scannedColumnJson);
   renderPackSkuList_(row.order_number);
+  // v10.296 — render cabinet capture list (if column exists).
+  if (typeof renderPackCabinetList_ === 'function') renderPackCabinetList_(row);
 
   // Auto-parse the pick list PDF the first time an order is opened, so
   // the packer doesn't have to manually tap "Re-parse from Drive PDF"
@@ -947,6 +958,280 @@ function renderPackSkuList_(orderNumber) {
       + '</div>'
       + '</div>';
   }).join('');
+}
+
+// v10.296 — Zac 11:30 EDT: "let's add the cabinet as a line... stock
+// ones have a barcode and MTO ones have a label with the number
+// written so maybe for the cabinet have a button to open camera to
+// either scan or parse cabinet number from photo." Phase 1: capture
+// (not verify yet). Two modes: barcode (BarcodeDetector API) +
+// photo+AI (existing Claude API key pattern from receive flow).
+function renderPackCabinetList_(row) {
+  const listEl = document.getElementById('packCabinetList');
+  const countEl = document.getElementById('packCabinetCount');
+  if (!listEl) return;
+  let arr = [];
+  try { arr = JSON.parse(row.cabinets_packed_json || '[]'); if (!Array.isArray(arr)) arr = []; } catch(e) {}
+  if (countEl) countEl.textContent = '(' + arr.length + ' captured)';
+  if (!arr.length) {
+    listEl.innerHTML = '<div style="color:var(--text-dim);font-size:12px;font-style:italic;padding:8px 0">No cabinets captured yet — tap 📷 Scan/Photo Cabinet above.</div>';
+    return;
+  }
+  listEl.innerHTML = arr.map(c => {
+    const sourceTag = c.source === 'barcode' ? '📦 barcode'
+      : c.source === 'photo_ai' ? '🤖 photo AI'
+      : '✏ manual';
+    const when = (c.captured_at || '').slice(0, 16).replace('T', ' ');
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;background:rgba(255,179,0,.08);border:1px solid rgba(255,179,0,.45);border-radius:8px">'
+      + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:#FFB300;flex:1;min-width:0">' + esc(c.num) + '</div>'
+      + '<div style="font-size:10px;color:var(--text-dim);font-weight:700">' + sourceTag + (when ? ' · ' + esc(when) : '') + '</div>'
+      + '<button onclick="removeCabinetPacked_(\'' + esc(row.order_number) + '\',\'' + esc(c.num) + '\')" class="amp-btn" style="padding:6px 10px;font-size:11px" title="Remove from list">×</button>'
+      + '</div>';
+  }).join('');
+}
+
+async function removeCabinetPacked_(orderNumber, cabinetNum) {
+  if (!confirm('Remove ' + cabinetNum + ' from this order\'s cabinet list?')) return;
+  try {
+    const res = await groundApi('removeCabinetPacked', { orderNumber: String(orderNumber), cabinetNum: String(cabinetNum) });
+    if (!res || !res.ok) { showToast('Remove failed: ' + ((res && res.error) || 'unknown')); return; }
+    const cached = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+    const row = cached.find(r => String(r.order_number) === String(orderNumber));
+    if (row) {
+      row.cabinets_packed_json = JSON.stringify(res.cabinets || []);
+      renderPackCabinetList_(row);
+    }
+    showToast('✓ Removed ' + cabinetNum);
+  } catch (e) {
+    showToast('Remove error: ' + e.message);
+  }
+}
+
+let _cabCaptureOrderNumber = null;
+let _cabCaptureBarcodeStream = null;
+let _cabCaptureDetector = null;
+
+function openCabinetCaptureModal(orderNumber) {
+  _cabCaptureOrderNumber = String(orderNumber);
+  const prior = document.getElementById('cabCaptureOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'cabCaptureOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) closeCabinetCaptureModal(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px !important;padding:18px !important;max-width:560px !important;width:100% !important;max-height:94vh !important;overflow-y:auto !important;box-shadow:0 8px 40px rgba(0,0,0,.5) !important">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">📷 Capture Cabinet — #' + esc(orderNumber) + '</div>'
+    +   '<button onclick="closeCabinetCaptureModal()" style="background:none !important;border:none !important;font-size:22px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div id="cabCaptureModeTabs" style="display:flex;gap:6px;margin-bottom:12px">'
+    +   '<button id="cabCaptureTabBarcode" onclick="_cabCaptureSetMode_(\'barcode\')" class="amp-btn go" style="flex:1;padding:10px;font-size:13px">📦 Barcode (stock)</button>'
+    +   '<button id="cabCaptureTabPhoto" onclick="_cabCaptureSetMode_(\'photo\')" class="amp-btn" style="flex:1;padding:10px;font-size:13px">🤖 Photo + AI (MTO)</button>'
+    +   '<button id="cabCaptureTabManual" onclick="_cabCaptureSetMode_(\'manual\')" class="amp-btn" style="flex:1;padding:10px;font-size:13px">✏ Manual</button>'
+    + '</div>'
+    + '<div id="cabCaptureBody"></div>'
+    + '<div id="cabCaptureStatus" style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:10px;min-height:16px"></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  _cabCaptureSetMode_('barcode');
+}
+
+function closeCabinetCaptureModal() {
+  if (_cabCaptureBarcodeStream) {
+    try { _cabCaptureBarcodeStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    _cabCaptureBarcodeStream = null;
+  }
+  _cabCaptureDetector = null;
+  const ov = document.getElementById('cabCaptureOverlay');
+  if (ov) ov.remove();
+}
+
+function _cabCaptureSetMode_(mode) {
+  ['barcode','photo','manual'].forEach(m => {
+    const tab = document.getElementById('cabCaptureTab' + m.charAt(0).toUpperCase() + m.slice(1));
+    if (!tab) return;
+    if (m === mode) tab.classList.add('go'); else tab.classList.remove('go');
+  });
+  // Stop any active barcode camera when switching away.
+  if (mode !== 'barcode' && _cabCaptureBarcodeStream) {
+    try { _cabCaptureBarcodeStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    _cabCaptureBarcodeStream = null;
+    _cabCaptureDetector = null;
+  }
+  const body = document.getElementById('cabCaptureBody');
+  if (!body) return;
+  if (mode === 'barcode') {
+    body.innerHTML =
+      '<div style="position:relative;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:4/3">'
+      +   '<video id="cabCaptureVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>'
+      +   '<div style="position:absolute;left:10%;right:10%;top:35%;bottom:35%;border:2px dashed #FFB300;border-radius:8px;pointer-events:none"></div>'
+      + '</div>'
+      + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:8px">Hold the barcode inside the orange box. Detection is automatic.</div>';
+    _cabCaptureStartBarcode_();
+  } else if (mode === 'photo') {
+    body.innerHTML =
+      '<label for="cabCapturePhotoFile" class="amp-btn go" style="display:block;padding:18px;text-align:center;font-size:15px;cursor:pointer">📷 Take or Upload Photo of Cabinet Label</label>'
+      + '<input type="file" id="cabCapturePhotoFile" accept="image/*" capture="environment" style="display:none">'
+      + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:8px;line-height:1.5">Photo will be sent to Claude Vision to extract the handwritten cabinet number (e.g. C351, D227). Uses your iPad\'s saved API key.</div>'
+      + '<div id="cabCapturePhotoPreview" style="margin-top:10px"></div>';
+    const inp = document.getElementById('cabCapturePhotoFile');
+    if (inp) inp.addEventListener('change', _cabCapturePhotoParse_);
+  } else if (mode === 'manual') {
+    body.innerHTML =
+      '<input type="text" id="cabCaptureManualInput" placeholder="C351 or D227…" autocomplete="off" autocapitalize="characters" style="width:100%;padding:14px;font-size:18px;font-family:\'JetBrains Mono\',monospace;letter-spacing:1px;border:2px solid #FFB300;border-radius:8px;outline:none;color:#1a1a1a;background:#fff;text-transform:uppercase">'
+      + '<button onclick="_cabCaptureManualSubmit_()" class="amp-btn go" style="width:100%;margin-top:10px;padding:14px;font-size:14px;font-weight:900">✓ Save Cabinet #</button>';
+    setTimeout(() => { const i = document.getElementById('cabCaptureManualInput'); if (i) i.focus(); }, 50);
+  }
+}
+
+async function _cabCaptureStartBarcode_() {
+  const status = document.getElementById('cabCaptureStatus');
+  if (typeof window.BarcodeDetector === 'undefined') {
+    if (status) status.textContent = '⚠ Barcode API not supported on this device — use Photo or Manual.';
+    return;
+  }
+  try {
+    _cabCaptureDetector = new window.BarcodeDetector({ formats: ['code_128','code_39','ean_13','ean_8','qr_code','upc_a','upc_e'] });
+  } catch (e) {
+    if (status) status.textContent = '⚠ BarcodeDetector init failed: ' + e.message;
+    return;
+  }
+  try {
+    _cabCaptureBarcodeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+    const video = document.getElementById('cabCaptureVideo');
+    if (!video) return;
+    video.srcObject = _cabCaptureBarcodeStream;
+    if (status) status.textContent = 'Scanning…';
+    const tick = async () => {
+      if (!_cabCaptureBarcodeStream || !_cabCaptureDetector) return;
+      try {
+        const codes = await _cabCaptureDetector.detect(video);
+        if (codes && codes.length) {
+          const raw = String(codes[0].rawValue || '').trim().toUpperCase();
+          if (raw) {
+            await _cabCaptureSubmit_(raw, 'barcode');
+            return;
+          }
+        }
+      } catch (e) { /* ignore frame errors */ }
+      setTimeout(tick, 400);
+    };
+    setTimeout(tick, 600);
+  } catch (e) {
+    if (status) status.textContent = '⚠ Camera permission denied: ' + e.message;
+  }
+}
+
+async function _cabCapturePhotoParse_(event) {
+  const status = document.getElementById('cabCaptureStatus');
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const apiKey = (function(){ try { return localStorage.getItem('mbd_anthropic_key') || ''; } catch(e) { return ''; } })();
+  if (!apiKey || !apiKey.startsWith('sk-ant-')) {
+    if (status) status.textContent = '⚠ No Anthropic API key on this device — set it from Receive Shipment first, or use Manual.';
+    return;
+  }
+  if (status) status.textContent = '⏳ Compressing photo…';
+  // Compress to ~1024px max + jpeg base64
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1280;
+        let w = img.width, h = img.height;
+        if (w > max || h > max) {
+          const scale = max / Math.max(w, h);
+          w = Math.round(w * scale); h = Math.round(h * scale);
+        }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const preview = document.getElementById('cabCapturePhotoPreview');
+  if (preview) preview.innerHTML = '<img src="' + dataUrl + '" style="max-width:100%;border-radius:8px;border:1px solid #ccc">';
+  const base64 = dataUrl.split(',')[1];
+  if (status) status.textContent = '🤖 Asking Claude Vision to read the cabinet number…';
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 50,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+            { type: 'text', text: 'This is a photo of a handwritten label on a cabinet. The label has a code like C351, D227, A12, B005, etc. — a single letter followed by digits. Reply with ONLY the code, uppercase, no extra text. If you can\'t read a code, reply with exactly "UNKNOWN".' },
+          ],
+        }],
+      }),
+    });
+    const json = await resp.json();
+    if (!resp.ok) {
+      if (status) status.textContent = '⚠ Claude API error: ' + (json && json.error && json.error.message || resp.statusText);
+      return;
+    }
+    const text = String((json && json.content && json.content[0] && json.content[0].text) || '').trim().toUpperCase();
+    if (!text || text === 'UNKNOWN') {
+      if (status) status.textContent = '⚠ Claude couldn\'t read a cabinet # — try a clearer photo or use Manual.';
+      return;
+    }
+    await _cabCaptureSubmit_(text, 'photo_ai');
+  } catch (e) {
+    if (status) status.textContent = '⚠ Parse error: ' + e.message;
+  }
+}
+
+async function _cabCaptureManualSubmit_() {
+  const inp = document.getElementById('cabCaptureManualInput');
+  if (!inp) return;
+  const val = String(inp.value || '').trim().toUpperCase();
+  if (!val) { showToast('Enter a cabinet #'); return; }
+  await _cabCaptureSubmit_(val, 'manual');
+}
+
+async function _cabCaptureSubmit_(cabinetNum, source) {
+  const status = document.getElementById('cabCaptureStatus');
+  if (status) status.textContent = '⏳ Saving ' + cabinetNum + ' to order…';
+  try {
+    const res = await groundApi('recordCabinetPacked', {
+      orderNumber: _cabCaptureOrderNumber,
+      cabinetNum: cabinetNum,
+      source: source,
+      capturedBy: (typeof getPackDeviceName_ === 'function' ? getPackDeviceName_() : ''),
+    });
+    if (!res || !res.ok) {
+      if (status) status.textContent = '⚠ Save failed: ' + ((res && res.error) || 'unknown');
+      return;
+    }
+    // Update local cache + re-render the cabinet list in Pack detail.
+    const cached = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+    const row = cached.find(r => String(r.order_number) === String(_cabCaptureOrderNumber));
+    if (row) {
+      row.cabinets_packed_json = JSON.stringify(res.cabinets || []);
+      renderPackCabinetList_(row);
+    }
+    showToast('✓ ' + cabinetNum + ' added (' + source + ')');
+    if (typeof FB !== 'undefined' && FB.success) FB.success();
+    closeCabinetCaptureModal();
+  } catch (e) {
+    if (status) status.textContent = '⚠ Save error: ' + e.message;
+  }
 }
 
 // v10.292 — manager-PIN override: mark an order packed without scan
