@@ -965,6 +965,14 @@ function renderPackSkuList_(orderNumber) {
     const border = isDone ? 'rgba(0,230,118,.45)' : isOver ? 'rgba(255,82,82,.45)' : 'rgba(255,255,255,.08)';
     const checkColor = isDone ? '#00e676' : isOver ? '#ff5252' : 'var(--text-dim)';
     const checkChar = isDone ? '✓' : isOver ? '!' : '○';
+    // v10.311 — Zac 13:08 EDT: 'STILL no print button on the
+    // instructions line of the packer scan list.' INST-* SKUs are
+    // instructions stickers — packer needs to print them at the
+    // assembly point. Add a Print chip on every INST-* row.
+    const isInstSku = /^INST-/i.test(String(s.sku || ''));
+    const printChip = isInstSku
+      ? '<button onclick="printInstructionsLink_(\''+esc(orderNumber)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:34px;padding:6px 10px;font-size:12px;font-weight:700;background:#37474f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;line-height:1.2;margin-right:4px" title="Print this INST-* instructions PDF">🖨 Print</button>'
+      : '';
     return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:6px;background:'+bg+';border:1px solid '+border+';border-radius:8px">'
       + '<div style="font-size:18px;font-weight:900;color:'+checkColor+';width:22px;text-align:center">'+checkChar+'</div>'
       + '<div style="flex:1;min-width:0">'
@@ -972,6 +980,7 @@ function renderPackSkuList_(orderNumber) {
       +   (s.name && s.name !== s.sku ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">'+esc(s.name)+'</div>' : '')
       + '</div>'
       + '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
+      +   printChip
       +   '<button onclick="bumpPackSku(\''+esc(orderNumber)+'\',' + idx + ',-1)" class="amp-btn" style="padding:4px 9px;font-size:14px;min-width:32px">−</button>'
       +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:900;color:'+(isOver?'#ff5252':isDone?'#00e676':'var(--text)')+';min-width:48px;text-align:center">'+s.scanned+'/'+s.qty+'</div>'
       +   '<button onclick="bumpPackSku(\''+esc(orderNumber)+'\',' + idx + ',1)" class="amp-btn go" style="padding:4px 9px;font-size:14px;min-width:32px">+</button>'
@@ -8307,22 +8316,22 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
   // runs. The packer never sees the queue list during the wait;
   // overlay fades out when openPackDetail fires.
   const _packLoadOverlay_ = (() => {
-    const list = document.getElementById('packQueueList');
-    if (!list) return null;
+    // v10.311 — Zac 13:08 EDT: 'the loading icon is way down on screen
+    // (off screen if not scrolled down).' Previously the overlay was
+    // positioned inside the queue list container; on mobile after
+    // scrolling through Schedule it sat far off-screen. Now: full
+    // viewport fixed overlay so it's always front-and-center.
     let ov = document.getElementById('packJumpOverlay');
     if (ov) ov.remove();
     ov = document.createElement('div');
     ov.id = 'packJumpOverlay';
-    ov.style.cssText = 'position:absolute;inset:0;background:#0a0a0a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:100;animation:mbdFade .15s ease-out';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:99999;animation:mbdFade .15s ease-out;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)';
     ov.innerHTML =
-      '<div style="font-size:56px;color:#42a5f5;animation:mbdSpin 1s linear infinite;line-height:1">⟳</div>'
-      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;color:#fff;letter-spacing:.5px">Opening #' + esc(orderNumber) + '</div>'
-      + '<div id="packJumpOverlayStatus" style="font-size:13px;color:#9AAAC0;letter-spacing:.5px">Loading queue…</div>'
-      + '<div id="packJumpOverlayTimer" style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#42a5f5;opacity:.7">0.0s</div>';
-    // Position relative to the pack panel container; fallback to fixed.
-    const parent = list.offsetParent || list.parentNode || document.body;
-    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
-    parent.appendChild(ov);
+      '<div style="font-size:64px;color:#42a5f5;animation:mbdSpin 1s linear infinite;line-height:1">⟳</div>'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:32px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff;letter-spacing:.5px">Opening #' + esc(orderNumber) + '</div>'
+      + '<div id="packJumpOverlayStatus" style="font-size:14px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;letter-spacing:.5px;text-align:center;max-width:90vw">Loading queue…</div>'
+      + '<div id="packJumpOverlayTimer" style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:#42a5f5;opacity:.7">0.0s</div>';
+    document.body.appendChild(ov);
     const t0 = Date.now();
     const timer = setInterval(() => {
       const el = document.getElementById('packJumpOverlayTimer');
