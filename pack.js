@@ -4742,7 +4742,7 @@ function _scheduleRenderOrderRow_(o, opts) {
       +   '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text)">' + chgPill + '#' + esc(o.order_number) + '</span>'
       +   '<span style="font-size:9px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + shipConfChip + '</span>'
       + '</div>'
-      + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</div>'
+      + '<div style="color:var(--text-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || o.cal_label || o.task_line || '—') + '</div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px">'
       +   (statusText ? '<span style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">' + esc(statusText.slice(0,14)) + '</span>' : '<span></span>')
       +   '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">' + stallChip + custChip + bookerChip + '</div>'
@@ -4753,7 +4753,7 @@ function _scheduleRenderOrderRow_(o, opts) {
   // Mobile / list layout — single-line row
   return '<div' + rowTap + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,0,0,.18);border-left:3px solid ' + o.carrier_color + ';border-radius:6px;font-size:13px;flex-wrap:wrap;cursor:pointer">'
     + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:var(--text);min-width:62px">' + chgPill + '#' + esc(o.order_number) + '</div>'
-    + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
+    + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">' + esc(o.customer_name || o.cal_label || o.task_line || '—') + '</div>'
     + '<div style="font-size:11px;color:' + o.carrier_color + ';font-weight:800;letter-spacing:.5px;white-space:nowrap">' + esc(o.carrier_display) + computed + priority + js2Pill + alertPill + shipConfChip + '</div>'
     + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;min-width:50px;text-align:right">' + esc(statusText.slice(0,12)) + '</div>'
     + stallChip
@@ -5007,7 +5007,7 @@ function _renderStalledPopupBody_(stalled) {
     return '<div style="margin-bottom:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;color:#ff5252;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">⚠ ' + esc(label) + ' (' + byReason[r].length + ')</div>'
       + byReason[r].map(o => '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,82,82,.06);border-left:3px solid #ff5252;border-radius:6px;font-size:13px;color:#fff;margin-bottom:4px">'
           + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;min-width:60px">#' + esc(o.order_number) + '</span>'
-          + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</span>'
+          + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || o.cal_label || o.task_line || '—') + '</span>'
           + '<span style="font-size:10px;color:#9AAAC0">' + esc(o.ship_date) + '</span>'
           + '<span style="font-size:9px;color:' + (o.carrier_color || '#888') + ';font-weight:800;letter-spacing:.5px">' + esc(o.carrier_display) + '</span>'
         + '</div>').join('')
@@ -5108,7 +5108,7 @@ async function openNeedsBookingList() {
           const tap = "document.getElementById('needsBookingOverlay').remove();openScheduleBookerModal('" + esc(o.order_number) + "','" + esc(o.booker || '') + "',false)";
           return '<div onclick="' + tap + '" style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:rgba(255,179,0,.07);border-left:3px solid ' + color + ';border-radius:6px;font-size:13px;color:#fff;margin-bottom:4px;cursor:pointer" title="Tap to assign / mark booked">'
             + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;min-width:60px">#' + esc(o.order_number) + '</span>'
-            + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + cust + stall + '</span>'
+            + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || o.cal_label || o.task_line || '—') + cust + stall + '</span>'
             + '<span style="font-size:10px;color:#9AAAC0;white-space:nowrap">' + esc(o.ship_date) + '</span>'
             + (o.booker ? '<span style="font-size:9px;color:#FFB300;font-weight:800;letter-spacing:.5px;white-space:nowrap" title="Assigned booker">👤 ' + esc(o.booker) + '</span>' : '')
           + '</div>';
@@ -7980,7 +7980,10 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
       // copy on top of it.
       if (_packLoadOverlay_) _packLoadOverlay_.setStatus('Resolving order…');
       try {
+        console.log('[pack-jump] calling ensurePackQueueRowExists for #' + orderNumber);
+        const t0 = Date.now();
         const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
+        console.log('[pack-jump] ensure response (' + (Date.now()-t0) + 'ms):', JSON.stringify({ ok: !!(boot && boot.ok), action: boot && boot.action, hasRow: !!(boot && boot.row), error: boot && boot.error }));
         if (boot && boot.ok) {
           // v10.298 — the server now returns the row directly. Inject
           // into the local cache so openPackDetail finds it without
@@ -8004,6 +8007,16 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
               : '✓ opened';
             showToast(tag);
             if (_packLoadOverlay_) _packLoadOverlay_.remove();
+            // v10.301 — verify the row is in cache before calling
+            // openPackDetail. If injection didn't take, log + warn
+            // so we can diagnose the silent-fail case Zac saw.
+            const verify = (typeof _packQueueCache !== 'undefined' && _packQueueCache || []).find(r => String(r.order_number) === String(orderNumber));
+            console.log('[pack-jump] post-inject cache lookup for #' + orderNumber + ': ' + (verify ? 'FOUND' : 'MISSING — silent-fail risk'));
+            if (!verify) {
+              showToast('⚠ #' + orderNumber + ' missing from cache — opening Lookup');
+              jumpToLookup_(orderNumber);
+              return;
+            }
             openPackDetail(orderNumber);
             return;
           }
@@ -8439,7 +8452,7 @@ async function openAwaitingCustomerList() {
     const urgColor = diff < 0 ? '#ff5252' : (diff <= 2 ? '#FFB300' : '#3DBEFF');
     return '<div onclick="document.getElementById(\'awaitingCustOverlay\').remove();openCustomerReadyModal(\'' + esc(o.order_number) + '\',false,\'\',\'\')" style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(61,190,255,.06);border-left:3px solid #3DBEFF;border-radius:6px;font-size:13px;color:#fff;margin-bottom:4px;cursor:pointer">'
       + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;min-width:60px">#' + esc(o.order_number) + '</span>'
-      + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || '—') + '</span>'
+      + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(o.customer_name || o.cal_label || o.task_line || '—') + '</span>'
       + '<span style="font-size:10px;color:#9AAAC0">' + esc(o.ship_date) + '</span>'
       + '<span style="font-size:10px;font-weight:900;color:' + urgColor + '">' + esc(urg) + '</span>'
       + '<span style="color:#3DBEFF;font-size:18px;font-weight:900">›</span>'
