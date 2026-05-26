@@ -7450,6 +7450,42 @@ function jumpToLookup_(orderNumber) {
 // queue, then drill into the order's detail panel. Fall back to
 // Lookup if the order isn't in the Pack queue (e.g. it's a ground
 // parcel that's not in PackingQueue).
+// v10.289 — pull pick-list from MBD:FL SHIPMENTS gcal for the
+// "Awaiting pick-list" banner on Cabinet hits. Bootstraps a
+// PackingQueue row from the cal event if it has a Drive URL in the
+// description.
+async function _pullPickListFromGcal_(orderNumber) {
+  if (!orderNumber) return;
+  showToast('Pulling pick list from gcal for #' + orderNumber + '…');
+  try {
+    const res = await groundApi('bootstrapOrderFromGcal', { orderNumber: String(orderNumber) });
+    if (!res || !res.ok) {
+      showToast('Pull failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    switch (res.action) {
+      case 'bootstrapped':
+        showToast('✓ #' + orderNumber + ' added to Pack queue from gcal — reopening Lookup');
+        setTimeout(() => { if (typeof jumpToLookup_ === 'function') jumpToLookup_(orderNumber); }, 600);
+        break;
+      case 'already_in_queue':
+        showToast('#' + orderNumber + ' is already in Pack queue — reopening Lookup');
+        setTimeout(() => { if (typeof jumpToLookup_ === 'function') jumpToLookup_(orderNumber); }, 400);
+        break;
+      case 'no_event':
+        showToast('No gcal event found for #' + orderNumber + ' — check the calendar manually');
+        break;
+      case 'no_link':
+        showToast('Gcal event found but no Drive pick-list URL in description');
+        break;
+      default:
+        showToast('Pull returned: ' + res.action);
+    }
+  } catch (e) {
+    showToast('Pull error: ' + e.message);
+  }
+}
+
 async function jumpToPackForOrder_(orderNumber, bucketKind) {
   // v10.286 — Zac 09:55 EDT: "we clicked on one that's shipping today
   // and it just took us to the lookup page, not to a page where we
@@ -9099,8 +9135,17 @@ function renderLookupCabinet_(h) {
   // from a calendar-only hit (no PackingQueue row yet), most
   // fields are empty by design — show a small pending banner so
   // the user knows why instead of seeing a sparse card.
+  // v10.289 — Zac 23:57 EDT 2026-05-25: "lots of orders say awaiting
+  // pick list but the calendar event itself has a pick list link."
+  // The pending banner now gets a "🔄 Pull from gcal" button that
+  // calls bootstrapOrderFromGcal — server scans the cal event for a
+  // Drive link + creates the PackingQueue row if found. Awaiting-list
+  // status flips to pending immediately.
   const pendingBanner = h._synthFromCalendar
-    ? '<div style="margin:-4px 0 10px;padding:8px 10px;background:rgba(255,179,0,.10);border:1px dashed rgba(255,179,0,.55);border-radius:8px;font-size:11px;color:#FFB300;-webkit-text-fill-color:#FFB300">Awaiting pick-list email — full pack/scan/HW detail appears once it lands. Cabinet/Freight context shown from the calendar.</div>'
+    ? '<div style="margin:-4px 0 10px;padding:10px 12px;background:rgba(255,179,0,.10);border:1px dashed rgba(255,179,0,.55);border-radius:8px;font-size:11px;color:#FFB300;-webkit-text-fill-color:#FFB300">'
+      + 'Awaiting pick-list email — full pack/scan/HW detail appears once it lands. Cabinet/Freight context shown from the calendar.'
+      + '<button onclick="_pullPickListFromGcal_(\'' + esc(h.order_number) + '\')" style="display:block;width:100%;margin-top:8px;padding:8px 10px;background:#FFB300;color:#1a1a1a;border:none;border-radius:6px;font-size:12px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer">🔄 Pull pick list from gcal</button>'
+      + '</div>'
     : '';
   const body = ''
     + pendingBanner
