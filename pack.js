@@ -573,7 +573,7 @@ function openPackDetail(orderNumber) {
         <div style="color:var(--text-dim)">Phone</div><div style="color:var(--text)">${esc(row.customer_phone || '—')}</div>
         <div style="color:var(--text-dim)">Order details</div><div style="color:var(--text)">${esc(row.order_details || '—')}</div>
         <div style="color:var(--text-dim)">Pick List</div><div style="color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap">${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5;flex-shrink:0;font-size:13px">📄 Open</a>' : '<span style="color:var(--text-dim)">—</span>'}</div>
-        <div style="color:var(--text-dim)">Instructions</div><div style="color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap">${row.instructions_pdf_url ? '<a href="'+esc(row.instructions_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5;flex-shrink:0;font-size:13px">📄 Open</a>' : ''}<button onclick="printInstructionsLink_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:36px;padding:6px 14px;font-size:13px;font-weight:700;background:#37474f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;line-height:1.2">🖨 Print</button><button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:36px;padding:6px 12px;font-size:13px;font-weight:700;background:rgba(255,255,255,.08);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;cursor:pointer;line-height:1.2" title="${row.instructions_pdf_url ? 'Replace link' : 'Paste link'}">${row.instructions_pdf_url ? '✎ Edit' : '✏ Set'}</button> <span style="color:${row.instructions_printed_at?'#42a5f5':'var(--text-dim)'};font-size:11px;flex-shrink:0">${row.instructions_printed_at ? '🖨 Printed ' + esc(String(row.instructions_printed_at).slice(0,16).replace('T',' ')) : 'Not yet printed'}</span></div>
+        <div style="color:var(--text-dim)">Instructions</div><div style="color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap">${row.instructions_pdf_url ? '<a href="'+esc(row.instructions_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5;flex-shrink:0;font-size:13px">📄 Open</a>' : ''}<button onclick="printInstructionsLink_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:36px;padding:6px 14px;font-size:13px;font-weight:700;background:#37474f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;line-height:1.2" title="${row.instructions_pdf_url ? 'Print the dedicated instructions PDF' : 'No instructions link — prints the pick list as fallback. Tap Add Link to set a dedicated INST-* PDF.'}">🖨 Print</button><button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:36px;padding:6px 12px;font-size:13px;font-weight:700;background:rgba(255,255,255,.08);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;cursor:pointer;line-height:1.2" title="${row.instructions_pdf_url ? 'Replace the dedicated instructions PDF Drive link' : 'Paste a Drive link to a dedicated instructions PDF (INST-*). Future prints will use this instead of the pick list.'}">${row.instructions_pdf_url ? '✎ Change Link' : '＋ Add Link'}</button> <span style="color:${row.instructions_printed_at?'#42a5f5':'var(--text-dim)'};font-size:11px;flex-shrink:0">${row.instructions_printed_at ? '🖨 Printed ' + esc(String(row.instructions_printed_at).slice(0,16).replace('T',' ')) : 'Not yet printed'}</span></div>
       </div>
     </div>
 
@@ -1553,20 +1553,66 @@ async function refreshShopifyCustomerForOrder_(orderNumber) {
   }
 }
 
-// v10.306 — print the Instructions PDF directly (separate from the
-// Pick List PDF print). Uses the same PrintNode flow.
+// v10.310 — Zac 13:08 EDT: 'print button on detail area ... not working.'
+// Server actually fires (verified via curl), but the UI gives no
+// in-place visual proof — toast fades + 'Not yet printed' stays put
+// until the full refresh round-trip (~5-10s). Bulletproof feedback:
+// button text changes inline + sticky banner during send + local row
+// state flips so 'Printed' shows immediately on success.
 async function printInstructionsLink_(orderNumber) {
-  showToast('🖨 Sending instructions to PrintNode…');
+  const orderStr = String(orderNumber);
+  const banner = document.getElementById('packActionBanner');
+  if (banner) {
+    banner.style.display = 'block';
+    banner.style.cssText = 'display:block;background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700;letter-spacing:.3px;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+    banner.innerHTML = '🖨 Sending instructions for #' + orderStr + ' to PrintNode…';
+  }
+  // Flip all matching Print buttons inline so the packer sees feedback.
+  const printBtns = document.querySelectorAll('button[onclick^="printInstructionsLink_(\\\''+orderStr+'\\\'"]');
+  printBtns.forEach(b => { b.disabled = true; b.style.opacity = '.7'; b.innerHTML = '⏳ Sending…'; });
   try {
-    const res = await groundApi('printPackInstructions', { orderNumber: String(orderNumber) });
+    const res = await groundApi('printPackInstructions', { orderNumber: orderStr });
     if (!res || !res.ok) {
-      showToast('⚠ Print failed: ' + ((res && res.error) || 'unknown'));
+      if (banner) {
+        banner.style.cssText = 'display:block;background:linear-gradient(135deg,#c62828,#8d1e1e);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700';
+        banner.innerHTML = '⚠ Print failed for #' + orderStr + ': ' + ((res && res.error) || 'unknown');
+        setTimeout(() => { if (banner) banner.style.display = 'none'; }, 6000);
+      }
+      printBtns.forEach(b => { b.disabled = false; b.style.opacity = '1'; b.innerHTML = '🖨 Print'; });
       return;
     }
-    showToast('✓ Sent to printer ' + (res.printer_id || ''));
+    if (banner) {
+      banner.style.cssText = 'display:block;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+      banner.innerHTML = '✓ Instructions for #' + orderStr + ' sent to PrintNode (job ' + (res.job_id || '?') + ')';
+      setTimeout(() => { if (banner) banner.style.display = 'none'; }, 4000);
+    }
+    // Flip local cache row so 'Printed' indicator updates without
+    // waiting for the full refresh round-trip (which can take 5-10s
+    // on a cold queue).
+    try {
+      if (typeof _packQueueCache !== 'undefined') {
+        const idx = (_packQueueCache || []).findIndex(r => String(r.order_number) === orderStr);
+        if (idx >= 0) {
+          _packQueueCache[idx].instructions_printed_at = new Date().toISOString();
+          if (typeof openPackDetail === 'function') openPackDetail(orderStr);
+        }
+      }
+    } catch (e) { /* swallow */ }
+    printBtns.forEach(b => {
+      b.disabled = false;
+      b.style.opacity = '1';
+      b.innerHTML = '✓ Printed';
+      b.style.background = '#00C853';
+      setTimeout(() => { b.innerHTML = '🖨 Reprint'; b.style.background = '#37474f'; }, 3000);
+    });
     if (typeof refreshPackQueue === 'function') refreshPackQueue();
   } catch (e) {
-    showToast('Print error: ' + e.message);
+    if (banner) {
+      banner.style.cssText = 'display:block;background:linear-gradient(135deg,#c62828,#8d1e1e);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700';
+      banner.innerHTML = '⚠ Print error: ' + e.message;
+      setTimeout(() => { if (banner) banner.style.display = 'none'; }, 6000);
+    }
+    printBtns.forEach(b => { b.disabled = false; b.style.opacity = '1'; b.innerHTML = '🖨 Print'; });
   }
 }
 
@@ -8318,7 +8364,15 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
               : (t.findLoop > (t.readAll||0) ? 'row find loop (' + t.findLoop + 'ms)'
               : 'network (' + network + 'ms — Apps Script cold start / proxy)');
             console.log('[pack-jump] SLOWEST: ' + slowest);
-            if (typeof showToast === 'function') showToast('Slow load: ' + Math.round(elapsed/100)/10 + 's — ' + slowest);
+            // v10.310 — sticky banner instead of fading toast so Zac can
+            // actually capture the timing on a real slow load + screenshot it.
+            const banner = document.getElementById('packActionBanner');
+            if (banner) {
+              banner.style.cssText = 'display:block;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#1a1a1a;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-size:12px;font-weight:700;line-height:1.4;-webkit-text-fill-color:#1a1a1a';
+              banner.innerHTML = '⏱ Slow load: ' + (elapsed/1000).toFixed(1) + 's<br>'
+                + '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px">openSheet=' + (t.openSheet||0) + 'ms · ensureCols=' + (t.ensureCols||0) + 'ms · readAll=' + (t.readAll||0) + 'ms (' + (t.rows||0) + ' rows) · findLoop=' + (t.findLoop||0) + 'ms · server=' + (t.total||0) + 'ms · network=' + network + 'ms</span><br>'
+                + '<span style="font-size:11px">SLOWEST: ' + slowest + ' <button onclick="document.getElementById(\'packActionBanner\').style.display=\'none\'" style="margin-left:8px;background:rgba(0,0,0,.15);color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-weight:700">×</button></span>';
+            }
           }
         } else if (elapsed > 5000) {
           console.log('[pack-jump] slow ensure (no timing) — likely Shopify backfill on cold row. Subsequent taps will be fast.');
