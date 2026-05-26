@@ -568,11 +568,12 @@ function openPackDetail(orderNumber) {
       <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);text-transform:uppercase;line-height:1.2;margin-bottom:8px">${esc(row.task_line || '')}</div>
       <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px">
         <div style="color:var(--text-dim)">Ship date</div><div style="color:var(--text);font-weight:600">${esc(row.ship_date || '—')}</div>
-        <div style="color:var(--text-dim)">Customer</div><div style="color:var(--text)">${esc(row.customer_name || '—')}</div>
+        <div style="color:var(--text-dim)">Customer</div><div style="color:var(--text)">${esc(row.customer_name || '—')}${(!row.customer_name && row.order_number) ? ' <button onclick="refreshShopifyCustomerForOrder_(\'' + esc(row.order_number) + '\')" class="amp-btn" style="padding:4px 10px;font-size:11px;margin-left:6px" title="Synchronous Shopify lookup (~5s)">🔄 Pull from Shopify</button>' : ''}</div>
         <div style="color:var(--text-dim)">Address</div><div style="color:var(--text)">${esc(row.customer_address || '—')}</div>
         <div style="color:var(--text-dim)">Phone</div><div style="color:var(--text)">${esc(row.customer_phone || '—')}</div>
         <div style="color:var(--text-dim)">Order details</div><div style="color:var(--text)">${esc(row.order_details || '—')}</div>
-        <div style="color:var(--text-dim)">Instructions</div><div style="color:${row.instructions_printed_at?'#42a5f5':'var(--text-dim)'};font-weight:${row.instructions_printed_at?'700':'400'}">${row.instructions_printed_at ? '🖨 Printed ' + esc(row.instructions_printed_at) : 'Not yet printed'}</div>
+        <div style="color:var(--text-dim)">Pick List</div><div style="color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5">📄 Open</a> <button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:3px 8px;font-size:10px">🖨 Print</button>' : '<span style="color:var(--text-dim)">—</span>'} <span style="color:${row.instructions_printed_at?'#42a5f5':'var(--text-dim)'};font-size:11px">${row.instructions_printed_at ? '🖨 Printed ' + esc(String(row.instructions_printed_at).slice(0,16).replace('T',' ')) : 'Not yet printed'}</span></div>
+        <div style="color:var(--text-dim)">Instructions</div><div style="color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">${row.instructions_pdf_url ? '<a href="'+esc(row.instructions_pdf_url)+'" target="_blank" rel="noopener" style="color:#42a5f5">📄 Open</a> <button onclick="printInstructionsLink_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:3px 8px;font-size:10px">🖨 Print</button>' : '<span style="color:var(--text-dim)">—</span>'} <button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:3px 8px;font-size:10px" title="${row.instructions_pdf_url ? 'Replace link' : 'Paste link'}">${row.instructions_pdf_url ? '✎' : '✏ Set'}</button></div>
       </div>
     </div>
 
@@ -1445,6 +1446,128 @@ function closeSkuCameraScan_() {
   _skuScanLastAt_ = 0;
   const ov = document.getElementById('skuScanOverlay');
   if (ov) ov.remove();
+}
+
+// v10.306 — Pre-Pack camera scan. Same machine-gun pattern as the
+// Pack scan modal but submits via handlePrePackScanKey (Enter sim).
+async function openPrePackCameraScan_() {
+  if (typeof window.BarcodeDetector === 'undefined') {
+    showToast('⚠ Camera barcode scan not supported — type SKU manually');
+    return;
+  }
+  const prior = document.getElementById('prePackScanOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'prePackScanOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:#000;z-index:10015;display:flex;flex-direction:column;align-items:stretch';
+  ov.innerHTML =
+    '<div style="background:rgba(0,0,0,.85);color:#fff;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:.5px">📷 SCAN HW SKU — keep scanning, tap ✕ to close</div>'
+    +   '<button onclick="closePrePackCameraScan_()" style="background:#ff5252;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:16px;font-weight:900;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="flex:1;position:relative;background:#000;overflow:hidden">'
+    +   '<video id="prePackScanVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>'
+    +   '<div style="position:absolute;left:10%;right:10%;top:35%;bottom:35%;border:3px dashed #00e676;border-radius:12px;pointer-events:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.45)"></div>'
+    +   '<div id="prePackScanFeedback" style="position:absolute;left:0;right:0;bottom:24px;text-align:center;color:#00e676;font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;text-shadow:0 1px 4px rgba(0,0,0,.7);min-height:28px;letter-spacing:1px;pointer-events:none">Looking for barcode…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  try {
+    window._prePackScanDetector_ = new window.BarcodeDetector({
+      formats: ['code_128','code_39','ean_13','ean_8','qr_code','upc_a','upc_e','itf'],
+    });
+    window._prePackScanStream_ = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+    const video = document.getElementById('prePackScanVideo');
+    if (video) video.srcObject = window._prePackScanStream_;
+    _prePackScanTick_();
+  } catch (e) {
+    showToast('⚠ Camera error: ' + e.message);
+    closePrePackCameraScan_();
+  }
+}
+
+let _prePackScanLastCode_ = '';
+let _prePackScanLastAt_ = 0;
+async function _prePackScanTick_() {
+  if (!window._prePackScanStream_ || !window._prePackScanDetector_) return;
+  const video = document.getElementById('prePackScanVideo');
+  const feedback = document.getElementById('prePackScanFeedback');
+  if (!video || !feedback) return;
+  try {
+    const codes = await window._prePackScanDetector_.detect(video);
+    if (codes && codes.length) {
+      const raw = String(codes[0].rawValue || '').trim();
+      const now = Date.now();
+      if (raw && (raw !== _prePackScanLastCode_ || (now - _prePackScanLastAt_) > 1500)) {
+        _prePackScanLastCode_ = raw;
+        _prePackScanLastAt_ = now;
+        feedback.textContent = '✓ ' + raw;
+        const input = document.getElementById('prePackScanInput');
+        if (input) {
+          input.value = raw;
+          // Simulate Enter key to trigger handlePrePackScanKey
+          const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+          input.dispatchEvent(event);
+        }
+        if (typeof FB !== 'undefined' && FB.success) FB.success();
+      }
+    }
+  } catch (e) {}
+  setTimeout(_prePackScanTick_, 300);
+}
+
+function closePrePackCameraScan_() {
+  if (window._prePackScanStream_) {
+    try { window._prePackScanStream_.getTracks().forEach(t => t.stop()); } catch(e) {}
+    window._prePackScanStream_ = null;
+  }
+  window._prePackScanDetector_ = null;
+  _prePackScanLastCode_ = '';
+  _prePackScanLastAt_ = 0;
+  const ov = document.getElementById('prePackScanOverlay');
+  if (ov) ov.remove();
+}
+
+// v10.306 — Zac 12:48 EDT: 'details have no customer or address.'
+// Synchronous Shopify pull on-demand. Slow (~5s) but only fires when
+// user explicitly taps the button — most-of-the-time the background
+// sweep heals these silently. Reopens Pack detail to repaint.
+async function refreshShopifyCustomerForOrder_(orderNumber) {
+  showToast('⏳ Pulling customer details from Shopify…');
+  try {
+    const res = await groundApi('runShopifyCustomerBackfillSweep', { limit: 1, only_order: String(orderNumber) });
+    if (!res || !res.ok) {
+      showToast('⚠ Refresh failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    // Re-fetch the row so the rendered customer fields update.
+    const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
+    if (boot && boot.ok && boot.row) {
+      const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+      const idx = cache.findIndex(r => String(r.order_number) === String(orderNumber));
+      if (idx >= 0) cache[idx] = boot.row; else cache.unshift(boot.row);
+      if (typeof openPackDetail === 'function') openPackDetail(orderNumber);
+    }
+    showToast('✓ Customer pulled from Shopify');
+  } catch (e) {
+    showToast('Refresh error: ' + e.message);
+  }
+}
+
+// v10.306 — print the Instructions PDF directly (separate from the
+// Pick List PDF print). Uses the same PrintNode flow.
+async function printInstructionsLink_(orderNumber) {
+  showToast('🖨 Sending instructions to PrintNode…');
+  try {
+    const res = await groundApi('printPackInstructions', { orderNumber: String(orderNumber) });
+    if (!res || !res.ok) {
+      showToast('⚠ Print failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ Sent to printer ' + (res.printer_id || ''));
+    if (typeof refreshPackQueue === 'function') refreshPackQueue();
+  } catch (e) {
+    showToast('Print error: ' + e.message);
+  }
 }
 
 // v10.292 — manager-PIN override: mark an order packed without scan
@@ -3305,8 +3428,9 @@ function paintPrePackDetail_(row) {
       </div>
     </div>
     ${hwReady ? '<div style="padding:12px 14px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.45);border-radius:10px;margin-bottom:14px;font-size:14px;color:#00e676;font-weight:700">✓ HW box already prepped by '+esc(String(row.hardware_packed_by || ''))+' at '+esc(String(row.hardware_packed_at || '').slice(0,16))+'</div>' : ''}
-    <div style="margin-bottom:14px">
-      <input type="search" id="prePackScanInput" placeholder="Scan or type HW SKU…" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="handlePrePackScanKey(event)" style="width:100%;padding:14px 16px;font-size:18px;font-family:'JetBrains Mono',monospace;background:#000;color:var(--green-bright);border:2px solid var(--border);border-radius:10px;outline:none">
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <input type="search" id="prePackScanInput" placeholder="Scan or type HW SKU…" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="handlePrePackScanKey(event)" style="flex:1;padding:14px 16px;font-size:18px;font-family:'JetBrains Mono',monospace;background:#000;color:var(--green-bright);border:2px solid var(--border);border-radius:10px;outline:none">
+      <button onclick="openPrePackCameraScan_()" class="amp-btn" style="padding:14px;font-size:20px" title="Open camera to scan barcode (Pre-Pack HW)">📷</button>
     </div>
     <div id="prePackSkuList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">${skuRowsHtml || (row.pick_list_pdf_url ? '<div style="padding:20px;text-align:center;color:var(--text-dim)"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:700;color:#42a5f5;letter-spacing:.5px">⏳ Fetching pick-list PDF…</div><div style="font-size:11px;margin-top:6px">HW SKUs will appear once the parser finishes. Tap ↺ Reset Scans / open another order if it stalls.</div></div>' : '<div style="padding:20px;text-align:center;color:var(--text-dim)">No HW SKUs detected on this order, and no pick-list PDF URL to auto-parse. Manual entry needed.</div>')}</div>
     ${hwReady ? '' : '<button onclick="confirmMarkAllHardwareScanned(\''+esc(row.order_number)+'\')" class="amp-btn" style="width:100%;padding:14px;font-size:14px;font-weight:900;background:linear-gradient(135deg,#FFB300,#FF9100);color:#1a1a1a;border:1.5px solid #FFB300;letter-spacing:.5px;margin-bottom:10px">👤 MARK ALL PACKED (MANAGER)</button>'}
