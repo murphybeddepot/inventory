@@ -5956,22 +5956,27 @@ async function openManufacturingPanel(opts) {
     + '</div>';
   document.body.appendChild(ov);
 
+  // v10.284 — same null-guard pattern as v10.282 holdsBody fix.
+  // User can close the sheet during the await; without the guard,
+  // the subsequent innerHTML write throws.
+  const _writeMfg_ = (html) => { const el = document.getElementById('mfgListBody'); if (!el) return false; el.innerHTML = html; return true; };
+
   let res;
   try { res = await groundApi('manufacturingListJobs', statusFilter ? { status: statusFilter } : {}); }
   catch (err) {
-    document.getElementById('mfgListBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+    _writeMfg_('<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>');
     return;
   }
   if (!res || !res.ok) {
-    document.getElementById('mfgListBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    _writeMfg_('<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>');
     return;
   }
   const jobs = res.jobs || [];
   if (!jobs.length) {
-    document.getElementById('mfgListBody').innerHTML = '<div style="padding:24px;text-align:center;color:#0a8a3f !important;-webkit-text-fill-color:#0a8a3f !important;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">No jobs in this view. Tap "+ New Job" to ingest one.</div>';
+    _writeMfg_('<div style="padding:24px;text-align:center;color:#0a8a3f !important;-webkit-text-fill-color:#0a8a3f !important;background:rgba(0,200,83,.06);border:1px dashed rgba(0,200,83,.40);border-radius:10px;font-size:13px;font-weight:700">No jobs in this view. Tap "+ New Job" to ingest one.</div>');
     return;
   }
-  document.getElementById('mfgListBody').innerHTML = jobs.map(j => {
+  _writeMfg_(jobs.map(j => {
     const meta = MFG_STATUS_META[j.status] || MFG_STATUS_META.awaiting_designer;
     const designerSigned = !!j.designer_signed_at;
     const opsSigned = !!j.ops_signed_at;
@@ -5995,7 +6000,7 @@ async function openManufacturingPanel(opts) {
       + '</div>'
       + '<div style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999 !important;margin-top:6px;font-family:monospace">' + esc(j.job_id) + ' · ingested ' + esc(ingestedDate) + '</div>'
       + '</div>';
-  }).join('');
+  }).join(''));
 }
 
 // v10.231 — proper form modal instead of 4 sequential prompt()s
@@ -7336,20 +7341,23 @@ async function openTrackingPanel(opts) {
     + '</div>';
   document.body.appendChild(ov);
 
+  // v10.284 — same null-guard pattern as v10.282 holdsBody fix.
+  const _writeTracking_ = (html) => { const el = document.getElementById('trackingBody'); if (!el) return false; el.innerHTML = html; return true; };
+
   let res;
   try { res = await groundApi('listRecentShipments', { days: days, source: source }); }
   catch (err) {
-    document.getElementById('trackingBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>';
+    _writeTracking_('<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>');
     return;
   }
   if (!res || !res.ok) {
-    document.getElementById('trackingBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    _writeTracking_('<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>');
     return;
   }
   const rows = res.shipments || [];
   window._trackingCache = rows;
   if (!rows.length) {
-    document.getElementById('trackingBody').innerHTML = '<div style="padding:24px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:13px">No shipments in this view.</div>';
+    _writeTracking_('<div style="padding:24px;text-align:center;color:#888;background:#fafafa;border-radius:10px;font-size:13px">No shipments in this view.</div>');
     return;
   }
   renderTrackingRows_();
@@ -7704,14 +7712,17 @@ async function openRemakesPanel(statusFilter) {
     + '</div>';
   document.body.appendChild(ov);
 
+  // v10.284 — same null-guard pattern as v10.282 holdsBody fix.
+  const _writeRemakes_ = (html) => { const el = document.getElementById('remakesListBody'); if (!el) return false; el.innerHTML = html; return true; };
+
   let res;
   try { res = await groundApi('listRemakes', { status: statusFilter }); }
   catch (err) {
-    document.getElementById('remakesListBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>';
+    _writeRemakes_('<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc(err.message) + '</div>');
     return;
   }
   if (!res || !res.ok) {
-    document.getElementById('remakesListBody').innerHTML = '<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    _writeRemakes_('<div style="color:#c33;font-weight:700;padding:14px">Error: ' + esc((res && res.error) || 'unknown') + '</div>');
     return;
   }
   // v10.114: cache the rendered remakes so per-row actions
@@ -7749,11 +7760,11 @@ async function openRemakesPanel(statusFilter) {
     const noteFilter = _remakesCarrierFilter
       ? ' for carrier filter "' + (_remakesCarrierFilter === '__damaged__' ? 'Damaged' : _remakesCarrierFilter.toUpperCase()) + '"'
       : '';
-    document.getElementById('remakesListBody').innerHTML = '<div style="padding:24px;text-align:center;color:#555;background:#fafafa;border-radius:10px;font-size:13px">No remakes in this view' + esc(noteFilter) + '.</div>';
+    _writeRemakes_('<div style="padding:24px;text-align:center;color:#555;background:#fafafa;border-radius:10px;font-size:13px">No remakes in this view' + esc(noteFilter) + '.</div>');
     return;
   }
 
-  document.getElementById('remakesListBody').innerHTML = rows.map(r => {
+  _writeRemakes_(rows.map(r => {
     const statusColor = r.status === 'pending' ? '#FFB300' : r.status === 'ready_to_ship' ? '#3DBEFF' : r.status === 'shipped' ? '#00C853' : '#888';
     const skuList = (r.skus || []).map(s => esc(s.qty + '× ' + s.sku)).join(', ');
     const rushChip = r.priority === 'rush' ? '<span style="background:#ff5252;color:#fff;padding:1px 6px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.5px;margin-left:4px">⚡ RUSH</span>' : '';
@@ -7786,7 +7797,7 @@ async function openRemakesPanel(statusFilter) {
       + (r.status !== 'shipped' && r.status !== 'cancelled' ? '<button onclick="updateRemakeStatus_(\'' + esc(r.remake_id) + '\',\'cancelled\')" style="padding:8px 12px;background:rgba(255,82,82,.10);color:#c33;border:1px solid rgba(255,82,82,.4);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Cancel</button>' : '')
       + '</div>'
       + '</div>';
-  }).join('');
+  }).join(''));
 }
 
 function refreshDayPlan_() {
