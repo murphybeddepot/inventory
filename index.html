@@ -14434,21 +14434,43 @@ async function submitHideFromQueue(orderId, orderNumber, reason) {
   const pinEl = document.getElementById('hidePinInput');
   const pin = pinEl ? String(pinEl.value || '').trim() : '';
   if (!pin) { showToast('Enter manager PIN'); return; }
+  // v10.279 — Zac 20:08 EDT: button gave no indication it worked + the
+  // sequential 3-call chain (verifyPin → hide → refresh) felt slow.
+  // Disable + label-swap immediately so the tap is acknowledged.
+  const btns = document.querySelectorAll('#hideFromQueuePinOverlay button');
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
+  const hideBtn = Array.from(btns).find(b => /Hide/i.test(b.textContent || ''));
+  const originalLabel = hideBtn ? hideBtn.textContent : '';
+  if (hideBtn) hideBtn.textContent = '⏳ Verifying PIN…';
   try {
     const verify = await groundApi('verifyManagerPin', { pin: pin });
-    if (!verify || !verify.ok) { showToast('Invalid PIN'); return; }
+    if (!verify || !verify.ok) {
+      btns.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+      if (hideBtn) hideBtn.textContent = originalLabel;
+      showToast('Invalid PIN');
+      return;
+    }
+    if (hideBtn) hideBtn.textContent = '⏳ Hiding…';
     const res = await groundApi('hideGroundOrderFromQueue', {
       orderId: Number(orderId),
       orderNumber: orderNumber,
       reason: reason,
       byName: groundPackerName || '',
     });
-    if (!res || !res.ok) { showToast('Hide failed: ' + ((res && res.error) || 'unknown')); return; }
+    if (!res || !res.ok) {
+      btns.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+      if (hideBtn) hideBtn.textContent = originalLabel;
+      showToast('Hide failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    if (hideBtn) hideBtn.textContent = '✓ Hidden';
     const ov = document.getElementById('hideFromQueuePinOverlay');
     if (ov) ov.remove();
     showToast('✓ Hidden #' + orderNumber + ' from queue');
     refreshGroundQueue();
   } catch (err) {
+    btns.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+    if (hideBtn) hideBtn.textContent = originalLabel;
     showToast('Hide error: ' + err.message);
   }
 }
@@ -15843,7 +15865,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.278"></script>
+<script src="./pack.js?v=10.279"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -15852,7 +15874,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.278<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.279<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

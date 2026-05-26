@@ -3594,10 +3594,22 @@ function _applyScheduleViewFilter_(payload) {
       const b = _scheduleTodayBucket_(o);
       if (b && buckets[b]) buckets[b].push(o);
     }));
+    // v10.279 — Zac 20:07 EDT: "it should be very clear what date
+    // 'today' is displaying." Date appended to each bucket label
+    // (today for ship_today + pack_today; tomorrow for prepack_today)
+    // and shown in EEEE MMM D format so the day-of-week is unambiguous.
+    const dayLabel = (offsetDays) => {
+      const d = new Date(Date.now() + offsetDays * 86400000);
+      const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return DOW[d.getDay()] + ' ' + MON[d.getMonth()] + ' ' + d.getDate();
+    };
+    const todayLabel = dayLabel(0);
+    const tmrwLabel = dayLabel(1);
     const order = [
-      { key: 'ship_today',    label: '📦 Ship Today',                hint: 'scheduled to ship today (cal_p preferred)' },
-      { key: 'pack_today',    label: '🔨 Pack Today',                hint: 'shipping today but not yet 🅟 packed' },
-      { key: 'prepack_today', label: '🔧 Pre-Pack Today (Pack Tomorrow)', hint: 'shipping tomorrow, not yet 🅑 boxed' },
+      { key: 'ship_today',    label: '📦 Ship Today · ' + todayLabel,           hint: 'scheduled to ship today (gcal 🅟 / 🅛 set)' },
+      { key: 'pack_today',    label: '🔨 Pack Today · ' + todayLabel,            hint: 'shipping today but not yet 🅟 packed' },
+      { key: 'prepack_today', label: '🔧 Pre-Pack Today · packs ' + tmrwLabel,   hint: 'shipping tomorrow, not yet 🅑 boxed — pre-pack today' },
     ];
     const synthDays = order
       .filter(b => buckets[b.key].length)
