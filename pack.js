@@ -3932,8 +3932,13 @@ function paintSchedule_(payloadRaw) {
   // gets the scrollable list. The breakpoint covers iPad portrait
   // (~768px is too tight for a 5-column grid) and goes desktop at
   // typical laptop widths.
+  // v10.286 — Zac 09:55 EDT: "we need the same 'today' view available
+  // on desktop." Today view is bucket-based (Ship/Pack/Pre-Pack), not
+  // a weekly grid, so it always uses the mobile list renderer
+  // regardless of viewport. Other view modes still get the grid on
+  // desktop.
   const isDesktop = window.innerWidth >= SCHEDULE_DESKTOP_BREAKPOINT_PX;
-  if (isDesktop) {
+  if (isDesktop && _scheduleViewMode !== 'today') {
     paintScheduleDesktopGrid_(payload, listEl);
   } else {
     paintScheduleMobileList_(payload, listEl);
@@ -7446,6 +7451,16 @@ function jumpToLookup_(orderNumber) {
 // Lookup if the order isn't in the Pack queue (e.g. it's a ground
 // parcel that's not in PackingQueue).
 async function jumpToPackForOrder_(orderNumber, bucketKind) {
+  // v10.286 — Zac 09:55 EDT: "we clicked on one that's shipping today
+  // and it just took us to the lookup page, not to a page where we
+  // could mark it as shipped." Ship-today rows = already packed,
+  // waiting on the actual shipment action. Route to the existing
+  // confirmMarkPackJobShipped flow (manager-PIN gated) instead of
+  // opening Pack detail or Lookup.
+  if (bucketKind === 'ship_today' && typeof confirmMarkPackJobShipped === 'function') {
+    confirmMarkPackJobShipped(orderNumber);
+    return;
+  }
   if (typeof switchTab === 'function') switchTab('pack');
   if (bucketKind === 'prepack_today' && typeof setPackTabMode === 'function') {
     setTimeout(() => { try { setPackTabMode('prepack'); } catch(e) {} }, 80);
@@ -7459,8 +7474,13 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
         openPackDetail(orderNumber);
         return;
       }
+      // v10.286 — Zac 09:55 EDT: "it tried to load the pack page then
+      // failed because you hadn't parsed the pick lists apparently."
+      // openPackDetail requires the row in cache; if it's not there
+      // (e.g. pick list not yet parsed → not in PackingQueue), be
+      // explicit rather than silently falling to Lookup.
       if (typeof showToast === 'function') {
-        showToast('#' + orderNumber + ' not in Pack queue — opening Lookup');
+        showToast('#' + orderNumber + ' not in Pack queue yet (pick list not parsed) — opening Lookup');
       }
       jumpToLookup_(orderNumber);
     } catch (e) {
