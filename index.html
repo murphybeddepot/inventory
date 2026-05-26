@@ -1296,11 +1296,19 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="closeMoreMenu();openEmailTemplatesEditor()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
+    <button onclick="closeMoreMenu();openEmailTemplatesEditor()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📝</span>
       <div style="flex:1">
         <div>Email Templates</div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Edit Shipping Conf / Customer Ready / Reorder / Mattress email bodies</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
+      <span style="font-size:22px">📑</span>
+      <div style="flex:1">
+        <div>Instructions Map</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">SKU → build/assembly PDF (powers Print Instructions + the box-label QR)</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
@@ -1492,11 +1500,16 @@ input::placeholder, textarea::placeholder {
   <div id="packTabModePrepackContent" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">🔧 Hardware Pre-Pack</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button onclick="openGcalPipelinePanel()" class="amp-btn" style="font-size:13px;padding:8px 16px" title="Phase 0 preview — gcal H-but-not-P orders sliced into daily buckets">📅 Gcal Pipeline</button>
-        <button onclick="openHafeleMapPanel()" class="amp-btn" style="font-size:13px;padding:8px 16px" title="Author Häfele# for every BOM element — one-touch admin">🔩 Häfele Map</button>
-        <button onclick="printPrePackInstructions()" class="amp-btn" style="font-size:13px;padding:8px 16px">🖨 Print All</button>
-        <button onclick="refreshPrePackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
+      <!-- v10.314 — declutter: only Refresh visible; Print All / Gcal / Häfele moved to overflow ⋯ -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;position:relative">
+        <button onclick="refreshPrePackQueue()" class="amp-btn" style="font-size:13px;padding:8px 16px;display:inline-flex;align-items:center;flex-shrink:0">↻ Refresh</button>
+        <button onclick="togglePrePackHeaderOverflow_(event)" id="prePackHeaderOverflowBtn" class="amp-btn" style="font-size:18px;padding:8px 14px;line-height:1;display:inline-flex;align-items:center;flex-shrink:0" title="More actions">⋯</button>
+        <div id="prePackHeaderOverflowMenu" style="display:none;position:absolute;top:100%;right:0;margin-top:6px;background:#1a1a1a;border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:6px;box-shadow:0 6px 20px rgba(0,0,0,.6);z-index:50;min-width:220px;flex-direction:column;gap:4px">
+          <button onclick="printPrePackInstructions();closePrePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">🖨 Print All Instructions</button>
+          <button onclick="openGcalPipelinePanel();closePrePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">📅 Gcal Pipeline</button>
+          <button onclick="openHafeleMapPanel();closePrePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">🔩 Häfele Map</button>
+          <button onclick="openInstructionsMapPanel();closePrePackHeaderOverflow_()" style="text-align:left;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;display:block;width:100%" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='transparent'">📑 Instructions Map</button>
+        </div>
       </div>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
@@ -2701,16 +2714,31 @@ function setPackTabMode(mode) {
       if (mode === 'prepack' && typeof openPrePackDetail === 'function') openPrePackDetail(activeOrder);
       else if (mode === 'pack' && typeof openPackDetail === 'function') openPackDetail(activeOrder);
     } else {
+      // v10.314 — Zac: "loaded from pack slowly without ANY indication
+      // it was loading the order we were on on the pack screen."
+      // Show a clear in-place overlay during the carry-over poll so
+      // the user knows a fetch is happening (and what for).
+      _showPackCarryoverOverlay_(mode, activeOrder);
       let tries = 0;
       const maxTries = 7; // ~1.5s @ 200ms — bounded so unfindable orders don't slow the swap
       const tick = setInterval(() => {
         tries++;
-        if (tries > maxTries) { clearInterval(tick); return; }
+        if (tries > maxTries) {
+          clearInterval(tick);
+          _hidePackCarryoverOverlay_();
+          // Order never landed in the cache for this mode. Update
+          // the overlay one last time with an actionable message,
+          // then hide after 4s so the user sees the queue list.
+          _showPackCarryoverOverlay_(mode, activeOrder, true);
+          setTimeout(_hidePackCarryoverOverlay_, 4000);
+          return;
+        }
         if (mode === 'prepack') {
           const cache = (typeof _prePackQueueCache !== 'undefined' && _prePackQueueCache) || [];
           const row = cache.find(r => String(r.order_number) === String(activeOrder));
           if (row && typeof openPrePackDetail === 'function') {
             clearInterval(tick);
+            _hidePackCarryoverOverlay_();
             openPrePackDetail(activeOrder);
           }
         } else {
@@ -2718,12 +2746,40 @@ function setPackTabMode(mode) {
           const row = cache.find(r => String(r.order_number) === String(activeOrder));
           if (row && typeof openPackDetail === 'function') {
             clearInterval(tick);
+            _hidePackCarryoverOverlay_();
             openPackDetail(activeOrder);
           }
         }
       }, 200);
     }
   }
+}
+
+// v10.314 — overlay shown while carrying an active order across the
+// Pack ↔ Pre-Pack mode toggle. Lives at the queue-list level (so it
+// covers whatever the polling target is). Idempotent: re-calling
+// updates the message in place rather than stacking overlays.
+function _showPackCarryoverOverlay_(mode, orderNumber, notFound) {
+  const containerId = mode === 'prepack' ? 'prePackQueueList' : 'packQueueList';
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  let ov = document.getElementById('packCarryoverOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'packCarryoverOverlay';
+    ov.style.cssText = 'padding:24px;background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff;border-radius:12px;margin-bottom:12px;display:flex;align-items:center;gap:14px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.4)';
+    container.parentNode.insertBefore(ov, container);
+  }
+  if (notFound) {
+    ov.style.background = 'linear-gradient(135deg,#ff9800,#e65100)';
+    ov.innerHTML = '<div style="font-size:22px">⚠</div><div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;text-transform:uppercase">Order #' + orderNumber + ' not in the ' + (mode === 'prepack' ? 'Pre-Pack' : 'Pack') + ' queue</div><div style="font-size:12px;font-weight:500;opacity:.9;margin-top:4px">' + (mode === 'prepack' ? 'It may not have HW SKUs to pre-pack, or it\'s past the horizon. Pick another order from the list below.' : 'Tap + Add Order # to bootstrap it.') + '</div></div>';
+  } else {
+    ov.innerHTML = '<div style="width:22px;height:22px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></div><div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;text-transform:uppercase">Opening order #' + orderNumber + ' in ' + (mode === 'prepack' ? 'Pre-Pack' : 'Pack') + '…</div><div style="font-size:12px;font-weight:500;opacity:.9;margin-top:4px">Loading queue rows for the new mode.</div></div>';
+  }
+}
+function _hidePackCarryoverOverlay_() {
+  const ov = document.getElementById('packCarryoverOverlay');
+  if (ov) ov.remove();
 }
 function _restorePackTabMode_() {
   let mode = 'pack';
@@ -16285,7 +16341,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.313"></script>
+<script src="./pack.js?v=10.314"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16294,7 +16350,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.313<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.314<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

@@ -76,6 +76,14 @@ function promptRenameDevice_() {
 
 let _packQueueCache = [];
 let _packDetailOrderNumber = null;
+// v10.314 — Pre-Pack mode toggle inside Pack detail. Zac: "pre-pack
+// should maybe just be a button on the pack screen that hides the
+// non-pre-pack items and loads the process for pre-pack (printing
+// box label when done)." Per-session; resets on detail close.
+let _packDetailPrePackMode = false;
+// Cache categorization results per order so toggling Pre-Pack mode
+// doesn't refetch on every re-render.
+const _packDetailCategoryCache = {};
 
 // v10.153 persona #12 Shane — end-of-shift reminder for packers with
 // orphaned claims. Polled every 60s; only fires once per device per
@@ -525,7 +533,21 @@ function openPackDetail(orderNumber) {
 
   // ── action-row HTML driven by status ──────────────────────────────
   let actionRowHtml = '';
-  if (status === 'pending') {
+  // v10.314 — Pre-Pack mode collapses the entire status machine into a
+  // single-purpose action: pack the HW box, print the OPEN-ME-FIRST
+  // label. Bypasses claim/check; the pre-packer (e.g. Zoe) doesn't
+  // need to hold the full packer claim to prep the day-before HW box.
+  if (_packDetailPrePackMode) {
+    const hwReady = !!row.hardware_packed_at;
+    if (hwReady) {
+      actionRowHtml =
+        '<div style="padding:12px 18px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.45);border-radius:10px;font-size:13px;color:var(--text);flex:1">✓ HW pre-pack done ' + esc(String(row.hardware_packed_at || '').slice(0, 16).replace('T', ' ')) + ' by ' + esc(row.hardware_packed_by || '—') + '</div>'
+        + '<button onclick="printPrePackLabelFromPackDetail_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:14px 22px;font-size:14px">🖨 Reprint Box Label</button>';
+    } else {
+      actionRowHtml =
+        '<button onclick="confirmMarkHardwareReadyFromPackDetail_(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900">✓ Mark HW Pre-Pack Done + Print Box Label</button>';
+    }
+  } else if (status === 'pending') {
     actionRowHtml = '<button onclick="claimPackOrder(\''+esc(row.order_number)+'\')" class="amp-btn go" style="padding:14px 22px;font-size:15px;font-weight:900">▶ Start Packing</button>';
   } else if (status === 'in_progress') {
     if (packerMine) {
@@ -557,10 +579,26 @@ function openPackDetail(orderNumber) {
     : 'Scan each SKU as you stage it on the pallet. When complete, tap Ready for Checker.';
   const phaseAccent = phase === 'checker' ? 'rgba(171,71,188,.45)' : 'rgba(0,230,118,.35)';
 
+  // v10.314 — Pre-Pack mode toggle. When active: cabinets/photos
+  // sections hidden, SKU list filtered to HW-only via server-side
+  // categorizePackSkus, action row replaced with the HW box label
+  // flow. Mirrors the standalone Pre-Pack tab's UX inside Pack detail
+  // so packers don't have to context-switch to a different screen.
+  const prePackBtnBg = _packDetailPrePackMode
+    ? 'linear-gradient(135deg,#003087,#1A4FB0)'
+    : 'rgba(255,255,255,.06)';
+  const prePackBtnColor = _packDetailPrePackMode ? '#fff' : 'var(--text)';
+  const prePackToggleHtml = '<button onclick="togglePackDetailPrePackMode_(\''+esc(row.order_number)+'\')" '
+    + 'style="display:inline-flex;align-items:center;gap:6px;flex-shrink:0;padding:8px 14px;font-size:12px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;background:'+prePackBtnBg+';color:'+prePackBtnColor+';border:1.5px solid rgba(255,255,255,.20);border-radius:999px;cursor:pointer" '
+    + 'title="' + (_packDetailPrePackMode ? 'Exit Pre-Pack mode — show full pack view' : 'Pre-Pack mode: hardware-box prep only (hides cabinets + photos, filters SKUs to HW)') + '">'
+    + '🔧 Pre-Pack' + (_packDetailPrePackMode ? ' ✓' : '')
+    + '</button>';
+
   detail.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <button onclick="closePackDetail()" class="amp-btn" style="padding:8px 14px;font-size:13px">← Back</button>
       <div style="flex:1;font-family:'Barlow Condensed',Arial,sans-serif;font-size:22px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ${esc(row.order_number)}</div>
+      ${prePackToggleHtml}
       <span style="padding:6px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
     </div>
 
@@ -577,7 +615,7 @@ function openPackDetail(orderNumber) {
       </div>
     </div>
 
-    <div id="packCabinetSection" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
+    <div id="packCabinetSection" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px;${_packDetailPrePackMode ? 'display:none' : ''}">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px">🗄 Cabinets <span id="packCabinetCount" style="color:var(--text-dim);font-size:12px;letter-spacing:0;margin-left:6px;font-weight:700"></span></div>
         <button onclick="openCabinetCaptureModal('${esc(row.order_number)}')" class="amp-btn go" style="padding:10px 16px;font-size:13px">📷 Scan / Photo Cabinet</button>
@@ -613,7 +651,7 @@ function openPackDetail(orderNumber) {
       ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
     </div>
 
-    <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px">
+    <div id="packPhotoSection" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px;margin-bottom:14px;${_packDetailPrePackMode ? 'display:none' : ''}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
         <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Shipment Photos <span id="packPhotoCount" style="color:var(--text-dim);font-size:13px;letter-spacing:0;margin-left:6px">(${photoCount})</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -956,9 +994,26 @@ function renderPackSkuList_(orderNumber) {
     if (prog) prog.textContent = '(no SKUs)';
     return;
   }
-  const done = state.skus.filter(s => s.scanned >= s.qty).length;
-  if (prog) prog.textContent = '(' + done + '/' + state.skus.length + ' complete)';
-  list.innerHTML = state.skus.map((s, idx) => {
+  // v10.314 — Pre-Pack mode filter. When _packDetailPrePackMode is on
+  // for this order, hide SKUs not categorized as 'hardware' by the
+  // server (cached in _packDetailCategoryCache after the toggle).
+  let visibleSkus = state.skus;
+  if (_packDetailPrePackMode) {
+    const cat = _packDetailCategoryCache[orderNumber] || {};
+    visibleSkus = state.skus.filter(s => {
+      const key = String(s.sku || '').toUpperCase();
+      // Default visible if not yet categorized (categorization is async;
+      // the SKU list paints immediately, the filter tightens once the
+      // category call resolves and we re-render).
+      return !cat[key] || cat[key] === 'hardware';
+    });
+  }
+  const done = visibleSkus.filter(s => s.scanned >= s.qty).length;
+  if (prog) prog.textContent = '(' + done + '/' + visibleSkus.length + (_packDetailPrePackMode ? ' HW' : '') + ' complete)';
+  list.innerHTML = visibleSkus.map((s) => {
+    // v10.314 — keep idx pointing at the ORIGINAL state.skus index so
+    // bumpPackSku still hits the right SKU when the list is filtered.
+    const idx = state.skus.indexOf(s);
     const isDone = s.scanned >= s.qty;
     const isOver = s.scanned > s.qty;
     const bg = isDone ? 'rgba(0,230,118,.10)' : isOver ? 'rgba(255,82,82,.10)' : 'rgba(255,255,255,.02)';
@@ -1562,67 +1617,267 @@ async function refreshShopifyCustomerForOrder_(orderNumber) {
   }
 }
 
-// v10.310 — Zac 13:08 EDT: 'print button on detail area ... not working.'
-// Server actually fires (verified via curl), but the UI gives no
-// in-place visual proof — toast fades + 'Not yet printed' stays put
-// until the full refresh round-trip (~5-10s). Bulletproof feedback:
-// button text changes inline + sticky banner during send + local row
-// state flips so 'Printed' shows immediately on success.
-async function printInstructionsLink_(orderNumber) {
+// v10.314 — Zac: "aren't you supposed to be mapping to instructions
+// by sku on your own at this point, not using the JS2 pick list link?"
+// Single unified entry point for every Print Instructions button
+// (Instructions-row chip, INST-* SKU-row chip, big bottom button).
+//
+// Flow:
+//   1. Find all INST-* SKUs on the order's parsed pick list
+//   2. Server-resolve each SKU via the InstructionsMap tab
+//   3. 1 hit: stamp + print that PDF
+//   4. 2+ hits: open picker modal (Print All combined / Print Selected)
+//   5. 0 hits: show clear "no map entry — open Instructions Map" banner
+//   6. NEVER fall back to the pick list PDF
+async function printInstructionsLink_(orderNumber, presetSkus) {
   const orderStr = String(orderNumber);
   const banner = document.getElementById('packActionBanner');
-  if (banner) {
-    banner.style.display = 'block';
-    banner.style.cssText = 'display:block;background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700;letter-spacing:.3px;box-shadow:0 2px 8px rgba(0,0,0,.3)';
-    banner.innerHTML = '🖨 Sending instructions for #' + orderStr + ' to PrintNode…';
-  }
-  // Flip all matching Print buttons inline so the packer sees feedback.
+  const setBanner = (html, bg) => {
+    if (!banner) return;
+    banner.style.cssText = 'display:block;background:' + bg + ';color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700;letter-spacing:.3px;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+    banner.innerHTML = html;
+  };
+  const hideBannerAfter = (ms) => {
+    if (!banner) return;
+    setTimeout(() => { if (banner) banner.style.display = 'none'; }, ms);
+  };
+
+  // Snapshot every Print button's text so we can restore after the
+  // network round-trip without clobbering varied labels ("🖨 Print",
+  // "🖨 Print Instructions", chip on INST-* row).
   const printBtns = document.querySelectorAll('button[onclick^="printInstructionsLink_(\\\''+orderStr+'\\\'"]');
-  printBtns.forEach(b => { b.disabled = true; b.style.opacity = '.7'; b.innerHTML = '⏳ Sending…'; });
-  try {
-    const res = await groundApi('printPackInstructions', { orderNumber: orderStr });
-    if (!res || !res.ok) {
-      if (banner) {
-        banner.style.cssText = 'display:block;background:linear-gradient(135deg,#c62828,#8d1e1e);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700';
-        banner.innerHTML = '⚠ Print failed for #' + orderStr + ': ' + ((res && res.error) || 'unknown');
-        setTimeout(() => { if (banner) banner.style.display = 'none'; }, 6000);
-      }
-      printBtns.forEach(b => { b.disabled = false; b.style.opacity = '1'; b.innerHTML = '🖨 Print'; });
-      return;
-    }
-    if (banner) {
-      banner.style.cssText = 'display:block;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.3)';
-      banner.innerHTML = '✓ Instructions for #' + orderStr + ' sent to PrintNode (job ' + (res.job_id || '?') + ')';
-      setTimeout(() => { if (banner) banner.style.display = 'none'; }, 4000);
-    }
-    // Flip local cache row so 'Printed' indicator updates without
-    // waiting for the full refresh round-trip (which can take 5-10s
-    // on a cold queue).
-    try {
-      if (typeof _packQueueCache !== 'undefined') {
-        const idx = (_packQueueCache || []).findIndex(r => String(r.order_number) === orderStr);
-        if (idx >= 0) {
-          _packQueueCache[idx].instructions_printed_at = new Date().toISOString();
-          if (typeof openPackDetail === 'function') openPackDetail(orderStr);
-        }
-      }
-    } catch (e) { /* swallow */ }
+  const flipFlight = () => {
+    printBtns.forEach(b => {
+      if (!b.dataset._origPrintText) b.dataset._origPrintText = b.innerHTML;
+      b.disabled = true;
+      b.style.opacity = '.7';
+      b.innerHTML = '⏳ Sending…';
+    });
+  };
+  const flipReset = () => {
+    printBtns.forEach(b => {
+      b.disabled = false;
+      b.style.opacity = '1';
+      if (b.dataset._origPrintText) b.innerHTML = b.dataset._origPrintText;
+    });
+  };
+  const flipPrinted = () => {
     printBtns.forEach(b => {
       b.disabled = false;
       b.style.opacity = '1';
       b.innerHTML = '✓ Printed';
       b.style.background = '#00C853';
-      setTimeout(() => { b.innerHTML = '🖨 Reprint'; b.style.background = '#37474f'; }, 3000);
+      setTimeout(() => {
+        b.innerHTML = b.dataset._origPrintText || '🖨 Print';
+        b.style.background = '';
+      }, 3000);
     });
+  };
+
+  const row = (typeof _packQueueCache !== 'undefined')
+    ? (_packQueueCache || []).find(r => String(r.order_number) === orderStr)
+    : null;
+  if (!row) {
+    setBanner('⚠ Order #' + orderStr + ' not in current Pack list — refresh first', 'linear-gradient(135deg,#c62828,#8d1e1e)');
+    hideBannerAfter(5000);
+    return;
+  }
+
+  // Phase 1: identify the INST-* SKUs on this order. Caller can pass
+  // a preset list (used by the picker modal's "Print Selected" path);
+  // otherwise we read from the parsed pick list.
+  let instSkus = [];
+  if (Array.isArray(presetSkus) && presetSkus.length) {
+    instSkus = presetSkus.map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
+  } else {
+    try {
+      const arr = JSON.parse(String(row.sku_lines_json || '[]'));
+      if (Array.isArray(arr)) {
+        instSkus = arr
+          .map(it => String((it && it.sku) || '').trim().toUpperCase())
+          .filter(s => /^INST-/.test(s));
+        // De-dupe — an order with two beds will normally have distinct
+        // INST-* SKUs, but be defensive against duplicates from
+        // multi-line PDFs.
+        instSkus = Array.from(new Set(instSkus));
+      }
+    } catch (e) { /* sku_lines_json parse error → instSkus stays [] */ }
+  }
+
+  if (!instSkus.length) {
+    setBanner(
+      '⚠ No INST-* SKUs found on #' + orderStr + '. Open the pick list to verify, '
+      + 'or tap "＋ Add Link" to print a manual PDF.',
+      'linear-gradient(135deg,#ff9800,#e65100)');
+    hideBannerAfter(10000);
+    return;
+  }
+
+  // Phase 2: resolve each INST-* SKU against the InstructionsMap tab.
+  setBanner('🔎 Looking up instructions PDF for ' + instSkus.length + ' SKU' + (instSkus.length === 1 ? '' : 's') + ' on #' + orderStr + '…', 'linear-gradient(135deg,#1565c0,#0d47a1)');
+  flipFlight();
+  let resolveRes;
+  try {
+    resolveRes = await groundApi('resolveInstructionsForSkus', { skus: instSkus });
+  } catch (e) {
+    setBanner('⚠ Lookup failed: ' + e.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
+    hideBannerAfter(6000);
+    flipReset();
+    return;
+  }
+  if (!resolveRes || !resolveRes.ok) {
+    setBanner('⚠ Lookup failed: ' + ((resolveRes && resolveRes.error) || 'unknown'), 'linear-gradient(135deg,#c62828,#8d1e1e)');
+    hideBannerAfter(6000);
+    flipReset();
+    return;
+  }
+  const hits = Array.isArray(resolveRes.hits) ? resolveRes.hits : [];
+  const misses = Array.isArray(resolveRes.misses) ? resolveRes.misses : [];
+
+  if (hits.length === 0) {
+    flipReset();
+    setBanner(
+      '⚠ No InstructionsMap entry for ' + misses.join(', ') + '. '
+      + 'Open <b>More → 📑 Instructions Map</b> to add the PDF link, then retry.',
+      'linear-gradient(135deg,#c62828,#8d1e1e)');
+    hideBannerAfter(12000);
+    return;
+  }
+
+  // Phase 3a: 2+ hits → ask the packer (Zac: "if you find multiple
+  // inst skus ask user what they want to do (print all or select one)").
+  if (hits.length > 1) {
+    flipReset();
+    if (banner) banner.style.display = 'none';
+    openInstructionsPrintPicker_(orderStr, hits, misses);
+    return;
+  }
+
+  // Phase 3b: single hit → stamp + send straight to PrintNode.
+  const hit = hits[0];
+  await _printOneResolvedInstruction_(orderStr, row, hit, { setBanner, hideBannerAfter, flipFlight, flipPrinted, flipReset });
+  if (misses.length) {
+    // Best-effort secondary notice — printing succeeded for the hit
+    // but the miss never got covered.
+    setTimeout(() => {
+      setBanner(
+        '⚠ Also: no map entry for ' + misses.join(', ') + '. '
+        + 'Open <b>More → 📑 Instructions Map</b> to add it.',
+        'linear-gradient(135deg,#ff9800,#e65100)');
+      hideBannerAfter(12000);
+    }, 4500);
+  }
+}
+
+// v10.314 — shared single-print path used by the single-hit branch
+// of printInstructionsLink_ and by openInstructionsPrintPicker_.
+async function _printOneResolvedInstruction_(orderStr, row, hit, ui) {
+  ui.setBanner('🖨 Stamping cover + sending ' + hit.sku + ' for #' + orderStr + ' to PrintNode…', 'linear-gradient(135deg,#1565c0,#0d47a1)');
+  ui.flipFlight();
+  try {
+    const res = await stampAndPrintPackInstructions_(row, hit.pdf_url, hit.sku);
+    if (!res || !res.ok) {
+      const why = (res && res.error) || 'unknown';
+      ui.setBanner('⚠ Print failed for ' + hit.sku + ' on #' + orderStr + ': ' + why + ' — opening for AirPrint', 'linear-gradient(135deg,#ff9800,#e65100)');
+      ui.hideBannerAfter(6000);
+      ui.flipReset();
+      try { await airPrintDrivePdf_(hit.pdf_url, orderStr + '-' + hit.sku + '.pdf'); } catch (e) {}
+      return;
+    }
+    ui.setBanner('✓ ' + hit.sku + ' for #' + orderStr + ' sent to PrintNode (job ' + (res.job_id || '?') + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
+    ui.hideBannerAfter(4000);
+    try {
+      row.instructions_printed_at = new Date().toISOString();
+      if (typeof openPackDetail === 'function' && _packDetailOrderNumber === orderStr) openPackDetail(orderStr);
+    } catch (e) { /* swallow */ }
+    ui.flipPrinted();
     if (typeof refreshPackQueue === 'function') refreshPackQueue();
   } catch (e) {
-    if (banner) {
-      banner.style.cssText = 'display:block;background:linear-gradient(135deg,#c62828,#8d1e1e);color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700';
-      banner.innerHTML = '⚠ Print error: ' + e.message;
-      setTimeout(() => { if (banner) banner.style.display = 'none'; }, 6000);
-    }
-    printBtns.forEach(b => { b.disabled = false; b.style.opacity = '1'; b.innerHTML = '🖨 Print'; });
+    ui.setBanner('⚠ Print error: ' + e.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
+    ui.hideBannerAfter(6000);
+    ui.flipReset();
   }
+}
+
+// v10.314 — multi-INST picker. Rare (only fires when an order has
+// 2+ beds and therefore 2+ INST-* SKUs). Lets the packer print all
+// in sequence (each as a separate job — easier to staple per-bed
+// than to merge into one packet) or just one.
+function openInstructionsPrintPicker_(orderStr, hits, misses) {
+  // Tear down any prior picker so we don't stack modals.
+  const prior = document.getElementById('instPrintPickerOverlay');
+  if (prior) prior.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'instPrintPickerOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10010;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.onclick = (ev) => { if (ev.target === overlay) overlay.remove(); };
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:#fff;color:#1a1a1a;max-width:560px;width:100%;border-radius:14px;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.5);max-height:88vh;overflow-y:auto';
+
+  const rowsHtml = hits.map((h, idx) => {
+    return ''
+      + '<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border:1.5px solid #d0d0d0;border-radius:8px;margin-bottom:8px;cursor:pointer;background:#fafafa !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      +   '<input type="checkbox" class="instPickerCheck" data-sku="' + esc(h.sku) + '" data-url="' + esc(h.pdf_url) + '" checked style="width:20px;height:20px;margin-top:2px;flex-shrink:0">'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:800;color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(h.sku) + '</div>'
+      +     (h.description ? '<div style="font-size:12px;color:#555 !important;-webkit-text-fill-color:#555 !important;margin-top:2px">' + esc(h.description) + '</div>' : '')
+      +     '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-top:3px;word-break:break-all">' + esc(h.pdf_url) + '</div>'
+      +   '</div>'
+      + '</label>';
+  }).join('');
+
+  const missHtml = (misses && misses.length)
+    ? '<div style="margin-top:10px;padding:10px;background:#fff4e5 !important;border:1.5px dashed #ff9800;border-radius:8px;font-size:12px;color:#bf5700 !important;-webkit-text-fill-color:#bf5700 !important">⚠ No map entry for: <b>' + esc(misses.join(', ')) + '</b>. Open Instructions Map to add them.</div>'
+    : '';
+
+  modal.innerHTML = ''
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:6px">Multiple INST-* on #' + esc(orderStr) + '</div>'
+    + '<div style="font-size:13px;color:#555 !important;-webkit-text-fill-color:#555 !important;margin-bottom:14px">Pick which to print (each goes as a separate print job so packets stack per-bed).</div>'
+    + '<div id="instPickerList">' + rowsHtml + '</div>'
+    + missHtml
+    + '<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">'
+    +   '<button id="instPickerPrintBtn" style="flex:1;min-width:180px;padding:13px 16px;background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">🖨 Print Selected</button>'
+    +   '<button id="instPickerCancelBtn" style="padding:13px 16px;background:#fff;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #888;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>';
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  modal.querySelector('#instPickerCancelBtn').onclick = () => overlay.remove();
+  modal.querySelector('#instPickerPrintBtn').onclick = async () => {
+    const picks = Array.from(modal.querySelectorAll('.instPickerCheck'))
+      .filter(c => c.checked)
+      .map(c => ({ sku: c.dataset.sku, pdf_url: c.dataset.url }));
+    if (!picks.length) { showToast('Pick at least one SKU'); return; }
+    overlay.remove();
+    const row = (_packQueueCache || []).find(r => String(r.order_number) === orderStr);
+    if (!row) { showToast('Order no longer in cache — refresh'); return; }
+    const banner = document.getElementById('packActionBanner');
+    const ui = {
+      setBanner: (html, bg) => {
+        if (!banner) return;
+        banner.style.cssText = 'display:block;background:' + bg + ';color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700;letter-spacing:.3px;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+        banner.innerHTML = html;
+      },
+      hideBannerAfter: (ms) => { if (banner) setTimeout(() => { banner.style.display = 'none'; }, ms); },
+      flipFlight: () => {},
+      flipPrinted: () => {},
+      flipReset: () => {},
+    };
+    for (let i = 0; i < picks.length; i++) {
+      await _printOneResolvedInstruction_(orderStr, row, picks[i], ui);
+      // brief pause between jobs so the packer can read the banner
+      if (i < picks.length - 1) await new Promise(res => setTimeout(res, 800));
+    }
+  };
+}
+
+// v10.314 — alias retained so any straggling callers still resolve.
+// All print-instructions paths now route through printInstructionsLink_.
+async function printOneInstruction(orderNumber) {
+  return printInstructionsLink_(orderNumber);
 }
 
 // v10.292 — manager-PIN override: mark an order packed without scan
@@ -2127,11 +2382,16 @@ function uint8ToBase64_(bytes) {
   return btoa(bin);
 }
 
-// Stamp + print one order's instructions. Fetches the instructions PDF
-// (via existing orchestrator passthrough), generates the cover, prepends,
-// sends base64 to printRawPackPdf. Returns the server's response object.
-async function stampAndPrintPackInstructions_(row) {
-  const url = row.instructions_pdf_url || row.pick_list_pdf_url;
+// Stamp + print one order's instructions. Fetches the given PDF URL
+// (via orchestrator passthrough), generates the cover, prepends, sends
+// base64 to printRawPackPdf. Returns the server's response object.
+//
+// v10.314 — accepts an explicit URL so the caller resolves which PDF
+// to print (typically via the InstructionsMap SKU lookup). The legacy
+// row.instructions_pdf_url field is no longer used as a fallback —
+// resolution is the caller's responsibility.
+async function stampAndPrintPackInstructions_(row, urlOverride, jobTitleSuffix) {
+  const url = urlOverride || row.instructions_pdf_url || row.pick_list_pdf_url;
   if (!url) throw new Error('no PDF URL for ' + row.order_number);
   const instructionsBytes = await packFetchPdfBytes_(url);
   const coverBytes = await buildPackCoverPagePdf_(row);
@@ -2140,7 +2400,7 @@ async function stampAndPrintPackInstructions_(row) {
   return await groundApi('printRawPackPdf', {
     orderNumber: row.order_number,
     base64: base64,
-    jobTitle: 'MBD Pack ' + row.order_number,
+    jobTitle: 'MBD Pack ' + row.order_number + (jobTitleSuffix ? ' — ' + jobTitleSuffix : ''),
   });
 }
 
@@ -2256,49 +2516,9 @@ async function promptForInstructionsUrl_(orderNumber) {
   return existing;
 }
 
-async function printOneInstruction(orderNumber) {
-  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
-  if (!row) { showToast('Order not in current list — refresh'); return; }
-  if (!row.pick_list_pdf_url) { showToast('No PDF URL on this order'); return; }
-  if (!confirm('Print stamped instructions packet for ' + orderNumber + ' to the Brother?\n\n(Cover page with order # + barcode is added on top.)')) return;
-
-  // If instructions URL hasn't been extracted yet, extract it now so we
-  // don't print the pick list by mistake.
-  if (!row.instructions_pdf_url) {
-    showPackBanner_('Extracting instructions URL from ' + orderNumber + '…', '#42a5f5');
-    await ensurePackInstructionsUrl_(orderNumber);
-    // v10.92: auto-extract failed → don't silently print the pick
-    // list as if it were instructions. Ask the packer to paste the
-    // link once; promptForInstructionsUrl_ persists it so this never
-    // recurs. Cancel = keep the old pick-list fallback behavior.
-    if (!row.instructions_pdf_url) {
-      const supplied = await promptForInstructionsUrl_(orderNumber);
-      if (!supplied) {
-        showPackBanner_('No instructions link — printing the pick list as a fallback', '#ff9800');
-      }
-    }
-  }
-
-  showPackBanner_('Stamping cover + sending ' + orderNumber + ' to Brother…', '#42a5f5');
-  try {
-    const res = await stampAndPrintPackInstructions_(row);
-    if (res && res.ok) {
-      // Reflect printed status locally so the badge appears immediately.
-      row.instructions_printed_at = new Date().toISOString();
-      paintPackQueue_(_packQueueCache, false);
-      showPackBanner_('Sent ' + orderNumber + ' → Brother 🖨 (job ' + res.job_id + ')', '#00e676');
-      return;
-    }
-    const why = (res && res.error) || 'unknown';
-    showPackBanner_('PrintNode failed (' + why + ') — opening for AirPrint', '#ff9800');
-    const url = row.instructions_pdf_url || row.pick_list_pdf_url;
-    await airPrintDrivePdf_(url, orderNumber + '-instructions.pdf');
-  } catch (err) {
-    showPackBanner_('Print error: ' + err.message + ' — try AirPrint', '#ff5252');
-    const url = row.instructions_pdf_url || row.pick_list_pdf_url;
-    try { await airPrintDrivePdf_(url, orderNumber + '-instructions.pdf'); } catch(e) {}
-  }
-}
+// v10.314 — old printOneInstruction (post-extract pick-list fallback)
+// removed in favour of the SKU-resolving printInstructionsLink_ above.
+// The alias near line 1824 keeps any straggler callers working.
 
 async function printTodaysInstructions() {
   const inflight = _packQueueCache.filter(r => {
@@ -2311,61 +2531,84 @@ async function printTodaysInstructions() {
   }
   if (!confirm('Print instructions for ' + inflight.length + ' order' + (inflight.length === 1 ? '' : 's') + ' to the Brother?')) return;
 
-  // Pre-fetch: any order missing instructions_pdf_url gets its pick-list
-  // PDF parsed inline so the server has the right URL to print. Without
-  // this, the server falls back to printing the pick list itself — which
-  // is what was happening in v90.
-  const needsExtraction = inflight.filter(r => !r.instructions_pdf_url && r.pick_list_pdf_url);
-  if (needsExtraction.length) {
-    showPackBanner_('Extracting instructions from ' + needsExtraction.length + ' pick list' + (needsExtraction.length === 1 ? '' : 's') + '…', '#42a5f5');
-    // Run with a small concurrency window so we don't fire 12 simultaneous
-    // Drive fetches at the orchestrator.
-    const CONCURRENCY = 3;
-    let i = 0, extracted = 0, noLink = 0;
-    while (i < needsExtraction.length) {
-      const batch = needsExtraction.slice(i, i + CONCURRENCY);
-      const results = await Promise.all(batch.map(r => ensurePackInstructionsUrl_(r.order_number)));
-      results.forEach(u => { if (u) extracted++; else noLink++; });
-      i += CONCURRENCY;
-      showPackBanner_('Extracted ' + extracted + '/' + needsExtraction.length + '…', '#42a5f5');
-    }
-    if (noLink) {
-      console.warn(noLink + ' orders had no instructions link inside their pick lists — those will print the pick list as fallback');
+  // v10.314 — bulk path uses the same SKU→InstructionsMap resolution
+  // as the per-order Print button. For each order: parse INST-* SKUs
+  // from sku_lines_json, bulk-resolve, print each hit as its own
+  // PrintNode job (so multi-bed orders stack per-bed at the printer).
+  const sorted = inflight.slice().sort((a, b) => String(a.ship_date || '').localeCompare(String(b.ship_date || '')));
+
+  // Build the full SKU list across every order, then a single bulk
+  // resolveInstructionsForSkus call (one round-trip vs N).
+  const allSkus = new Set();
+  const skusByOrder = {};
+  for (const r of sorted) {
+    let arr = [];
+    try {
+      const parsed = JSON.parse(String(r.sku_lines_json || '[]'));
+      if (Array.isArray(parsed)) arr = parsed;
+    } catch (e) { /* swallow */ }
+    const inst = Array.from(new Set(arr
+      .map(it => String((it && it.sku) || '').trim().toUpperCase())
+      .filter(s => /^INST-/.test(s))));
+    skusByOrder[r.order_number] = inst;
+    inst.forEach(s => allSkus.add(s));
+  }
+
+  let mapByKey = {};
+  if (allSkus.size) {
+    showPackBanner_('Resolving ' + allSkus.size + ' instructions SKUs…', '#42a5f5');
+    try {
+      const res = await groundApi('resolveInstructionsForSkus', { skus: Array.from(allSkus) });
+      if (res && res.ok && Array.isArray(res.hits)) {
+        res.hits.forEach(h => { mapByKey[String(h.sku || '').toUpperCase()] = h; });
+      }
+    } catch (e) {
+      showPackBanner_('Lookup failed: ' + e.message, '#ff5252');
+      return;
     }
   }
 
-  // Stamp + submit each order sequentially. Each order = one PrintNode
-  // job = one stapled packet at the Brother. Sequential (not concurrent)
-  // because we want the printer's spool to receive them in ship_date
-  // order so packets stack in the right order at the printer.
-  showPackBanner_('Stamping covers + printing ' + inflight.length + ' packets…', '#42a5f5');
-  const sorted = inflight.slice().sort((a, b) => String(a.ship_date || '').localeCompare(String(b.ship_date || '')));
-  let ok = 0, failed = [];
+  showPackBanner_('Stamping covers + printing ' + sorted.length + ' order' + (sorted.length === 1 ? '' : 's') + '…', '#42a5f5');
+  let ok = 0, failed = [], skipped = [];
   for (let i = 0; i < sorted.length; i++) {
     const row = sorted[i];
-    showPackBanner_('Stamping ' + (i + 1) + '/' + sorted.length + ' (' + row.order_number + ')…', '#42a5f5');
-    try {
-      const res = await stampAndPrintPackInstructions_(row);
-      if (res && res.ok) {
-        row.instructions_printed_at = new Date().toISOString();
-        ok++;
-      } else {
-        failed.push(row.order_number + ': ' + ((res && res.error) || 'unknown'));
+    const instSkus = skusByOrder[row.order_number] || [];
+    const hits = instSkus.map(s => mapByKey[s]).filter(Boolean);
+    const misses = instSkus.filter(s => !mapByKey[s]);
+    if (!hits.length) {
+      skipped.push(row.order_number + (misses.length ? ' (no map entry for ' + misses.join(', ') + ')' : ' (no INST-* SKUs)'));
+      continue;
+    }
+    for (const hit of hits) {
+      showPackBanner_('Stamping ' + (i + 1) + '/' + sorted.length + ' #' + row.order_number + ' — ' + hit.sku + '…', '#42a5f5');
+      try {
+        const res = await stampAndPrintPackInstructions_(row, hit.pdf_url, hit.sku);
+        if (res && res.ok) {
+          row.instructions_printed_at = new Date().toISOString();
+          ok++;
+        } else {
+          failed.push(row.order_number + ' ' + hit.sku + ': ' + ((res && res.error) || 'unknown'));
+        }
+      } catch (err) {
+        failed.push(row.order_number + ' ' + hit.sku + ': ' + err.message);
       }
-    } catch (err) {
-      failed.push(row.order_number + ': ' + err.message);
     }
   }
   paintPackQueue_(_packQueueCache, false); // refresh badges
 
-  if (failed.length === 0) {
-    showPackBanner_(ok + ' packet' + (ok === 1 ? '' : 's') + ' sent to Brother 🖨', '#00e676');
-  } else if (ok > 0) {
-    showPackBanner_(ok + ' sent · ' + failed.length + ' failed — see alert', '#ff9800');
-    alert('Print Today\'s Instructions:\n' + ok + ' sent, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
+  const parts = [];
+  if (ok) parts.push(ok + ' packet' + (ok === 1 ? '' : 's') + ' sent');
+  if (failed.length) parts.push(failed.length + ' failed');
+  if (skipped.length) parts.push(skipped.length + ' skipped');
+  const summary = parts.join(' · ') || 'Nothing to print';
+  if (!failed.length && !skipped.length) {
+    showPackBanner_('✓ ' + summary + ' 🖨', '#00e676');
   } else {
-    showPackBanner_('All ' + failed.length + ' prints failed — falling back to AirPrint merge', '#ff9800');
-    await printTodaysInstructionsAirPrintFallback_(inflight);
+    showPackBanner_(summary, '#ff9800');
+    const lines = [];
+    if (skipped.length) lines.push('Skipped (no InstructionsMap entry — open More → 📑 Instructions Map):\n' + skipped.join('\n'));
+    if (failed.length) lines.push('Failed:\n' + failed.join('\n'));
+    alert("Print Today's Instructions — " + summary + '\n\n' + lines.join('\n\n'));
   }
 }
 
@@ -2596,6 +2839,34 @@ function _packHeaderOverflowOutsideHandler_(ev) {
 }
 function closePackHeaderOverflow_() {
   const m = document.getElementById('packHeaderOverflowMenu');
+  if (m) m.style.display = 'none';
+}
+
+// v10.314 — Pre-Pack header overflow (mirror of Pack pattern).
+function togglePrePackHeaderOverflow_(ev) {
+  if (ev) ev.stopPropagation();
+  const m = document.getElementById('prePackHeaderOverflowMenu');
+  if (!m) return;
+  const showing = m.style.display === 'flex';
+  m.style.display = showing ? 'none' : 'flex';
+  if (!showing) {
+    setTimeout(() => {
+      document.addEventListener('click', _prePackHeaderOverflowOutsideHandler_, { once: true });
+    }, 0);
+  }
+}
+function _prePackHeaderOverflowOutsideHandler_(ev) {
+  const m = document.getElementById('prePackHeaderOverflowMenu');
+  const btn = document.getElementById('prePackHeaderOverflowBtn');
+  if (!m) return;
+  if (m.contains(ev.target) || (btn && btn.contains(ev.target))) {
+    document.addEventListener('click', _prePackHeaderOverflowOutsideHandler_, { once: true });
+    return;
+  }
+  m.style.display = 'none';
+}
+function closePrePackHeaderOverflow_() {
+  const m = document.getElementById('prePackHeaderOverflowMenu');
   if (m) m.style.display = 'none';
 }
 
@@ -3119,8 +3390,112 @@ async function confirmMarkPackJobComplete(orderNumber) {
 
 function closePackDetail() {
   _packDetailOrderNumber = null;
+  // v10.314 — reset Pre-Pack mode on detail close so it doesn't
+  // surprise the next order opened.
+  _packDetailPrePackMode = false;
   document.getElementById('packQueueDetail').style.display = 'none';
   document.getElementById('packQueueList').style.display = '';
+}
+
+// v10.314 — toggle Pre-Pack mode inside Pack detail. Hides cabinets +
+// photos sections, filters SKU list to HW-only, replaces the action
+// row with the HW box label flow. On first activation per order, we
+// fetch SKU categories from the server (cached for the session).
+async function togglePackDetailPrePackMode_(orderNumber) {
+  _packDetailPrePackMode = !_packDetailPrePackMode;
+  // If turning ON and we don't have a category map for this order yet,
+  // fetch one. Render immediately so the toggle feels responsive; the
+  // SKU filter tightens once the call resolves.
+  if (_packDetailPrePackMode && !_packDetailCategoryCache[orderNumber]) {
+    openPackDetail(orderNumber);  // optimistic render with no filter applied yet
+    try {
+      const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      const state = _packScanState[orderNumber];
+      const skuLines = (state && state.skus) ? state.skus : [];
+      if (!skuLines.length) return;
+      const res = await groundApi('categorizePackSkus', {
+        lines: skuLines.map(s => ({ sku: s.sku, qty: s.qty, name: s.name })),
+      });
+      if (res && res.ok && Array.isArray(res.lines)) {
+        const map = {};
+        res.lines.forEach(l => { map[String(l.sku || '').toUpperCase()] = l.category; });
+        _packDetailCategoryCache[orderNumber] = map;
+        if (_packDetailOrderNumber === String(orderNumber) && _packDetailPrePackMode) {
+          openPackDetail(orderNumber);  // re-render with filter applied
+        }
+      }
+    } catch (e) {
+      // Categorization failed — leave the unfiltered view in place,
+      // surface a banner so the packer knows the filter is loose.
+      const banner = document.getElementById('packActionBanner');
+      if (banner) {
+        banner.style.cssText = 'display:block;background:linear-gradient(135deg,#ff9800,#e65100);color:#fff;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-weight:700';
+        banner.innerHTML = '⚠ SKU categorization failed — Pre-Pack list shows everything: ' + e.message;
+        setTimeout(() => { banner.style.display = 'none'; }, 6000);
+      }
+    }
+  } else {
+    openPackDetail(orderNumber);
+  }
+}
+
+// v10.314 — Pre-Pack-mode "Mark HW Done" wrapper. Same server-side
+// flow as the standalone Pre-Pack tab (markHardwarePackReady + then
+// printHwBoxLabel), but stays inside Pack detail so the packer doesn't
+// have to tab-switch to confirm.
+async function confirmMarkHardwareReadyFromPackDetail_(orderNumber) {
+  if (!confirm('Mark hardware box ready for order ' + orderNumber + '?\n\nA customer-facing "OPEN ME FIRST" 4×6 label with the assembly QR will print on the default printer.')) return;
+  const banner = document.getElementById('packActionBanner');
+  const setBanner = (html, bg) => {
+    if (!banner) return;
+    banner.style.cssText = 'display:block;background:' + bg + ';color:#fff;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-weight:700';
+    banner.innerHTML = html;
+  };
+  setBanner('Marking HW ready…', 'linear-gradient(135deg,#1565c0,#0d47a1)');
+  try {
+    const res = await groundApi('markHardwarePackReady', {
+      orderNumber: orderNumber,
+      packedBy: (typeof getPackDeviceName_ === 'function' ? getPackDeviceName_() : 'pack-detail'),
+    });
+    if (!res || !res.ok) {
+      setBanner('⚠ Mark failed: ' + ((res && res.error) || 'unknown'), 'linear-gradient(135deg,#c62828,#8d1e1e)');
+      return;
+    }
+    setBanner('✓ HW marked ready — printing OPEN-ME-FIRST label…', 'linear-gradient(135deg,#00C853,#1A5C1A)');
+    const labelRes = await groundApi('printHwBoxLabel', { orderNumber: orderNumber });
+    if (labelRes && labelRes.ok) {
+      setBanner('✓ HW ready + label sent to printer #' + labelRes.printer_id + ' (job ' + labelRes.job_id + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
+      setTimeout(() => { if (banner) banner.style.display = 'none'; }, 5000);
+    } else {
+      setBanner('⚠ HW marked ready but the box label did NOT print: ' + ((labelRes && labelRes.error) || 'unknown') + ' — tap Reprint Box Label', 'linear-gradient(135deg,#ff9800,#e65100)');
+    }
+    // Refresh row state so the action row flips to the printed state.
+    if (typeof refreshPackQueue === 'function') await refreshPackQueue();
+    if (_packDetailOrderNumber === String(orderNumber)) openPackDetail(orderNumber);
+  } catch (err) {
+    setBanner('⚠ Error: ' + err.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
+  }
+}
+
+async function printPrePackLabelFromPackDetail_(orderNumber) {
+  const banner = document.getElementById('packActionBanner');
+  const setBanner = (html, bg) => {
+    if (!banner) return;
+    banner.style.cssText = 'display:block;background:' + bg + ';color:#fff;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-weight:700';
+    banner.innerHTML = html;
+  };
+  setBanner('Sending HW box label to printer for #' + orderNumber + '…', 'linear-gradient(135deg,#1565c0,#0d47a1)');
+  try {
+    const res = await groundApi('printHwBoxLabel', { orderNumber: orderNumber });
+    if (!res || !res.ok) {
+      setBanner('⚠ Label print failed: ' + ((res && res.error) || 'unknown'), 'linear-gradient(135deg,#c62828,#8d1e1e)');
+      return;
+    }
+    setBanner('✓ Label sent to printer #' + res.printer_id + ' (job ' + res.job_id + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
+    setTimeout(() => { if (banner) banner.style.display = 'none'; }, 5000);
+  } catch (err) {
+    setBanner('⚠ Print error: ' + err.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
+  }
 }
 
 async function claimPackOrder(orderNumber) {
@@ -3814,39 +4189,71 @@ async function printPrePackInstructions() {
   }
   if (!confirm('Print pick-list instructions for ' + todo.length + ' order' + (todo.length === 1 ? '' : 's') + ' to the Brother?')) return;
 
-  const needsExtraction = todo.filter(r => !r.instructions_pdf_url && r.pick_list_pdf_url);
-  if (needsExtraction.length && typeof ensurePackInstructionsUrl_ === 'function') {
-    showPrePackBanner_('Extracting instructions from ' + needsExtraction.length + ' pick list' + (needsExtraction.length === 1 ? '' : 's') + '…', '#42a5f5');
-    const CONCURRENCY = 3;
-    let i = 0;
-    while (i < needsExtraction.length) {
-      const batch = needsExtraction.slice(i, i + CONCURRENCY);
-      await Promise.all(batch.map(r => ensurePackInstructionsUrl_(r.order_number)));
-      i += CONCURRENCY;
+  // v10.314 — mirror printTodaysInstructions: parse INST-* SKUs from
+  // sku_lines_json per order, single bulk resolveInstructionsForSkus
+  // round-trip, then print each hit. No silent pick-list fallback.
+  const sorted = todo.slice().sort((a, b) => String(a.ship_date || '').localeCompare(String(b.ship_date || '')));
+  const allSkus = new Set();
+  const skusByOrder = {};
+  for (const r of sorted) {
+    let arr = [];
+    try {
+      const parsed = JSON.parse(String(r.sku_lines_json || '[]'));
+      if (Array.isArray(parsed)) arr = parsed;
+    } catch (e) { /* swallow */ }
+    const inst = Array.from(new Set(arr
+      .map(it => String((it && it.sku) || '').trim().toUpperCase())
+      .filter(s => /^INST-/.test(s))));
+    skusByOrder[r.order_number] = inst;
+    inst.forEach(s => allSkus.add(s));
+  }
+
+  let mapByKey = {};
+  if (allSkus.size) {
+    showPrePackBanner_('Resolving ' + allSkus.size + ' instructions SKUs…', '#42a5f5');
+    try {
+      const res = await groundApi('resolveInstructionsForSkus', { skus: Array.from(allSkus) });
+      if (res && res.ok && Array.isArray(res.hits)) {
+        res.hits.forEach(h => { mapByKey[String(h.sku || '').toUpperCase()] = h; });
+      }
+    } catch (e) {
+      showPrePackBanner_('Lookup failed: ' + e.message, '#ff5252');
+      return;
     }
   }
 
-  const sorted = todo.slice().sort((a, b) => String(a.ship_date || '').localeCompare(String(b.ship_date || '')));
-  showPrePackBanner_('Stamping + printing ' + sorted.length + ' packets…', '#42a5f5');
-  let ok = 0, failed = [];
+  showPrePackBanner_('Stamping + printing ' + sorted.length + ' order' + (sorted.length === 1 ? '' : 's') + '…', '#42a5f5');
+  let ok = 0, failed = [], skipped = [];
   for (let i = 0; i < sorted.length; i++) {
     const row = sorted[i];
-    showPrePackBanner_('Printing ' + (i + 1) + '/' + sorted.length + ' (' + row.order_number + ')…', '#42a5f5');
-    try {
-      const res = (typeof stampAndPrintPackInstructions_ === 'function')
-        ? await stampAndPrintPackInstructions_(row)
-        : await groundApi('printPackInstructions', { orderNumber: row.order_number });
-      if (res && res.ok) ok++;
-      else failed.push(row.order_number + ': ' + ((res && res.error) || 'unknown'));
-    } catch (err) {
-      failed.push(row.order_number + ': ' + err.message);
+    const instSkus = skusByOrder[row.order_number] || [];
+    const hits = instSkus.map(s => mapByKey[s]).filter(Boolean);
+    const misses = instSkus.filter(s => !mapByKey[s]);
+    if (!hits.length) {
+      skipped.push(row.order_number + (misses.length ? ' (no map entry for ' + misses.join(', ') + ')' : ' (no INST-* SKUs)'));
+      continue;
+    }
+    for (const hit of hits) {
+      showPrePackBanner_('Printing ' + (i + 1) + '/' + sorted.length + ' #' + row.order_number + ' — ' + hit.sku + '…', '#42a5f5');
+      try {
+        const res = await stampAndPrintPackInstructions_(row, hit.pdf_url, hit.sku);
+        if (res && res.ok) ok++;
+        else failed.push(row.order_number + ' ' + hit.sku + ': ' + ((res && res.error) || 'unknown'));
+      } catch (err) {
+        failed.push(row.order_number + ' ' + hit.sku + ': ' + err.message);
+      }
     }
   }
 
-  if (failed.length === 0) {
-    showPrePackBanner_('✓ ' + ok + ' packet' + (ok === 1 ? '' : 's') + ' sent to Brother', '#00e676');
+  const parts = [];
+  if (ok) parts.push(ok + ' packet' + (ok === 1 ? '' : 's') + ' sent');
+  if (failed.length) parts.push(failed.length + ' failed');
+  if (skipped.length) parts.push(skipped.length + ' skipped');
+  const summary = parts.join(' · ') || 'Nothing to print';
+  if (!failed.length && !skipped.length) {
+    showPrePackBanner_('✓ ' + summary, '#00e676');
   } else {
-    showPrePackBanner_(ok + ' sent · ' + failed.length + ' failed: ' + failed.join('; '), '#ff9800');
+    showPrePackBanner_(summary + (skipped.length ? ' — open More → 📑 Instructions Map' : ''), '#ff9800');
   }
 }
 
@@ -7587,6 +7994,247 @@ async function _hafeleFormSubmit_() {
     openHafeleMapPanel();
   } catch (err) {
     showToast('Save error: ' + err.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// v10.314 — Instructions Map editor panel
+// ══════════════════════════════════════════════════════════════════
+//
+// Zac: "you can add those [SKU→PDF mappings] to bedrock instead as
+// long as you also add a database editor in bedrock". The data lives
+// in Murphy Ops `InstructionsMap` tab (see InstructionsMap.gs).
+//
+// Surface: More menu → 📑 Instructions Map. Auto-ingests from Zac's
+// source sheet on first open if the tab is empty. List view shows
+// SKU + PDF link + description + active flag, with edit/delete and
+// "+ New" affordance.
+
+let _instructionsMapPanelLoading = false;
+
+async function openInstructionsMapPanel() {
+  const prior = document.getElementById('instructionsMapOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'instructionsMapOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.className = 'keep-dark-text';
+  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px 14px 0 0;width:100%;max-width:780px;max-height:92vh;overflow-y:auto;padding:18px';
+  body.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading Instructions Map…</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+  await _instructionsMapPanelLoad_(body);
+}
+
+async function _instructionsMapPanelLoad_(body) {
+  if (_instructionsMapPanelLoading) return;
+  _instructionsMapPanelLoading = true;
+  try {
+    let list = await groundApi('listInstructionsMap');
+    // Auto-ingest from Zac's source sheet on first open if the tab
+    // is empty. Idempotent server-side — safe to re-run on subsequent
+    // opens too (won't double-write rows).
+    if (list && list.ok && (!list.rows || list.rows.length === 0)) {
+      body.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important">Ingesting from source sheet…</div>';
+      const seed = await groundApi('ingestInstructionsMapFromSource', { dryRun: false });
+      if (seed && seed.ok) {
+        list = await groundApi('listInstructionsMap');
+      } else if (seed && seed.error) {
+        body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Source-sheet ingest failed: ' + esc(seed.error) + '<br><br>You can still add rows manually via <strong>+ New</strong>.<br><br><button onclick="openInstructionsMapPanel()" class="amp-btn" style="padding:10px 18px">Retry</button> <button onclick="_openInstructionsMapForm_()" class="amp-btn go" style="padding:10px 18px">+ New Mapping</button></div>';
+        return;
+      }
+    }
+    _instructionsMapPanelRender_(body, list);
+  } catch (err) {
+    body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Load failed: ' + esc(err.message) + '<br><br><button onclick="openInstructionsMapPanel()" class="amp-btn" style="padding:10px 18px">Retry</button></div>';
+  } finally {
+    _instructionsMapPanelLoading = false;
+  }
+}
+
+function _instructionsMapPanelRender_(body, list) {
+  const rows = (list && list.rows) || [];
+  const activeCount = rows.filter(r => String(r.active || '').toUpperCase() !== 'FALSE').length;
+  const inactiveCount = rows.length - activeCount;
+  let html = '';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">';
+  html += '  <div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">📑 Instructions Map</div>';
+  html += '  <div style="display:flex;gap:8px;flex-wrap:wrap">';
+  html += '    <button onclick="_openInstructionsMapForm_()" class="amp-btn go" style="font-size:13px;padding:8px 16px;display:inline-flex;align-items:center;flex-shrink:0">+ New</button>';
+  html += '    <button onclick="_runInstructionsMapIngest_()" class="amp-btn" style="font-size:13px;padding:8px 14px;display:inline-flex;align-items:center;flex-shrink:0" title="Re-pull from source sheet">↻ Re-Ingest</button>';
+  html += '    <button onclick="document.getElementById(\'instructionsMapOverlay\').remove()" class="amp-btn" style="font-size:13px;padding:8px 14px;display:inline-flex;align-items:center;flex-shrink:0">✕ Close</button>';
+  html += '  </div>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
+  html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:#E8F5E9 !important;border:1.5px solid #00C853 !important;border-radius:10px"><div style="font-size:11px;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Active</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important">' + activeCount + '</div></div>';
+  if (inactiveCount > 0) {
+    html += '  <div style="flex:1;min-width:120px;padding:10px 14px;background:#FFF3E0 !important;border:1.5px solid #FB8C00 !important;border-radius:10px"><div style="font-size:11px;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important;font-weight:700;text-transform:uppercase;letter-spacing:1px">Inactive</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important">' + inactiveCount + '</div></div>';
+  }
+  html += '</div>';
+  html += '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:14px;line-height:1.5">Maps each <code>INST-*</code> SKU to the build/assembly PDF that prints with the cover-page packet and seeds the QR code on the pre-pack HW box label. Add a row for every new SKU; the print flow refuses to substitute the pick list.</div>';
+  html += '<input type="text" id="instructionsMapSearch" placeholder="🔎 filter by SKU or description…" oninput="_instructionsMapPanelFilter_(this.value)" style="width:100% !important;padding:10px 12px !important;font-size:14px !important;border:1.5px solid #ccc !important;border-radius:8px !important;margin-bottom:10px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box !important">';
+  html += '<div id="instructionsMapRows">';
+  if (rows.length === 0) {
+    html += '<div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;background:#fafafa !important;border:1px dashed #ccc !important;border-radius:10px;font-size:13px">No mappings yet. Tap <strong>+ New</strong> to add one, or <strong>↻ Re-Ingest</strong> to pull from the source sheet.</div>';
+  } else {
+    html += rows.map(r => _instructionsMapRowHtml_(r)).join('');
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function _instructionsMapRowHtml_(r) {
+  const isInactive = String(r.active || '').toUpperCase() === 'FALSE';
+  const pdfHref = String(r.pdf_url || '').trim();
+  const sku = String(r.sku || '').trim();
+  return '<div data-inst-row="' + esc(sku.toLowerCase()) + ' ' + esc(String(r.description || '').toLowerCase()) + '" style="padding:10px 12px;background:' + (isInactive ? '#f5f5f5' : '#fff') + ' !important;border:1px solid #ddd !important;border-left:3px solid #1A4FB0 !important;border-radius:8px;margin-bottom:6px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;opacity:' + (isInactive ? '.55' : '1') + '">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">'
+    +   '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:900;font-size:13px;color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(sku) + '</span>'
+    +   '<span style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:700">' + esc(r.source || '') + (isInactive ? ' · <span style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">INACTIVE</span>' : '') + '</span>'
+    + '</div>'
+    + (r.description ? '<div style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:3px">' + esc(r.description) + '</div>' : '')
+    + (pdfHref ? '<div style="font-size:11px;margin-top:4px;word-break:break-all"><a href="' + esc(pdfHref) + '" target="_blank" rel="noopener" style="color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;text-decoration:underline">' + esc(pdfHref) + '</a></div>' : '<div style="font-size:11px;color:#c33 !important;-webkit-text-fill-color:#c33 !important;margin-top:4px">⚠ no pdf_url set</div>')
+    + (r.notes ? '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px;font-style:italic">' + esc(r.notes) + '</div>' : '')
+    + '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
+    +   '<button onclick="_openInstructionsMapForm_(\'' + esc(sku) + '\')" style="display:inline-flex;align-items:center;flex-shrink:0;padding:6px 12px;background:#fff !important;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;border:1px solid #1A4FB0 !important;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✎ Edit</button>'
+    +   '<button onclick="_toggleInstructionsMapActive_(\'' + esc(sku) + '\',' + (isInactive ? 'true' : 'false') + ')" style="display:inline-flex;align-items:center;flex-shrink:0;padding:6px 12px;background:#fff !important;color:#666 !important;-webkit-text-fill-color:#666 !important;border:1px solid #888 !important;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">' + (isInactive ? '✓ Activate' : '⏸ Deactivate') + '</button>'
+    +   '<button onclick="_deleteInstructionsMap_(\'' + esc(sku) + '\')" style="display:inline-flex;align-items:center;flex-shrink:0;padding:6px 12px;background:#fff !important;color:#c33 !important;-webkit-text-fill-color:#c33 !important;border:1px solid #c33 !important;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">🗑 Delete</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function _instructionsMapPanelFilter_(value) {
+  const q = String(value || '').toLowerCase().trim();
+  const rows = document.querySelectorAll('#instructionsMapRows > div[data-inst-row]');
+  rows.forEach(r => {
+    const txt = r.getAttribute('data-inst-row') || '';
+    r.style.display = (!q || txt.indexOf(q) !== -1) ? '' : 'none';
+  });
+}
+
+function _openInstructionsMapForm_(existingSku) {
+  const isEdit = !!existingSku;
+  let existing = null;
+  if (isEdit) {
+    // Find the row data in the current rendered list (avoids a round-trip).
+    const rowEl = document.querySelector('#instructionsMapRows > div[data-inst-row^="' + String(existingSku).toLowerCase() + ' "]');
+    // Simpler: pull from the latest server call by re-listing — but the
+    // form rarely opens repeatedly, so just round-trip for accuracy.
+    existing = { sku: existingSku };
+  }
+  const prior = document.getElementById('instructionsMapFormOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'instructionsMapFormOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px;max-width:520px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.5)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">' + (isEdit ? '✎ Edit' : '+ New') + ' Instructions Mapping</div>'
+    +   '<button onclick="document.getElementById(\'instructionsMapFormOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:0 0 4px !important">SKU *</label>'
+    + '<input id="instMapFormSku" type="text" value="' + esc(existingSku || '') + '" placeholder="INST-QL4M" ' + (isEdit ? 'readonly' : '') + ' style="width:100% !important;padding:11px 14px !important;font-family:\'JetBrains Mono\',monospace !important;font-size:14px !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:' + (isEdit ? '#f5f5f5' : '#fff') + ' !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box !important;text-transform:uppercase">'
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">PDF URL *</label>'
+    + '<input id="instMapFormUrl" type="text" placeholder="https://drive.google.com/file/d/…" style="width:100% !important;padding:11px 14px !important;font-size:13px !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box !important">'
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Description</label>'
+    + '<input id="instMapFormDesc" type="text" placeholder="e.g. Queen Library 4-door Melamine assembly" style="width:100% !important;padding:11px 14px !important;font-size:13px !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box !important">'
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Notes</label>'
+    + '<textarea id="instMapFormNotes" rows="2" placeholder="anything the next person should know" style="width:100% !important;padding:11px 14px !important;font-size:13px !important;font-family:inherit !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;resize:vertical !important;box-sizing:border-box !important"></textarea>'
+    + '<div style="display:flex;gap:8px;margin-top:16px">'
+    +   '<button onclick="document.getElementById(\'instructionsMapFormOverlay\').remove()" style="flex:1;padding:13px;background:#f5f5f5 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1.5px solid #ccc !important;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="_instructionsMapFormSubmit_()" style="flex:2;padding:13px;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">' + (isEdit ? 'Save Changes' : 'Create Mapping') + '</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  // If editing, pre-fill with current values via a round-trip.
+  if (isEdit) {
+    groundApi('listInstructionsMap').then(list => {
+      if (!list || !list.ok) return;
+      const row = (list.rows || []).find(r => String(r.sku || '').toUpperCase() === String(existingSku).toUpperCase());
+      if (!row) return;
+      const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+      setVal('instMapFormUrl', row.pdf_url);
+      setVal('instMapFormDesc', row.description);
+      setVal('instMapFormNotes', row.notes);
+    });
+  }
+  setTimeout(() => { const f = document.getElementById(isEdit ? 'instMapFormUrl' : 'instMapFormSku'); if (f) f.focus(); }, 50);
+}
+
+async function _instructionsMapFormSubmit_() {
+  const sku = ((document.getElementById('instMapFormSku') || {}).value || '').trim().toUpperCase();
+  const url = ((document.getElementById('instMapFormUrl') || {}).value || '').trim();
+  const desc = ((document.getElementById('instMapFormDesc') || {}).value || '').trim();
+  const notes = ((document.getElementById('instMapFormNotes') || {}).value || '').trim();
+  if (!sku) { showToast('SKU required'); return; }
+  if (!/^INST-/i.test(sku)) { showToast('SKU must start with INST-'); return; }
+  if (!url) { showToast('PDF URL required'); return; }
+  if (!/^https?:\/\//i.test(url)) { showToast('PDF URL must start with http(s)://'); return; }
+  try {
+    const res = await groundApi('saveInstructionsMapRow', {
+      sku: sku, pdf_url: url, description: desc, notes: notes, source: 'manual',
+    });
+    if (!res || !res.ok) { showToast('Save failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ ' + res.action + ' ' + sku);
+    document.getElementById('instructionsMapFormOverlay').remove();
+    openInstructionsMapPanel();
+  } catch (err) {
+    showToast('Save error: ' + err.message);
+  }
+}
+
+async function _toggleInstructionsMapActive_(sku, makeActive) {
+  try {
+    const res = await groundApi('saveInstructionsMapRow', {
+      sku: sku,
+      pdf_url: '__noop__',  // server requires pdf_url, but only updates from non-undefined fields
+      active: !!makeActive,
+    });
+    // Server requires a non-empty pdf_url; round-trip to fetch the existing
+    // one first so the toggle doesn't clobber it.
+    if (!res || !res.ok) {
+      // Recover: fetch the row, then save with the original URL.
+      const list = await groundApi('listInstructionsMap');
+      const row = list && list.ok && (list.rows || []).find(r => String(r.sku || '').toUpperCase() === String(sku).toUpperCase());
+      if (!row) { showToast('Toggle failed: row not found'); return; }
+      const res2 = await groundApi('saveInstructionsMapRow', {
+        sku: sku, pdf_url: row.pdf_url, description: row.description, notes: row.notes, active: !!makeActive, source: row.source,
+      });
+      if (!res2 || !res2.ok) { showToast('Toggle failed: ' + ((res2 && res2.error) || 'unknown')); return; }
+    }
+    showToast('✓ ' + sku + (makeActive ? ' activated' : ' deactivated'));
+    openInstructionsMapPanel();
+  } catch (err) {
+    showToast('Toggle error: ' + err.message);
+  }
+}
+
+async function _deleteInstructionsMap_(sku) {
+  if (!confirm('Delete the InstructionsMap entry for ' + sku + '?\n\nThis removes the row from the tab. Use Deactivate instead if you may want it back.')) return;
+  try {
+    const res = await groundApi('deleteInstructionsMapRow', { sku: sku });
+    if (!res || !res.ok) { showToast('Delete failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('🗑 Deleted ' + sku);
+    openInstructionsMapPanel();
+  } catch (err) {
+    showToast('Delete error: ' + err.message);
+  }
+}
+
+async function _runInstructionsMapIngest_() {
+  if (!confirm('Re-ingest InstructionsMap from the source sheet (\'instruction link\' tab)?\n\nThis upserts every row from the source — existing entries get refreshed, new ones inserted. Safe to re-run.')) return;
+  try {
+    showToast('Ingesting from source sheet…');
+    const res = await groundApi('ingestInstructionsMapFromSource', { dryRun: false });
+    if (!res || !res.ok) { showToast('Ingest failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Scanned ' + res.scanned + ' · upserted ' + res.upserted + (res.skipped ? ' · ' + res.skipped + ' skipped' : ''));
+    openInstructionsMapPanel();
+  } catch (err) {
+    showToast('Ingest error: ' + err.message);
   }
 }
 
