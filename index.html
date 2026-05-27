@@ -5179,6 +5179,33 @@ async function _runCabinetDiagnose_(query) {
       result.innerHTML = '<div style="padding:12px;color:#8B0000;font-size:13px;background:#fff;border:1.5px solid #8B0000;border-radius:8px">Diagnose failed: ' + esc((res && res.error) || 'unknown') + '</div>';
       return;
     }
+    // v10.318b — also dump THIS DEVICE's local receiveSessions state
+    // for this cabinet. If the green ✓ Received Locally card isn't
+    // appearing, the local data probably doesn't have received/committedAt
+    // set on this device — this section tells us.
+    const localMatches = [];
+    if (typeof receiveSessions !== 'undefined' && Array.isArray(receiveSessions)) {
+      receiveSessions.forEach(s => {
+        if (!s || !Array.isArray(s.cabinets)) return;
+        s.cabinets.forEach(rc => {
+          if (!rc || normCab(rc.num) !== normCab(query)) return;
+          localMatches.push({
+            session_id: s.serverSessionId || s.id || '(no id)',
+            session_name: s.name || '(no name)',
+            session_status: s.status || '(no status)',
+            deliveryDate: s.deliveryDate || '(no date)',
+            received: !!rc.received,
+            committedAt: rc.committedAt || '(empty)',
+            receivedAt: rc.receivedAt || '(empty)',
+            location: rc.location || '(empty)',
+          });
+        });
+      });
+    }
+    const localHtml = localMatches.length === 0
+      ? '<div style="font-size:12px;color:#8B0000;font-weight:700">This device\'s local receive state has NO row for this cabinet. That\'s why ✓ Received Locally isn\'t firing.</div>'
+      : localMatches.map(m => '<div style="font-size:12px;color:#1a1a1a;font-family:monospace;background:#fafafa;padding:6px 8px;border-radius:4px;margin-bottom:4px">session=<strong>' + esc(m.session_id) + '</strong> (' + esc(m.session_name) + ', status=' + esc(m.session_status) + ', deliveryDate=' + esc(m.deliveryDate) + ')<br>received=<strong>' + (m.received ? 'TRUE' : 'FALSE') + '</strong> · committedAt=' + esc(m.committedAt) + ' · receivedAt=' + esc(m.receivedAt) + ' · location=' + esc(m.location) + '</div>').join('');
+
     const sheetRowsHtml = (res.sheet_rows || []).length === 0
       ? '<div style="font-size:12px;color:#8B0000;font-weight:700">No rows in WeeklyReceiveSessionCabinets.</div>'
       : (res.sheet_rows || []).map(r => '<div style="font-size:12px;color:#1a1a1a;font-family:monospace;background:#fafafa;padding:6px 8px;border-radius:4px;margin-bottom:4px">session=<strong>' + esc(r.session_id) + '</strong> · received=<strong>' + (r.received ? 'TRUE' : 'FALSE') + '</strong> · received_at=' + esc(r.received_at || '—') + ' · damaged=' + (r.damaged ? 'TRUE' : 'FALSE') + ' · row=' + r.row_index + '</div>').join('');
@@ -5197,6 +5224,8 @@ async function _runCabinetDiagnose_(query) {
       + sessionsHtml
       + '<div style="font-size:11px;font-weight:800;color:#444;text-transform:uppercase;letter-spacing:.8px;margin:10px 0 4px">listUpcomingCabinets verdict</div>'
       + wouldHtml
+      + '<div style="font-size:11px;font-weight:800;color:#444;text-transform:uppercase;letter-spacing:.8px;margin:10px 0 4px">This device\'s local receive state</div>'
+      + localHtml
       + '</div>';
   } catch (e) {
     result.innerHTML = '<div style="padding:12px;color:#8B0000;font-size:13px;background:#fff;border:1.5px solid #8B0000;border-radius:8px">Diagnose error: ' + esc(e.message) + '</div>';
@@ -5287,49 +5316,25 @@ function findCabinets(query) {
   // upcoming entry — it really is here).
   const havePhysical = {};
   pool.forEach(c => { havePhysical[normCab(c.cabinet)] = true; });
-  upcomingCabinets.forEach(u => {
-    if (havePhysical[normCab(u.cabinet_num)]) return;
-    // v10.315 — server now tags each row status='upcoming' | 'in_receiving'.
-    // Forward as _status so the renderer can distinguish "📅 arriving
-    // future truck" from "🚚 in receiving, still un-checked from a
-    // past-dated session". Legacy _upcoming flag stays true for both
-    // (both block Move/Pull; the only diff is the pill copy + accent).
-    pool.push({
-      uuid: 'upcoming:' + u.session_id + ':' + u.cabinet_num,
-      cabinet: u.cabinet_num,
-      location: '',
-      addedAt: '',
-      _upcoming: true,
-      _status: u.status || 'upcoming',
-      _deliveryDate: u.delivery_date,
-      _sessionId: u.session_id,
-      damaged: !!u.damaged,
-    });
-    havePhysical[normCab(u.cabinet_num)] = true;
-  });
-  // v10.317 — Zac 31510 case: even after the v10.316 server-side
-  // received_pending fix, search still couldn't find 31510 because the
-  // orchestrator's per-cabinet sheet row had received=FALSE (one of the
-  // two sync paths between local commit and the server drifted). The
-  // iPad itself, however, has 31510 marked received + committed in its
-  // local receiveSessions state — that's the most authoritative truth
-  // we have on this device. Surface those local-only entries in search
-  // so a sync drift doesn't dead-zone the cabinet.
+  // v10.318a — scan local receiveSessions FIRST so the iPad-local
+  // ✓ checked + committed truth wins over the server's stale
+  // "in_receiving" (which is what v10.317 had backwards — the upcoming
+  // pass set havePhysical for 31510 before local-receive ever ran).
+  // Authoritative truth order: main cabinets[] → local receive ✓ →
+  // server upcoming.
   if (typeof receiveSessions !== 'undefined' && Array.isArray(receiveSessions)) {
     receiveSessions.forEach(s => {
       if (!s || !Array.isArray(s.cabinets)) return;
-      // Skip sessions explicitly marked completed/closed — those have
-      // been finalized; if a cabinet is missing post-finalization, it
-      // was intentional.
       const sStatus = String(s.status || '').toLowerCase();
       if (sStatus === 'completed' || sStatus === 'closed') return;
       s.cabinets.forEach(rc => {
         if (!rc || !rc.num) return;
         const key = normCab(rc.num);
-        if (havePhysical[key]) return;  // already covered by main cabinets[] or upcoming
-        // Only surface cabinets the user has actually checked. The
-        // unchecked ones already come back from listUpcomingCabinets
-        // as in_receiving / upcoming.
+        if (havePhysical[key]) return;  // already in main cabinets[] — use that
+        // Surface anything the user has actually checked. Both fields
+        // matter — server merge may have overwritten received=false
+        // while leaving committedAt set; either alone means "the user
+        // marked this received on this device."
         if (!rc.received && !rc.committedAt) return;
         pool.push({
           uuid: 'localrecv:' + (s.serverSessionId || s.id || '') + ':' + rc.num,
@@ -5347,6 +5352,23 @@ function findCabinets(query) {
       });
     });
   }
+  // Now overlay server-side upcoming/in-receiving/received_pending for
+  // cabinets the local paths above didn't already cover.
+  upcomingCabinets.forEach(u => {
+    if (havePhysical[normCab(u.cabinet_num)]) return;
+    pool.push({
+      uuid: 'upcoming:' + u.session_id + ':' + u.cabinet_num,
+      cabinet: u.cabinet_num,
+      location: '',
+      addedAt: '',
+      _upcoming: true,
+      _status: u.status || 'upcoming',
+      _deliveryDate: u.delivery_date,
+      _sessionId: u.session_id,
+      damaged: !!u.damaged,
+    });
+    havePhysical[normCab(u.cabinet_num)] = true;
+  });
 
   // 1. Exact match on cabinet # — return only that, it's almost certainly what they want
   const exact = pool.filter(c => normCab(c.cabinet) === q);
@@ -11692,26 +11714,48 @@ function isReceiveSessionMuted(s) {
   return false;
 }
 
-// v10.318 — boot-time prune of orphan local receive sessions. An
-// orphan is a session with no serverSessionId, no deliveryDate, AND
-// no checked cabinets — there's no actionable info in it. Also drops
-// any session currently in the muted set (post-approve ghosts) and any
-// session whose name was generated by the old slice(-4) fallback (e.g.
-// "Shipment ime)") on a row with no deliveryDate.
+// v10.318 — boot-time prune of orphan / muted / zombie receive sessions.
+// Order of operations matters: we harvest any checked cabinets into the
+// main cabinets[] array BEFORE deleting the session so the user doesn't
+// lose location data. Zombies (e.g. "Shipment ime)") get harvested
+// then deleted instead of staying forever as gibberish names.
 (function pruneOrphanReceiveSessions_() {
   const before = receiveSessions.length;
-  receiveSessions = receiveSessions.filter(s => {
-    if (!s) return false;
-    if (isReceiveSessionMuted(s)) return false;
-    const checked = (s.cabinets || []).filter(c => c && (c.received || c.committedAt)).length;
+  const tsBoot = (typeof nowStamp === 'function') ? nowStamp() : new Date().toISOString();
+  const surviving = [];
+  let harvestedTotal = 0;
+  receiveSessions.forEach(s => {
+    if (!s) return;
+    const checked = (s.cabinets || []).filter(c => c && (c.received || c.committedAt));
     const hasAnchor = !!(s.serverSessionId || s.deliveryDate);
-    if (!hasAnchor && checked === 0) return false;  // total orphan
-    // Stale broken-fallback name like "Shipment ime)" on an unanchored
-    // session — keep if it has any checked work, otherwise drop.
-    if (!s.deliveryDate && /^Shipment\s+\S{2,5}\)?$/.test(String(s.name || '')) && checked === 0) return false;
-    return true;
+    const muted = isReceiveSessionMuted(s);
+    const brokenName = !s.deliveryDate && /^Shipment\s+\S{2,5}\)?$/.test(String(s.name || ''));
+    const shouldDrop = muted
+      || (!hasAnchor && checked.length === 0)
+      || (brokenName && !hasAnchor);   // v10.318c — also drop zombies WITH checked work, after harvesting
+    if (!shouldDrop) { surviving.push(s); return; }
+    // Harvest checked cabinets into main cabinets[] before dropping.
+    checked.forEach(rc => {
+      if (!rc.num) return;
+      const norm = (typeof normCab === 'function') ? normCab(rc.num) : String(rc.num).toUpperCase();
+      const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === norm);
+      if (existing) return;  // already in inventory — no need to add
+      cabinets.push({
+        uuid: (typeof makeUuid === 'function' ? makeUuid() : ('boot-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8))),
+        cabinet: rc.num,
+        location: rc.location || s.defaultLoc || '',
+        addedAt: rc.committedAt || rc.receivedAt || tsBoot,
+        addedBy: rc.receivedBy || s.person || '',
+        updatedAt: tsBoot,
+      });
+      harvestedTotal++;
+    });
   });
-  if (receiveSessions.length !== before) {
+  receiveSessions = surviving;
+  if (harvestedTotal > 0) {
+    try { localStorage.setItem('mbd_cabinets', JSON.stringify(cabinets)); } catch(e) {}
+  }
+  if (receiveSessions.length !== before || harvestedTotal > 0) {
     try { localStorage.setItem('mbd_receive_sessions', JSON.stringify(receiveSessions)); } catch(e) {}
   }
 })();
@@ -12089,6 +12133,38 @@ async function approveArchiveReceiveSession(sessionId) {
       showToast('Archive failed: ' + ((resp && resp.error) || 'unknown'));
       return;
     }
+    // v10.318c — BEFORE removing the session, harvest its checked
+    // cabinets into the main local cabinets[] array so they survive
+    // the mute+prune. Without this, a session approved while the
+    // inventory cabinetSync was drifted would silently dead-zone every
+    // cabinet on it (the v10.317 31510 case).
+    const tsApprove = nowStamp();
+    let harvested = 0;
+    (s.cabinets || []).forEach(rc => {
+      if (!rc || !rc.num) return;
+      if (!rc.received && !rc.committedAt) return;  // only the checked ones
+      const norm = normCab(rc.num);
+      const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === norm);
+      if (existing) {
+        if (rc.location && normCab(existing.location) !== normCab(rc.location)) {
+          existing.prevLoc = existing.location || '';
+          existing.location = rc.location;
+          existing.movedAt = tsApprove;
+        }
+        existing.updatedAt = tsApprove;
+        return;
+      }
+      cabinets.push({
+        uuid: (typeof makeUuid === 'function' ? makeUuid() : ('local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8))),
+        cabinet: rc.num,
+        location: rc.location || s.defaultLoc || '',
+        addedAt: rc.committedAt || rc.receivedAt || tsApprove,
+        addedBy: rc.receivedBy || s.person || '',
+        updatedAt: tsApprove,
+      });
+      harvested++;
+    });
+    if (harvested > 0) saveCabinets();
     // v10.318 — record the approval in the muted set so even if (a) the
     // server-side completeReceiveSession write got the wrong session_id
     // and didn't actually flip status, or (b) another iPad still has
@@ -16657,7 +16733,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.318"></script>
+<script src="./pack.js?v=10.319"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16666,7 +16742,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.318<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.319<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
