@@ -3096,6 +3096,12 @@ function _renderOrdersCardHtml_(o, lens) {
   const onHoldBadge = o.on_hold
     ? '<span style="font-size:10px;font-weight:800;background:rgba(122,62,0,.15);color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.hold_reason || '') + '">🚧 HOLD</span>'
     : '';
+  // v10.331 — Pack lens: dismiss button (A3b manual override). Sets
+  // on_active_list=FALSE so the auto-populate stops re-adding it.
+  // Reuses existing removeFromTodaysPackList endpoint.
+  const dismissBtn = (lens === 'pack')
+    ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Dismiss from Active Pack List (operator override — auto-populate won\'t re-add)" style="display:inline-flex;align-items:center;flex-shrink:0;padding:6px 10px;background:rgba(255,82,82,.10);color:#ff5252;border:1px solid rgba(255,82,82,.45);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">🗑 Dismiss</button>'
+    : '';
   return ''
     + '<div onclick="openOrderDetail(\'' + orderNum + '\')" style="cursor:pointer;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
     +   '<div style="min-width:0;flex:1">'
@@ -3109,8 +3115,36 @@ function _renderOrdersCardHtml_(o, lens) {
     +     (customer ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">' + customer + '</div>' : '')
     +     hwLinesHtml
     +   '</div>'
-    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--text-dim);flex-shrink:0">📅 ' + ship + '</div>'
+    +   '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">'
+    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--text-dim)">📅 ' + ship + '</div>'
+    +     dismissBtn
+    +   '</div>'
     + '</div>';
+}
+
+// v10.331 — A3b dismiss handler. Sets on_active_list=FALSE so the
+// next pipeline refresh excludes the cabinet from the Pack lens. The
+// operator can re-add via "+ Add to List" on the old Pack tab (still
+// hidden but available) or a future Orders-tab add button.
+async function _dismissFromPackLens_(orderNumber) {
+  if (!confirm('Dismiss #' + orderNumber + ' from the Active Pack List?\n\nThis sets the operator override to FALSE — the auto-populate by ship date won\'t re-add it. You can manually re-add via the old Pack tab if needed.')) return;
+  try {
+    const res = await groundApi('removeFromTodaysPackList', { orderNumbers: [String(orderNumber)] });
+    if (!res || !res.ok) { showToast('Dismiss failed: ' + ((res && res.error) || 'unknown')); return; }
+    // Optimistic local update: flip the cached order's on_active_list
+    // to 'FALSE' so the next renderOrdersTab call hides it without
+    // waiting for a full refresh.
+    if (Array.isArray(_orderPipelineCache)) {
+      const o = _orderPipelineCache.find(x => String(x.order_number) === String(orderNumber));
+      if (o) { o.on_active_list = 'FALSE'; o.is_on_active_list = false; }
+    }
+    showToast('🗑 Dismissed #' + orderNumber);
+    if (typeof renderOrdersTab === 'function') renderOrdersTab();
+    // Background refresh so we pick up the canonical server state.
+    setTimeout(() => { refreshOrderPipeline({ force: true }).then(() => renderOrdersTab()); }, 1500);
+  } catch (e) {
+    showToast('Dismiss error: ' + e.message);
+  }
 }
 
 // URL hash router — runs on boot + on hashchange. Supports:
@@ -17370,7 +17404,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.330"></script>
+<script src="./pack.js?v=10.331"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17379,7 +17413,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.330<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.331<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
