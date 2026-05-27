@@ -5120,6 +5120,51 @@ async function _forceRefreshUpcoming_(query) {
   setTimeout(() => renderCabResult(query), 400);
 }
 
+// v10.317 — used by the "🔄 Re-push session to server" button on the
+// detail card for a received_local cabinet. Walks the local session's
+// checked cabinets and force-pushes them to the orchestrator's
+// commitReceiveProgress endpoint. Heals the orchestrator's per-cabinet
+// sheet so other devices + future searches see the correct received
+// state.
+async function _repairLocalReceiveSession_(sessionId) {
+  // sessionId here is the serverSessionId (or local id) we stamped on
+  // the synthetic search row. Find the matching local session.
+  const s = receiveSessions.find(r => (r.serverSessionId === sessionId) || (r.id === sessionId));
+  if (!s) { showToast('Session not found in local state'); return; }
+  if (!s.serverSessionId) { showToast('Session has no serverSessionId — open Receive and tap Save Progress first'); return; }
+  const checked = (s.cabinets || []).filter(c => c && (c.received || c.committedAt));
+  if (!checked.length) { showToast('Nothing to re-push'); return; }
+  if (!confirm('Re-push ' + checked.length + ' received cabinet' + (checked.length === 1 ? '' : 's') + ' from session "' + (s.name || sessionId) + '" to the orchestrator?\n\nThis heals the server\'s per-cabinet sheet when sync has drifted.')) return;
+  try {
+    showToast('Pushing ' + checked.length + ' to server…');
+    const payload = checked.map(c => ({
+      num: c.num,
+      received: true,
+      location: c.location || s.defaultLoc || '',
+      received_at: c.receivedAt || c.committedAt || nowStamp(),
+      received_by: c.receivedBy || s.person || '',
+      added_manually: !!c.addedManually,
+      damaged: !!c.damaged,
+    }));
+    const resp = await groundApi('commitReceiveProgress', {
+      sessionId: s.serverSessionId,
+      cabinets: payload,
+    });
+    if (!resp || !resp.ok) {
+      showToast('Re-push failed: ' + ((resp && resp.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ Re-pushed ' + (resp.updated || 0) + ' updated · ' + (resp.appended || 0) + ' appended');
+    // Force-refresh upcomingCabinets so search updates with the new server state.
+    await fetchUpcomingCabinets_(true);
+    // Re-render the current query if any.
+    const q = (document.getElementById('cabSearchInput') || {}).value || '';
+    if (q && typeof renderCabResult === 'function') renderCabResult(q);
+  } catch (e) {
+    showToast('Re-push error: ' + e.message);
+  }
+}
+
 // v10.316 — used by the "🔍 Diagnose Why" button on the NO MATCH
 // screen. Hits the server's diagCabinetSearch, renders the verdict
 // + structured details so we can see exactly where the cabinet lives
@@ -5260,7 +5305,48 @@ function findCabinets(query) {
       _sessionId: u.session_id,
       damaged: !!u.damaged,
     });
+    havePhysical[normCab(u.cabinet_num)] = true;
   });
+  // v10.317 — Zac 31510 case: even after the v10.316 server-side
+  // received_pending fix, search still couldn't find 31510 because the
+  // orchestrator's per-cabinet sheet row had received=FALSE (one of the
+  // two sync paths between local commit and the server drifted). The
+  // iPad itself, however, has 31510 marked received + committed in its
+  // local receiveSessions state — that's the most authoritative truth
+  // we have on this device. Surface those local-only entries in search
+  // so a sync drift doesn't dead-zone the cabinet.
+  if (typeof receiveSessions !== 'undefined' && Array.isArray(receiveSessions)) {
+    receiveSessions.forEach(s => {
+      if (!s || !Array.isArray(s.cabinets)) return;
+      // Skip sessions explicitly marked completed/closed — those have
+      // been finalized; if a cabinet is missing post-finalization, it
+      // was intentional.
+      const sStatus = String(s.status || '').toLowerCase();
+      if (sStatus === 'completed' || sStatus === 'closed') return;
+      s.cabinets.forEach(rc => {
+        if (!rc || !rc.num) return;
+        const key = normCab(rc.num);
+        if (havePhysical[key]) return;  // already covered by main cabinets[] or upcoming
+        // Only surface cabinets the user has actually checked. The
+        // unchecked ones already come back from listUpcomingCabinets
+        // as in_receiving / upcoming.
+        if (!rc.received && !rc.committedAt) return;
+        pool.push({
+          uuid: 'localrecv:' + (s.serverSessionId || s.id || '') + ':' + rc.num,
+          cabinet: rc.num,
+          location: rc.location || '',
+          addedAt: rc.committedAt || rc.receivedAt || '',
+          _upcoming: true,
+          _status: 'received_local',
+          _deliveryDate: s.deliveryDate || s.serverSessionId || '',
+          _sessionId: s.serverSessionId || s.id || '',
+          _sessionName: s.name || '',
+          damaged: !!rc.damaged,
+        });
+        havePhysical[key] = true;
+      });
+    });
+  }
 
   // 1. Exact match on cabinet # — return only that, it's almost certainly what they want
   const exact = pool.filter(c => normCab(c.cabinet) === q);
@@ -10184,7 +10270,11 @@ function renderCabResult(query) {
     // on the session but the cabinetSync to main inventory had drifted.
     const isInReceiving      = isUpcoming && c._status === 'in_receiving';
     const isReceivedPending  = isUpcoming && c._status === 'received_pending';
-    const headerColor = isReceivedPending ? 'linear-gradient(135deg,#1A5C1A,#2E8B2E)'
+    // v10.317 — surfaced from this device's local receiveSessions
+    // state because both server sync paths missed it.
+    const isReceivedLocal    = isUpcoming && c._status === 'received_local';
+    const headerColor = isReceivedLocal ? 'linear-gradient(135deg,#1A5C1A,#388E3C)'
+                      : isReceivedPending ? 'linear-gradient(135deg,#1A5C1A,#2E8B2E)'
                       : isInReceiving ? 'linear-gradient(135deg,#7A3E00,#D17A00)'
                       : isUpcoming ? 'linear-gradient(135deg,#003087,#1565C0)'
                       : isDamaged ? 'linear-gradient(135deg,#5A0000,#8B0000)'
@@ -10195,7 +10285,9 @@ function renderCabResult(query) {
     let html = '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.5)">'
       + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">Cabinet</div>'
       + '<div style="font-size:26px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">' + esc(c.cabinet||'—') + '</div>'
-      + (isReceivedPending
+      + (isReceivedLocal
+          ? '<div style="display:inline-block;background:#fff;color:#1A5C1A;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">✓ Received Locally · Session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</div>'
+          : isReceivedPending
           ? '<div style="display:inline-block;background:#fff;color:#1A5C1A;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">✓ Received · Awaiting Sync · Session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</div>'
           : isInReceiving
           ? '<div style="display:inline-block;background:#fff;color:#7A3E00;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">🚚 In Receiving · Session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</div>'
@@ -10206,7 +10298,10 @@ function renderCabResult(query) {
           : isPulled
           ? '<div style="display:inline-block;background:#8B0000;color:#fff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:6px">✓ Pulled for Fulfillment</div>'
           : '')
-      + (isReceivedPending
+      + (isReceivedLocal
+          ? '<div style="font-size:15px;font-weight:700;margin-top:14px;color:#fff">📍 ' + esc(c.location || 'unknown') + '</div>'
+            + '<div style="font-size:11px;color:rgba(255,255,255,.85);margin-top:8px;font-weight:500;line-height:1.4;padding:0 16px">Marked received on this device but neither the orchestrator nor the inventory sync show it yet. Use the location below; tap <strong>↻ Sync</strong> on the Cabinets tab to re-push.</div>'
+          : isReceivedPending
           ? '<div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:14px;font-weight:600;line-height:1.4;padding:0 16px">Marked received on the ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + ' shipment but not yet showing in this device\'s main inventory. Tap ↻ Sync (or wait ~5 min) to pull the latest cabinets list — Move/Pull unlock once it lands.</div>'
           : isInReceiving
           ? '<div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:14px;font-weight:600;line-height:1.4;padding:0 16px">Truck arrived ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + ' but this cabinet is still unchecked. Go to the Receive flow for that session to check it in, then Move/Pull unlock.</div>'
@@ -10230,7 +10325,17 @@ function renderCabResult(query) {
         + '</div>';
     }
 
-    if (isReceivedPending) {
+    if (isReceivedLocal) {
+      // v10.317: surfaced from local receiveSessions because both the
+      // orchestrator's per-cabinet sheet AND this device's main cabinets[]
+      // missed it. Most actionable advice: tap Sync, and offer a
+      // direct "push this session to orchestrator" repair button.
+      html += '<div style="background:#E8F5E9;border:1.5px solid #1A5C1A;border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;color:#1A5C1A;line-height:1.5">'
+        +   '<strong>✓ Received locally · server sync drifted.</strong>'
+        +   '<div style="margin-top:4px">This cabinet is checked + committed in this device\'s <strong>' + esc(c._sessionName || 'receive session') + '</strong>. The orchestrator\'s per-cabinet sheet doesn\'t reflect it, and the main inventory sync hasn\'t pulled it in. The location is shown above — you can rely on that for picking. Below: re-push the session to the orchestrator so other devices catch up.</div>'
+        +   '<button onclick="_repairLocalReceiveSession_(\'' + esc(c._sessionId || '') + '\')" style="margin-top:10px;padding:10px 14px;background:#1A5C1A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">🔄 Re-push session to server</button>'
+        + '</div>';
+    } else if (isReceivedPending) {
       // v10.316: cabinet was marked received on a session that's still
       // open; the per-device cabinetSync to main inventory hasn't
       // brought it into local cabinets[] yet (or this device is the
@@ -10297,6 +10402,7 @@ function renderCabResult(query) {
           const isUpc = !!c._upcoming;
           const isInRec = isUpc && c._status === 'in_receiving';
           const isRecPending = isUpc && c._status === 'received_pending';
+          const isRecLocal = isUpc && c._status === 'received_local';
           const id = cabId(c);
           const dupeBadge = isDupeProblem
             ? '<span style="display:inline-block;background:#8B0000;color:#fff;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;margin-left:6px;letter-spacing:.5px">DUPLICATE</span>'
@@ -10307,16 +10413,19 @@ function renderCabResult(query) {
           const onClick = isUpc
             ? "document.getElementById('cabSearchInput').value='" + esc(c.cabinet||'') + "';renderCabResult('" + esc(c.cabinet||'') + "')"
             : "renderSpecificCabinet('" + id + "')";
-          const borderColor = isRecPending ? '#2E8B2E'
+          const borderColor = isRecLocal ? '#388E3C'
+                            : isRecPending ? '#2E8B2E'
                             : isInRec ? '#D17A00'
                             : isUpc ? '#1565C0'
                             : isPulled ? '#999'
                             : isDupeProblem ? '#8B0000'
                             : '#003087';
-          const pillText = isRecPending ? '✓ Received'
+          const pillText = isRecLocal ? '✓ Received (Local)'
+                         : isRecPending ? '✓ Received'
                          : isInRec ? '🚚 In Receiving'
                          : '📅 Arriving';
-          const pillBg = isRecPending ? '#2E8B2E'
+          const pillBg = isRecLocal ? '#388E3C'
+                       : isRecPending ? '#2E8B2E'
                        : isInRec ? '#D17A00'
                        : '#1565C0';
           const locPill = isUpc
@@ -16466,7 +16575,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.316"></script>
+<script src="./pack.js?v=10.317"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16475,7 +16584,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.316<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.317<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
