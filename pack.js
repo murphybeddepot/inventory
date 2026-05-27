@@ -171,21 +171,19 @@ async function openOrderDetail(orderNumber) {
     if (typeof showToast === 'function') showToast('Order #' + key + ' not in the current window — refresh');
     return;
   }
-  // v10.341 — Zac course-correction: "your plan is still to take a
-  // packer to the old pack tab that's buggy and not synced with gcal
-  // etc? that's not what i thought we were doing here!" — also
-  // exposed a real bug: my v10.340 switchTab('pack') triggered
-  // renderPackTab → refreshPackQueue → _packQueueCache wipe → the
-  // mirrored entry I'd just pushed was clobbered → openPackDetail
-  // failed with "not in current queue" for any order not in Pack's
-  // active filter (most gcal-only + Schedule orders).
-  //
-  // Fix: render detail INSIDE the Orders tab, using pipeline data
-  // directly. Pack-workflow stuff (scan SKUs / photos / checker) is
-  // a follow-up migration — for now an explicit "📦 Pack Workflow"
-  // button routes you to the Pack tab IF you need that surface. This
-  // matches the unified-Orders-tab architecture in PACK_REDESIGN.
-  _renderInOrdersDetail_(cached);
+  // v10.342 — route to PACKER detail when the order is in an active
+  // pack-workflow state; ADMIN detail (booker/admin/read view) for
+  // everything else. Both renders live inside the Orders tab; neither
+  // routes to the old Pack tab. (Pre-pack mode toggle is inside the
+  // packer detail so user can flip between pack + pre-pack views.)
+  const ps = String(cached.pipeline_status || '');
+  const isPackWorkflow = ps === 'pack_today' || ps === 'pack_in_progress' || ps === 'pre_pack_today'
+    || cached.status === 'in_progress' || cached.status === 'ready_for_check' || cached.status === 'checking';
+  if (isPackWorkflow) {
+    _renderInOrdersPackerDetail_(cached);
+  } else {
+    _renderInOrdersDetail_(cached);
+  }
 }
 
 function _renderInOrdersDetail_(o) {
@@ -323,30 +321,198 @@ function _resolveOrderCabinets_(o) {
   });
 }
 
-// Escape hatch — for scan/photos/checker the user still goes to the
-// Pack tab. Stash a return-tab pointer so the existing closePackDetail
-// (patched in v10.340) routes Back to Orders.
+// v10.342 — Packer workflow detail INSIDE the Orders tab. Replaces
+// the routing-to-old-Pack-tab escape hatch from v10.341 (Zac:
+// "the old pack detail screen was horridly jumbled and non-intuitive
+// and messed up on hierarchy of information for a packer.")
+//
+// Hierarchy per Zac 2026-05-27 review:
+//   1. Header (sticky) — Order # · status · Back
+//   2. Scan input (huge primary) + Camera + Scan buttons (CLEAR styling)
+//   3. SKU progress list + sticky "X of Y" bar
+//   4. Cabinets to pull (with locations)
+//   5. Photos
+//   6. Instructions + pick list (collapsed)
+//   7. Action buttons — Ready for Checker / Mark Packed / Release
+//   8. Secondary info (customer/ship/carrier — collapsed)
+//   + Pre-Pack mode toggle preserved (Zac kept it from v10.314)
+//
+// Reuses existing IDs (#packScanInput, #packSkuList, #packPhotoGallery,
+// etc.) so existing handlers (handlePackScanSubmit, bumpPackSku,
+// renderPackSkuList_, onPackPhotoSelected, claim/release/ready/mark
+// endpoints) work unchanged — just a clean new HTML hierarchy.
+function _renderInOrdersPackerDetail_(o) {
+  if (!o) return;
+  const list = document.getElementById('ordersList');
+  const detail = document.getElementById('ordersDetail');
+  const toggle = document.getElementById('ordersScheduleViewToggle');
+  if (!detail) return;
+  if (list) list.style.display = 'none';
+  if (toggle) toggle.style.display = 'none';
+  detail.style.display = '';
+  // Mirror into _packQueueCache so existing handlers find the order.
+  const idx = _packQueueCache.findIndex(r => String(r.order_number) === String(o.order_number));
+  if (idx >= 0) _packQueueCache[idx] = o;
+  else _packQueueCache.push(o);
+  _packDetailOrderNumber = String(o.order_number);
+  detail.innerHTML = _packerDetailHtml_(o);
+  // Seed scan state from the order's sku_lines_json / scanned_json so
+  // renderPackSkuList_ can paint.
+  try {
+    const status = String(o.status || 'pending');
+    const phase = (status === 'checking' || status === 'ready_for_check' || status === 'packed') ? 'checker' : 'packer';
+    _packActivePhase = phase;
+    const scannedJson = (phase === 'checker') ? o.checker_scanned_json : o.scanned_json;
+    if (typeof getPackScanState_ === 'function') {
+      delete _packScanState[o.order_number];
+      getPackScanState_(o.order_number, o.sku_lines_json, scannedJson);
+    }
+    if (typeof renderPackSkuList_ === 'function') renderPackSkuList_(o.order_number);
+  } catch (e) { /* swallow — list paints empty if state seed fails */ }
+}
+
+function _packerDetailHtml_(o) {
+  const ord = esc(String(o.order_number || '?'));
+  const status = String(o.status || 'pending');
+  const phase = (status === 'checking' || status === 'ready_for_check' || status === 'packed') ? 'checker' : 'packer';
+  const meta = (typeof PACK_STATUS_META !== 'undefined' && PACK_STATUS_META[status])
+    || { label: status.toUpperCase().replace(/_/g, ' '), bg: 'rgba(255,255,255,.10)', color: '#fff' };
+  // Action row depends on phase + claim ownership (same logic as
+  // openPackDetail's actionRowHtml). myDevice may not be available
+  // outside Pack tab context — fall back to packer_started_by truthy.
+  const myDevice = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
+  const packerMine = (status === 'in_progress') && o.started_by === myDevice;
+  const checkerMine = (status === 'checking') && o.checker_started_by === myDevice;
+  let actionRow = '';
+  if (status === 'pending') {
+    actionRow = '<button onclick="claimPackOrder(\'' + ord + '\')" style="flex:1;min-width:200px;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">▶ Start Packing</button>';
+  } else if (status === 'in_progress') {
+    if (packerMine) {
+      actionRow = ''
+        + '<button onclick="releasePackOrder(\'' + ord + '\')" style="padding:14px 18px;background:rgba(255,255,255,.08);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.30);border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">↩ Release Claim</button>'
+        + '<button onclick="confirmReadyForCheck(\'' + ord + '\')" style="flex:1;min-width:240px;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">✓ Ready for Checker →</button>';
+    } else {
+      actionRow = '<div style="flex:1;padding:14px 18px;background:rgba(255,165,0,.10);border:1px solid rgba(255,165,0,.45);border-radius:10px;font-size:14px;color:var(--text)">⚠ Packing in progress by ' + esc(o.started_by || 'another device') + '</div>';
+    }
+  } else if (status === 'ready_for_check') {
+    actionRow = ''
+      + '<div style="flex:1;min-width:260px;padding:14px 18px;background:rgba(66,165,245,.10);border:1px solid rgba(66,165,245,.45);border-radius:10px;font-size:13px;color:var(--text)">📦 Packed by ' + esc(o.packed_by || o.started_by || '?') + ' — checker needed.</div>'
+      + '<button onclick="claimPackCheck(\'' + ord + '\')" style="flex:1;min-width:200px;padding:18px;background:#ab47bc;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">▶ Start Checking</button>';
+  } else if (status === 'checking') {
+    if (checkerMine) {
+      actionRow = ''
+        + '<button onclick="releasePackCheck(\'' + ord + '\')" style="padding:14px 18px;background:rgba(255,255,255,.08);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.30);border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">↩ Release Check</button>'
+        + '<button onclick="confirmMarkPackJobComplete(\'' + ord + '\')" style="flex:1;min-width:280px;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">✓ Confirm Packed & Email Seth</button>';
+    } else {
+      actionRow = '<div style="flex:1;padding:14px 18px;background:rgba(171,71,188,.10);border:1px solid rgba(171,71,188,.45);border-radius:10px;font-size:14px;color:var(--text)">🔍 Checking by ' + esc(o.checker_started_by || 'another device') + '</div>';
+    }
+  } else if (status === 'packed') {
+    actionRow = '<div style="flex:1;padding:14px 18px;background:rgba(0,200,83,.10);border:1px solid rgba(0,200,83,.45);border-radius:10px;font-size:14px;color:#00C853;-webkit-text-fill-color:#00C853">✓ Packed by ' + esc(o.packed_by || '?') + (o.packed_at ? ' · ' + esc(String(o.packed_at).slice(0,16).replace('T',' ')) : '') + '</div>';
+  }
+
+  // Cabinet pull list (locations from main cabinets[])
+  const cabRows = (typeof _resolveOrderCabinets_ === 'function') ? _resolveOrderCabinets_(o) : [];
+  const cabSection = cabRows.length
+    ? '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🗄 Cabinets to Pull (' + cabRows.length + ')</div>' + cabRows.map(c => '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? '#00e676' : '#ff5252') + ';border-radius:6px;margin-bottom:4px"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</span><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + '">📍 ' + esc(c.location || '? not in inventory') + (c.pulled ? ' · pulled' : c.damaged ? ' · ⚠ damaged' : '') + '</span></div>').join('') + '</div>'
+    : '';
+
+  // Pre-pack mode toggle (kept per Q-P3 answer)
+  const prePackBtn = '<button onclick="_togglePackerPrePackMode_(\'' + ord + '\')" style="padding:8px 14px;font-size:12px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;background:' + (_packDetailPrePackMode ? '#1A4FB0' : 'rgba(255,255,255,.06)') + ';color:' + (_packDetailPrePackMode ? '#fff' : 'var(--text)') + ';-webkit-text-fill-color:' + (_packDetailPrePackMode ? '#fff' : 'var(--text)') + ';border:1.5px solid rgba(255,255,255,.20);border-radius:999px;cursor:pointer">🔧 Pre-Pack' + (_packDetailPrePackMode ? ' ✓' : '') + '</button>';
+
+  const scanPhaseColor = phase === 'checker' ? '#ce93d8' : 'var(--green-bright)';
+  const scanPhaseAccent = phase === 'checker' ? 'rgba(171,71,188,.55)' : 'rgba(0,230,118,.55)';
+
+  return ''
+    // Header (sticky)
+    + '<div style="position:sticky;top:0;background:linear-gradient(180deg,#0E1520 0%,#0E1520 70%,rgba(14,21,32,.0) 100%);padding-bottom:8px;margin-bottom:10px;z-index:5">'
+    +   '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +     '<button onclick="_closeOrdersDetail_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">← Back</button>'
+    +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ' + ord + '</div>'
+    +     prePackBtn
+    +     '<span style="padding:6px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:' + meta.bg + ';color:' + meta.color + ';border:1px solid ' + meta.color + '55;border-radius:999px">' + esc(meta.label) + '</span>'
+    +   '</div>'
+    + '</div>'
+    // SCAN INPUT — primary action, big, clear buttons (no orange-dot accents)
+    + '<div style="background:rgba(0,0,0,.45);border:2px solid ' + scanPhaseAccent + ';border-radius:14px;padding:14px;margin-bottom:14px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:' + (phase === 'checker' ? '#ce93d8' : '#00e676') + ';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">' + (phase === 'checker' ? '🔍 CHECKER SCAN' : '📦 PACKER SCAN') + '</div>'
+    +   '<input type="text" id="packScanInput" placeholder="Scan or type a SKU…" autocomplete="off" autocorrect="off" spellcheck="false" '
+    +     'style="width:100%;padding:18px 16px;font-size:20px;font-family:\'JetBrains Mono\',monospace;letter-spacing:2px;background:#000;color:' + scanPhaseColor + ';-webkit-text-fill-color:' + scanPhaseColor + ';border:2px solid ' + scanPhaseAccent + ';border-radius:10px;outline:none;text-shadow:0 0 8px ' + scanPhaseAccent + ';box-sizing:border-box">'
+    +   '<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">'
+    +     '<button onclick="openSkuCameraScan_()" style="flex:1;min-width:140px;padding:14px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;letter-spacing:.5px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px">📷 Open Camera</button>'
+    +     '<button onclick="handlePackScanSubmit()" style="flex:2;min-width:200px;padding:14px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:10px;font-size:16px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">✓ Submit Scan</button>'
+    +   '</div>'
+    +   '<div id="packLoadStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-top:8px"></div>'
+    + '</div>'
+    // SKU progress list (renderPackSkuList_ targets #packSkuList)
+    + '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:14px;margin-bottom:14px">'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:' + (phase === 'checker' ? '#ce93d8' : '#00e676') + ';text-transform:uppercase;letter-spacing:1.5px">📋 SKUs <span id="packSkuProgress" style="color:var(--text-dim);font-size:12px;letter-spacing:0;margin-left:6px;font-weight:700"></span></div>'
+    +     '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +       (o.pick_list_pdf_url && phase !== 'checker' ? '<button onclick="loadPackPdfFromUrl(\'' + esc(o.pick_list_pdf_url) + '\')" style="padding:7px 11px;background:rgba(255,255,255,.06);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">↻ Re-parse PDF</button>' : '')
+    +       (phase === 'packer' && status === 'in_progress' && packerMine ? '<button onclick="resetActivePackScansForOrder(\'' + ord + '\')" style="padding:7px 11px;background:rgba(255,255,255,.06);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">↺ Reset</button>' : '')
+    +     '</div>'
+    +   '</div>'
+    +   '<div id="packSkuList"></div>'
+    + '</div>'
+    // Cabinets to pull
+    + cabSection
+    // Photos
+    + '<div id="packPhotoSection" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:14px;margin-top:14px">'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1.5px">📸 Photos</div>'
+    +     '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +       '<label for="packPhotoCamera" style="padding:8px 14px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:6px">📷 Take Photo</label>'
+    +       '<input type="file" id="packPhotoCamera" accept="image/*" capture="environment" style="display:none" onchange="onPackPhotoSelected(event, \'' + ord + '\')">'
+    +       '<label for="packPhotoLibrary" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:6px">🖼 From Library</label>'
+    +       '<input type="file" id="packPhotoLibrary" accept="image/*" multiple style="display:none" onchange="onPackPhotoSelected(event, \'' + ord + '\')">'
+    +     '</div>'
+    +   '</div>'
+    +   '<div id="packPhotoGallery" style="display:flex;flex-wrap:wrap;gap:6px">' + (typeof renderPackPhotoGallery_ === 'function' ? renderPackPhotoGallery_(o.photo_urls_json) : '') + '</div>'
+    +   '<div id="packPhotoStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>'
+    + '</div>'
+    // Instructions + pick list (low priority — bordered chips)
+    + (o.pick_list_pdf_url || o.instructions_pdf_url
+        ? '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">'
+            + (o.pick_list_pdf_url ? '<a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Open Pick List</a>' : '')
+            + (o.pick_list_pdf_url ? '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>' : '')
+            + (o.instructions_pdf_url ? '<a href="' + esc(o.instructions_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Open Instructions</a>' : '')
+          + '</div>'
+        : '')
+    // Action buttons (primary CTA — Ready for Checker / Mark Packed / etc.)
+    + '<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">' + actionRow + '</div>'
+    // Secondary info (collapsed)
+    + '<details style="margin-top:14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:0">'
+    +   '<summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;list-style:none">▸ Order info (customer / ship / carrier / etc.)</summary>'
+    +   '<div style="padding:10px 14px 14px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px">'
+    +     '<div style="color:var(--text-dim)">Customer</div><div style="color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Address</div><div style="color:var(--text)">' + esc(o.customer_address || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Phone</div><div style="color:var(--text)">' + esc(o.customer_phone || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Ship date</div><div style="color:var(--text)">' + esc(o.ship_date || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Carrier</div><div style="color:var(--text)">' + (o.carrier_display ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + esc(o.carrier_color || '#666') + ';margin-right:6px"></span>' + esc(o.carrier_display) : '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Booker</div><div style="color:var(--text)">' + (o.booker ? '👤 ' + esc(o.booker) : '—') + '</div>'
+    +     (o.shopify_admin_url ? '<div style="color:var(--text-dim)">Shopify</div><div><a href="' + esc(o.shopify_admin_url) + '" target="_blank" rel="noopener" style="color:#42a5f5">🛒 Open</a></div>' : '')
+    +     (o.task_line ? '<div style="color:var(--text-dim)">Task line</div><div style="color:var(--text);font-family:\'JetBrains Mono\',monospace;font-size:11px">' + esc(o.task_line) + '</div>' : '')
+    +   '</div>'
+    + '</details>';
+}
+
+function _togglePackerPrePackMode_(orderNumber) {
+  _packDetailPrePackMode = !_packDetailPrePackMode;
+  const o = getCachedPipelineOrder(orderNumber);
+  if (o) _renderInOrdersPackerDetail_(o);
+}
+
+// Replaces the v10.341 "Open Pack Workflow" routing. Now opens the
+// in-Orders packer detail (same place, just different render).
 function _openPackWorkflowFromOrders_(orderNumber) {
   const key = String(orderNumber || '').trim();
   if (!key) return;
   const cached = getCachedPipelineOrder(key);
-  if (cached) {
-    const idx = _packQueueCache.findIndex(r => String(r.order_number) === key);
-    if (idx >= 0) _packQueueCache[idx] = cached;
-    else _packQueueCache.push(cached);
+  if (!cached) {
+    if (typeof showToast === 'function') showToast('Order #' + key + ' not in current window');
+    return;
   }
-  try { window._orderDetailReturnTab = 'orders'; } catch (e) {}
-  if (typeof switchTab === 'function') switchTab('pack');
-  // Pack tab's renderPackTab will refetch the queue — re-mirror after
-  // a short delay so the entry survives the wipe.
-  setTimeout(() => {
-    if (cached) {
-      const idx = _packQueueCache.findIndex(r => String(r.order_number) === key);
-      if (idx >= 0) _packQueueCache[idx] = cached;
-      else _packQueueCache.push(cached);
-    }
-    if (typeof openPackDetail === 'function') openPackDetail(key);
-  }, 250);
+  _renderInOrdersPackerDetail_(cached);
 }
 
 // Booker assignment + mark-booked prompts (used by the detail card).
