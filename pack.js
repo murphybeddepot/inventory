@@ -175,6 +175,22 @@ async function openOrderDetail(orderNumber) {
     if (idx >= 0) _packQueueCache[idx] = cached;
     else _packQueueCache.push(cached);
   }
+  // v10.340 — Zac: "on schedule and pack today clicking an order does
+  // nothing." Root cause: openPackDetail hides #packQueueList + shows
+  // #packQueueDetail, both inside the PACK TAB panel. But the user
+  // is on the ORDERS TAB. Detail "opens" but on a tab they can't see.
+  // Fix: switch to Pack tab first so the detail is visible. Stash a
+  // return-tab flag so the Pack detail's Back button can route back
+  // to Orders (handled in closePackDetail patched below).
+  if (typeof switchTab === 'function') {
+    try {
+      const active = document.querySelector('.panel.active');
+      if (active && active.id !== 'tab-pack') {
+        window._orderDetailReturnTab = active.id.replace(/^tab-/, '');
+        switchTab('pack');
+      }
+    } catch (e) { /* swallow — falls through to direct open */ }
+  }
   if (typeof openPackDetail === 'function') {
     openPackDetail(key);
   }
@@ -3498,6 +3514,15 @@ function closePackDetail() {
   _packDetailPrePackMode = false;
   document.getElementById('packQueueDetail').style.display = 'none';
   document.getElementById('packQueueList').style.display = '';
+  // v10.340 — if the user arrived at this detail from another tab
+  // (Orders tab tapping a card → openOrderDetail → switchTab('pack')),
+  // route Back to that origin tab instead of dumping them on the
+  // Pack queue.
+  if (window._orderDetailReturnTab && typeof switchTab === 'function') {
+    const ret = window._orderDetailReturnTab;
+    window._orderDetailReturnTab = null;
+    try { switchTab(ret); } catch (e) {}
+  }
 }
 
 // v10.314 — toggle Pre-Pack mode inside Pack detail. Hides cabinets +
