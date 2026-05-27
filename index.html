@@ -5380,13 +5380,20 @@ function findCabinets(query) {
   // upcoming entry — it really is here).
   const havePhysical = {};
   pool.forEach(c => { havePhysical[normCab(c.cabinet)] = true; });
-  // v10.318a — scan local receiveSessions FIRST so the iPad-local
-  // ✓ checked + committed truth wins over the server's stale
-  // "in_receiving" (which is what v10.317 had backwards — the upcoming
-  // pass set havePhysical for 31510 before local-receive ever ran).
-  // Authoritative truth order: main cabinets[] → local receive ✓ →
-  // server upcoming.
+  // v10.322 — auto-harvest from local receiveSessions. The iPad-local
+  // ✓ checked + committed state is the most authoritative truth on
+  // this device — instead of just surfacing a synthetic received_local
+  // entry with a useless "Move/Pull blocked" pill, push it directly
+  // into the main local cabinets[] array. Then it's a first-class
+  // searchable cabinet with full Move/Pull/Damage controls and the
+  // standard location card. The v10.321 retry queue handles getting
+  // the server's per-cabinet sheet caught up in the background.
+  //
+  // Auto-harvest is idempotent: if the cabinet is already in cabinets[]
+  // (per the havePhysical check above), the existing entry wins and
+  // we skip. Only fires on first sight per page session.
   if (typeof receiveSessions !== 'undefined' && Array.isArray(receiveSessions)) {
+    let harvestedAny = false;
     receiveSessions.forEach(s => {
       if (!s || !Array.isArray(s.cabinets)) return;
       const sStatus = String(s.status || '').toLowerCase();
@@ -5394,27 +5401,48 @@ function findCabinets(query) {
       s.cabinets.forEach(rc => {
         if (!rc || !rc.num) return;
         const key = normCab(rc.num);
-        if (havePhysical[key]) return;  // already in main cabinets[] — use that
-        // Surface anything the user has actually checked. Both fields
-        // matter — server merge may have overwritten received=false
-        // while leaving committedAt set; either alone means "the user
-        // marked this received on this device."
-        if (!rc.received && !rc.committedAt) return;
-        pool.push({
-          uuid: 'localrecv:' + (s.serverSessionId || s.id || '') + ':' + rc.num,
+        if (havePhysical[key]) return;  // already in main cabinets[] → done
+        if (!rc.received && !rc.committedAt) return;  // only checked ones
+        const tsHarvest = nowStamp();
+        // 1) Push into main local cabinets[] so it's first-class searchable.
+        const harvestedEntry = {
+          uuid: makeUuid(),
           cabinet: rc.num,
-          location: rc.location || '',
-          addedAt: rc.committedAt || rc.receivedAt || '',
-          _upcoming: true,
-          _status: 'received_local',
-          _deliveryDate: s.deliveryDate || s.serverSessionId || '',
-          _sessionId: s.serverSessionId || s.id || '',
-          _sessionName: s.name || '',
-          damaged: !!rc.damaged,
-        });
+          location: rc.location || s.defaultLoc || '',
+          addedAt: rc.committedAt || rc.receivedAt || tsHarvest,
+          addedBy: rc.receivedBy || s.person || '',
+          updatedAt: tsHarvest,
+          notes: 'Auto-harvested from local receive session "' + (s.name || '') + '" via search',
+        };
+        cabinets.push(harvestedEntry);
+        // Also push into the CURRENT search pool so the in-flight
+        // findCabinets call sees it (pool was snapshot from cabinets[]
+        // before this harvest pass).
+        pool.push(harvestedEntry);
         havePhysical[key] = true;
+        harvestedAny = true;
+        // 2) Queue a server commit so the orchestrator's per-cabinet sheet
+        //    catches up too (the path that originally failed silently).
+        if (s.serverSessionId && typeof commitReceiveProgressQueued_ === 'function') {
+          commitReceiveProgressQueued_(s.serverSessionId, [{
+            num: rc.num,
+            received: true,
+            location: rc.location || s.defaultLoc || '',
+            received_at: rc.committedAt || rc.receivedAt || tsHarvest,
+            received_by: rc.receivedBy || s.person || '',
+            added_manually: !!rc.addedManually,
+            damaged: !!rc.damaged,
+          }], 'auto-harvest-from-search');
+        }
       });
     });
+    if (harvestedAny) {
+      saveCabinets();
+      // Best-effort push to inventory-claude so other devices catch up.
+      if (typeof syncCabinetsNow === 'function') {
+        setTimeout(() => { try { syncCabinetsNow(true); } catch (e) {} }, 500);
+      }
+    }
   }
   // Now overlay server-side upcoming/in-receiving/received_pending for
   // cabinets the local paths above didn't already cover.
@@ -17009,7 +17037,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.321"></script>
+<script src="./pack.js?v=10.322"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17018,7 +17046,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.321<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.322<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
