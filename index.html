@@ -10116,11 +10116,15 @@ function renderCabResult(query) {
     const isPulled = !!c.pulledAt;
     const isDamaged = !!c.damaged;
     const isUpcoming = !!c._upcoming;
-    // v10.315 — split the "upcoming" umbrella into two flavors so the
-    // packer can tell apart "📅 truck not here yet" from "🚚 truck
-    // arrived but this cabinet isn't checked into the warehouse yet."
-    const isInReceiving = isUpcoming && c._status === 'in_receiving';
-    const headerColor = isInReceiving ? 'linear-gradient(135deg,#7A3E00,#D17A00)'
+    // v10.315 / v10.316 — three flavors of "upcoming" so the packer
+    // can tell apart future-truck / arrived-not-checked / checked-but-
+    // not-yet-synced-to-main-inventory. The third one (received_pending)
+    // is the one that broke Zac's 31510 lookup: it had committedAt set
+    // on the session but the cabinetSync to main inventory had drifted.
+    const isInReceiving      = isUpcoming && c._status === 'in_receiving';
+    const isReceivedPending  = isUpcoming && c._status === 'received_pending';
+    const headerColor = isReceivedPending ? 'linear-gradient(135deg,#1A5C1A,#2E8B2E)'
+                      : isInReceiving ? 'linear-gradient(135deg,#7A3E00,#D17A00)'
                       : isUpcoming ? 'linear-gradient(135deg,#003087,#1565C0)'
                       : isDamaged ? 'linear-gradient(135deg,#5A0000,#8B0000)'
                       : isPulled ? 'linear-gradient(135deg,#555,#777)'
@@ -10130,7 +10134,9 @@ function renderCabResult(query) {
     let html = '<div style="background:'+headerColor+';color:#fff;border-radius:14px;padding:24px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.5)">'
       + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85;margin-bottom:4px">Cabinet</div>'
       + '<div style="font-size:26px;font-weight:900;letter-spacing:.5px;margin-bottom:2px;font-family:\'Barlow Condensed\',Arial,sans-serif">' + esc(c.cabinet||'—') + '</div>'
-      + (isInReceiving
+      + (isReceivedPending
+          ? '<div style="display:inline-block;background:#fff;color:#1A5C1A;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">✓ Received · Awaiting Sync · Session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</div>'
+          : isInReceiving
           ? '<div style="display:inline-block;background:#fff;color:#7A3E00;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">🚚 In Receiving · Session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</div>'
           : isUpcoming
           ? '<div style="display:inline-block;background:#fff;color:#003087;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;padding:5px 14px;border-radius:999px;margin-top:6px;border:2px solid #fff">📅 Arriving Week of ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</div>'
@@ -10139,7 +10145,9 @@ function renderCabResult(query) {
           : isPulled
           ? '<div style="display:inline-block;background:#8B0000;color:#fff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;padding:4px 12px;border-radius:999px;margin-top:6px">✓ Pulled for Fulfillment</div>'
           : '')
-      + (isInReceiving
+      + (isReceivedPending
+          ? '<div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:14px;font-weight:600;line-height:1.4;padding:0 16px">Marked received on the ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + ' shipment but not yet showing in this device\'s main inventory. Tap ↻ Sync (or wait ~5 min) to pull the latest cabinets list — Move/Pull unlock once it lands.</div>'
+          : isInReceiving
           ? '<div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:14px;font-weight:600;line-height:1.4;padding:0 16px">Truck arrived ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + ' but this cabinet is still unchecked. Go to the Receive flow for that session to check it in, then Move/Pull unlock.</div>'
           : isUpcoming
           ? '<div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:14px;font-weight:600;line-height:1.4;padding:0 16px">On ARCH invoice — not yet physically here. Move/Pull will be enabled once received.</div>'
@@ -10161,10 +10169,18 @@ function renderCabResult(query) {
         + '</div>';
     }
 
-    if (isInReceiving) {
+    if (isReceivedPending) {
+      // v10.316: cabinet was marked received on a session that's still
+      // open; the per-device cabinetSync to main inventory hasn't
+      // brought it into local cabinets[] yet (or this device is the
+      // one that committed it but the inventory sync is in flight).
+      // Move/Pull blocked until the main array catches up.
+      html += '<div style="background:#E8F5E9;border:1.5px solid #1A5C1A;border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;color:#1A5C1A;line-height:1.5">'
+        +   '<strong>✓ Received · awaiting inventory sync.</strong>'
+        +   '<div style="margin-top:4px">This cabinet is marked received on the <strong>session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</strong> shipment list but hasn\'t yet synced into this device\'s main inventory. Tap <strong>↻ Sync</strong> at the top of the Cabinets tab (or wait ~5 min for the auto-sync) and the location + Move/Pull buttons will appear.</div>'
+        + '</div>';
+    } else if (isInReceiving) {
       // v10.315: past-delivery-date session, cabinet still un-checked.
-      // Copy differs from the future-ARCH case; primary CTA is "go
-      // check it in" rather than "wait for the truck to arrive."
       html += '<div style="background:#FFF4E5;border:1.5px solid #D17A00;border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;color:#7A3E00;line-height:1.5">'
         +   '<strong>🚚 Not yet checked in.</strong>'
         +   '<div style="margin-top:4px">This cabinet is on the <strong>session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</strong> receive list — the truck arrived but no one has physically scanned/checked this one in yet. Open that session in the Receive flow to check it in (then Move + Pull unlock automatically).</div>'
@@ -10219,25 +10235,31 @@ function renderCabResult(query) {
           const isPulled = !!c.pulledAt;
           const isUpc = !!c._upcoming;
           const isInRec = isUpc && c._status === 'in_receiving';
+          const isRecPending = isUpc && c._status === 'received_pending';
           const id = cabId(c);
           const dupeBadge = isDupeProblem
             ? '<span style="display:inline-block;background:#8B0000;color:#fff;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;margin-left:6px;letter-spacing:.5px">DUPLICATE</span>'
             : '';
-          // v10.315 — upcoming/in-receiving rows don't have a uuid in
-          // the cabinets array, so renderSpecificCabinet would say
-          // "Record not found". Route the tap through renderCabResult
-          // (cabinet-# search) instead — re-resolves to the single-hit
-          // detail card with the appropriate 📅 / 🚚 banner.
+          // v10.315 — upcoming-flavored rows don't have a uuid in the
+          // main cabinets array, so renderSpecificCabinet would dead-end
+          // in "Record not found". Route through renderCabResult instead.
           const onClick = isUpc
             ? "document.getElementById('cabSearchInput').value='" + esc(c.cabinet||'') + "';renderCabResult('" + esc(c.cabinet||'') + "')"
             : "renderSpecificCabinet('" + id + "')";
-          const borderColor = isInRec ? '#D17A00'
+          const borderColor = isRecPending ? '#2E8B2E'
+                            : isInRec ? '#D17A00'
                             : isUpc ? '#1565C0'
                             : isPulled ? '#999'
                             : isDupeProblem ? '#8B0000'
                             : '#003087';
+          const pillText = isRecPending ? '✓ Received'
+                         : isInRec ? '🚚 In Receiving'
+                         : '📅 Arriving';
+          const pillBg = isRecPending ? '#2E8B2E'
+                       : isInRec ? '#D17A00'
+                       : '#1565C0';
           const locPill = isUpc
-            ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:#fff;background:' + (isInRec ? '#D17A00' : '#1565C0') + ';padding:6px 12px;border-radius:8px;flex-shrink:0;letter-spacing:.5px;text-transform:uppercase">' + (isInRec ? '🚚 In Receiving' : '📅 Arriving') + '</div>'
+            ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:#fff;background:' + pillBg + ';padding:6px 12px;border-radius:8px;flex-shrink:0;letter-spacing:.5px;text-transform:uppercase">' + pillText + '</div>'
             : '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:'+(isPulled?'#777':'#003087')+';background:'+(isPulled?'#eee':'#EAF0FB')+';padding:6px 14px;border-radius:8px;flex-shrink:0'+(isPulled?';text-decoration:line-through':'')+'">📍 '+esc(c.location||'?')+'</div>';
           return '<div style="background:#fff;border:2px solid '+borderColor+';border-radius:10px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;'+(isPulled?'opacity:.7':'')+'" onclick="' + onClick + '">'
           + '<div style="min-width:0;flex:1">'
@@ -16383,7 +16405,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.315"></script>
+<script src="./pack.js?v=10.316"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16392,7 +16414,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.315<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.316<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
