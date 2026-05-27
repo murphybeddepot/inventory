@@ -76,6 +76,109 @@ function promptRenameDevice_() {
 
 let _packQueueCache = [];
 let _packDetailOrderNumber = null;
+
+// ══════════════════════════════════════════════════════════════════
+// v10.326 — Unified order pipeline cache (PACK_REDESIGN step 2)
+//
+// The single client-side source of truth for the unified Orders tab
+// (Schedule / Pre-Pack Today / Active Pack List / Needs Attention
+// lens chips, all built in step 3). Populated by getOrderPipeline.
+//
+// Coexists with the legacy _packQueueCache / _prePackQueueCache /
+// _scheduleCache during the migration (per A1a) — the new Orders
+// tab reads from THIS cache; old tabs keep their own caches until
+// they're retired in step 7.
+// ══════════════════════════════════════════════════════════════════
+
+let _orderPipelineCache = [];
+let _orderPipelineFetchedAt = 0;
+const ORDER_PIPELINE_CACHE_KEY = 'mbd_order_pipeline_cache_v1';
+const ORDER_PIPELINE_REFRESH_MS = 60 * 1000;  // throttle to once/min unless forced
+
+// Hydrate from localStorage on boot so first paint of the Orders tab
+// isn't blank while the network request is in flight.
+try {
+  const _savedPipe = localStorage.getItem(ORDER_PIPELINE_CACHE_KEY);
+  if (_savedPipe) {
+    const _parsed = JSON.parse(_savedPipe);
+    if (_parsed && Array.isArray(_parsed.orders)) {
+      _orderPipelineCache = _parsed.orders;
+      _orderPipelineFetchedAt = Number(_parsed.fetched_at_ms || 0);
+    }
+  }
+} catch (e) { _orderPipelineCache = []; }
+
+/**
+ * Refresh the unified pipeline cache. Throttled to ORDER_PIPELINE_REFRESH_MS
+ * unless force=true. Returns the resolved cache (may be stale on failure).
+ */
+async function refreshOrderPipeline(opts) {
+  opts = opts || {};
+  if (!opts.force && (Date.now() - _orderPipelineFetchedAt) < ORDER_PIPELINE_REFRESH_MS) {
+    return _orderPipelineCache;
+  }
+  if (typeof groundApi !== 'function' || !GROUND_ORCH_URL) return _orderPipelineCache;
+  try {
+    const res = await groundApi('getOrderPipeline', {
+      window_back_days: opts.windowBackDays || 21,
+      window_ahead_days: opts.windowAheadDays || 28,
+    });
+    if (res && res.ok && Array.isArray(res.orders)) {
+      _orderPipelineCache = res.orders;
+      _orderPipelineFetchedAt = Date.now();
+      try {
+        localStorage.setItem(ORDER_PIPELINE_CACHE_KEY, JSON.stringify({
+          orders: _orderPipelineCache,
+          fetched_at_ms: _orderPipelineFetchedAt,
+        }));
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('refreshOrderPipeline failed:', e);
+  }
+  return _orderPipelineCache;
+}
+
+function getCachedPipelineOrder(orderNumber) {
+  const key = String(orderNumber || '').trim();
+  if (!key) return null;
+  return _orderPipelineCache.find(o => String(o.order_number) === key) || null;
+}
+
+/**
+ * Unified order detail opener. Becomes the single entry-point for
+ * tapping an order in any lens (Schedule / Pre-Pack / Pack / Needs
+ * Attention) — and the target of URL deep links (/order/N) once
+ * step 17 ships the routing layer.
+ *
+ * For backward compat during the migration: if the order is in the
+ * pipeline cache, we mirror its shape into _packQueueCache and
+ * delegate to the existing openPackDetail (which has the full
+ * scan / photos / cabinet capture / actions UI already wired). Once
+ * the legacy tabs are retired in step 7, openPackDetail's signature
+ * can fold inward into this function.
+ */
+async function openOrderDetail(orderNumber) {
+  const key = String(orderNumber || '').trim();
+  if (!key) return;
+  let cached = getCachedPipelineOrder(key);
+  // Lazy-refresh if cache is empty or stale (>5 min) — best-effort.
+  if (!cached && (Date.now() - _orderPipelineFetchedAt) > 5 * 60 * 1000) {
+    await refreshOrderPipeline({ force: true });
+    cached = getCachedPipelineOrder(key);
+  }
+  if (cached) {
+    // Mirror pipeline shape into _packQueueCache so the existing
+    // openPackDetail can render without changes. Idempotent — replaces
+    // any prior entry with the fresher pipeline copy.
+    const idx = _packQueueCache.findIndex(r => String(r.order_number) === key);
+    if (idx >= 0) _packQueueCache[idx] = cached;
+    else _packQueueCache.push(cached);
+  }
+  if (typeof openPackDetail === 'function') {
+    openPackDetail(key);
+  }
+}
 // v10.314 — Pre-Pack mode toggle inside Pack detail. Zac: "pre-pack
 // should maybe just be a button on the pack screen that hides the
 // non-pre-pack items and loads the process for pre-pack (printing
