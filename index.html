@@ -5120,6 +5120,68 @@ async function _forceRefreshUpcoming_(query) {
   setTimeout(() => renderCabResult(query), 400);
 }
 
+// v10.320 — emergency override. The user is physically holding a
+// cabinet that search can't find because both server sync paths
+// drifted (the v10.317-319 saga). Injects the cabinet directly into
+// the local main cabinets[] array with a location of RECEIVING (or
+// whatever the receive session had). Search will find it via the
+// normal main-cabinets path on the very next render; Move/Pull
+// unlock immediately. Best-effort syncs to the inventory server too
+// so other devices catch up.
+async function _emergencyAddCabinetToInventory_(cabinetNum, deliveryDate) {
+  if (!cabinetNum) return;
+  // Prompt for location since we're bypassing the receive flow.
+  const defaultLoc = (function () {
+    // Sessions sometimes have a default loc — pull from any open one.
+    if (typeof receiveSessions !== 'undefined') {
+      for (const s of receiveSessions) {
+        if (s && s.defaultLoc) return s.defaultLoc;
+      }
+    }
+    return 'RECEIVING';
+  })();
+  const loc = window.prompt(
+    'Add ' + cabinetNum + ' to local inventory at which location?\n\n' +
+    '(This bypasses the receive flow — use only when search can\'t find a cabinet you\'re physically holding. The cabinet is added to THIS device\'s main inventory and synced to the inventory server.)',
+    defaultLoc
+  );
+  if (loc === null) return;
+  const location = String(loc || '').trim().toUpperCase();
+  if (!location) { showToast('Location required'); return; }
+  const ts = (typeof nowStamp === 'function') ? nowStamp() : new Date().toISOString();
+  const norm = normCab(cabinetNum);
+  const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === norm);
+  if (existing) {
+    existing.location = location;
+    existing.updatedAt = ts;
+    saveCabinets();
+    showToast('Already in inventory — updated location to ' + location);
+  } else {
+    cabinets.push({
+      uuid: makeUuid(),
+      cabinet: cabinetNum,
+      location: location,
+      addedAt: ts,
+      addedBy: (function () {
+        try { return localStorage.getItem('mbd_device_name') || ''; } catch (e) { return ''; }
+      })(),
+      updatedAt: ts,
+      notes: 'Emergency add via Cabinets-search (deliveryDate=' + (deliveryDate || 'unknown') + ')',
+    });
+    saveCabinets();
+    showToast('✓ Added ' + cabinetNum + ' at 📍 ' + location);
+  }
+  // Best-effort: push to inventory-claude so other devices see it on
+  // their next sync. Doesn't block the UI update.
+  if (typeof syncCabinetsNow === 'function') {
+    try { syncCabinetsNow(true); } catch (e) {}
+  }
+  // Re-render the search result so the user sees the location card now.
+  setTimeout(() => {
+    if (typeof renderCabResult === 'function') renderCabResult(cabinetNum);
+  }, 300);
+}
+
 // v10.317 — used by the "🔄 Re-push session to server" button on the
 // detail card for a received_local cabinet. Walks the local session's
 // checked cabinets and force-pushes them to the orchestrator's
@@ -10347,6 +10409,12 @@ function renderCabResult(query) {
         + '</div>';
     }
 
+    // v10.320 — emergency override for in_receiving + received_pending:
+    // the user is holding the cabinet, they know they received it, but
+    // the server/sync paths have lost track. Inject directly into main
+    // local cabinets[] so search finds it next time and Move/Pull
+    // unlock immediately. NOTE: rendered inline within the existing
+    // branch HTML below, not as a separate block.
     if (isReceivedLocal) {
       // v10.317: surfaced from local receiveSessions because both the
       // orchestrator's per-cabinet sheet AND this device's main cabinets[]
@@ -10366,12 +10434,22 @@ function renderCabResult(query) {
       html += '<div style="background:#E8F5E9;border:1.5px solid #1A5C1A;border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;color:#1A5C1A;line-height:1.5">'
         +   '<strong>✓ Received · awaiting inventory sync.</strong>'
         +   '<div style="margin-top:4px">This cabinet is marked received on the <strong>session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</strong> shipment list but hasn\'t yet synced into this device\'s main inventory. Tap <strong>↻ Sync</strong> at the top of the Cabinets tab (or wait ~5 min for the auto-sync) and the location + Move/Pull buttons will appear.</div>'
+        +   '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+        +     '<button onclick="_runCabinetDiagnose_(\'' + esc(c.cabinet || '') + '\')" style="padding:9px 14px;background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">🔍 Diagnose Why</button>'
+        +     '<button onclick="_emergencyAddCabinetToInventory_(\'' + esc(c.cabinet || '') + '\',\'' + esc(c._deliveryDate || '') + '\')" style="padding:9px 14px;background:#1A5C1A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">📥 I have it — add to inventory</button>'
+        +   '</div>'
+        +   '<div id="cabDiagnoseResult" style="margin-top:10px"></div>'
         + '</div>';
     } else if (isInReceiving) {
       // v10.315: past-delivery-date session, cabinet still un-checked.
       html += '<div style="background:#FFF4E5;border:1.5px solid #D17A00;border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;color:#7A3E00;line-height:1.5">'
         +   '<strong>🚚 Not yet checked in.</strong>'
         +   '<div style="margin-top:4px">This cabinet is on the <strong>session ' + esc(_fmtArrivalWeek_(c._deliveryDate)) + '</strong> receive list — the truck arrived but no one has physically scanned/checked this one in yet. Open that session in the Receive flow to check it in (then Move + Pull unlock automatically).</div>'
+        +   '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+        +     '<button onclick="_runCabinetDiagnose_(\'' + esc(c.cabinet || '') + '\')" style="padding:9px 14px;background:#fff;color:#7A3E00;border:1.5px solid #D17A00;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">🔍 Diagnose Why</button>'
+        +     '<button onclick="_emergencyAddCabinetToInventory_(\'' + esc(c.cabinet || '') + '\',\'' + esc(c._deliveryDate || '') + '\')" style="padding:9px 14px;background:#1A5C1A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">📥 I have it — add to inventory</button>'
+        +   '</div>'
+        +   '<div id="cabDiagnoseResult" style="margin-top:10px"></div>'
         + '</div>';
     } else if (isUpcoming) {
       // v10.129: ARCH-announced but not physically here yet. No Move/Pull.
@@ -16733,7 +16811,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.319"></script>
+<script src="./pack.js?v=10.320"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16742,7 +16820,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.319<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.320<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
