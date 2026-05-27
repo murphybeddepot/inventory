@@ -167,32 +167,243 @@ async function openOrderDetail(orderNumber) {
     await refreshOrderPipeline({ force: true });
     cached = getCachedPipelineOrder(key);
   }
+  if (!cached) {
+    if (typeof showToast === 'function') showToast('Order #' + key + ' not in the current window — refresh');
+    return;
+  }
+  // v10.341 — Zac course-correction: "your plan is still to take a
+  // packer to the old pack tab that's buggy and not synced with gcal
+  // etc? that's not what i thought we were doing here!" — also
+  // exposed a real bug: my v10.340 switchTab('pack') triggered
+  // renderPackTab → refreshPackQueue → _packQueueCache wipe → the
+  // mirrored entry I'd just pushed was clobbered → openPackDetail
+  // failed with "not in current queue" for any order not in Pack's
+  // active filter (most gcal-only + Schedule orders).
+  //
+  // Fix: render detail INSIDE the Orders tab, using pipeline data
+  // directly. Pack-workflow stuff (scan SKUs / photos / checker) is
+  // a follow-up migration — for now an explicit "📦 Pack Workflow"
+  // button routes you to the Pack tab IF you need that surface. This
+  // matches the unified-Orders-tab architecture in PACK_REDESIGN.
+  _renderInOrdersDetail_(cached);
+}
+
+function _renderInOrdersDetail_(o) {
+  const list = document.getElementById('ordersList');
+  const detail = document.getElementById('ordersDetail');
+  const toggle = document.getElementById('ordersScheduleViewToggle');
+  if (!detail) return;
+  if (list) list.style.display = 'none';
+  if (toggle) toggle.style.display = 'none';
+  detail.style.display = '';
+  detail.innerHTML = _orderDetailHtml_(o);
+}
+
+function _closeOrdersDetail_() {
+  const list = document.getElementById('ordersList');
+  const detail = document.getElementById('ordersDetail');
+  const toggle = document.getElementById('ordersScheduleViewToggle');
+  if (detail) { detail.style.display = 'none'; detail.innerHTML = ''; }
+  if (list) list.style.display = '';
+  if (toggle) toggle.style.display = '';
+}
+
+function _orderDetailHtml_(o) {
+  if (!o) return '';
+  const ord = esc(String(o.order_number || '?'));
+  const subtitle = esc(o.cal_label || o.task_line || o.customer_name || '');
+  const ship = esc(o.ship_date || '—');
+  const pStatus = String(o.pipeline_status || 'unknown');
+  const pillBg = ({
+    shipped:           '#1A5C1A',
+    packed:            '#00C853',
+    pack_in_progress:  '#FFB300',
+    pack_today:        '#003087',
+    pre_pack_today:    '#1A4FB0',
+    in_warehouse:      '#37474f',
+    arriving:          '#1565c0',
+    stalled:           '#8B0000',
+    on_hold:           '#7A3E00',
+    unknown:           '#555',
+  })[pStatus] || '#555';
+  const pillLabel = pStatus.toUpperCase().replace(/_/g, ' ');
+  // gcal status letters
+  const letterChip = (label, active) => '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:900;letter-spacing:.5px;padding:3px 8px;border-radius:4px;margin-left:3px;background:' + (active ? '#00C853' : 'rgba(255,255,255,.10)') + ';color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + ';-webkit-text-fill-color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + '">' + label + '</span>';
+  const hpl = letterChip('H', !!o.cal_h) + letterChip('B', !!o.cal_b) + letterChip('P', !!o.cal_p) + letterChip('L', !!o.cal_l)
+    + (o.cal_shipped ? '<span style="font-size:11px;font-weight:900;padding:3px 8px;border-radius:4px;margin-left:3px;background:#1A5C1A;color:#fff;-webkit-text-fill-color:#fff">✓ SHIPPED</span>' : '');
+  // Resolve cabinet#s + locations (same logic as Pack Today card)
+  const cabRows = _resolveOrderCabinets_(o);
+  const cabSection = cabRows.length
+    ? '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🗄 Cabinets (' + cabRows.length + ')</div>' + cabRows.map(c => '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? '#00e676' : '#ff5252') + ';border-radius:6px;margin-bottom:4px"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</span><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + '">📍 ' + esc(c.location || '? not in inventory') + (c.pulled ? ' · pulled' : '') + '</span></div>').join('') + '</div>'
+    : '';
+  // HW SKUs (Pre-Pack)
+  let hwSection = '';
+  if (Array.isArray(o.hardware_sku_lines) && o.hardware_sku_lines.length) {
+    hwSection = '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#1A4FB0;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🔧 Pre-Pack HW (' + o.hardware_sku_lines.length + ')'
+      + (o.hardware_packed_at ? '<span style="font-size:11px;font-weight:700;color:#00e676;-webkit-text-fill-color:#00e676;margin-left:10px">✓ HW packed ' + esc(String(o.hardware_packed_at).slice(0, 10)) + '</span>' : '')
+      + '</div>'
+      + o.hardware_sku_lines.slice(0, 20).map(l => '<div style="font-size:12px;color:var(--text);padding:4px 10px;background:rgba(26,79,176,.06);border-radius:4px;margin-bottom:3px;display:flex;justify-content:space-between"><span><span style="color:#1A4FB0;font-weight:800;font-family:\'JetBrains Mono\',monospace">' + esc(l.hafele_part || l.sku || '') + '</span><span style="color:var(--text-dim);margin-left:8px">' + esc(l.name || '') + '</span></span><span style="color:var(--text-dim);font-family:\'JetBrains Mono\',monospace">×' + Number(l.qty || 0) + '</span></div>').join('')
+      + (o.hardware_sku_lines.length > 20 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (o.hardware_sku_lines.length - 20) + ' more</div>' : '')
+      + '</div>';
+  }
+  // Booker section
+  const bookerName = String(o.booker || '').trim();
+  const bookedAt = String(o.booked_at || '').trim();
+  const bookingRef = String(o.booking_ref || '').trim();
+  const bookerSection = '<div style="margin-top:14px;padding:12px;background:rgba(0,48,135,.10);border:1px solid rgba(0,48,135,.45);border-radius:8px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#42a5f5;text-transform:uppercase;letter-spacing:1px">📞 Booking</div>'
+    + (bookedAt ? '<span style="font-size:11px;font-weight:800;color:#00e676;-webkit-text-fill-color:#00e676">✓ Booked ' + esc(bookedAt.slice(0, 10)) + (bookingRef ? ' · #' + esc(bookingRef) : '') + '</span>' : '<span style="font-size:11px;color:#ff9800;font-weight:700">⚠ Not yet booked</span>')
+    + '</div><div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:13px;color:var(--text-dim)">Assigned to:</span>'
+    + (bookerName ? '<span style="font-size:13px;font-weight:800;background:rgba(0,230,118,.15);color:#00e676;-webkit-text-fill-color:#00e676;padding:4px 10px;border-radius:6px">👤 ' + esc(bookerName) + '</span>' : '<span style="font-size:13px;color:var(--text-dim);font-style:italic">— unassigned —</span>')
+    + '<button onclick="_openAssignBookerModal_(\'' + ord + '\')" style="padding:6px 12px;background:rgba(255,255,255,.06);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">' + (bookerName ? '↻ Reassign' : '+ Assign Booker') + '</button>'
+    + (!bookedAt ? '<button onclick="_markOrderBookedPrompt_(\'' + ord + '\')" style="padding:6px 12px;background:rgba(0,230,118,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,230,118,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">✓ Mark Booked</button>' : '')
+    + '</div></div>';
+  // Pipeline + Schedule diag chip
+  const stallChips = (o.stalled && Array.isArray(o.stall_reasons) && o.stall_reasons.length)
+    ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">' + o.stall_reasons.map(r => '<span style="font-size:10px;font-weight:800;background:#8B0000;color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:6px">STALL: ' + esc(r.replace(/_/g, ' ').toUpperCase()) + '</span>').join('') + '</div>'
+    : '';
+  return ''
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">'
+    +   '<button onclick="_closeOrdersDetail_()" class="amp-btn" style="padding:8px 14px;font-size:13px">← Back</button>'
+    +   '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ' + ord + '</div>'
+    +   '<span style="font-size:11px;font-weight:900;letter-spacing:1.5px;background:' + pillBg + ';color:#fff;-webkit-text-fill-color:#fff;padding:5px 12px;border-radius:999px">' + esc(pillLabel) + '</span>'
+    + '</div>'
+    + '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:16px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:17px;font-weight:800;color:var(--text);line-height:1.3;margin-bottom:8px">' + (subtitle || '—') + '</div>'
+    +   '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px">' + hpl + '</div>'
+    +   '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px">'
+    +     '<div style="color:var(--text-dim)">Ship date</div><div style="color:var(--text)">' + ship + '</div>'
+    +     '<div style="color:var(--text-dim)">Customer</div><div style="color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Carrier</div><div style="color:var(--text)">' + (o.carrier_display ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + esc(o.carrier_color || '#666') + ';margin-right:6px"></span>' + esc(o.carrier_display) : '<span style="color:var(--text-dim)">—</span>') + '</div>'
+    +     (o.pick_list_pdf_url ? '<div style="color:var(--text-dim)">Pick List</div><div><a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="color:#42a5f5">📄 Open</a></div>' : '')
+    +   '</div>'
+    +   stallChips
+    + '</div>'
+    + cabSection
+    + hwSection
+    + bookerSection
+    + '<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">'
+    +   '<button onclick="_openPackWorkflowFromOrders_(\'' + ord + '\')" class="amp-btn" style="padding:12px 18px;font-size:13px;font-weight:800">📦 Open Pack Workflow →</button>'
+    + '</div>'
+    + '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.18);border-radius:8px;font-size:11px;color:var(--text-dim);line-height:1.5">This is the Orders-tab unified detail. The Pack Workflow button opens the existing Pack tab for scan/photos/checker (those flows haven\'t been migrated into the Orders tab yet — separate ship). All admin actions (assign booker, mark booked, view status) live here.</div>';
+}
+
+// Helper — same resolution logic as the Pack Today card location chip
+// and the route planner. Returns array of {num, location, source, pulled}.
+function _resolveOrderCabinets_(o) {
+  if (!o) return [];
+  const cabNumSet = new Set();
+  const sourceMap = {};
+  const addCab = (num, source) => {
+    const n = String(num || '').trim().toUpperCase();
+    if (!n) return;
+    if (!cabNumSet.has(n)) { cabNumSet.add(n); sourceMap[n] = source; }
+  };
+  try {
+    const captured = JSON.parse(o.cabinets_packed_json || '[]');
+    if (Array.isArray(captured)) captured.forEach(c => { if (c && c.num) addCab(c.num, 'captured'); });
+  } catch (e) {}
+  const tline = String(o.task_line || o.cal_label || '');
+  const matches = tline.match(/\b(?:D|STK|C|E)\d{2,4}(?:-[A-Z0-9]+)?\b/gi);
+  if (matches) matches.forEach(m => addCab(m, 'task_line'));
+  // MTO match
+  if (o.order_number && typeof cabinets !== 'undefined' && Array.isArray(cabinets)) {
+    const mtoCab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(o.order_number));
+    if (mtoCab) addCab(mtoCab.cabinet || o.order_number, 'mto_inventory');
+  }
+  return Array.from(cabNumSet).map(num => {
+    const cab = (typeof cabinets !== 'undefined' && Array.isArray(cabinets))
+      ? cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(num)) : null;
+    return {
+      num: num,
+      location: cab ? (cab.location || '') : '',
+      source: sourceMap[num] || 'unknown',
+      pulled: cab ? !!cab.pulledAt : false,
+      damaged: cab ? !!cab.damaged : false,
+    };
+  });
+}
+
+// Escape hatch — for scan/photos/checker the user still goes to the
+// Pack tab. Stash a return-tab pointer so the existing closePackDetail
+// (patched in v10.340) routes Back to Orders.
+function _openPackWorkflowFromOrders_(orderNumber) {
+  const key = String(orderNumber || '').trim();
+  if (!key) return;
+  const cached = getCachedPipelineOrder(key);
   if (cached) {
-    // Mirror pipeline shape into _packQueueCache so the existing
-    // openPackDetail can render without changes. Idempotent — replaces
-    // any prior entry with the fresher pipeline copy.
     const idx = _packQueueCache.findIndex(r => String(r.order_number) === key);
     if (idx >= 0) _packQueueCache[idx] = cached;
     else _packQueueCache.push(cached);
   }
-  // v10.340 — Zac: "on schedule and pack today clicking an order does
-  // nothing." Root cause: openPackDetail hides #packQueueList + shows
-  // #packQueueDetail, both inside the PACK TAB panel. But the user
-  // is on the ORDERS TAB. Detail "opens" but on a tab they can't see.
-  // Fix: switch to Pack tab first so the detail is visible. Stash a
-  // return-tab flag so the Pack detail's Back button can route back
-  // to Orders (handled in closePackDetail patched below).
-  if (typeof switchTab === 'function') {
-    try {
-      const active = document.querySelector('.panel.active');
-      if (active && active.id !== 'tab-pack') {
-        window._orderDetailReturnTab = active.id.replace(/^tab-/, '');
-        switchTab('pack');
-      }
-    } catch (e) { /* swallow — falls through to direct open */ }
+  try { window._orderDetailReturnTab = 'orders'; } catch (e) {}
+  if (typeof switchTab === 'function') switchTab('pack');
+  // Pack tab's renderPackTab will refetch the queue — re-mirror after
+  // a short delay so the entry survives the wipe.
+  setTimeout(() => {
+    if (cached) {
+      const idx = _packQueueCache.findIndex(r => String(r.order_number) === key);
+      if (idx >= 0) _packQueueCache[idx] = cached;
+      else _packQueueCache.push(cached);
+    }
+    if (typeof openPackDetail === 'function') openPackDetail(key);
+  }, 250);
+}
+
+// Booker assignment + mark-booked prompts (used by the detail card).
+async function _openAssignBookerModal_(orderNumber) {
+  const choices = ['Kim', 'Seth', 'Jessica', 'Zac', '(unassign)'];
+  const pick = window.prompt('Assign #' + orderNumber + ' to which booker?\n\n' + choices.map((c, i) => (i + 1) + '. ' + c).join('\n') + '\n\nType a name or number:', '');
+  if (pick === null) return;
+  const trimmed = String(pick || '').trim();
+  if (!trimmed) return;
+  let booker = trimmed;
+  // Number shortcut
+  const n = parseInt(trimmed, 10);
+  if (!isNaN(n) && n >= 1 && n <= choices.length) {
+    booker = choices[n - 1] === '(unassign)' ? '' : choices[n - 1];
+  } else if (trimmed === '(unassign)' || trimmed.toLowerCase() === 'unassign' || trimmed === '-') {
+    booker = '';
   }
-  if (typeof openPackDetail === 'function') {
-    openPackDetail(key);
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('assign booker for #' + orderNumber)
+    : window.prompt('Manager PIN:');
+  if (!pin) return;
+  try {
+    const deviceName = (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '';
+    const res = await groundApi('setOrderBooker', {
+      orderNumber: orderNumber, booker: booker, manager_pin: pin, assigned_by: deviceName,
+    });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) {
+        if (typeof clearManagerPin_ === 'function') clearManagerPin_();
+      }
+      showToast('Assign failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast(booker ? '✓ Assigned to ' + booker : '✓ Booker cleared');
+    // Optimistic local update + re-render
+    const cached = getCachedPipelineOrder(orderNumber);
+    if (cached) cached.booker = booker;
+    _renderInOrdersDetail_(cached || { order_number: orderNumber });
+    setTimeout(() => refreshOrderPipeline({ force: true }), 1500);
+  } catch (e) {
+    showToast('Assign error: ' + e.message);
+  }
+}
+
+async function _markOrderBookedPrompt_(orderNumber) {
+  const ref = window.prompt('Mark #' + orderNumber + ' as booked.\n\nOptional booking/confirmation #:', '');
+  if (ref === null) return;
+  try {
+    const res = await groundApi('markOrderBooked', { orderNumber: orderNumber, booking_ref: String(ref || '').trim() });
+    if (!res || !res.ok) { showToast('Mark Booked failed: ' + ((res && res.error) || 'unknown')); return; }
+    showToast('✓ Marked booked');
+    const cached = getCachedPipelineOrder(orderNumber);
+    if (cached) { cached.booked_at = res.booked_at || new Date().toISOString(); if (res.booking_ref) cached.booking_ref = res.booking_ref; }
+    _renderInOrdersDetail_(cached || { order_number: orderNumber });
+    setTimeout(() => refreshOrderPipeline({ force: true }), 1500);
+  } catch (e) {
+    showToast('Mark Booked error: ' + e.message);
   }
 }
 // v10.314 — Pre-Pack mode toggle inside Pack detail. Zac: "pre-pack
