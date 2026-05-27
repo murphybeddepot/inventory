@@ -12020,12 +12020,72 @@ function muteReceiveSession(s) {
   try { localStorage.setItem('mbd_muted_receive_sessions', JSON.stringify(mutedReceiveSessions)); } catch(e) {}
 }
 
+// v10.323 — canonical dedup key. Pull a YYYY-MM-DD substring from any
+// of deliveryDate / serverSessionId / id (in that priority order).
+// Falls back to the first non-empty string if nothing matches the
+// date pattern. This makes "2026-05-21" and "5/21/2026" and a server
+// session_id like "2026-05-21T00:00:00" all collapse to the same key.
+function _canonicalReceiveSessionKey_(s) {
+  if (!s) return '';
+  const candidates = [s.deliveryDate, s.serverSessionId, s.id];
+  // ISO YYYY-MM-DD anywhere in the string
+  for (const c of candidates) {
+    const m = String(c || '').match(/(\d{4}-\d{2}-\d{2})/);
+    if (m) return 'date:' + m[1];
+  }
+  // M/D/YYYY or MM/DD/YYYY → normalize to ISO
+  for (const c of candidates) {
+    const m = String(c || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) {
+      const mm = String(m[1]).padStart(2, '0');
+      const dd = String(m[2]).padStart(2, '0');
+      return 'date:' + m[3] + '-' + mm + '-' + dd;
+    }
+  }
+  // Last resort: first non-empty candidate as-is.
+  return 'raw:' + String(s.deliveryDate || s.serverSessionId || s.id || '').trim();
+}
+
+// Score sessions for tiebreaker. Higher = keep. Server-anchored beats
+// orphaned. Within those, more received beats fewer. Final tiebreaker
+// is more total cabinets (more complete data from server seed).
+function _scoreReceiveSession_(s) {
+  if (!s) return 0;
+  const checked = (s.cabinets || []).filter(c => c && c.received).length;
+  const total = (s.cabinets || []).length;
+  const serverAnchor = s.serverSessionId ? 1 : 0;
+  // Use base-1000 buckets to keep components ordered without overlap.
+  return (serverAnchor * 1000000) + (checked * 1000) + total;
+}
+
 function isReceiveSessionMuted(s) {
   if (!s) return false;
   if (s.serverSessionId && mutedReceiveSessions['sid:' + s.serverSessionId]) return true;
   if (s.deliveryDate    && mutedReceiveSessions['dd:'  + s.deliveryDate])    return true;
   return false;
 }
+
+// v10.323 — boot-time dedup pass. Shane's phone had two May 21 entries
+// (35/38 + 35/35) because the merge dedup was keyed too narrowly. Run
+// the same canonical-key dedup on whatever's in localStorage at boot
+// so existing duplicate ghosts get collapsed even before any merge
+// runs. Must come before pruneOrphanReceiveSessions_ since the dedup
+// may consolidate two near-orphan rows into one with anchor data.
+(function dedupReceiveSessionsAtBoot_() {
+  if (!Array.isArray(receiveSessions) || receiveSessions.length < 2) return;
+  const byKey = {};
+  receiveSessions.forEach(s => {
+    if (!s) return;
+    const key = _canonicalReceiveSessionKey_(s);
+    if (!byKey[key]) { byKey[key] = s; return; }
+    if (_scoreReceiveSession_(s) > _scoreReceiveSession_(byKey[key])) byKey[key] = s;
+  });
+  const deduped = Object.values(byKey);
+  if (deduped.length !== receiveSessions.length) {
+    receiveSessions = deduped;
+    try { localStorage.setItem('mbd_receive_sessions', JSON.stringify(receiveSessions)); } catch(e) {}
+  }
+})();
 
 // v10.318 — boot-time prune of orphan / muted / zombie receive sessions.
 // Order of operations matters: we harvest any checked cabinets into the
@@ -12328,16 +12388,21 @@ function _mergeServerReceiveSessions_(sessions) {
       });
     }
   });
-  // Final pass: dedupe by deliveryDate (or by serverSessionId for ones
-  // without a date). Keep the row with most-received cabinets — that's
-  // the one with the latest server state.
+  // v10.323 — Shane's May 21 phone case: two local rows for the same
+  // shipment coexisted (35/38 vs 35/35) because the old dedup keyed on
+  // raw deliveryDate or serverSessionId — so different date formats
+  // ("2026-05-21" vs "5/21/2026") or an empty deliveryDate falling
+  // through to a different key meant no dedup. New approach:
+  // canonicalize to YYYY-MM-DD wherever possible, then score
+  // (server-anchored > more received > more total) to pick the best.
   const byKey = {};
   receiveSessions.forEach(s => {
-    const key = s.deliveryDate || s.serverSessionId || s.id;
+    const key = _canonicalReceiveSessionKey_(s);
     if (!byKey[key]) { byKey[key] = s; return; }
-    const aDone = (byKey[key].cabinets || []).filter(c => c.received).length;
-    const bDone = (s.cabinets || []).filter(c => c.received).length;
-    if (bDone > aDone) byKey[key] = s;
+    const a = byKey[key];
+    const aScore = _scoreReceiveSession_(a);
+    const bScore = _scoreReceiveSession_(s);
+    if (bScore > aScore) byKey[key] = s;
   });
   receiveSessions = Object.values(byKey);
   // Heal stale Auto-loaded names that came from old localStorage.
@@ -17037,7 +17102,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.322"></script>
+<script src="./pack.js?v=10.323"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17046,7 +17111,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.322<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.323<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
