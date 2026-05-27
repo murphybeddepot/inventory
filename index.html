@@ -3066,15 +3066,48 @@ function _renderOrdersCardHtml_(o, lens) {
   const hwBadge = (Number(o.hw_needs_count || 0) > 0 && !o.hardware_packed_at)
     ? '<span style="font-size:10px;font-weight:800;background:rgba(26,79,176,.15);color:#1A4FB0;padding:2px 7px;border-radius:999px;margin-left:6px">🔧 ' + Number(o.hw_needs_count) + ' HW</span>'
     : '';
+  // v10.330 — Pre-Pack lens shows the HW SKU list inline so picker
+  // can see what's needed before opening detail. Other lenses skip
+  // (card stays compact).
+  let hwLinesHtml = '';
+  if (lens === 'prepack' && Array.isArray(o.hardware_sku_lines) && o.hardware_sku_lines.length) {
+    const lines = o.hardware_sku_lines.slice(0, 8).map(l => {
+      const hafele = String(l.hafele_part || '').trim();
+      const sku = String(l.sku || '').trim();
+      const qty = Number(l.qty || 0) || 0;
+      const lead = hafele || sku;
+      const tail = (hafele && sku && hafele !== sku) ? ' · ' + sku : '';
+      return '<div style="font-size:11px;color:var(--text);font-family:\'JetBrains Mono\',monospace;padding:2px 0">'
+        + '<span style="color:#1A4FB0;font-weight:800">' + esc(lead) + '</span>'
+        + '<span style="color:var(--text-dim)">' + esc(tail) + '</span>'
+        + '<span style="float:right;color:var(--text-dim)">×' + qty + '</span>'
+        + '</div>';
+    }).join('');
+    const more = o.hardware_sku_lines.length > 8
+      ? '<div style="font-size:10px;color:var(--text-dim);margin-top:3px;font-style:italic">+ ' + (o.hardware_sku_lines.length - 8) + ' more — open to see all</div>'
+      : '';
+    hwLinesHtml = '<div style="margin-top:8px;padding:8px 10px;background:rgba(26,79,176,.06);border:1px solid rgba(26,79,176,.30);border-radius:6px">'
+      + lines + more + '</div>';
+  }
+  // Stalled badge for Needs Attention lens (or whenever an order is stalled)
+  const stalledBadge = (o.stalled && Array.isArray(o.stall_reasons) && o.stall_reasons.length)
+    ? '<span style="font-size:10px;font-weight:800;background:rgba(139,0,0,.15);color:#ff5252;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.stall_reasons.join(', ')) + '">⚠ ' + o.stall_reasons.length + ' STALL</span>'
+    : '';
+  const onHoldBadge = o.on_hold
+    ? '<span style="font-size:10px;font-weight:800;background:rgba(122,62,0,.15);color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.hold_reason || '') + '">🚧 HOLD</span>'
+    : '';
   return ''
-    + '<div onclick="openOrderDetail(\'' + orderNum + '\')" style="cursor:pointer;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+    + '<div onclick="openOrderDetail(\'' + orderNum + '\')" style="cursor:pointer;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
     +   '<div style="min-width:0;flex:1">'
     +     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
     +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);letter-spacing:.5px">' + orderNum + '</span>'
     +       '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:' + pillBg + ';color:#fff;padding:3px 8px;border-radius:999px">' + esc(pillLabel) + '</span>'
     +       hwBadge
+    +       stalledBadge
+    +       onHoldBadge
     +     '</div>'
     +     (customer ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">' + customer + '</div>' : '')
+    +     hwLinesHtml
     +   '</div>'
     +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--text-dim);flex-shrink:0">📅 ' + ship + '</div>'
     + '</div>';
@@ -17337,7 +17370,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.329"></script>
+<script src="./pack.js?v=10.330"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17346,7 +17379,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.329<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.330<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
