@@ -1645,6 +1645,8 @@ input::placeholder, textarea::placeholder {
           <button onclick="syncCabinetsNow()" id="cabSyncBtn" style="flex:1;min-width:120px;background:#003087;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">⟳ Sync Now</button>
           <button onclick="openSyncSettings()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:12px 14px;font-size:13px;font-weight:700;cursor:pointer">⚙ Settings</button>
         </div>
+        <!-- v10.321 — pending-commits badge. Hidden when queue is empty. Click to inspect. -->
+        <button onclick="openPendingCommitsModal_()" id="cabPendingCommitsBadge" style="display:none;align-items:center;gap:6px;margin-top:8px;width:100%;background:#FFF3CC;color:#7A3E00;border:1.5px solid #FF9100;border-radius:8px;padding:10px 14px;font-size:12px;font-weight:800;letter-spacing:.4px;cursor:pointer;justify-content:center"></button>
       </div>
 
       <!-- IMPORT / EXPORT / CLEAR / TEAM -->
@@ -5518,6 +5520,25 @@ function renderCabinets() {
   // surface them as "📅 arriving week of MM/DD" before they arrive.
   // Throttled to once per 5 min by fetchUpcomingCabinets_.
   fetchUpcomingCabinets_();
+  // v10.321 — auto-retry queued commits + paint badge.
+  if (typeof _updatePendingCommitsBadge_ === 'function') _updatePendingCommitsBadge_();
+  if (typeof retryPendingCommits === 'function' && pendingCabinetCommits.length > 0) {
+    setTimeout(() => { retryPendingCommits(); }, 2500);  // small delay so initial render isn't blocked
+  }
+  // Start the 60s background retry loop if not already running. Only
+  // fires while the Cabinets tab is the active tab (cheap idempotent
+  // check inside the interval handler).
+  if (!window._cabPendingRetryTimer) {
+    window._cabPendingRetryTimer = setInterval(() => {
+      const isCabActive = (function () {
+        const t = document.getElementById('tab-cabinets');
+        return t && t.classList.contains('active');
+      })();
+      if (!isCabActive) return;
+      if (pendingCabinetCommits.length === 0) return;
+      retryPendingCommits();
+    }, 60 * 1000);
+  }
   renderRecentSearches();
   renderActiveSessionBadge();
   if (typeof _prefetchReceiveSessions_ === 'function') _prefetchReceiveSessions_();
@@ -11777,6 +11798,192 @@ try {
   if (savedMuted) mutedReceiveSessions = JSON.parse(savedMuted);
 } catch(e) { mutedReceiveSessions = {}; }
 
+// v10.321 — pending-commits retry queue. The two paths that push
+// commitReceiveProgress to the orchestrator (pushSingleCabinetToServer_
+// on every checkbox toggle, commitReceiveSession on Save Progress)
+// have silently swallowed failures forever — leading to the 31510 case
+// where the server's per-cabinet sheet kept received=FALSE because the
+// commit silently failed and nobody knew.
+//
+// New flow: every commit goes through enqueuePendingCommit() first. The
+// queue tries each entry; success → dequeue, failure → keep with
+// attempts+1 + lastError. Visible badge in the Cabinets tab header
+// shows the queue depth. Retries fire on tab open + every 60s while
+// open. Click badge to inspect / manually retry.
+let pendingCabinetCommits = [];
+try {
+  const savedPending = localStorage.getItem('mbd_pending_cabinet_commits');
+  if (savedPending) pendingCabinetCommits = JSON.parse(savedPending) || [];
+} catch (e) { pendingCabinetCommits = []; }
+
+function _savePendingCommits_() {
+  try { localStorage.setItem('mbd_pending_cabinet_commits', JSON.stringify(pendingCabinetCommits)); } catch (e) {}
+}
+
+function enqueuePendingCommit(sessionId, cabinets, sourceTag) {
+  if (!sessionId || !Array.isArray(cabinets) || cabinets.length === 0) return null;
+  const id = 'pc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  pendingCabinetCommits.push({
+    id: id,
+    sessionId: sessionId,
+    cabinets: cabinets,
+    source: sourceTag || 'unknown',
+    firstTriedAt: new Date().toISOString(),
+    lastTriedAt: '',
+    attempts: 0,
+    lastError: '',
+  });
+  _savePendingCommits_();
+  _updatePendingCommitsBadge_();
+  return id;
+}
+
+function dequeuePendingCommit(id) {
+  const before = pendingCabinetCommits.length;
+  pendingCabinetCommits = pendingCabinetCommits.filter(p => p.id !== id);
+  if (pendingCabinetCommits.length !== before) {
+    _savePendingCommits_();
+    _updatePendingCommitsBadge_();
+  }
+}
+
+function _markPendingCommitFailed_(id, err) {
+  const p = pendingCabinetCommits.find(x => x.id === id);
+  if (!p) return;
+  p.attempts++;
+  p.lastTriedAt = new Date().toISOString();
+  p.lastError = String(err || '').slice(0, 200);
+  _savePendingCommits_();
+  _updatePendingCommitsBadge_();
+}
+
+async function retryPendingCommits() {
+  if (!pendingCabinetCommits.length) return { tried: 0, ok: 0, failed: 0 };
+  if (typeof groundApi !== 'function' || !GROUND_ORCH_URL) return { tried: 0, ok: 0, failed: 0 };
+  let ok = 0, failed = 0;
+  // Snapshot the queue so dequeue during iteration is safe.
+  const toTry = pendingCabinetCommits.slice();
+  for (const p of toTry) {
+    try {
+      const resp = await groundApi('commitReceiveProgress', {
+        sessionId: p.sessionId,
+        cabinets: p.cabinets,
+      });
+      if (resp && resp.ok) { dequeuePendingCommit(p.id); ok++; }
+      else { _markPendingCommitFailed_(p.id, (resp && resp.error) || 'non-ok response'); failed++; }
+    } catch (e) {
+      _markPendingCommitFailed_(p.id, e.message || 'fetch error');
+      failed++;
+    }
+  }
+  return { tried: toTry.length, ok: ok, failed: failed };
+}
+
+// Wraps the orchestrator commit so callers don't have to think about
+// the queue. Always enqueues first, then attempts. Success → dequeue
+// + cab.serverSyncedAt callback. Failure → leaves in queue for retry.
+async function commitReceiveProgressQueued_(sessionId, cabinets, sourceTag) {
+  const id = enqueuePendingCommit(sessionId, cabinets, sourceTag);
+  if (!id) return { ok: false, error: 'nothing to commit' };
+  try {
+    const resp = await groundApi('commitReceiveProgress', {
+      sessionId: sessionId,
+      cabinets: cabinets,
+    });
+    if (resp && resp.ok) { dequeuePendingCommit(id); return resp; }
+    _markPendingCommitFailed_(id, (resp && resp.error) || 'non-ok response');
+    return resp || { ok: false, error: 'no response' };
+  } catch (e) {
+    _markPendingCommitFailed_(id, e.message || 'fetch error');
+    return { ok: false, error: e.message };
+  }
+}
+
+function _updatePendingCommitsBadge_() {
+  const badge = document.getElementById('cabPendingCommitsBadge');
+  if (!badge) return;
+  const n = pendingCabinetCommits.length;
+  if (n === 0) { badge.style.display = 'none'; return; }
+  badge.style.display = 'inline-flex';
+  badge.textContent = '⚠ ' + n + ' pending sync' + (n === 1 ? '' : 's');
+}
+
+function openPendingCommitsModal_() {
+  const prior = document.getElementById('pendingCommitsOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'pendingCommitsOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10020;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.className = 'keep-dark-text';
+  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px;max-width:640px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.5)';
+  const rows = pendingCabinetCommits.map(p => {
+    const cabNums = (p.cabinets || []).map(c => c.num).join(', ').slice(0, 80);
+    return '<div style="border:1.5px solid #ddd;border-radius:10px;padding:12px;margin-bottom:10px;background:#fafafa !important">'
+      +   '<div style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important">Session <strong>' + esc(p.sessionId) + '</strong> · ' + (p.cabinets || []).length + ' cabinet' + ((p.cabinets || []).length === 1 ? '' : 's') + '</div>'
+      +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:monospace;margin-top:4px;word-break:break-all">' + esc(cabNums) + ((p.cabinets || []).length > 80 ? '…' : '') + '</div>'
+      +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:6px">Source: ' + esc(p.source) + ' · attempts: ' + p.attempts + ' · queued: ' + esc((p.firstTriedAt || '').slice(0, 16).replace('T', ' ')) + '</div>'
+      + (p.lastError ? '<div style="font-size:11px;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;margin-top:6px;padding:6px 8px;background:#FDECEA !important;border-radius:6px">Last error: ' + esc(p.lastError) + '</div>' : '')
+      +   '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'
+      +     '<button onclick="_retryOnePendingCommit_(\'' + esc(p.id) + '\')" style="padding:7px 12px;background:#1A5C1A;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">🔄 Retry</button>'
+      +     '<button onclick="_dismissPendingCommit_(\'' + esc(p.id) + '\')" style="padding:7px 12px;background:#fff !important;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:1px solid #8B0000;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">🗑 Dismiss</button>'
+      +   '</div>'
+      + '</div>';
+  }).join('');
+  const empty = pendingCabinetCommits.length === 0
+    ? '<div style="padding:20px;text-align:center;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;font-weight:700">✓ Queue empty — all commits synced.</div>'
+    : '';
+  body.innerHTML = ''
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">⚠ Pending Cabinet Syncs</div>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<button onclick="_retryAllPendingCommits_()" style="padding:9px 14px;background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">🔄 Retry All</button>'
+    +     '<button onclick="document.getElementById(\'pendingCommitsOverlay\').remove()" style="padding:9px 14px;background:#f5f5f5;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1.5px solid #ccc;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">Close</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px;line-height:1.5">Each item below is a commit-to-server that failed and is queued for retry. They re-attempt automatically every 60s on the Cabinets tab; you can also force retry or dismiss individual items here.</div>'
+    + (rows || empty);
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+}
+
+async function _retryOnePendingCommit_(id) {
+  const p = pendingCabinetCommits.find(x => x.id === id);
+  if (!p) return;
+  showToast('Retrying…');
+  try {
+    const resp = await groundApi('commitReceiveProgress', {
+      sessionId: p.sessionId,
+      cabinets: p.cabinets,
+    });
+    if (resp && resp.ok) {
+      dequeuePendingCommit(id);
+      showToast('✓ Synced');
+    } else {
+      _markPendingCommitFailed_(id, (resp && resp.error) || 'still failing');
+      showToast('Still failing: ' + ((resp && resp.error) || 'unknown'));
+    }
+  } catch (e) {
+    _markPendingCommitFailed_(id, e.message);
+    showToast('Error: ' + e.message);
+  }
+  openPendingCommitsModal_();  // re-render
+}
+
+async function _retryAllPendingCommits_() {
+  showToast('Retrying ' + pendingCabinetCommits.length + '…');
+  const res = await retryPendingCommits();
+  showToast('✓ ' + res.ok + ' synced · ' + res.failed + ' still failing');
+  openPendingCommitsModal_();  // re-render
+}
+
+function _dismissPendingCommit_(id) {
+  if (!confirm('Dismiss this pending commit?\n\nThe server-side per-cabinet row will stay out of date. Use only when you\'ve manually fixed the data elsewhere or know the commit is obsolete.')) return;
+  dequeuePendingCommit(id);
+  openPendingCommitsModal_();
+}
+
 function muteReceiveSession(s) {
   if (!s) return;
   const now = Date.now();
@@ -12326,23 +12533,21 @@ function mergeServerSessionIntoLocal_(localSession, serverSession) {
 // Fire-and-forget; failures fall back to the bulk save-on-close path.
 function pushSingleCabinetToServer_(session, cab) {
   if (!session || !session.serverSessionId || !GROUND_ORCH_URL || !cab) return;
-  groundApi('commitReceiveProgress', {
-    sessionId: session.serverSessionId,
-    cabinets: [{
-      num: cab.num,
-      received: !!cab.received,
-      location: cab.location || session.defaultLoc || '',
-      received_at: cab.receivedAt || '',
-      received_by: cab.receivedBy || session.person || '',
-      added_manually: !!cab.addedManually,
-      damaged: !!cab.damaged,
-    }],
-  }).then(resp => {
+  // v10.321 — route through queue so failures don't vanish silently.
+  // This was the 31510 bug: per-toggle push failed once, no retry, no
+  // visibility, server's row stayed received=FALSE forever.
+  commitReceiveProgressQueued_(session.serverSessionId, [{
+    num: cab.num,
+    received: !!cab.received,
+    location: cab.location || session.defaultLoc || '',
+    received_at: cab.receivedAt || '',
+    received_by: cab.receivedBy || session.person || '',
+    added_manually: !!cab.addedManually,
+    damaged: !!cab.damaged,
+  }], 'pushSingleCabinetToServer_').then(resp => {
     if (resp && resp.ok) {
       cab.serverSyncedAt = nowStamp();
       try { saveReceiveSessions(); } catch(e) {}
-      // Only re-render if the modal is still open AND the user isn't
-      // mid-edit on an input (avoid clobbering keystrokes).
       const focused = document.activeElement;
       if (!focused || (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA')) {
         if (getActiveSession() && document.getElementById('receiveDefaultLoc')) {
@@ -12350,8 +12555,7 @@ function pushSingleCabinetToServer_(session, cab) {
         }
       }
     }
-  }).catch(err => {
-    console.warn('pushSingleCabinetToServer_ error:', err);
+    // Failure case: already queued + badge updated by commitReceiveProgressQueued_.
   });
 }
 
@@ -13101,14 +13305,8 @@ function commitReceiveSession() {
       received_by: c.receivedBy || session.person || '',
       added_manually: !!c.addedManually,
     }));
-    groundApi('commitReceiveProgress', {
-      sessionId: session.serverSessionId,
-      cabinets: payload,
-    }).then(resp => {
-      if (!(resp && resp.ok)) console.warn('commitReceiveProgress non-OK:', resp);
-    }).catch(err => {
-      console.warn('commitReceiveProgress error:', err);
-    });
+    // v10.321 — queued so failures get retried + surfaced via badge.
+    commitReceiveProgressQueued_(session.serverSessionId, payload, 'commitReceiveSession');
   }
   FB.success();
   if (FB.visuals && (movedCount + addedCount + inPlaceCount) > 0) {
@@ -16811,7 +17009,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.320"></script>
+<script src="./pack.js?v=10.321"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -16820,7 +17018,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.320<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.321<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
