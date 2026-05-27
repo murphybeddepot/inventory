@@ -350,6 +350,17 @@ function _renderInOrdersPackerDetail_(o) {
   if (list) list.style.display = 'none';
   if (toggle) toggle.style.display = 'none';
   detail.style.display = '';
+  // v10.344 — Pack-tab #packDetail also has <div id="packSkuList"> from any
+  // previous openPackDetail call. Two elements with same ID = getElementById
+  // returns the Pack-tab one (it's first in document order — line 1464 vs
+  // 1544 in index.html). Our optimistic renderPackSkuList_ then paints into
+  // the INVISIBLE Pack tab, leaving the visible Orders-tab one with stale
+  // HTML. Zac saw the "10s flicker" because the visible element was never
+  // re-rendered after optimistic; only the server-response merge re-painted
+  // it (and the merge happened to revert the value because of cache
+  // serialization). Fix: nuke #packDetail innerHTML when rendering in Orders.
+  const packDetailEl = document.getElementById('packDetail');
+  if (packDetailEl) packDetailEl.innerHTML = '';
   // Mirror into _packQueueCache so existing handlers find the order.
   const idx = _packQueueCache.findIndex(r => String(r.order_number) === String(o.order_number));
   if (idx >= 0) _packQueueCache[idx] = o;
@@ -525,10 +536,38 @@ function _packerDetailHtml_(o) {
     + '</details>';
 }
 
-function _togglePackerPrePackMode_(orderNumber) {
+async function _togglePackerPrePackMode_(orderNumber) {
   _packDetailPrePackMode = !_packDetailPrePackMode;
   const o = getCachedPipelineOrder(orderNumber);
   if (o) _renderInOrdersPackerDetail_(o);
+  // v10.344 — Zac: "pre-pack selection should not show the frame boxes".
+  // _packDetailPrePackMode filter at renderPackSkuList_ relies on
+  // _packDetailCategoryCache[orderNumber]; defaults visible if not yet
+  // categorized. The OLD togglePackDetailPrePackMode_ fires categorize
+  // before re-render — but this new Orders-tab toggle was never wired.
+  // Fire the same categorize call here so frame/cabinet SKUs filter out.
+  if (_packDetailPrePackMode && !_packDetailCategoryCache[orderNumber]) {
+    try {
+      const state = _packScanState[orderNumber];
+      const skuLines = (state && state.skus) ? state.skus : [];
+      if (!skuLines.length) return;
+      const res = await groundApi('categorizePackSkus', {
+        lines: skuLines.map(s => ({ sku: s.sku, qty: s.qty, name: s.name })),
+      });
+      if (res && res.ok && Array.isArray(res.lines)) {
+        const map = {};
+        res.lines.forEach(l => { map[String(l.sku || '').toUpperCase()] = l.category; });
+        _packDetailCategoryCache[orderNumber] = map;
+        // Re-render so the filter actually applies (state untouched; just
+        // re-paint the SKU list with the now-populated category map).
+        if (String(_packDetailOrderNumber) === String(orderNumber) && _packDetailPrePackMode) {
+          renderPackSkuList_(orderNumber);
+        }
+      }
+    } catch (e) {
+      console.warn('Pre-Pack categorize failed:', e.message);
+    }
+  }
 }
 
 // v10.343 — one-tap pull from the packer detail. No modal, no
