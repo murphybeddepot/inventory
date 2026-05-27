@@ -1113,6 +1113,12 @@ input::placeholder, textarea::placeholder {
        use. Pre-Pack/Pack/Schedule are still being iterated on and
        live in the ⋯ More menu until the workflows are battle-tested. -->
   <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
+  <!-- v10.327 — unified Orders tab (PACK_REDESIGN A2c). Replaces the
+       Schedule + Pre-Pack + Pack tabs which previously lived in the
+       More menu. They stay registered below (hidden, display:none)
+       during the migration so any deep links / saved tab state still
+       work; they're removed in step 7 once parity is validated. -->
+  <button class="tab-btn" id="tab-orders-btn" onclick="switchTab('orders')">Orders</button>
   <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')">Ground</button>
   <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()" style="flex:0 0 60px">⋯</button>
   <!-- Hidden / More-menu-only tabs -->
@@ -1524,6 +1530,33 @@ input::placeholder, textarea::placeholder {
     <div id="prePackQueueList" style="display:flex;flex-direction:column;gap:12px"></div>
     <div id="prePackQueueDetail" style="display:none"></div>
   </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     v10.327 — Orders tab (PACK_REDESIGN step 3 / #17)
+     Single unified surface replacing Schedule + Pre-Pack + Pack tabs.
+     Four lens chips filter the _orderPipelineCache; tapping any order
+     opens openOrderDetail (single render function, no carry-over poll).
+     Per A5a: Stalled / Awaiting / To-Book panels live within the
+     Schedule lens (migrated in #13).
+     Per A4a: URL hash routing — #/order/N opens detail directly.
+     ══════════════════════════════════════════════════════════════════ -->
+<div id="tab-orders" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">📦 Orders</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button onclick="refreshOrderPipeline({force:true}).then(()=>renderOrdersTab())" class="amp-btn" style="font-size:13px;padding:8px 16px;display:inline-flex;align-items:center;flex-shrink:0">↻ Refresh</button>
+    </div>
+  </div>
+  <!-- Lens chips -->
+  <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <button id="ordersLensSchedule"  onclick="setOrdersLens('schedule')"  class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">📅 Schedule</button>
+    <button id="ordersLensPrepack"   onclick="setOrdersLens('prepack')"   class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">🔧 Pre-Pack Today</button>
+    <button id="ordersLensPack"      onclick="setOrdersLens('pack')"      class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">📦 Active Pack List</button>
+    <button id="ordersLensAttention" onclick="setOrdersLens('attention')" class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">⚠ Needs Attention</button>
+  </div>
+  <div id="ordersStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
+  <div id="ordersList" style="display:flex;flex-direction:column;gap:8px"></div>
 </div>
 
 <div id="tab-cabinets" class="panel active">
@@ -2820,7 +2853,7 @@ function switchTab(name) {
     setPackTabMode('prepack');
     return;
   }
-  ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export'].forEach(t => {
+  ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export','orders'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
     if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
@@ -2835,7 +2868,7 @@ function switchTab(name) {
   const tabLabels = {
     scan: 'Inventory', prepack: 'Pre-Pack', pack: 'Pack', cabinets: 'Cabinets',
     items: 'Stock', ground: 'Ground', cycle: 'Count', barcodes: 'Barcodes',
-    log: 'Log', export: 'Export',
+    log: 'Log', export: 'Export', orders: 'Orders',
   };
   const label = tabLabels[name];
   document.title = label ? (label + ' — Bedrock') : 'Bedrock';
@@ -2873,8 +2906,170 @@ function switchTab(name) {
   if (name==='cycle') renderCycleTab();
   if (name==='ground') renderGroundTab();
   if (name==='scan') PROGRESS.refresh();
+  // v10.327 — Orders tab: load pipeline cache + render lens.
+  if (name==='orders') {
+    refreshOrderPipeline({ force: false }).then(() => renderOrdersTab());
+    // Update URL hash for deep-link / shareability (per A4a).
+    try {
+      const lens = _getOrdersActiveLens_();
+      if (location.hash.indexOf('#/order/') !== 0) {
+        location.hash = '#/orders/' + lens;
+      }
+    } catch (e) {}
+  }
   if (name!=='scan' && camActive) stopCamera();
 }
+
+// ══════════════════════════════════════════════════════════════════
+// v10.327 — Orders tab lens dispatch + URL routing (PACK_REDESIGN A2c + A4a)
+// ══════════════════════════════════════════════════════════════════
+
+const _ORDERS_VALID_LENSES = ['schedule','prepack','pack','attention'];
+
+function _getOrdersActiveLens_() {
+  try {
+    const saved = localStorage.getItem('mbd_orders_lens');
+    if (saved && _ORDERS_VALID_LENSES.indexOf(saved) >= 0) return saved;
+  } catch (e) {}
+  return 'schedule';
+}
+
+function setOrdersLens(lens) {
+  if (_ORDERS_VALID_LENSES.indexOf(lens) < 0) lens = 'schedule';
+  try { localStorage.setItem('mbd_orders_lens', lens); } catch (e) {}
+  // Update URL hash so deep links + back-button work (per A4a).
+  try {
+    if (location.hash.indexOf('#/order/') !== 0) {
+      location.hash = '#/orders/' + lens;
+    }
+  } catch (e) {}
+  renderOrdersTab();
+}
+
+function renderOrdersTab() {
+  const lens = _getOrdersActiveLens_();
+  // Paint chip active state
+  _ORDERS_VALID_LENSES.forEach(L => {
+    const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
+    if (!btn) return;
+    const active = (L === lens);
+    btn.style.background = active ? '#003087' : '';
+    btn.style.color = active ? '#fff' : '';
+    btn.style.webkitTextFillColor = active ? '#fff' : '';
+  });
+  const orders = Array.isArray(_orderPipelineCache) ? _orderPipelineCache : [];
+  const filtered = _filterOrdersForLens_(orders, lens);
+  const status = document.getElementById('ordersStatus');
+  if (status) {
+    const totalLabel = filtered.length + ' order' + (filtered.length === 1 ? '' : 's')
+      + (orders.length !== filtered.length ? ' (of ' + orders.length + ' in window)' : '');
+    const ageMin = _orderPipelineFetchedAt ? Math.floor((Date.now() - _orderPipelineFetchedAt) / 60000) : null;
+    const ageLabel = ageMin == null ? '' : (' · refreshed ' + (ageMin === 0 ? 'just now' : (ageMin + ' min ago')));
+    status.textContent = totalLabel + ageLabel;
+  }
+  const list = document.getElementById('ordersList');
+  if (!list) return;
+  if (filtered.length === 0) {
+    list.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-dim);font-size:13px;font-style:italic">No orders in this lens right now.</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(o => _renderOrdersCardHtml_(o, lens)).join('');
+}
+
+function _filterOrdersForLens_(orders, lens) {
+  if (!Array.isArray(orders)) return [];
+  switch (lens) {
+    case 'prepack':
+      // HW prep needed, ship in pre-pack window, not already done
+      return orders.filter(o => o && o.pipeline_status === 'pre_pack_today');
+    case 'pack':
+      // A3b: auto-derived is_on_active_list (explicit override wins)
+      return orders.filter(o => o && o.is_on_active_list);
+    case 'attention':
+      // Stalled / on-hold / overdue (cross-cutting)
+      return orders.filter(o => {
+        if (!o) return false;
+        if (o.pipeline_status === 'stalled' || o.pipeline_status === 'on_hold') return true;
+        const ship = String(o.ship_date || '');
+        if (!ship) return false;
+        // Overdue: ship_date < today and not yet shipped/packed
+        const todayIso = new Date().toISOString().slice(0, 10);
+        return ship < todayIso && o.pipeline_status !== 'shipped' && o.pipeline_status !== 'packed';
+      });
+    case 'schedule':
+    default:
+      // All orders in the window — date-grouped rendering happens via
+      // a per-card date header; full Schedule migration (groupings,
+      // weekend toggle, calendar grid) lands in #13.
+      return orders;
+  }
+}
+
+function _renderOrdersCardHtml_(o, lens) {
+  const orderNum = esc(String(o.order_number || '?'));
+  const ship = esc(o.ship_date || '—');
+  const customer = esc(o.customer_name || o.cal_label || o.task_line || '');
+  const pStatus = String(o.pipeline_status || 'unknown');
+  const pillBg = ({
+    shipped:           '#1A5C1A',
+    packed:            '#00C853',
+    pack_in_progress:  '#FFB300',
+    pack_today:        '#003087',
+    pre_pack_today:    '#1A4FB0',
+    in_warehouse:      '#37474f',
+    arriving:          '#1565c0',
+    stalled:           '#8B0000',
+    on_hold:           '#7A3E00',
+    unknown:           '#555',
+  })[pStatus] || '#555';
+  const pillLabel = pStatus.toUpperCase().replace(/_/g, ' ');
+  const hwBadge = (Number(o.hw_needs_count || 0) > 0 && !o.hardware_packed_at)
+    ? '<span style="font-size:10px;font-weight:800;background:rgba(26,79,176,.15);color:#1A4FB0;padding:2px 7px;border-radius:999px;margin-left:6px">🔧 ' + Number(o.hw_needs_count) + ' HW</span>'
+    : '';
+  return ''
+    + '<div onclick="openOrderDetail(\'' + orderNum + '\')" style="cursor:pointer;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+    +   '<div style="min-width:0;flex:1">'
+    +     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+    +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);letter-spacing:.5px">' + orderNum + '</span>'
+    +       '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:' + pillBg + ';color:#fff;padding:3px 8px;border-radius:999px">' + esc(pillLabel) + '</span>'
+    +       hwBadge
+    +     '</div>'
+    +     (customer ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">' + customer + '</div>' : '')
+    +   '</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--text-dim);flex-shrink:0">📅 ' + ship + '</div>'
+    + '</div>';
+}
+
+// URL hash router — runs on boot + on hashchange. Supports:
+//   #/order/31510            → openOrderDetail(31510) (auto-routes to Orders tab)
+//   #/orders/{lens}          → setOrdersLens, switch to Orders tab
+function _handleOrdersHashRoute_() {
+  const h = String(location.hash || '');
+  let m;
+  if ((m = h.match(/^#\/order\/([^/?]+)/))) {
+    const orderNum = decodeURIComponent(m[1]);
+    if (typeof switchTab === 'function') switchTab('orders');
+    setTimeout(() => {
+      if (typeof openOrderDetail === 'function') openOrderDetail(orderNum);
+    }, 100);
+    return true;
+  }
+  if ((m = h.match(/^#\/orders\/([^/?]+)/))) {
+    const lens = decodeURIComponent(m[1]);
+    if (_ORDERS_VALID_LENSES.indexOf(lens) >= 0) {
+      try { localStorage.setItem('mbd_orders_lens', lens); } catch (e) {}
+    }
+    if (typeof switchTab === 'function') switchTab('orders');
+    return true;
+  }
+  return false;
+}
+
+window.addEventListener('hashchange', _handleOrdersHashRoute_);
+// Boot: check hash AFTER initial paint so panels exist.
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(_handleOrdersHashRoute_, 200);
+});
 
 // ── Back-button / history navigation (Zac 2026-05-17) ──────────
 // Bedrock is an SPA; the device Back button used to do nothing /
@@ -17102,7 +17297,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.326"></script>
+<script src="./pack.js?v=10.327"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17111,7 +17306,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.326<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.327<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
