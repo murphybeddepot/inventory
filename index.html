@@ -3038,16 +3038,30 @@ function planPackTodayRoute() {
     if (!cabToOrders[n]) cabToOrders[n] = { orders: new Set(), source: 'captured' };
     cabToOrders[n].orders.add(String(orderNum));
   };
-  // v10.337 — track orders that have NO detected cabinets so we can
-  // surface them as MTO/pending-capture entries instead of silently
-  // dropping them (Zac: "you left out all MTO cabinets").
-  const ordersWithoutCabinets = [];
+  // v10.339 — Zac correction:
+  //   "MTO cabinets like 31475 have locations too! i don't understand
+  //    why you're only showing stock cabinet locations. now frame
+  //    orders like 32006 don't have cabinets at all so those are not
+  //    part of the route."
+  //
+  // The MTO convention: the cabinet # equals the order # (a 5-digit
+  // number like 31475). MTO cabinets get a location during receive,
+  // same as stock — they were invisible to v10.337 because my regex
+  // required a D/STK/C/E prefix.
+  //
+  // Frame orders (32006) genuinely have no cabinet — those should be
+  // EXCLUDED from the route, not surfaced as "locate at pack time."
+  //
+  // New discovery order per order:
+  //   1. cabinets_packed_json (already captured for this order)
+  //   2. D###/STK###/C###/E### patterns extracted from task_line (stock)
+  //   3. cabinets[] entry whose cabinet# === order# (MTO convention)
+  //   4. If none → skip silently (frame order, no cabinet needed)
   orders.forEach(o => {
-    let foundAny = false;
     try {
       const captured = JSON.parse(o.cabinets_packed_json || '[]');
       if (Array.isArray(captured)) captured.forEach(c => {
-        if (c && c.num) { addCab(c.num, o.order_number); foundAny = true; }
+        if (c && c.num) addCab(c.num, o.order_number);
       });
     } catch (e) {}
     const tline = String(o.task_line || o.cal_label || '');
@@ -3056,20 +3070,23 @@ function planPackTodayRoute() {
       const n = m.trim().toUpperCase();
       if (!cabToOrders[n]) { addCab(n, o.order_number); cabToOrders[n].source = 'task_line'; }
       else cabToOrders[n].orders.add(String(o.order_number));
-      foundAny = true;
     });
-    if (!foundAny) {
-      // Likely MTO / RMK / custom build — no stock cabinet # to pre-pull.
-      // Surface in the route so the operator knows to find it at pack time.
-      ordersWithoutCabinets.push({
-        order_number: o.order_number,
-        customer: o.customer_name || o.cal_label || o.task_line || '',
-        ship_date: o.ship_date || '',
-      });
+    // MTO match — look up inventory by order# (cabinet# === order# convention).
+    const orderNumStr = String(o.order_number || '').trim();
+    if (orderNumStr && typeof cabinets !== 'undefined' && Array.isArray(cabinets)) {
+      const mtoCab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(orderNumStr));
+      if (mtoCab) {
+        const key = String(mtoCab.cabinet || orderNumStr).trim().toUpperCase();
+        if (!cabToOrders[key]) { addCab(key, o.order_number); cabToOrders[key].source = 'mto_inventory'; }
+        else cabToOrders[key].orders.add(String(o.order_number));
+      }
     }
+    // No (else) branch — orders that resolved zero cabinets are frame
+    // orders (per Zac: "frame orders like 32006 don't have cabinets at
+    // all so those are not part of the route") and silently skip.
   });
-  if (!Object.keys(cabToOrders).length && !ordersWithoutCabinets.length) {
-    showToast('No cabinet #s found on today\'s orders');
+  if (!Object.keys(cabToOrders).length) {
+    showToast('No cabinets to pull (today\'s orders may be frames only)');
     return;
   }
   // Lookup locations from main cabinets[] (the iPad's local inventory).
@@ -3131,8 +3148,12 @@ function planPackTodayRoute() {
   // Walk order: AISLE 001 → AISLE 012, then non-bay buckets, then
   // unknown/missing/pulled at the end.
   const sortedZones = Object.keys(byZone).sort((a, b) => (zoneRank[a] || 0) - (zoneRank[b] || 0));
-  // Render modal
-  _renderPackRouteModal_(sortedZones, byZone, orders.length, entries.length, ordersWithoutCabinets);
+  // v10.339 — MTO orders now resolve via the inventory cabinets[]
+  // lookup (cabinet# === order#); the separate "ordersWithoutCabinets"
+  // surfacing is gone because Zac confirmed frame orders genuinely
+  // have no cabinet ("frame orders like 32006 don't have cabinets at
+  // all so those are not part of the route").
+  _renderPackRouteModal_(sortedZones, byZone, orders.length, entries.length, []);
 }
 
 function _renderPackRouteModal_(sortedZones, byZone, orderCount, cabinetCount, ordersWithoutCabinets) {
@@ -3258,17 +3279,29 @@ function _renderOrdersScheduleWeekGridHtml_(orders) {
     const cellBg = isToday ? 'rgba(0,230,118,.10)' : isPast ? 'rgba(255,255,255,.02)' : 'rgba(0,48,135,.06)';
     const cellBorder = isToday ? 'rgba(0,230,118,.55)' : 'rgba(255,255,255,.12)';
     const dayNumColor = isToday ? '#00e676' : '#fff';
-    html += '<div style="min-height:120px;background:' + cellBg + ';border:1px solid ' + cellBorder + ';border-radius:6px;padding:6px;' + (isPast ? 'opacity:.65;' : '') + 'display:flex;flex-direction:column;gap:3px">'
-      + '<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    // v10.339 — Zac: "week view needs to fit up to 15 rows without
+    // hiding any on each day." Bump min-height + slice cap from 6→15.
+    // Also clearer click affordance per his "schedule should be
+    // clickable" — hover green glow + explicit border on rows.
+    html += '<div style="min-height:340px;background:' + cellBg + ';border:1px solid ' + cellBorder + ';border-radius:6px;padding:6px;' + (isPast ? 'opacity:.65;' : '') + 'display:flex;flex-direction:column;gap:2px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:\'Barlow Condensed\',Arial,sans-serif;margin-bottom:3px">'
       +   '<span style="font-size:18px;font-weight:900;color:' + dayNumColor + ';-webkit-text-fill-color:' + dayNumColor + '">' + dayNum + '</span>'
       +   (cellOrders.length ? '<span style="font-size:10px;font-weight:700;color:var(--text-dim)">' + cellOrders.length + '</span>' : '')
       + '</div>'
-      + cellOrders.slice(0, 6).map(o => {
+      + cellOrders.slice(0, 15).map(o => {
           const ord = esc(String(o.order_number || '?'));
           const cColor = String(o.carrier_color || 'rgba(255,255,255,.30)');
-          return '<div onclick="event.stopPropagation();openOrderDetail(\'' + ord + '\')" style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:700;color:var(--text);-webkit-text-fill-color:var(--text);padding:2px 4px;background:rgba(255,255,255,.04);border-left:3px solid ' + esc(cColor) + ';border-radius:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(o.customer_name || o.cal_label || '') + '">' + ord + '</div>';
+          // Surface H/P/L letters inline in week-view rows so the
+          // operator can see status at a glance without opening detail.
+          const hpl = (o.cal_h ? 'H' : '') + (o.cal_p ? 'P' : '') + (o.cal_l ? 'L' : '');
+          const hplBadge = hpl
+            ? '<span style="font-size:9px;font-weight:900;color:#00e676;-webkit-text-fill-color:#00e676;margin-left:4px;letter-spacing:.5px">' + hpl + '</span>'
+            : '';
+          return '<div onclick="event.stopPropagation();openOrderDetail(\'' + ord + '\')" onmouseover="this.style.background=\'rgba(0,230,118,.18)\'" onmouseout="this.style.background=\'rgba(255,255,255,.04)\'" style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:700;color:var(--text);-webkit-text-fill-color:var(--text);padding:3px 5px;background:rgba(255,255,255,.04);border-left:3px solid ' + esc(cColor) + ';border-radius:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:space-between;gap:4px;transition:background .12s" title="Tap to open detail — ' + esc(o.customer_name || o.cal_label || '') + '">'
+            + '<span>' + ord + '</span>' + hplBadge
+            + '</div>';
         }).join('')
-      + (cellOrders.length > 6 ? '<div style="font-size:10px;color:var(--text-dim);font-style:italic">+ ' + (cellOrders.length - 6) + ' more</div>' : '')
+      + (cellOrders.length > 15 ? '<div style="font-size:10px;color:var(--text-dim);font-style:italic;margin-top:auto">+ ' + (cellOrders.length - 15) + ' more</div>' : '')
       + '</div>';
   }
   html += '</div>';
@@ -3337,15 +3370,15 @@ function _filterOrdersForLens_(orders, lens) {
       // A3b: auto-derived is_on_active_list (explicit override wins)
       return orders.filter(o => o && o.is_on_active_list);
     case 'attention':
-      // Stalled / on-hold / overdue (cross-cutting). v10.332 — also
-      // exclude orders that gcal already says shipped (cal_shipped or
-      // cal_l='labels out'), even when the PackingQueue.status field
-      // hasn't caught up. Same fix as Active Pack List.
+      // Stalled / on-hold / overdue (cross-cutting). v10.332 added
+      // cal_shipped + cal_l exclusion. v10.339 also adds cal_p — any
+      // post-pack gcal evidence excludes (matches the v10.338 server-
+      // side fix for Active Pack List). Zac 31830: gcal shows H+P+L
+      // green, was still leaking through Needs Attention.
       return orders.filter(o => {
         if (!o) return false;
-        const calOut = o.cal_shipped === true || String(o.cal_shipped || '').toUpperCase() === 'TRUE'
-                    || o.cal_l === true || String(o.cal_l || '').toUpperCase() === 'TRUE';
-        if (calOut) return false;
+        const truthy = (v) => v === true || String(v || '').toUpperCase() === 'TRUE';
+        if (truthy(o.cal_shipped) || truthy(o.cal_l) || truthy(o.cal_p)) return false;
         if (o.pipeline_status === 'shipped' || o.pipeline_status === 'packed') return false;
         if (o.pipeline_status === 'stalled' || o.pipeline_status === 'on_hold') return true;
         const ship = String(o.ship_date || '');
@@ -3461,6 +3494,42 @@ function _renderOrdersCardHtml_(o, lens) {
   const onHoldBadge = o.on_hold
     ? '<span style="font-size:10px;font-weight:800;background:rgba(122,62,0,.15);color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.hold_reason || '') + '">🚧 HOLD</span>'
     : '';
+  // v10.339 — Pack Today cards show the cabinet location inline.
+  // Resolves with the same logic as the route planner: cabinets_packed_json
+  // → task_line D###/STK### → cabinets[] entry where cabinet# === order#
+  // (MTO convention). Shows the first matched location; "(multiple)" if
+  // more than one distinct location.
+  let packLocationHtml = '';
+  if (lens === 'pack') {
+    const cabNums = new Set();
+    try {
+      const captured = JSON.parse(o.cabinets_packed_json || '[]');
+      if (Array.isArray(captured)) captured.forEach(c => { if (c && c.num) cabNums.add(String(c.num).trim().toUpperCase()); });
+    } catch (e) {}
+    const tline = String(o.task_line || o.cal_label || '');
+    const tlMatches = tline.match(/\b(?:D|STK|C|E)\d{2,4}(?:-[A-Z0-9]+)?\b/gi);
+    if (tlMatches) tlMatches.forEach(m => cabNums.add(m.trim().toUpperCase()));
+    // MTO match — order# itself as cabinet#
+    if (o.order_number && typeof cabinets !== 'undefined' && Array.isArray(cabinets)) {
+      const mtoCab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(o.order_number));
+      if (mtoCab) cabNums.add(String(mtoCab.cabinet || o.order_number).trim().toUpperCase());
+    }
+    if (cabNums.size > 0) {
+      const locs = new Set();
+      let pulledAny = false;
+      cabNums.forEach(n => {
+        const cab = (typeof cabinets !== 'undefined' && Array.isArray(cabinets))
+          ? cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(n)) : null;
+        if (cab && cab.location) locs.add(cab.location);
+        if (cab && cab.pulledAt) pulledAny = true;
+      });
+      let label;
+      if (locs.size === 0) label = '? not in inventory';
+      else if (locs.size === 1) label = '📍 ' + Array.from(locs)[0];
+      else label = '📍 ' + locs.size + ' locations';
+      packLocationHtml = '<div style="margin-top:5px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:800;letter-spacing:.4px;color:' + (locs.size === 0 ? '#ff5252' : pulledAny ? '#FFB300' : '#00e676') + ';-webkit-text-fill-color:' + (locs.size === 0 ? '#ff5252' : pulledAny ? '#FFB300' : '#00e676') + '">' + esc(label) + (pulledAny ? ' · ⚠ some pulled' : '') + ' · ' + cabNums.size + ' cab' + (cabNums.size === 1 ? '' : 's') + '</div>';
+    }
+  }
   // v10.331/333 — Pack lens: "Not Today" button. Removes the order
   // from today's Pack list WITHOUT deleting anything. Zac 16:06:
   // "looks like a trashcan/delete button" — relabeled to make the
@@ -17834,7 +17903,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.338"></script>
+<script src="./pack.js?v=10.339"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17843,7 +17912,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.338<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.339<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
