@@ -3011,20 +3011,102 @@ function renderOrdersTab() {
     list.innerHTML = filtered.map(o => _renderOrdersCardHtml_(o, lens)).join('');
   }
   // (v10.336 below — bump pack.js cache-bust after the syntax-fix.)
-  // v10.335 — Pack Today lens gets a "Plan Today's Route" button
-  // (Zac B1 ask). Renders/teardowns alongside the cards based on lens.
-  let routeBtnEl = document.getElementById('ordersPackRouteBtn');
-  if (lens === 'pack' && filtered.length > 0) {
-    if (!routeBtnEl) {
-      routeBtnEl = document.createElement('div');
-      routeBtnEl.id = 'ordersPackRouteBtn';
-      routeBtnEl.style.cssText = 'margin-bottom:10px';
-      list.parentNode.insertBefore(routeBtnEl, list);
+  // v10.335 — Pack Today lens gets a "Plan Today's Route" button.
+  // v10.343 — Pack Today + Pre-Pack Today both get a "Print
+  // Instructions for selected" button (Zac: "at the top of pre-pack
+  // today and pack-today list views should be a 'print instructions'
+  // button that then prompts the user to select which jobs on the
+  // list to print (not assume all, just in case, but have all as
+  // one of the choices)").
+  let topActionsEl = document.getElementById('ordersTopActionsBar');
+  if ((lens === 'pack' || lens === 'prepack') && filtered.length > 0) {
+    if (!topActionsEl) {
+      topActionsEl = document.createElement('div');
+      topActionsEl.id = 'ordersTopActionsBar';
+      topActionsEl.style.cssText = 'margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap';
+      list.parentNode.insertBefore(topActionsEl, list);
     }
-    routeBtnEl.innerHTML = '<button onclick="planPackTodayRoute()" class="amp-btn go" style="padding:10px 18px;font-size:13px;font-weight:800;letter-spacing:.4px;display:inline-flex;align-items:center;gap:6px" title="Group all cabinets on today\'s pack list by warehouse zone + walk order">🗺 Plan Today\'s Route</button>';
-  } else if (routeBtnEl) {
-    routeBtnEl.remove();
+    const routeBtn = (lens === 'pack')
+      ? '<button onclick="planPackTodayRoute()" style="padding:10px 18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Group all cabinets on today\'s pack list by warehouse zone + walk order">🗺 Plan Today\'s Route</button>'
+      : '';
+    const printBtn = '<button onclick="_openBulkPrintInstructionsPicker_(\'' + lens + '\')" style="padding:10px 18px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px">🖨 Print Instructions…</button>';
+    topActionsEl.innerHTML = printBtn + routeBtn;
+  } else if (topActionsEl) {
+    topActionsEl.remove();
   }
+  // Clean up the legacy v10.335 routeBtn container if it still exists
+  // alongside the new top-actions bar (avoid duplicate buttons).
+  const legacyRouteEl = document.getElementById('ordersPackRouteBtn');
+  if (legacyRouteEl) legacyRouteEl.remove();
+}
+
+// v10.343 — bulk "Print Instructions" picker for Pack Today + Pre-Pack
+// Today lens views. Lists all orders in the current lens with
+// checkboxes (default = all unchecked per Zac: "not assume all, just
+// in case, but have all as one of the choices"). Tap Select All to
+// flip on. Print Selected → loops printInstructionsLink_ per order.
+function _openBulkPrintInstructionsPicker_(lens) {
+  const orders = (_orderPipelineCache || []);
+  const filtered = _filterOrdersForLens_(orders, lens);
+  if (!filtered.length) { showToast('No orders in this lens'); return; }
+  const prior = document.getElementById('bulkPrintPickerOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'bulkPrintPickerOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10025;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.style.cssText = 'background:#0E1520;color:#fff;border-radius:14px;padding:20px;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.6);border:1.5px solid rgba(0,230,118,.30)';
+  const rowsHtml = filtered.map(o => {
+    const ord = esc(String(o.order_number || '?'));
+    const ship = esc(o.ship_date || '—');
+    const sub = esc(o.customer_name || o.cal_label || o.task_line || '');
+    const printed = o.instructions_printed_at
+      ? '<span style="font-size:10px;color:#00e676;-webkit-text-fill-color:#00e676;margin-left:6px">✓ printed ' + esc(String(o.instructions_printed_at).slice(0, 10)) + '</span>'
+      : '<span style="font-size:10px;color:#FFB300;-webkit-text-fill-color:#FFB300;margin-left:6px">not yet printed</span>';
+    return '<label style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px;margin-bottom:5px;cursor:pointer">'
+      + '<input type="checkbox" class="bulkPrintCheck" data-order="' + ord + '" style="width:20px;height:20px;flex-shrink:0;accent-color:#00C853">'
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900">' + ord + '</span>' + printed + '</div>'
+      +   '<div style="font-size:12px;color:rgba(255,255,255,.65);margin-top:2px">' + sub + ' · 📅 ' + ship + '</div>'
+      + '</div>'
+      + '</label>';
+  }).join('');
+  body.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;flex-wrap:wrap;gap:8px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;text-transform:uppercase">🖨 Print Instructions</div>'
+    +   '<button onclick="document.getElementById(\'bulkPrintPickerOverlay\').remove()" style="background:transparent;border:none;font-size:22px;color:rgba(255,255,255,.65);cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:10px">Pick which orders to print. None pre-selected — tap <strong>Select All</strong> if you want every one.</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
+    +   '<button onclick="document.querySelectorAll(\'#bulkPrintPickerOverlay .bulkPrintCheck\').forEach(c=>c.checked=true)" style="padding:7px 14px;background:rgba(0,230,118,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,230,118,.45);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">✓ Select All</button>'
+    +   '<button onclick="document.querySelectorAll(\'#bulkPrintPickerOverlay .bulkPrintCheck\').forEach(c=>c.checked=false)" style="padding:7px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Clear</button>'
+    + '</div>'
+    + rowsHtml
+    + '<div style="display:flex;gap:10px;margin-top:14px">'
+    +   '<button onclick="document.getElementById(\'bulkPrintPickerOverlay\').remove()" style="flex:1;padding:14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="_runBulkPrintInstructions_()" style="flex:2;padding:14px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:900;letter-spacing:.5px;cursor:pointer">🖨 Print Selected</button>'
+    + '</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+}
+
+async function _runBulkPrintInstructions_() {
+  const picks = Array.from(document.querySelectorAll('#bulkPrintPickerOverlay .bulkPrintCheck'))
+    .filter(c => c.checked)
+    .map(c => c.dataset.order);
+  if (!picks.length) { showToast('Pick at least one order'); return; }
+  document.getElementById('bulkPrintPickerOverlay').remove();
+  showToast('Printing ' + picks.length + ' order' + (picks.length === 1 ? '' : 's') + '…');
+  let ok = 0, failed = 0;
+  for (const ord of picks) {
+    try {
+      await printInstructionsLink_(ord);
+      ok++;
+    } catch (e) { failed++; }
+    // Small pause between print jobs so the user can see banner updates.
+    await new Promise(r => setTimeout(r, 600));
+  }
+  showToast('✓ ' + ok + ' sent' + (failed ? ' · ' + failed + ' failed' : ''));
 }
 
 // v10.335 — Zac's B1 ask: "a button that planned the most efficient
@@ -17930,7 +18012,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.342"></script>
+<script src="./pack.js?v=10.343"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17939,7 +18021,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.342<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.343<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

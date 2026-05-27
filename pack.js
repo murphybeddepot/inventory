@@ -410,10 +410,31 @@ function _packerDetailHtml_(o) {
     actionRow = '<div style="flex:1;padding:14px 18px;background:rgba(0,200,83,.10);border:1px solid rgba(0,200,83,.45);border-radius:10px;font-size:14px;color:#00C853;-webkit-text-fill-color:#00C853">✓ Packed by ' + esc(o.packed_by || '?') + (o.packed_at ? ' · ' + esc(String(o.packed_at).slice(0,16).replace('T',' ')) : '') + '</div>';
   }
 
-  // Cabinet pull list (locations from main cabinets[])
+  // Cabinet pull list (locations from main cabinets[]).
+  // v10.343 — one-tap Pull button per cabinet (Zac: "the packer
+  // should be able to mark the cabinet as pulled with a simple click,
+  // which would take it out of it's location and mark as pulled for
+  // fulfillment"). Uses device name as pulledBy, no modal.
   const cabRows = (typeof _resolveOrderCabinets_ === 'function') ? _resolveOrderCabinets_(o) : [];
   const cabSection = cabRows.length
-    ? '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🗄 Cabinets to Pull (' + cabRows.length + ')</div>' + cabRows.map(c => '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? '#00e676' : '#ff5252') + ';border-radius:6px;margin-bottom:4px"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</span><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + '">📍 ' + esc(c.location || '? not in inventory') + (c.pulled ? ' · pulled' : c.damaged ? ' · ⚠ damaged' : '') + '</span></div>').join('') + '</div>'
+    ? '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🗄 Cabinets to Pull (' + cabRows.length + ')</div>'
+      + cabRows.map(c => {
+          const pullBtn = (!c.pulled && !c.damaged && c.location)
+            ? '<button onclick="_quickPullCabinetFromPacker_(\'' + esc(c.num) + '\',\'' + ord + '\')" style="padding:8px 14px;background:#8B0000;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;flex-shrink:0">📤 Pull</button>'
+            : c.pulled
+              ? '<span style="padding:6px 12px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.55);-webkit-text-fill-color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.18);border-radius:6px;font-size:11px;font-weight:700;flex-shrink:0">✓ Pulled</span>'
+              : c.damaged
+                ? '<span style="padding:6px 12px;background:rgba(139,0,0,.20);color:#ff5252;-webkit-text-fill-color:#ff5252;border:1px solid rgba(139,0,0,.55);border-radius:6px;font-size:11px;font-weight:700;flex-shrink:0">🚫 Damaged</span>'
+                : '';
+          return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? (c.pulled ? '#666' : '#00e676') : '#ff5252') + ';border-radius:6px;margin-bottom:4px;'+(c.pulled?'opacity:.6':'')+'">'
+            + '<div style="min-width:0;flex:1">'
+            +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + '</span>' + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</div>'
+            +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + ';margin-top:2px">📍 ' + esc(c.location || '? not in inventory') + '</div>'
+            + '</div>'
+            + pullBtn
+            + '</div>';
+        }).join('')
+      + '</div>'
     : '';
 
   // Pre-pack mode toggle (kept per Q-P3 answer)
@@ -430,6 +451,14 @@ function _packerDetailHtml_(o) {
     +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ' + ord + '</div>'
     +     prePackBtn
     +     '<span style="padding:6px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:' + meta.bg + ';color:' + meta.color + ';border:1px solid ' + meta.color + '55;border-radius:999px">' + esc(meta.label) + '</span>'
+    +   '</div>'
+    // v10.343 — Print Instructions button at the top of the detail
+    // (Zac: "at the top of pre-pack or pack should be the print
+    // instructions button.. that way it would be printed by the time
+    // the picker is done picking the other elements in the list, if
+    // it wasn't pre-printed."). Solid blue fill, big tap target.
+    +   '<div style="margin-top:8px">'
+    +     '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="width:100%;padding:14px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;letter-spacing:.5px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px">🖨 Print Instructions Now' + (o.instructions_printed_at ? ' (last: ' + esc(String(o.instructions_printed_at).slice(0, 16).replace('T', ' ')) + ')' : '') + '</button>'
     +   '</div>'
     + '</div>'
     // SCAN INPUT — primary action, big, clear buttons (no orange-dot accents)
@@ -498,6 +527,37 @@ function _packerDetailHtml_(o) {
 
 function _togglePackerPrePackMode_(orderNumber) {
   _packDetailPrePackMode = !_packDetailPrePackMode;
+  const o = getCachedPipelineOrder(orderNumber);
+  if (o) _renderInOrdersPackerDetail_(o);
+}
+
+// v10.343 — one-tap pull from the packer detail. No modal, no
+// person-picker: uses the iPad's saved device name as pulledBy.
+// Updates local cabinets[] immediately, fire-and-forget syncs to
+// inventory-claude. Re-renders the packer detail so the row flips
+// to "✓ Pulled" status.
+function _quickPullCabinetFromPacker_(cabinetNum, orderNumber) {
+  if (typeof cabinets === 'undefined' || !Array.isArray(cabinets)) {
+    showToast('Cabinets inventory not loaded — refresh');
+    return;
+  }
+  const cab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(cabinetNum));
+  if (!cab) { showToast('Cabinet ' + cabinetNum + ' not in inventory'); return; }
+  if (cab.pulledAt) { showToast('Already pulled'); return; }
+  const me = (function () {
+    try { return localStorage.getItem('mbd_device_name') || ''; } catch (e) { return ''; }
+  })() || (typeof getPackDeviceName_ === 'function' ? getPackDeviceName_() : '') || 'packer';
+  if (!confirm('Pull ' + cabinetNum + ' from 📍 ' + (cab.location || '?') + ' for #' + orderNumber + '?')) return;
+  cab.pulledAt = (typeof nowStamp === 'function') ? nowStamp() : new Date().toISOString();
+  cab.pulledBy = me;
+  cab.updatedAt = cab.pulledAt;
+  if (typeof saveCabinets === 'function') saveCabinets();
+  showToast('✓ Pulled ' + cabinetNum);
+  // Best-effort push to inventory-claude so other devices see it.
+  if (typeof syncCabinetsNow === 'function') {
+    setTimeout(() => { try { syncCabinetsNow(true); } catch (e) {} }, 200);
+  }
+  // Re-render the packer detail so the row flips to ✓ Pulled.
   const o = getCachedPipelineOrder(orderNumber);
   if (o) _renderInOrdersPackerDetail_(o);
 }
@@ -1524,20 +1584,101 @@ function renderPackSkuList_(orderNumber) {
     const printChip = isInstSku
       ? '<button onclick="printInstructionsLink_(\''+esc(orderNumber)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:34px;padding:6px 10px;font-size:12px;font-weight:700;background:#37474f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;line-height:1.2;margin-right:4px" title="Print this INST-* instructions PDF">🖨 Print</button>'
       : '';
-    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:6px;background:'+bg+';border:1px solid '+border+';border-radius:8px">'
-      + '<div style="font-size:18px;font-weight:900;color:'+checkColor+';width:22px;text-align:center">'+checkChar+'</div>'
+    // v10.343 — Zac: "those minus and plus buttons are also absolutely
+    // horrible with the dots etc and i don't think we need them at all.
+    // i think what i'd originally asked for there was a simple click-
+    // to-mark-as-added-to-order not plus and minus buttons. a simple
+    // check or not would be fine." Row is the whole tap target. Tap
+    // toggles between scanned=0 (unchecked) and scanned=qty (checked).
+    // Qty>1 still tracks as scanned/qty progress but each tap is a
+    // full toggle (no partial). One tap = one server call = no race.
+    const qtyLabel = s.qty > 1 ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:var(--text-dim);margin-left:8px;flex-shrink:0">×' + s.qty + '</span>' : '';
+    return '<div onclick="toggleSkuChecked(\''+esc(orderNumber)+'\',' + idx + ')" '
+      + 'onmouseover="this.style.background=\'' + (isDone ? 'rgba(0,230,118,.18)' : 'rgba(255,255,255,.06)') + '\'" '
+      + 'onmouseout="this.style.background=\'' + bg + '\'" '
+      + 'style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:6px;background:'+bg+';border:1.5px solid '+border+';border-radius:10px;cursor:pointer;transition:background .12s,border-color .12s">'
+      // Big checkbox-style indicator (24px square)
+      + '<div style="width:26px;height:26px;border-radius:6px;border:2px solid '+(isDone?'#00C853':isOver?'#ff5252':'rgba(255,255,255,.35)')+';background:'+(isDone?'#00C853':'transparent')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;font-weight:900;color:'+(isDone?'#0a0a0a':isOver?'#ff5252':'transparent')+';-webkit-text-fill-color:'+(isDone?'#0a0a0a':isOver?'#ff5252':'transparent')+'">'+(isDone?'✓':isOver?'!':'')+'</div>'
       + '<div style="flex:1;min-width:0">'
-      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;color:var(--text);word-break:break-all">'+esc(s.sku)+'</div>'
-      +   (s.name && s.name !== s.sku ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">'+esc(s.name)+'</div>' : '')
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:'+(isDone?'700':'600')+';color:var(--text);word-break:break-all;'+(isDone?'text-decoration:line-through;opacity:.7':'')+'">'+esc(s.sku)+ qtyLabel +'</div>'
+      +   (s.name && s.name !== s.sku ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px;'+(isDone?'opacity:.6':'')+'">'+esc(s.name)+'</div>' : '')
       + '</div>'
-      + '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
-      +   printChip
-      +   '<button onclick="bumpPackSku(\''+esc(orderNumber)+'\',' + idx + ',-1)" class="amp-btn" style="padding:4px 9px;font-size:14px;min-width:32px">−</button>'
-      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:900;color:'+(isOver?'#ff5252':isDone?'#00e676':'var(--text)')+';min-width:48px;text-align:center">'+s.scanned+'/'+s.qty+'</div>'
-      +   '<button onclick="bumpPackSku(\''+esc(orderNumber)+'\',' + idx + ',1)" class="amp-btn go" style="padding:4px 9px;font-size:14px;min-width:32px">+</button>'
-      + '</div>'
+      + (printChip ? '<div onclick="event.stopPropagation()" style="flex-shrink:0">' + printChip + '</div>' : '')
       + '</div>';
   }).join('');
+}
+
+// v10.343 — replaces bumpPackSku ± clicks per Zac's "simple click-to-
+// mark-as-added-to-order" ask. Tapping a SKU row toggles scanned
+// between 0 (unchecked) and qty (fully checked). One server call per
+// tap, no race with subsequent retries. Server's recordPackScan
+// returns scanned_json; we trust the returned value FOR THIS SKU only
+// (never reset to 0 on undefined — that was the v10.342 flicker root).
+function toggleSkuChecked(orderNumber, idx) {
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus[idx]) return;
+  const s = state.skus[idx];
+  const prev = s.scanned;
+  const targetScanned = (prev >= s.qty) ? 0 : s.qty;
+  const delta = targetScanned - prev;
+  if (delta === 0) return;
+  // Optimistic local update
+  s.scanned = targetScanned;
+  renderPackSkuList_(orderNumber);
+
+  const bumpAction = _packActivePhase === 'checker' ? 'recordPackCheckScan' : 'recordPackScan';
+  packEnqueue_(orderNumber, async () => {
+    try {
+      const res = await groundApi(bumpAction, {
+        orderNumber: orderNumber,
+        scannedSku: s.sku,
+        manualAdjustment: true,
+        delta: delta,
+        deviceId: getPackDeviceId_(),
+      });
+      if (!res || !res.ok) {
+        // Revert on hard failure
+        if (_packScanState[orderNumber] && _packScanState[orderNumber].skus[idx]) {
+          _packScanState[orderNumber].skus[idx].scanned = prev;
+          if (typeof _packDetailOrderNumber !== 'undefined' && _packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+        }
+        showToast('Toggle failed: ' + ((res && res.error) || 'unknown'));
+        return;
+      }
+      // Persist server's returned scanned_json to cache so the next
+      // open shows the fresh state.
+      const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+      if (cached) {
+        if (_packActivePhase === 'checker') cached.checker_scanned_json = res.scanned_json;
+        else cached.scanned_json = res.scanned_json;
+      }
+      // Merge server values WITHOUT clobbering local state on undefined
+      // (the v10.342 flicker bug). Only update SKUs the server returned.
+      let serverByScannedSku = {};
+      try {
+        const arr = JSON.parse(res.scanned_json || '[]');
+        if (Array.isArray(arr)) arr.forEach(x => { serverByScannedSku[String(x.sku || '').trim()] = Number(x.scanned) || 0; });
+      } catch(e) {}
+      const localState = _packScanState[orderNumber];
+      if (localState) {
+        localState.skus.forEach(x => {
+          if (serverByScannedSku.hasOwnProperty(x.sku)) {
+            x.scanned = serverByScannedSku[x.sku];
+          }
+          // else: keep optimistic value — server didn't report this SKU,
+          // don't blank it. Eliminates the v10.342 "looks like it undoes
+          // for 10 seconds" race where stale responses zeroed checks.
+        });
+      }
+      if (typeof _packDetailOrderNumber !== 'undefined' && _packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+    } catch (err) {
+      if (_packScanState[orderNumber] && _packScanState[orderNumber].skus[idx]) {
+        _packScanState[orderNumber].skus[idx].scanned = prev;
+        if (typeof _packDetailOrderNumber !== 'undefined' && _packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
+      }
+      showToast('Toggle error: ' + err.message);
+    }
+  });
 }
 
 // v10.296 — Zac 11:30 EDT: "let's add the cabinet as a line... stock
@@ -2445,6 +2586,10 @@ function bumpPackSku(orderNumber, idx, delta) {
       // Authoritative apply for manual ± because the user's explicit intent
       // is the new count (not max-merge — a − tap should be able to
       // decrement past optimistic increments from concurrent scans).
+      // v10.343 — only update SKUs the server actually returned. Stale
+      // server responses that DIDN'T include the bumped SKU were zeroing
+      // it out, causing the "looks like it undoes for 10 seconds"
+      // flicker Zac flagged in v10.342. New rule: hasOwnProperty check.
       let serverByScannedSku = {};
       try {
         const arr = JSON.parse(res.scanned_json || '[]');
@@ -2453,8 +2598,9 @@ function bumpPackSku(orderNumber, idx, delta) {
       const localState = _packScanState[orderNumber];
       if (localState) {
         localState.skus.forEach(x => {
-          if (x.sku === s.sku) x.scanned = serverByScannedSku[x.sku] || 0;
-          else x.scanned = Math.max(x.scanned, serverByScannedSku[x.sku] || 0);
+          if (!serverByScannedSku.hasOwnProperty(x.sku)) return; // keep optimistic
+          if (x.sku === s.sku) x.scanned = serverByScannedSku[x.sku];
+          else x.scanned = Math.max(x.scanned, serverByScannedSku[x.sku]);
         });
       }
       if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
