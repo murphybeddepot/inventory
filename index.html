@@ -5095,7 +5095,9 @@ async function fetchUpcomingCabinets_(force) {
   if (!force && Date.now() - _upcomingLastFetchAt < FIVE_MIN) return;
   if (typeof groundApi !== 'function' || !GROUND_ORCH_URL) return;
   try {
-    const res = await groundApi('listUpcomingCabinets', { weeksAhead: 8 });
+    // v10.316 — also request weeksBack so past-dated open sessions
+    // (the in_receiving + received_pending flavors) come back too.
+    const res = await groundApi('listUpcomingCabinets', { weeksAhead: 8, weeksBack: 8 });
     if (res && res.ok && Array.isArray(res.upcoming)) {
       upcomingCabinets = res.upcoming;
       _upcomingLastFetchAt = Date.now();
@@ -5104,6 +5106,55 @@ async function fetchUpcomingCabinets_(force) {
   } catch (e) {
     // swallow — upcoming surfacing is best-effort, never blocks Cabinets tab
     console.warn('fetchUpcomingCabinets_ failed:', e);
+  }
+}
+
+// v10.316 — used by the "↻ Force Refresh Cabinet List" button on
+// the NO MATCH screen. Bypasses the 5-min throttle, re-runs the
+// search after the refresh.
+async function _forceRefreshUpcoming_(query) {
+  const result = document.getElementById('cabDiagnoseResult');
+  if (result) result.innerHTML = '<div style="padding:10px;color:#666;font-size:12px">Refreshing cabinet list…</div>';
+  await fetchUpcomingCabinets_(true);
+  if (result) result.innerHTML = '<div style="padding:10px;color:#1A5C1A;font-size:12px">Cabinet list refreshed (' + upcomingCabinets.length + ' upcoming/in-receiving). Re-searching…</div>';
+  setTimeout(() => renderCabResult(query), 400);
+}
+
+// v10.316 — used by the "🔍 Diagnose Why" button on the NO MATCH
+// screen. Hits the server's diagCabinetSearch, renders the verdict
+// + structured details so we can see exactly where the cabinet lives
+// (or doesn't) without combing through raw sheets.
+async function _runCabinetDiagnose_(query) {
+  const result = document.getElementById('cabDiagnoseResult');
+  if (!result) return;
+  result.innerHTML = '<div style="padding:12px;color:#666;font-size:13px;background:#fff;border:1px solid #e0e0e0;border-radius:8px">🔎 Asking the server about ' + esc(query) + '…</div>';
+  try {
+    const res = await groundApi('diagCabinetSearch', { cabinetNum: query });
+    if (!res || !res.ok) {
+      result.innerHTML = '<div style="padding:12px;color:#8B0000;font-size:13px;background:#fff;border:1.5px solid #8B0000;border-radius:8px">Diagnose failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    const sheetRowsHtml = (res.sheet_rows || []).length === 0
+      ? '<div style="font-size:12px;color:#8B0000;font-weight:700">No rows in WeeklyReceiveSessionCabinets.</div>'
+      : (res.sheet_rows || []).map(r => '<div style="font-size:12px;color:#1a1a1a;font-family:monospace;background:#fafafa;padding:6px 8px;border-radius:4px;margin-bottom:4px">session=<strong>' + esc(r.session_id) + '</strong> · received=<strong>' + (r.received ? 'TRUE' : 'FALSE') + '</strong> · received_at=' + esc(r.received_at || '—') + ' · damaged=' + (r.damaged ? 'TRUE' : 'FALSE') + ' · row=' + r.row_index + '</div>').join('');
+    const sessionsHtml = (res.sessions || []).length === 0
+      ? '<div style="font-size:12px;color:#666">No matching sessions.</div>'
+      : (res.sessions || []).map(s => '<div style="font-size:12px;color:#1a1a1a;font-family:monospace;background:#fafafa;padding:6px 8px;border-radius:4px;margin-bottom:4px">session=<strong>' + esc(s.session_id) + '</strong> · status=<strong>' + esc(s.status || '(empty)') + '</strong> · closed_at=' + esc(s.closed_at || '—') + ' · is_open=' + (s.is_open ? 'YES' : 'NO') + '</div>').join('');
+    const wouldHtml = (res.upcoming_would_return || []).length === 0
+      ? '<div style="font-size:12px;color:#8B0000;font-weight:700">listUpcomingCabinets would NOT return this cabinet.</div>'
+      : '<div style="font-size:12px;color:#1A5C1A;font-weight:700">listUpcomingCabinets WOULD return this cabinet (status=' + esc(res.upcoming_would_return[0].status) + '). Stale client cache — tap ↻ Force Refresh.</div>';
+    result.innerHTML = '<div style="padding:14px;background:#fff;border:1.5px solid #003087;border-radius:10px;color:#1a1a1a;text-align:left">'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;color:#003087;margin-bottom:8px">🔍 Diagnose: ' + esc(res.cabinet_num) + '</div>'
+      + '<div style="font-size:13px;color:#1a1a1a;background:#EAF0FB;padding:10px 12px;border-radius:8px;margin-bottom:12px;line-height:1.5">' + esc(res.verdict) + '</div>'
+      + '<div style="font-size:11px;font-weight:800;color:#444;text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">WeeklyReceiveSessionCabinets rows</div>'
+      + sheetRowsHtml
+      + '<div style="font-size:11px;font-weight:800;color:#444;text-transform:uppercase;letter-spacing:.8px;margin:10px 0 4px">Session statuses</div>'
+      + sessionsHtml
+      + '<div style="font-size:11px;font-weight:800;color:#444;text-transform:uppercase;letter-spacing:.8px;margin:10px 0 4px">listUpcomingCabinets verdict</div>'
+      + wouldHtml
+      + '</div>';
+  } catch (e) {
+    result.innerHTML = '<div style="padding:12px;color:#8B0000;font-size:13px;background:#fff;border:1.5px solid #8B0000;border-radius:8px">Diagnose error: ' + esc(e.message) + '</div>';
   }
 }
 
@@ -10099,6 +10150,16 @@ function renderCabResult(query) {
       + '<div style="font-size:13px;color:#666;margin-top:6px">Nothing found for "'+esc(query)+'".</div>'
       + (wasPulled ? '<div style="font-size:12px;color:#8B4000;margin-top:10px;background:#FFF3CC;padding:8px 12px;border-radius:6px;display:inline-block">ℹ This cabinet exists but was already pulled. Toggle "Show pulled" to see it.</div>' : '')
       + (wasDamaged ? '<div style="font-size:12px;color:#8B4000;margin-top:10px;background:#FFE0E0;padding:8px 12px;border-radius:6px;display:inline-block">🚫 This cabinet is marked damaged and hidden from search. Toggle "Show damaged" to see it.</div>' : '')
+      // v10.316 — actionable buttons when search comes up empty.
+      // Force-refresh re-fetches upcomingCabinets (bypasses 5-min
+      // throttle); Diagnose hits the new server-side diagCabinetSearch
+      // and explains exactly where the cabinet lives + why search
+      // can't see it.
+      + '<div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap">'
+      +   '<button onclick="_forceRefreshUpcoming_(\''+esc(query)+'\')" style="padding:10px 16px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">↻ Force Refresh Cabinet List</button>'
+      +   '<button onclick="_runCabinetDiagnose_(\''+esc(query)+'\')" style="padding:10px 16px;background:#003087;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">🔍 Diagnose Why</button>'
+      + '</div>'
+      + '<div id="cabDiagnoseResult" style="margin-top:14px;text-align:left"></div>'
       + '</div>';
     expandCabKeypad();
     return;
