@@ -3015,6 +3015,14 @@ function setOrdersScheduleView(view) {
   try { localStorage.setItem('mbd_orders_schedule_view', view); } catch (e) {}
   renderOrdersTab();
 }
+function _getOrdersScheduleShowPast_() {
+  try { return localStorage.getItem('mbd_orders_schedule_show_past') === 'true'; }
+  catch (e) { return false; }
+}
+function setOrdersScheduleShowPast(show) {
+  try { localStorage.setItem('mbd_orders_schedule_show_past', show ? 'true' : 'false'); } catch (e) {}
+  renderOrdersTab();
+}
 
 // v10.332 — Mon-Sun calendar grid showing 2 weeks (current + next)
 // at a time. Each day cell lists abbreviated order rows; tap to open.
@@ -3075,7 +3083,22 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
     days[d].push(o);
   });
   const todayIso = new Date().toISOString().slice(0, 10);
-  return dayOrder.map(d => {
+  // v10.333 — Zac 16:04: "should NOT start with the oldest date
+  // you've imported. It should be at today (but I don't like auto-
+  // scroll)." Default to hiding past dates; "Show past N days" toggle
+  // surfaces them inline without scrolling away from today.
+  const showPast = _getOrdersScheduleShowPast_();
+  const pastCount = dayOrder.filter(d => d !== '— no date —' && d < todayIso)
+    .reduce((sum, d) => sum + days[d].length, 0);
+  const filtered = showPast ? dayOrder : dayOrder.filter(d => d === '— no date —' || d >= todayIso);
+  let showPastToggleHtml = '';
+  if (pastCount > 0) {
+    showPastToggleHtml = '<div style="margin-bottom:10px;padding:8px 12px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.20);border-radius:8px;font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
+      + '<span>' + (showPast ? 'Showing ' : 'Hiding ') + pastCount + ' past order' + (pastCount === 1 ? '' : 's') + ' (shipped or overdue)</span>'
+      + '<button onclick="setOrdersScheduleShowPast(' + (showPast ? 'false' : 'true') + ')" style="padding:5px 12px;background:transparent;color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.30);border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">' + (showPast ? '🙈 Hide past' : '👁 Show past') + '</button>'
+      + '</div>';
+  }
+  return showPastToggleHtml + filtered.map(d => {
     const isPast = d !== '— no date —' && d < todayIso;
     const isToday = d === todayIso;
     const dayLabel = (() => {
@@ -3199,8 +3222,13 @@ function _renderOrdersCardHtml_(o, lens) {
       reasons.push({ label: 'OVERDUE · ' + daysLate + 'd past ship_date', color: '#c62828' });
     }
     if (reasons.length) {
-      attentionReasonHtml = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">'
+      attentionReasonHtml = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">'
         + reasons.map(r => '<span style="font-size:10px;font-weight:800;background:' + r.color + ';color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:6px">' + esc(r.label.toUpperCase()) + '</span>').join('')
+        // v10.333 — "🔍 Why" button. Hits diagOrderPipeline → shows
+        // verdict + PQ row + schedule overlay + holds, so we can see
+        // exactly why the pipeline decided what it did. Useful when
+        // gcal shows shipped but pipeline says stalled (Zac 31830).
+        + '<button onclick="event.stopPropagation();_diagOrderPipeline_(\'' + orderNum + '\')" style="font-size:10px;font-weight:800;background:transparent;color:rgba(255,255,255,.65);-webkit-text-fill-color:rgba(255,255,255,.65);padding:2px 8px;border:1px solid rgba(255,255,255,.30);border-radius:6px;cursor:pointer">🔍 Why</button>'
         + '</div>';
     }
   }
@@ -3234,11 +3262,14 @@ function _renderOrdersCardHtml_(o, lens) {
   const onHoldBadge = o.on_hold
     ? '<span style="font-size:10px;font-weight:800;background:rgba(122,62,0,.15);color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.hold_reason || '') + '">🚧 HOLD</span>'
     : '';
-  // v10.331 — Pack lens: dismiss button (A3b manual override). Sets
-  // on_active_list=FALSE so the auto-populate stops re-adding it.
-  // Reuses existing removeFromTodaysPackList endpoint.
+  // v10.331/333 — Pack lens: "Not Today" button. Removes the order
+  // from today's Pack list WITHOUT deleting anything. Zac 16:06:
+  // "looks like a trashcan/delete button" — relabeled to make the
+  // semantics explicit: it just sets on_active_list=FALSE so the
+  // auto-populate stops re-adding it. The order still exists, still
+  // ships, still shows in Schedule.
   const dismissBtn = (lens === 'pack')
-    ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Dismiss from Active Pack List (operator override — auto-populate won\'t re-add)" style="display:inline-flex;align-items:center;flex-shrink:0;padding:6px 10px;background:rgba(255,82,82,.10);color:#ff5252;border:1px solid rgba(255,82,82,.45);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">🗑 Dismiss</button>'
+    ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Remove from today\'s pack list (the order isn\'t deleted — it just won\'t show on Pack Today). Operator override; auto-populate stops re-adding it." style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(255,179,0,.10);color:#FFB300;-webkit-text-fill-color:#FFB300;border:1px solid rgba(255,179,0,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">⏭ Not Today</button>'
     : '';
   return ''
     + '<div onclick="openOrderDetail(\'' + orderNum + '\')" title="Open order detail" style="cursor:pointer;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;transition:background .12s,border-color .12s" onmouseover="this.style.background=\'rgba(255,255,255,.06)\';this.style.borderColor=\'rgba(0,230,118,.35)\'" onmouseout="this.style.background=\'rgba(255,255,255,.03)\';this.style.borderColor=\'rgba(255,255,255,.10)\'">'
@@ -3269,7 +3300,7 @@ function _renderOrdersCardHtml_(o, lens) {
 // operator can re-add via "+ Add to List" on the old Pack tab (still
 // hidden but available) or a future Orders-tab add button.
 async function _dismissFromPackLens_(orderNumber) {
-  if (!confirm('Dismiss #' + orderNumber + ' from the Active Pack List?\n\nThis sets the operator override to FALSE — the auto-populate by ship date won\'t re-add it. You can manually re-add via the old Pack tab if needed.')) return;
+  if (!confirm('Remove #' + orderNumber + ' from today\'s Pack list?\n\n• The order is NOT deleted — it still ships, still shows in Schedule, still tracks everything.\n• Just removes it from the Pack Today lens (auto-populate won\'t re-add).\n• You can manually re-add later from the old Pack tab.')) return;
   try {
     const res = await groundApi('removeFromTodaysPackList', { orderNumbers: [String(orderNumber)] });
     if (!res || !res.ok) { showToast('Dismiss failed: ' + ((res && res.error) || 'unknown')); return; }
@@ -3280,7 +3311,7 @@ async function _dismissFromPackLens_(orderNumber) {
       const o = _orderPipelineCache.find(x => String(x.order_number) === String(orderNumber));
       if (o) { o.on_active_list = 'FALSE'; o.is_on_active_list = false; }
     }
-    showToast('🗑 Dismissed #' + orderNumber);
+    showToast('⏭ Removed #' + orderNumber + ' from today\'s pack list');
     if (typeof renderOrdersTab === 'function') renderOrdersTab();
     // Background refresh so we pick up the canonical server state.
     setTimeout(() => { refreshOrderPipeline({ force: true }).then(() => renderOrdersTab()); }, 1500);
@@ -5626,6 +5657,58 @@ async function _emergencyAddCabinetToInventory_(cabinetNum, deliveryDate) {
   setTimeout(() => {
     if (typeof renderCabResult === 'function') renderCabResult(cabinetNum);
   }, 300);
+}
+
+// v10.333 — "🔍 Why" button on Needs Attention cards. Fires
+// diagOrderPipeline and renders an overlay with the verdict + raw
+// PackingQueue row + Schedule overlay + Holds for the order. Lets the
+// operator see why the pipeline decided what it did when gcal/PQ
+// state seems to disagree (Zac 16:17 EDT: 31830 stalled but gcal
+// shows shipped).
+async function _diagOrderPipeline_(orderNumber) {
+  const prior = document.getElementById('diagOrderOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'diagOrderOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10020;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.className = 'keep-dark-text';
+  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px;max-width:720px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.5)';
+  body.innerHTML = '<div style="padding:20px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important">🔎 Asking the server about #' + esc(orderNumber) + '…</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+  try {
+    const res = await groundApi('diagOrderPipeline', { orderNumber: orderNumber });
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="padding:14px;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important">Diagnose failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    const kv = (obj, keys) => {
+      if (!obj) return '<div style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic">(none)</div>';
+      const useKeys = keys || Object.keys(obj);
+      return useKeys.map(k => {
+        const v = obj[k];
+        if (v === null || v === undefined || v === '') return null;
+        return '<div style="display:flex;gap:8px;padding:2px 0;font-family:monospace;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"><span style="color:#666 !important;-webkit-text-fill-color:#666 !important;min-width:140px">' + esc(k) + '</span><span style="word-break:break-all">' + esc(typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</span></div>';
+      }).filter(Boolean).join('');
+    };
+    body.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🔍 Diagnose: #' + esc(res.order_number) + '</div>'
+      +   '<button onclick="document.getElementById(\'diagOrderOverlay\').remove()" style="background:transparent;border:none;font-size:22px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer">✕</button>'
+      + '</div>'
+      + '<div style="background:#EAF0FB !important;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#003087 !important;-webkit-text-fill-color:#003087 !important;line-height:1.5">' + esc(res.verdict || '(no verdict)') + '</div>'
+      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">Pipeline row (computed)</div>'
+      + kv(res.pipeline_row, ['order_number','ship_date','status','pipeline_status','is_on_active_list','stalled','stall_reasons','cal_h','cal_b','cal_p','cal_l','cal_shipped','carrier_display','booker','booked_at','customer_ready','hw_needs_count','on_hold'])
+      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 4px">Schedule overlay (what listScheduleByDateRange returned)</div>'
+      + kv(res.schedule_row, ['order_number','ship_date','status','stalled','stall_reasons','cal_h','cal_b','cal_p','cal_l','cal_shipped','cal_label','carrier_key','carrier_display','sched_stage','cal_sourced'])
+      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 4px">Holds</div>'
+      + kv(res.hold_row)
+      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 4px">Raw PackingQueue row (key fields)</div>'
+      + kv(res.packing_queue_row, ['order_number','ship_date','status','on_active_list','hardware_packed_at','booked_at','customer_ready','customer_name','task_line','pick_list_pdf_url','last_updated_at']);
+  } catch (err) {
+    body.innerHTML = '<div style="padding:14px;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important">Diagnose error: ' + esc(err.message) + '</div>';
+  }
 }
 
 // v10.317 — used by the "🔄 Re-push session to server" button on the
@@ -17546,7 +17629,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.332"></script>
+<script src="./pack.js?v=10.333"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17555,7 +17638,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.332<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.333<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
