@@ -3038,10 +3038,17 @@ function planPackTodayRoute() {
     if (!cabToOrders[n]) cabToOrders[n] = { orders: new Set(), source: 'captured' };
     cabToOrders[n].orders.add(String(orderNum));
   };
+  // v10.337 — track orders that have NO detected cabinets so we can
+  // surface them as MTO/pending-capture entries instead of silently
+  // dropping them (Zac: "you left out all MTO cabinets").
+  const ordersWithoutCabinets = [];
   orders.forEach(o => {
+    let foundAny = false;
     try {
       const captured = JSON.parse(o.cabinets_packed_json || '[]');
-      if (Array.isArray(captured)) captured.forEach(c => { if (c && c.num) addCab(c.num, o.order_number); });
+      if (Array.isArray(captured)) captured.forEach(c => {
+        if (c && c.num) { addCab(c.num, o.order_number); foundAny = true; }
+      });
     } catch (e) {}
     const tline = String(o.task_line || o.cal_label || '');
     const matches = tline.match(/\b(?:D|STK|C|E)\d{2,4}(?:-[A-Z0-9]+)?\b/gi);
@@ -3049,9 +3056,19 @@ function planPackTodayRoute() {
       const n = m.trim().toUpperCase();
       if (!cabToOrders[n]) { addCab(n, o.order_number); cabToOrders[n].source = 'task_line'; }
       else cabToOrders[n].orders.add(String(o.order_number));
+      foundAny = true;
     });
+    if (!foundAny) {
+      // Likely MTO / RMK / custom build — no stock cabinet # to pre-pull.
+      // Surface in the route so the operator knows to find it at pack time.
+      ordersWithoutCabinets.push({
+        order_number: o.order_number,
+        customer: o.customer_name || o.cal_label || o.task_line || '',
+        ship_date: o.ship_date || '',
+      });
+    }
   });
-  if (!Object.keys(cabToOrders).length) {
+  if (!Object.keys(cabToOrders).length && !ordersWithoutCabinets.length) {
     showToast('No cabinet #s found on today\'s orders');
     return;
   }
@@ -3071,42 +3088,55 @@ function planPackTodayRoute() {
       missing: !cab,
     };
   });
-  // Group by zone (first alpha char of location), sort within.
-  const byZone = {};
+  // v10.337 — Zac: "it looks random. and what is the 'other' before
+  // each location?" Real warehouse locations are like "007.005"
+  // (aisle.bay, parseLocation), not "B-04". My old regex never
+  // matched so EVERY cabinet became its own "OTHER (007.005)" zone.
+  // Fix: use parseLocation to bucket by aisle number, then sort by
+  // bay number within. Non-bay locations (RECEIVING, BUMPER, PALLET)
+  // get their own buckets keyed by name (no "OTHER" wrapper).
   entries.forEach(e => {
-    let zone;
-    if (e.missing) zone = '⚠ NOT IN INVENTORY';
-    else if (e.pulled) zone = '✓ PULLED';
-    else {
-      const m = String(e.location || '').match(/^([A-Z])/i);
-      if (m) zone = m[1].toUpperCase() + '-ROW';
-      else if (/PALLET/i.test(e.location)) zone = 'PALLET';
-      else if (/RECEIVING/i.test(e.location)) zone = '📦 RECEIVING';
-      else zone = e.location ? 'OTHER (' + e.location + ')' : '? LOCATION UNKNOWN';
+    if (e.missing) { e._zone = '⚠ NOT IN INVENTORY'; e._zoneRank = 9990; e._bayNum = 0; return; }
+    if (e.pulled)  { e._zone = '✓ ALREADY PULLED';  e._zoneRank = 9999; e._bayNum = 0; return; }
+    const parsed = (typeof parseLocation === 'function') ? parseLocation(e.location) : null;
+    if (parsed) {
+      const aisleNum = parseInt(parsed.aisle, 10) || 0;
+      e._zone = 'AISLE ' + parsed.aisle;
+      e._zoneRank = aisleNum;
+      e._bayNum = parseInt(parsed.bay, 10) || 0;
+      return;
     }
-    (byZone[zone] = byZone[zone] || []).push(e);
+    // Non-bay locations — use the raw location name as the zone.
+    // Common ones (RECEIVING, BUMPER, PALLET) bucket cleanly; unusual
+    // ones still each get their own bucket but with the actual name,
+    // not a confusing "OTHER ()" prefix.
+    const loc = String(e.location || '').trim().toUpperCase();
+    if (loc) { e._zone = '📦 ' + loc; e._zoneRank = 8000 + loc.charCodeAt(0); e._bayNum = 0; }
+    else     { e._zone = '? UNKNOWN LOCATION'; e._zoneRank = 9980; e._bayNum = 0; }
   });
-  // Walk order: A → Z → PALLET → RECEIVING → OTHER → NOT IN INVENTORY → PULLED
-  const zoneSort = (a, b) => {
-    const rank = (z) => {
-      if (z === '✓ PULLED') return 100;
-      if (z === '⚠ NOT IN INVENTORY') return 99;
-      if (/^\? /.test(z)) return 95;
-      if (/^OTHER/.test(z)) return 90;
-      if (z === '📦 RECEIVING') return 85;
-      if (z === 'PALLET') return 80;
-      if (/^[A-Z]-ROW$/.test(z)) return z.charCodeAt(0);
-      return 50;
-    };
-    return rank(a) - rank(b);
-  };
-  Object.keys(byZone).forEach(z => byZone[z].sort((a, b) => a.location.localeCompare(b.location)));
-  const sortedZones = Object.keys(byZone).sort(zoneSort);
+  const byZone = {};
+  const zoneRank = {};
+  entries.forEach(e => {
+    (byZone[e._zone] = byZone[e._zone] || []).push(e);
+    zoneRank[e._zone] = e._zoneRank;
+  });
+  // Sort within each zone: aisle zones by bay#, other zones alphanumeric.
+  Object.keys(byZone).forEach(z => {
+    if (/^AISLE /.test(z)) {
+      byZone[z].sort((a, b) => a._bayNum - b._bayNum);
+    } else {
+      byZone[z].sort((a, b) => String(a.location).localeCompare(String(b.location)));
+    }
+  });
+  // Walk order: AISLE 001 → AISLE 012, then non-bay buckets, then
+  // unknown/missing/pulled at the end.
+  const sortedZones = Object.keys(byZone).sort((a, b) => (zoneRank[a] || 0) - (zoneRank[b] || 0));
   // Render modal
-  _renderPackRouteModal_(sortedZones, byZone, orders.length, entries.length);
+  _renderPackRouteModal_(sortedZones, byZone, orders.length, entries.length, ordersWithoutCabinets);
 }
 
-function _renderPackRouteModal_(sortedZones, byZone, orderCount, cabinetCount) {
+function _renderPackRouteModal_(sortedZones, byZone, orderCount, cabinetCount, ordersWithoutCabinets) {
+  ordersWithoutCabinets = ordersWithoutCabinets || [];
   const prior = document.getElementById('packRouteOverlay');
   if (prior) prior.remove();
   const ov = document.createElement('div');
@@ -3147,12 +3177,31 @@ function _renderPackRouteModal_(sortedZones, byZone, orderCount, cabinetCount) {
         }).join('')
       + '</div>';
   }).join('');
+  // v10.337 — MTO / unidentified orders section. Surfaces orders that
+  // had no detectable cabinet # (typical for MTO / RMK / custom builds
+  // where the cabinet doesn't have a stock number to pre-pull).
+  let mtoHtml = '';
+  if (ordersWithoutCabinets.length) {
+    mtoHtml = '<div style="margin-top:14px;padding:10px 12px;background:rgba(171,71,188,.15);border:1px solid rgba(171,71,188,.45);border-radius:6px">'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#ce93d8;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">'
+      +   '<span>🛠 MTO / Custom — locate at pack time</span>'
+      +   '<span style="font-size:11px;opacity:.85">' + ordersWithoutCabinets.length + ' order' + (ordersWithoutCabinets.length === 1 ? '' : 's') + '</span>'
+      + '</div>'
+      + '<div style="font-size:11px;color:rgba(255,255,255,.65);margin-bottom:6px;line-height:1.4">No stock cabinet # detected — likely Made-to-Order. Find at pack time (the production area, RMK bay, or wherever your warehouse stages MTO).</div>'
+      + ordersWithoutCabinets.map(o => '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 10px;background:rgba(255,255,255,.04);border-left:3px solid #ab47bc;border-radius:4px;margin-bottom:3px;font-size:13px">'
+          + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#fff">#' + esc(o.order_number) + '</span>'
+          + '<span style="font-size:11px;color:rgba(255,255,255,.75);flex:1;margin-left:8px;min-width:0;overflow:hidden;text-overflow:ellipsis">' + esc(o.customer) + '</span>'
+          + (o.ship_date ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:rgba(255,255,255,.65)">📅 ' + esc(o.ship_date) + '</span>' : '')
+          + '</div>').join('')
+      + '</div>';
+  }
   body.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:1px">🗺 Today\'s Pick Route</div>'
     +   '<button onclick="document.getElementById(\'packRouteOverlay\').remove()" style="background:transparent;border:none;font-size:22px;color:rgba(255,255,255,.65);cursor:pointer">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:14px;line-height:1.5">' + cabinetCount + ' cabinet' + (cabinetCount === 1 ? '' : 's') + ' across ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + '. Walk top→bottom: row by row. Cabinets shown as <span style="background:rgba(255,179,0,.20);color:#FFB300;padding:1px 5px;border-radius:3px;font-size:10px;letter-spacing:.5px">PREDICTED</span> were extracted from task_line — verify in person.</div>'
-    + zonesHtml;
+    + '<div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:14px;line-height:1.5">' + cabinetCount + ' stock cabinet' + (cabinetCount === 1 ? '' : 's') + ' across ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + (ordersWithoutCabinets.length ? ' (+ ' + ordersWithoutCabinets.length + ' MTO/custom — see bottom)' : '') + '. Aisles sorted ascending; bays sorted by bay# within each aisle. <span style="background:rgba(255,179,0,.20);color:#FFB300;padding:1px 5px;border-radius:3px;font-size:10px;letter-spacing:.5px">PREDICTED</span> entries came from task_line — verify in person.</div>'
+    + zonesHtml
+    + mtoHtml;
   ov.appendChild(body);
   document.body.appendChild(ov);
 }
@@ -17782,7 +17831,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.336"></script>
+<script src="./pack.js?v=10.337"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -17791,7 +17840,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.336<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.337<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
