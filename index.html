@@ -72,10 +72,15 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .header h1{font-family:'Barlow Condensed','Barlow',sans-serif;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:var(--text);text-shadow:0 0 14px rgba(0,230,118,.3);display:flex;align-items:baseline;gap:2px}
 .header h1 .bed{font-family:'Barlow Condensed','Barlow',sans-serif;color:var(--text)}
 .header h1 .rock{font-family:'Audiowide','Barlow Condensed',sans-serif;font-weight:400;letter-spacing:.5px;color:var(--green-bright,#00E676);text-shadow:0 0 18px rgba(0,230,118,.7),0 0 4px rgba(0,230,118,.4)}
-.header-badge{background:transparent;border:1px solid var(--green-bright);color:var(--green-bright);border-radius:0;padding:4px 10px;font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;font-family:'JetBrains Mono','Barlow Condensed',monospace;box-shadow:0 0 8px rgba(0,230,118,.25),inset 0 0 8px rgba(0,230,118,.08)}
+/* v10.345 — sync indicator. .synced (green) at 0, .unsynced (amber) when >0. */
+.header-badge{background:transparent;border:1px solid var(--green-bright);color:var(--green-bright);border-radius:0;padding:4px 10px;font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;font-family:'JetBrains Mono','Barlow Condensed',monospace;box-shadow:0 0 8px rgba(0,230,118,.25),inset 0 0 8px rgba(0,230,118,.08);cursor:pointer;transition:filter .12s}
+.header-badge:hover{filter:brightness(1.2)}
+.header-badge.unsynced{border-color:#FFB300;color:#FFB300;-webkit-text-fill-color:#FFB300;box-shadow:0 0 10px rgba(255,179,0,.30),inset 0 0 8px rgba(255,179,0,.12)}
 
 .tabs{display:flex;background:#000;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.5)}
-.tab-btn{flex:1;padding:14px 4px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:14px;font-weight:800;color:var(--text-dim);background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:1.5px;transition:all .15s ease}
+/* v10.345 — tab bar: icon + label per tab, thicker active underline (4px). */
+.tab-btn{flex:1;padding:8px 4px 10px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:11px;font-weight:800;color:var(--text-dim);background:none;border:none;border-bottom:4px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .15s ease;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.2;min-height:48px}
+.tab-btn .tab-icon{font-size:18px;line-height:1;display:block}
 .tab-btn:hover{color:var(--green-bright)}
 .tab-btn.active{color:var(--green-bright);border-bottom-color:var(--green-bright);text-shadow:0 0 10px rgba(0,230,118,.45);background:linear-gradient(180deg,rgba(0,230,118,.08),transparent)}
 .panel{display:none;padding:14px}
@@ -1105,22 +1110,22 @@ input::placeholder, textarea::placeholder {
 <body>
 
 <div class="header">
-  <h1><span class="bed">BED</span><span class="rock">ROCK</span></h1>
-  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge">0 changes</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
+  <h1 id="bedrockLogo" style="cursor:pointer;-webkit-user-select:none;user-select:none" title="Long-press to toggle dev info"><span class="bed">BED</span><span class="rock">ROCK</span></h1>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge" onclick="_onSyncBadgeTap_()" title="Tap to see pending changes">✓ Synced</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
   <!-- Primary tabs: only Cabinets + Ground are in active production
        use. Pre-Pack/Pack/Schedule are still being iterated on and
        live in the ⋯ More menu until the workflows are battle-tested. -->
-  <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')">Cabinets</button>
+  <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')"><span class="tab-icon">🗄</span><span>Cabinets</span></button>
   <!-- v10.327 — unified Orders tab (PACK_REDESIGN A2c). Replaces the
        Schedule + Pre-Pack + Pack tabs which previously lived in the
        More menu. They stay registered below (hidden, display:none)
        during the migration so any deep links / saved tab state still
        work; they're removed in step 7 once parity is validated. -->
-  <button class="tab-btn" id="tab-orders-btn" onclick="switchTab('orders')">Orders</button>
-  <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')">Ground</button>
-  <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()" style="flex:0 0 60px">⋯</button>
+  <button class="tab-btn" id="tab-orders-btn" onclick="switchTab('orders')"><span class="tab-icon">📦</span><span>Orders</span></button>
+  <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')"><span class="tab-icon">🚚</span><span>Ground</span></button>
+  <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()" style="flex:0 0 64px"><span class="tab-icon">☰</span><span>More</span></button>
   <!-- Hidden / More-menu-only tabs -->
   <button class="tab-btn" id="tab-lookup-btn" onclick="switchTab('lookup')" style="display:none">Lookup</button>
   <button class="tab-btn" id="tab-prepack-btn" onclick="switchTab('prepack')" style="display:none">Pre-Pack</button>
@@ -4081,9 +4086,26 @@ function esc(s) {
 }
 function updateBadge() {
   const n=inv.filter(i=>i._changed).length;
-  document.getElementById('changedBadge').textContent=n+' change'+(n!==1?'s':'');
+  const badge = document.getElementById('changedBadge');
+  if (badge) {
+    // v10.345 — sync indicator semantics: 0 = ✓ Synced (green); >0 = ⚠ N unsynced (amber).
+    badge.textContent = n === 0 ? '✓ Synced' : ('⚠ ' + n + ' unsynced');
+    badge.classList.toggle('unsynced', n > 0);
+    badge.title = n === 0 ? 'All inventory changes have been saved' : 'Tap to review the ' + n + ' inventory change' + (n === 1 ? '' : 's') + ' waiting to sync';
+  }
   const ts = document.getElementById('syncTime');
   if(ts && n > 0){ ts.textContent = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+}
+
+// v10.345 — sync badge click: route to the tab where changes live so the
+// warehouse operator can see what's pending instead of guessing.
+function _onSyncBadgeTap_() {
+  const n = (typeof inv !== 'undefined' && Array.isArray(inv)) ? inv.filter(i => i._changed).length : 0;
+  if (n === 0) {
+    if (typeof showToast === 'function') showToast('✓ All synced');
+    return;
+  }
+  if (typeof switchTab === 'function') switchTab('scan');
 }
 // ── FEEDBACK ENGINE ───────────────────────────────────────────────────────────
 // Haptic vibration + Web Audio sounds + visual flourishes (+1 pop, streak,
@@ -18126,7 +18148,9 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.345<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
+     see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.345<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
@@ -18191,6 +18215,52 @@ startAutoSync();
       } catch (e) {}
       return null;
     };
+
+    // ── v10.345: dev chrome toggle (long-press BED ROCK logo) ──────────
+    // Reviewer ask: "Hide the floating v10.X DEV STABLE 3h pill behind a
+    // long-press on the BED ROCK logo. Warehouse staff shouldn't see dev
+    // chrome." Default OFF; persists across reloads via localStorage.
+    const DEV_CHROME_KEY = 'mbd_show_dev_chrome';
+    function _setDevChromeVisibility_(visible) {
+      const pill = document.getElementById('versionPill');
+      if (pill) pill.style.display = visible ? '' : 'none';
+    }
+    function _toggleDevChrome_() {
+      let visible = false;
+      try { visible = localStorage.getItem(DEV_CHROME_KEY) === '1'; } catch (e) {}
+      visible = !visible;
+      try { localStorage.setItem(DEV_CHROME_KEY, visible ? '1' : '0'); } catch (e) {}
+      _setDevChromeVisibility_(visible);
+      if (typeof showToast === 'function') {
+        showToast(visible ? 'Dev info visible' : 'Dev info hidden');
+      }
+    }
+    // Restore visibility on boot
+    document.addEventListener('DOMContentLoaded', () => {
+      let visible = false;
+      try { visible = localStorage.getItem(DEV_CHROME_KEY) === '1'; } catch (e) {}
+      _setDevChromeVisibility_(visible);
+      // Wire long-press on the logo (~700ms; matches iOS HIG long-press).
+      const logo = document.getElementById('bedrockLogo');
+      if (!logo) return;
+      let pressTimer = null;
+      let fired = false;
+      const start = (e) => {
+        fired = false;
+        pressTimer = setTimeout(() => { fired = true; _toggleDevChrome_(); }, 700);
+      };
+      const cancel = () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      };
+      logo.addEventListener('touchstart', start, { passive: true });
+      logo.addEventListener('touchend', cancel);
+      logo.addEventListener('touchcancel', cancel);
+      logo.addEventListener('mousedown', start);
+      logo.addEventListener('mouseup', cancel);
+      logo.addEventListener('mouseleave', cancel);
+      // Prevent the iOS context-menu interrupting the long-press.
+      logo.addEventListener('contextmenu', (e) => { if (fired) e.preventDefault(); });
+    });
   })();
 </script>
 
