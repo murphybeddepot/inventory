@@ -1548,12 +1548,38 @@ input::placeholder, textarea::placeholder {
       <button onclick="refreshOrderPipeline({force:true}).then(()=>renderOrdersTab())" class="amp-btn" style="font-size:13px;padding:8px 16px;display:inline-flex;align-items:center;flex-shrink:0">↻ Refresh</button>
     </div>
   </div>
-  <!-- Lens chips -->
-  <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
-    <button id="ordersLensSchedule"  onclick="setOrdersLens('schedule')"  class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">📅 Schedule</button>
-    <button id="ordersLensPrepack"   onclick="setOrdersLens('prepack')"   class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">🔧 Pre-Pack Today</button>
-    <button id="ordersLensPack"      onclick="setOrdersLens('pack')"      class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">📦 Pack Today</button>
-    <button id="ordersLensAttention" onclick="setOrdersLens('attention')" class="amp-btn" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;flex-shrink:0">⚠ Needs Attention</button>
+  <!-- v10.345 Lens chips — compact 2x2 grid, gold rivets removed (reserved
+       for Refresh plaque), live count badge top-right, clear active state. -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+    <button id="ordersLensSchedule"  onclick="setOrdersLens('schedule')"  data-lens="schedule"
+      style="position:relative;padding:11px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.14);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
+      <span style="font-size:16px;line-height:1">📅</span><span style="flex:1">Schedule</span>
+      <span class="ordersLensCount" data-count-lens="schedule" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
+    </button>
+    <button id="ordersLensPrepack"   onclick="setOrdersLens('prepack')"   data-lens="prepack"
+      style="position:relative;padding:11px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.14);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
+      <span style="font-size:16px;line-height:1">🔧</span><span style="flex:1">Pre-Pack Today</span>
+      <span class="ordersLensCount" data-count-lens="prepack" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
+    </button>
+    <button id="ordersLensPack"      onclick="setOrdersLens('pack')"      data-lens="pack"
+      style="position:relative;padding:11px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.14);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
+      <span style="font-size:16px;line-height:1">📦</span><span style="flex:1">Pack Today</span>
+      <span class="ordersLensCount" data-count-lens="pack" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
+    </button>
+    <button id="ordersLensAttention" onclick="setOrdersLens('attention')" data-lens="attention"
+      style="position:relative;padding:11px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.14);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
+      <span style="font-size:16px;line-height:1">⚠</span><span style="flex:1">Needs Attention</span>
+      <span class="ordersLensCount" data-count-lens="attention" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
+    </button>
+  </div>
+  <!-- v10.345 H/B/P/L legend — dismissible on first load. -->
+  <div id="ordersLetterLegend" style="display:none;margin-bottom:10px;padding:7px 12px;background:rgba(0,48,135,.10);border:1px solid rgba(0,48,135,.40);border-radius:6px;font-size:11px;color:var(--text);display:flex;align-items:center;gap:10px;flex-wrap:wrap;line-height:1.4">
+    <span style="font-weight:800;letter-spacing:.5px">GCal status:</span>
+    <span><span style="font-family:'JetBrains Mono',monospace;font-weight:900;color:#00e676">H</span> Hardware</span>
+    <span><span style="font-family:'JetBrains Mono',monospace;font-weight:900;color:#00e676">B</span> Boxed</span>
+    <span><span style="font-family:'JetBrains Mono',monospace;font-weight:900;color:#00e676">P</span> Packed</span>
+    <span><span style="font-family:'JetBrains Mono',monospace;font-weight:900;color:#00e676">L</span> Labels</span>
+    <button onclick="_dismissOrdersLetterLegend_()" style="margin-left:auto;padding:3px 8px;background:transparent;color:rgba(255,255,255,.55);-webkit-text-fill-color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.25);border-radius:4px;font-size:10px;font-weight:700;cursor:pointer">✕ got it</button>
   </div>
   <div id="ordersStatus" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
   <div id="ordersList" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -2934,6 +2960,13 @@ function switchTab(name) {
 
 const _ORDERS_VALID_LENSES = ['schedule','prepack','pack','attention'];
 
+// v10.345 — dismiss handler for the H/B/P/L legend strip.
+function _dismissOrdersLetterLegend_() {
+  try { localStorage.setItem('mbd_orders_letter_legend_dismissed', '1'); } catch (e) {}
+  const el = document.getElementById('ordersLetterLegend');
+  if (el) el.style.display = 'none';
+}
+
 function _getOrdersActiveLens_() {
   try {
     const saved = localStorage.getItem('mbd_orders_lens');
@@ -2956,16 +2989,53 @@ function setOrdersLens(lens) {
 
 function renderOrdersTab() {
   const lens = _getOrdersActiveLens_();
-  // Paint chip active state
+  const orders = Array.isArray(_orderPipelineCache) ? _orderPipelineCache : [];
+  // v10.345 — populate per-lens count badges + active-state. Pre-compute
+  // each lens's filtered length (cheap; same orders array).
+  const lensCounts = {
+    schedule: _filterOrdersForLens_(orders, 'schedule').length,
+    prepack:  _filterOrdersForLens_(orders, 'prepack').length,
+    pack:     _filterOrdersForLens_(orders, 'pack').length,
+    attention:_filterOrdersForLens_(orders, 'attention').length,
+  };
   _ORDERS_VALID_LENSES.forEach(L => {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
     if (!btn) return;
     const active = (L === lens);
-    btn.style.background = active ? '#003087' : '';
+    // Active = filled blue; inactive = subtle dark card. No gold rivets.
+    btn.style.background = active ? '#003087' : 'rgba(255,255,255,.04)';
     btn.style.color = active ? '#fff' : '';
     btn.style.webkitTextFillColor = active ? '#fff' : '';
+    btn.style.borderColor = active ? '#1565c0' : 'rgba(255,255,255,.14)';
+    btn.style.boxShadow = active ? '0 0 0 1px rgba(21,101,192,.45)' : '';
+    // Count badge
+    const cnt = lensCounts[L];
+    const badge = btn.querySelector('.ordersLensCount');
+    if (badge) {
+      badge.textContent = cnt;
+      const isAttention = (L === 'attention');
+      if (cnt === 0) {
+        badge.style.background = 'rgba(255,255,255,.06)';
+        badge.style.color = 'rgba(255,255,255,.35)';
+        badge.style.webkitTextFillColor = 'rgba(255,255,255,.35)';
+      } else if (isAttention) {
+        // Red badge for Needs Attention when count > 0.
+        badge.style.background = '#c62828';
+        badge.style.color = '#fff';
+        badge.style.webkitTextFillColor = '#fff';
+      } else {
+        badge.style.background = active ? 'rgba(255,255,255,.18)' : 'rgba(0,230,118,.18)';
+        badge.style.color = active ? '#fff' : '#00e676';
+        badge.style.webkitTextFillColor = active ? '#fff' : '#00e676';
+      }
+    }
   });
-  const orders = Array.isArray(_orderPipelineCache) ? _orderPipelineCache : [];
+  // Show H/B/P/L legend once until dismissed.
+  try {
+    const dismissed = localStorage.getItem('mbd_orders_letter_legend_dismissed') === '1';
+    const legend = document.getElementById('ordersLetterLegend');
+    if (legend) legend.style.display = dismissed ? 'none' : 'flex';
+  } catch (e) {}
   const filtered = _filterOrdersForLens_(orders, lens);
   const status = document.getElementById('ordersStatus');
   if (status) {
@@ -3440,12 +3510,18 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
     const countColor  = isToday ? 'rgba(0,230,118,.85)' : 'rgba(255,255,255,.7)';
     const headerBg = isToday ? 'rgba(0,230,118,.12)' : isPast ? 'rgba(255,255,255,.05)' : 'rgba(0,48,135,.18)';
     const headerBorder = isToday ? 'rgba(0,230,118,.55)' : isPast ? 'rgba(255,255,255,.18)' : 'rgba(0,48,135,.45)';
+    // v10.345 — sticky section header + suppress per-row date when it
+    // matches the section date. Set the module-local before rendering
+    // the day's cards, clear after.
+    _renderOrdersCardHtml_._sectionShipDate = d;
+    const cardsHtml = days[d].map(o => _renderOrdersCardHtml_(o, 'schedule')).join('');
+    _renderOrdersCardHtml_._sectionShipDate = '';
     return '<div style="margin-bottom:14px' + (isPast ? ';opacity:.55' : '') + '">'
-      + '<div style="padding:10px 14px;background:' + headerBg + ';border:1px solid ' + headerBorder + ';border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + ';text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      + '<div style="position:sticky;top:0;z-index:5;padding:10px 14px;background:' + headerBg + ';backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid ' + headerBorder + ';border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + ';text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
       +   '<span style="color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + '">' + esc(dayLabel) + (isToday ? ' · TODAY' : '') + '</span>'
       +   '<span style="font-size:12px;font-weight:700;letter-spacing:.5px;color:' + countColor + ';-webkit-text-fill-color:' + countColor + '">' + days[d].length + ' order' + (days[d].length === 1 ? '' : 's') + '</span>'
       + '</div>'
-      + days[d].map(o => _renderOrdersCardHtml_(o, 'schedule')).join('')
+      + cardsHtml
       + '</div>';
   }).join('');
 }
@@ -3497,10 +3573,16 @@ function _renderOrdersCardHtml_(o, lens) {
   // the order number. it should be the latter on all orders."
   // Restoring the v10.308 fix for the new lens — Schedule shows
   // cal_label first; other lenses keep showing the human customer name.
-  const customer = (lens === 'schedule')
-    ? esc(o.cal_label || o.task_line || o.customer_name || '')
-    : esc(o.customer_name || o.cal_label || o.task_line || '');
+  // v10.345 — strip the leading order# from cal_label/task_line so it
+  // doesn't duplicate the big 31972 already shown on the row.
+  const rawDesc = (lens === 'schedule')
+    ? String(o.cal_label || o.task_line || o.customer_name || '')
+    : String(o.customer_name || o.cal_label || o.task_line || '');
+  const ordRe = new RegExp('\\b' + String(o.order_number || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'g');
+  const customer = esc(rawDesc.replace(ordRe, '').trim().replace(/^[-·•:\s]+/, ''));
   const pStatus = String(o.pipeline_status || 'unknown');
+  // v10.345 — UNKNOWN was gray (reads as "neutral/fine"); flipped to
+  // amber so it reads as "needs review". Same for the label text.
   const pillBg = ({
     shipped:           '#1A5C1A',
     packed:            '#00C853',
@@ -3511,9 +3593,9 @@ function _renderOrdersCardHtml_(o, lens) {
     arriving:          '#1565c0',
     stalled:           '#8B0000',
     on_hold:           '#7A3E00',
-    unknown:           '#555',
-  })[pStatus] || '#555';
-  const pillLabel = pStatus.toUpperCase().replace(/_/g, ' ');
+    unknown:           '#FF8F00',
+  })[pStatus] || '#FF8F00';
+  const pillLabel = pStatus === 'unknown' ? 'NO STATUS' : pStatus.toUpperCase().replace(/_/g, ' ');
   // v10.342 — Zac: "ready-for-checker (packed by [person]) should be
   // a pill view in pack today so the other person (say Evan) can
   // check jobs packed by Jonah." Surface the state distinctly so
@@ -3532,15 +3614,18 @@ function _renderOrdersCardHtml_(o, lens) {
   // v10.332 — Schedule cards show the gcal status letters (H/B/P/L)
   // + shipped flag like the original Schedule tab did. Solid-color
   // chips so they read; greens for done, gray for pending.
+  // v10.345 — title= attr for long-press / desktop hover tooltip
+  // (best guess at meanings; Zac to confirm).
   let calLettersHtml = '';
   if (lens === 'schedule' || lens === 'attention') {
-    const letterChip = (label, active) => '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;font-weight:900;letter-spacing:.5px;padding:2px 6px;border-radius:4px;margin-left:3px;background:' + (active ? '#00C853' : 'rgba(255,255,255,.10)') + ';color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + ';-webkit-text-fill-color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + '">' + label + '</span>';
+    const letterMeanings = { H: 'Hardware', B: 'Boxed (pre-pack done)', P: 'Packed', L: 'Labels printed' };
+    const letterChip = (label, active) => '<span title="' + letterMeanings[label] + (active ? ' — done' : ' — pending') + '" style="font-family:\'JetBrains Mono\',monospace;font-size:10px;font-weight:900;letter-spacing:.5px;padding:2px 6px;border-radius:4px;margin-left:3px;background:' + (active ? '#00C853' : 'rgba(255,255,255,.10)') + ';color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + ';-webkit-text-fill-color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + '">' + label + '</span>';
     calLettersHtml = '<span style="margin-left:8px;display:inline-flex;align-items:center;gap:1px">'
       + letterChip('H', !!o.cal_h)
       + letterChip('B', !!o.cal_b)
       + letterChip('P', !!o.cal_p)
       + letterChip('L', !!o.cal_l)
-      + (o.cal_shipped ? '<span style="font-size:10px;font-weight:900;padding:2px 6px;border-radius:4px;margin-left:3px;background:#1A5C1A;color:#fff;-webkit-text-fill-color:#fff">✓ SHIPPED</span>' : '')
+      + (o.cal_shipped ? '<span title="Marked shipped on gcal (green event color)" style="font-size:10px;font-weight:900;padding:2px 6px;border-radius:4px;margin-left:3px;background:#1A5C1A;color:#fff;-webkit-text-fill-color:#fff">✓ SHIPPED</span>' : '')
       + '</span>';
   }
   // v10.332 — carrier indicator on Schedule cards (matches old Schedule tab).
@@ -3655,12 +3740,28 @@ function _renderOrdersCardHtml_(o, lens) {
   // schedule for some reason" — operator needs to be able to diagnose
   // from any lens, not just Needs Attention. Tiny chip, far-right.
   const whyBtn = '<button onclick="event.stopPropagation();_diagOrderPipeline_(\'' + orderNum + '\')" title="Diagnose why this order shows here (server-side pipeline_status + Schedule overlay + Holds + raw PQ)" style="display:inline-flex;align-items:center;flex-shrink:0;padding:4px 8px;background:transparent;color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border:1px solid rgba(255,255,255,.20);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer">🔍</button>';
+  // v10.345 — suppress redundant pStatus pill on Pack lens (lens chip
+  // already says "Pack Today"); suppress per-row 📅 date when caller
+  // signals it matches the section header (Schedule date-grouped view).
+  const hidePackTodayPill = (lens === 'pack' && pStatus === 'pack_today');
+  const statusPillHtml = hidePackTodayPill
+    ? ''
+    : '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:' + pillBg + ';color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:999px">' + esc(pillLabel) + '</span>';
+  // sectionShipDate is passed via _renderOrdersCardHtml_._sectionShipDate
+  // (module-local) to avoid changing the function signature in the many
+  // call sites. Schedule date-grouped render sets it per day; everyone
+  // else leaves it undefined.
+  const hideRowDate = (typeof _renderOrdersCardHtml_._sectionShipDate === 'string'
+    && _renderOrdersCardHtml_._sectionShipDate === String(o.ship_date || ''));
+  const rowDateHtml = hideRowDate
+    ? ''
+    : '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--text-dim)">📅 ' + ship + '</div>';
   return ''
     + '<div onclick="openOrderDetail(\'' + orderNum + '\')" title="Open order detail" style="cursor:pointer;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;transition:background .12s,border-color .12s" onmouseover="this.style.background=\'rgba(255,255,255,.06)\';this.style.borderColor=\'rgba(0,230,118,.35)\'" onmouseout="this.style.background=\'rgba(255,255,255,.03)\';this.style.borderColor=\'rgba(255,255,255,.10)\'">'
     +   '<div style="min-width:0;flex:1">'
     +     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
     +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);letter-spacing:.5px">' + orderNum + '</span>'
-    +       '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:' + pillBg + ';color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:999px">' + esc(pillLabel) + '</span>'
+    +       statusPillHtml
     +       hwBadge
     +       readyForCheckPill
     +       stalledBadge
@@ -3674,7 +3775,7 @@ function _renderOrdersCardHtml_(o, lens) {
     +     hwLinesHtml
     +   '</div>'
     +   '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">'
-    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--text-dim)">📅 ' + ship + '</div>'
+    +     rowDateHtml
     +     dismissBtn
     +     whyBtn
     +     '<span style="font-size:18px;color:rgba(255,255,255,.30);line-height:1;align-self:center" title="Tap row to open detail">›</span>'
@@ -18016,7 +18117,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.344"></script>
+<script src="./pack.js?v=10.345"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -18025,7 +18126,7 @@ startAutoSync();
      (version + orchestrator URL + secret state + packer + device id).
      Avoids the user having to dig through Ground Settings to verify
      basic config. -->
-<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.344<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.345<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
