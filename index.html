@@ -3752,6 +3752,15 @@ function _renderOrdersCardHtml_(o, lens) {
   const statusPillHtml = hidePackTodayPill
     ? ''
     : '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:' + pillBg + ';color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:999px">' + esc(pillLabel) + '</span>';
+  // v10.349 — operational status read FROM THE SPINE (orders_spine.status,
+  // the JS2-mirrored ops milestone: ORDERED / IN PRODUCTION / CUSTOMER
+  // READY / …). Distinct purple chip so it reads as the ops status, next
+  // to the warehouse-lifecycle pill. First Orders-tab read sourced from
+  // Postgres rather than re-derived from sheets.
+  const spineStatus = String(o.spine_status || '').trim();
+  const spineStatusChip = spineStatus
+    ? '<span title="Operational status — from the order spine (Postgres / mirrored from JS2)" style="font-size:10px;font-weight:800;letter-spacing:.5px;background:#4527a0;color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:3px">📋 ' + esc(spineStatus.toUpperCase()) + '</span>'
+    : '';
   // sectionShipDate is passed via _renderOrdersCardHtml_._sectionShipDate
   // (module-local) to avoid changing the function signature in the many
   // call sites. Schedule date-grouped render sets it per day; everyone
@@ -3766,6 +3775,7 @@ function _renderOrdersCardHtml_(o, lens) {
     +   '<div style="min-width:0;flex:1">'
     +     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
     +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);letter-spacing:.5px">' + orderNum + '</span>'
+    +       spineStatusChip
     +       statusPillHtml
     +       hwBadge
     +       readyForCheckPill
@@ -18139,7 +18149,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.346"></script>
+<script src="./pack.js?v=10.349"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -18150,7 +18160,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.346<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.349<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
