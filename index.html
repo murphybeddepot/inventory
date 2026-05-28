@@ -1137,6 +1137,7 @@ input::placeholder, textarea::placeholder {
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')" style="display:none">Barcodes</button>
   <button class="tab-btn" id="tab-log-btn" onclick="switchTab('log')" style="display:none">Log</button>
   <button class="tab-btn" id="tab-export-btn" onclick="switchTab('export')" style="display:none">Export</button>
+  <button class="tab-btn" id="tab-recount-btn" onclick="switchTab('recount')" style="display:none">Recount</button>
 </div>
 
 <!-- Setup nudge — shows when GROUND_SECRET or GROUND_ORCH_URL is empty,
@@ -1596,6 +1597,36 @@ input::placeholder, textarea::placeholder {
        tab via an explicit "Open Pack Workflow" button — that's a
        follow-up migration. -->
   <div id="ordersDetail" style="display:none"></div>
+</div>
+
+<!-- v10.351 — Guided Recount (inventory/BOM spine Phase 1). Writes a fresh
+     on-hand baseline straight to Supabase items via recordInventoryCount.
+     Separate from the diverged Stock tab on purpose. -->
+<div id="tab-recount" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">🧮 Guided Recount</div>
+    <div id="recountProgress" style="font-size:12px;font-weight:700;color:var(--text-dim)"></div>
+  </div>
+  <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;line-height:1.5">Fresh inventory baseline → Supabase. Set a location, then scan/type each item and its physical count. Unknown items are added on the fly. These counts do <strong>not</strong> touch the old Stock tab.</div>
+
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+    <label for="recountLocation" style="font-size:12px;font-weight:800;color:var(--text-dim);letter-spacing:.5px">📍 LOCATION</label>
+    <input id="recountLocation" placeholder="e.g. Shelf A3 (optional, sticks)" autocomplete="off" style="flex:1;min-width:160px;padding:9px 12px;font-size:14px;background:#000;color:var(--green-bright);-webkit-text-fill-color:var(--green-bright);border:1.5px solid rgba(0,230,118,.35);border-radius:8px;outline:none">
+  </div>
+
+  <div style="background:rgba(0,0,0,.45);border:2px solid #4527a0;border-radius:12px;padding:14px;margin-bottom:14px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;color:#b39ddb;-webkit-text-fill-color:#b39ddb;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">📦 Count an item</div>
+    <input id="recountSku" placeholder="Scan or type item SKU…" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();recountLookup&&recountLookup();}" style="width:100%;padding:16px 14px;font-size:18px;font-family:'JetBrains Mono',monospace;letter-spacing:1.5px;background:#000;color:#ce93d8;-webkit-text-fill-color:#ce93d8;border:2px solid #4527a0;border-radius:10px;outline:none;box-sizing:border-box">
+    <div id="recountItemInfo" style="font-size:12px;color:var(--text-dim);min-height:16px;margin-top:8px"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="recountQty" type="number" inputmode="decimal" min="0" placeholder="Counted qty" onkeydown="if(event.key==='Enter'){event.preventDefault();recountSubmit&&recountSubmit();}" style="flex:1;min-width:0;padding:14px;font-size:18px;font-family:'JetBrains Mono',monospace;background:#000;color:#fff;-webkit-text-fill-color:#fff;border:2px solid rgba(255,255,255,.25);border-radius:10px;outline:none;box-sizing:border-box">
+      <button onclick="recountSubmit&&recountSubmit()" style="flex-shrink:0;padding:14px 22px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:10px;font-size:16px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">✓ Record</button>
+    </div>
+    <div id="recountStatus" style="font-size:12px;min-height:16px;margin-top:8px"></div>
+  </div>
+
+  <div id="recountRecent" style="margin-bottom:14px"></div>
+  <div id="recountList"></div>
 </div>
 
 <div id="tab-cabinets" class="panel active">
@@ -2892,7 +2923,7 @@ function switchTab(name) {
     setPackTabMode('prepack');
     return;
   }
-  ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export','orders'].forEach(t => {
+  ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export','orders','recount'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
     if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
@@ -2907,7 +2938,7 @@ function switchTab(name) {
   const tabLabels = {
     scan: 'Inventory', prepack: 'Pre-Pack', pack: 'Pack', cabinets: 'Cabinets',
     items: 'Stock', ground: 'Ground', cycle: 'Count', barcodes: 'Barcodes',
-    log: 'Log', export: 'Export', orders: 'Orders',
+    log: 'Log', export: 'Export', orders: 'Orders', recount: 'Recount',
   };
   const label = tabLabels[name];
   document.title = label ? (label + ' — Bedrock') : 'Bedrock';
@@ -2915,7 +2946,7 @@ function switchTab(name) {
   // Primary in production: cabinets + ground only. Everything else lives
   // in the More menu and lights up the ⋯ button when active.
   const moreBtn = document.getElementById('tab-more-btn');
-  const moreOwnedTabs = ['lookup','schedule','prepack','pack','items','cycle','barcodes','log','export'];
+  const moreOwnedTabs = ['lookup','schedule','prepack','pack','items','cycle','barcodes','log','export','recount'];
   if (moreBtn) moreBtn.classList.toggle('active', moreOwnedTabs.indexOf(name) >= 0);
   if (name==='export') renderExport();
   if (name==='log') renderLog();
@@ -2943,6 +2974,7 @@ function switchTab(name) {
   if (name==='cabinets') renderCabinets();
   if (name==='items') renderItems();
   if (name==='cycle') renderCycleTab();
+  if (name==='recount' && typeof renderRecountTab === 'function') renderRecountTab();
   if (name==='ground') renderGroundTab();
   if (name==='scan') PROGRESS.refresh();
   // v10.327 — Orders tab: load pipeline cache + render lens.
@@ -18149,7 +18181,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.349"></script>
+<script src="./pack.js?v=10.351"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -18160,7 +18192,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.349<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.351<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

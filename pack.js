@@ -11665,3 +11665,152 @@ function renderLookupDamage_(h) {
     + _lkTimeline_(h);
   return _lkCard('Damage record', '#ff5252', rec.status, body);
 }
+
+
+// ══════════════════════════════════════════════════════════════════
+// v10.351 — Guided Recount (inventory/BOM spine Phase 1, client)
+// Writes a fresh on-hand baseline to Supabase `items` via the
+// recordInventoryCount endpoint. Separate from the diverged Stock tab.
+// ══════════════════════════════════════════════════════════════════
+let _recountItems = [];   // cached item master (from listInventoryItems)
+let _recountRecent = [];  // this-session counts, newest first
+
+async function renderRecountTab() {
+  const prog = document.getElementById('recountProgress');
+  const list = document.getElementById('recountList');
+  if (prog) prog.textContent = 'loading…';
+  try {
+    const res = await groundApi('listInventoryItems', { limit: 5000 });
+    if (res && res.ok && Array.isArray(res.items)) {
+      _recountItems = res.items;
+    } else if (res && !res.ok) {
+      if (prog) prog.textContent = '';
+      if (list) list.innerHTML = '<div style="padding:20px;text-align:center;color:#ff8f00;font-size:13px">' + esc(res.error || 'inventory spine not ready') + '</div>';
+      return;
+    }
+  } catch (e) {
+    if (prog) prog.textContent = '';
+    if (list) list.innerHTML = '<div style="padding:20px;text-align:center;color:#ff5252;font-size:13px">Load failed: ' + esc(e.message) + '</div>';
+    return;
+  }
+  _renderRecountProgress_();
+  _renderRecountRecent_();
+  _renderRecountList_();
+  const skuInput = document.getElementById('recountSku');
+  if (skuInput) setTimeout(() => { try { skuInput.focus(); } catch (e) {} }, 120);
+}
+
+function _recountFindItem_(sku) {
+  const key = String(sku || '').trim().toUpperCase();
+  if (!key) return null;
+  return _recountItems.find(i => String(i.item_sku || '').toUpperCase() === key) || null;
+}
+
+function recountLookup() {
+  const skuInput = document.getElementById('recountSku');
+  const info = document.getElementById('recountItemInfo');
+  const qtyInput = document.getElementById('recountQty');
+  if (!skuInput || !info) return;
+  const sku = String(skuInput.value || '').trim();
+  if (!sku) { info.textContent = ''; return; }
+  const item = _recountFindItem_(sku);
+  if (item) {
+    const oh = (item.on_hand == null) ? 'uncounted' : item.on_hand;
+    const loc = item.location ? ' · 📍 ' + esc(item.location) : '';
+    const last = item.last_counted_at ? ' · last ' + String(item.last_counted_at).slice(0, 10) : '';
+    info.innerHTML = '<span style="color:#00e676;font-weight:700">✓ known:</span> ' + esc(item.name || item.item_sku) + ' · on-hand ' + esc(String(oh)) + loc + last;
+  } else {
+    info.innerHTML = '<span style="color:#FFB300;font-weight:700">＋ new item</span> — added when you record a count';
+  }
+  if (qtyInput) setTimeout(() => { try { qtyInput.focus(); } catch (e) {} }, 50);
+}
+
+async function recountSubmit() {
+  const skuInput = document.getElementById('recountSku');
+  const qtyInput = document.getElementById('recountQty');
+  const locInput = document.getElementById('recountLocation');
+  const status = document.getElementById('recountStatus');
+  if (!skuInput || !qtyInput) return;
+  const sku = String(skuInput.value || '').trim();
+  const qtyRaw = String(qtyInput.value || '').trim();
+  const setErr = (m) => { if (status) { status.style.color = '#ff5252'; status.textContent = m; } };
+  if (!sku) { setErr('Enter a SKU'); skuInput.focus(); return; }
+  if (qtyRaw === '') { setErr('Enter a count'); qtyInput.focus(); return; }
+  const qty = Number(qtyRaw);
+  if (isNaN(qty) || qty < 0) { setErr('Count must be a number ≥ 0'); qtyInput.focus(); return; }
+  const location = locInput ? String(locInput.value || '').trim() : '';
+  if (status) { status.style.color = 'var(--text-dim)'; status.textContent = 'Recording…'; }
+  const by = (function () { try { return localStorage.getItem('mbd_device_name') || ''; } catch (e) { return ''; } })();
+  try {
+    const res = await groundApi('recordInventoryCount', { itemSku: sku, countedQty: qty, location: location, by: by });
+    if (!res || !res.ok) { setErr('Failed: ' + ((res && res.error) || 'unknown')); return; }
+    let item = _recountFindItem_(sku);
+    if (!item) { item = { item_sku: sku }; _recountItems.push(item); }
+    item.on_hand = qty;
+    if (location) item.location = location;
+    item.last_counted_at = new Date().toISOString();
+    _recountRecent.unshift({ sku: sku, qty: qty, location: location, created: !!res.created });
+    if (_recountRecent.length > 25) _recountRecent.pop();
+    if (status) { status.style.color = '#00e676'; status.textContent = '✓ ' + sku + ' = ' + qty + (res.created ? ' (new item added)' : ''); }
+    skuInput.value = '';
+    qtyInput.value = '';
+    const info = document.getElementById('recountItemInfo');
+    if (info) info.textContent = '';
+    try { skuInput.focus(); } catch (e) {}
+    _renderRecountProgress_();
+    _renderRecountRecent_();
+    _renderRecountList_();
+  } catch (e) {
+    setErr('Error: ' + e.message);
+  }
+}
+
+function _renderRecountProgress_() {
+  const prog = document.getElementById('recountProgress');
+  if (!prog) return;
+  const total = _recountItems.length;
+  const counted = _recountItems.filter(i => i.last_counted_at).length;
+  prog.textContent = counted + ' counted · ' + (total - counted) + ' uncounted · ' + total + ' items';
+}
+
+function _renderRecountRecent_() {
+  const el = document.getElementById('recountRecent');
+  if (!el) return;
+  if (!_recountRecent.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div style="font-size:11px;font-weight:800;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Recent (this session)</div>'
+    + _recountRecent.slice(0, 10).map(r =>
+        '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 10px;background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.20);border-radius:6px;margin-bottom:4px;font-size:12px">'
+        + '<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text)">' + esc(r.sku) + (r.location ? ' <span style="color:var(--text-dim)">· 📍 ' + esc(r.location) + '</span>' : '') + '</span>'
+        + '<span style="font-weight:800;color:#00e676">' + esc(String(r.qty)) + (r.created ? ' <span style="color:#FFB300;font-weight:600">new</span>' : '') + '</span>'
+        + '</div>'
+      ).join('');
+}
+
+function _renderRecountList_() {
+  const el = document.getElementById('recountList');
+  if (!el) return;
+  if (!_recountItems.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px;font-style:italic">No items yet. Scan/type a SKU + count above to add the first one.</div>';
+    return;
+  }
+  const sorted = _recountItems.slice().sort((a, b) => {
+    const ac = a.last_counted_at ? 1 : 0, bc = b.last_counted_at ? 1 : 0;
+    if (ac !== bc) return ac - bc;
+    return String(a.item_sku || '').localeCompare(String(b.item_sku || ''));
+  });
+  el.innerHTML = '<div style="font-size:11px;font-weight:800;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Items (uncounted first)</div>'
+    + sorted.map(i => {
+        const counted = !!i.last_counted_at;
+        const oh = (i.on_hand == null) ? '—' : i.on_hand;
+        const skuEsc = esc(String(i.item_sku || ''));
+        return '<div onclick="_recountPrefill_(\'' + skuEsc.replace(/'/g, "\\'") + '\')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;background:' + (counted ? 'rgba(255,255,255,.03)' : 'rgba(255,143,0,.08)') + ';border:1px solid ' + (counted ? 'rgba(255,255,255,.10)' : 'rgba(255,143,0,.35)') + ';border-radius:8px;margin-bottom:4px;cursor:pointer">'
+          + '<div style="min-width:0"><div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;color:var(--text);font-weight:700">' + skuEsc + '</div>' + (i.name ? '<div style="font-size:11px;color:var(--text-dim)">' + esc(i.name) + '</div>' : '') + '</div>'
+          + '<div style="text-align:right;flex-shrink:0">' + (counted ? '<span style="font-weight:800;color:#00e676">' + esc(String(oh)) + '</span>' : '<span style="font-size:11px;color:#FFB300;font-weight:700">uncounted</span>') + (i.location ? '<div style="font-size:10px;color:var(--text-dim)">📍 ' + esc(i.location) + '</div>' : '') + '</div>'
+          + '</div>';
+      }).join('');
+}
+
+function _recountPrefill_(sku) {
+  const skuInput = document.getElementById('recountSku');
+  if (skuInput) { skuInput.value = sku; recountLookup(); }
+}
