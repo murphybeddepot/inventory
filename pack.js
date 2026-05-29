@@ -4058,7 +4058,11 @@ async function applyPackParsedToActiveOrder_(parsed, source) {
 function _bedrockPickToSkuLines_(session) {
   const out = [];
   const buckets = (session && session.buckets) || {};
-  ['cabinet', 'frame', 'hardware'].forEach(function (b) {
+  // v10.388 — exclude the 'cabinet' bucket: the physical cabinet is pulled
+  // via "Cabinets to Pull" (the stock assignment, e.g. D020), NOT scanned as
+  // a pick-list SKU line. Including it double-listed the cabinet + showed the
+  // order# instead of the stock #. Frame + hardware are the picked items.
+  ['frame', 'hardware'].forEach(function (b) {
     (buckets[b] || []).forEach(function (it) {
       const sku = String(it.item_sku || it.sku || '').trim();
       if (!sku) return;
@@ -4088,6 +4092,10 @@ async function loadBedrockPickList_(orderNumber) {
     setPackScanState_(orderNumber, skuLines);
     renderPackSkuList_(orderNumber);
     setStatus('Loaded ' + skuLines.length + ' items — saving…');
+    // v10.388 — schedule/pipeline orders (e.g. 32039) have no PackingQueue
+    // row yet, so updatePackJobSkus + every scan/toggle 404s ("order not
+    // found in queue"). Bootstrap the row first so scans persist.
+    await groundApi('ensurePackQueueRowExists', { orderNumber: orderNumber });
     const save = await groundApi('updatePackJobSkus', { orderNumber: orderNumber, skuLines: skuLines, source: 'bedrock_native' });
     if (!save || !save.ok) { setStatus('Shown locally but server save failed: ' + ((save && save.error) || 'unknown')); return; }
     const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
