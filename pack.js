@@ -4062,7 +4062,9 @@ function _bedrockPickToSkuLines_(session) {
   // via "Cabinets to Pull" (the stock assignment, e.g. D020), NOT scanned as
   // a pick-list SKU line. Including it double-listed the cabinet + showed the
   // order# instead of the stock #. Frame + hardware are the picked items.
-  ['frame', 'hardware'].forEach(function (b) {
+  // frame + hardware are picked; instruction is the INST-* sheet to print
+  // (rendered with a Print chip). Cabinet is excluded (Cabinets to Pull).
+  ['frame', 'hardware', 'instruction'].forEach(function (b) {
     (buckets[b] || []).forEach(function (it) {
       const sku = String(it.item_sku || it.sku || '').trim();
       if (!sku) return;
