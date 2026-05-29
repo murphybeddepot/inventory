@@ -1568,6 +1568,20 @@ function packNorm_(s) {
   return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+// v10.390 — conservative client heuristic for Pre-Pack mode: is this SKU
+// CLEARLY not hardware (a frame/slat, the cabinet, or an instruction sheet)?
+// Used to hide obvious non-HW instantly while the server categorize loads.
+// Only matches unambiguous non-HW; everything else stays visible.
+function _packLooksNonHardware_(sku) {
+  const k = String(sku || '').toUpperCase().trim();
+  if (!k) return false;
+  if (/^INST-/.test(k)) return true;                               // instruction sheet
+  if (/SLAT|^BC[12]\b|^SBF\b|^SBF-|^SBLM\b|NEXTBED|FRAME/.test(k)) return true; // frame/slat
+  if (/^\d{3,}$/.test(k)) return true;                             // cabinet = order number
+  if (/^CABINET\b/.test(k)) return true;
+  return false;
+}
+
 function renderPackSkuList_(orderNumber) {
   const list = document.getElementById('packSkuList');
   const prog = document.getElementById('packSkuProgress');
@@ -1604,10 +1618,14 @@ function renderPackSkuList_(orderNumber) {
     const cat = _packDetailCategoryCache[orderNumber] || {};
     visibleSkus = state.skus.filter(s => {
       const key = String(s.sku || '').toUpperCase();
-      // Default visible if not yet categorized (categorization is async;
-      // the SKU list paints immediately, the filter tightens once the
-      // category call resolves and we re-render).
-      return !cat[key] || cat[key] === 'hardware';
+      // Server categorization wins once it lands.
+      if (cat[key]) return cat[key] === 'hardware';
+      // v10.390 — until categorize resolves, hide the CLEARLY non-hardware
+      // items immediately (frames/slats/cabinet/instruction) instead of
+      // showing everything and waiting for the async round-trip. Conservative:
+      // only hides obvious non-HW; anything ambiguous stays visible until the
+      // server categorize refines it (no real hardware gets hidden).
+      return !_packLooksNonHardware_(key);
     });
   }
   const done = visibleSkus.filter(s => s.scanned >= s.qty).length;
@@ -1698,23 +1716,24 @@ function toggleSkuChecked(orderNumber, idx) {
         if (_packActivePhase === 'checker') cached.checker_scanned_json = res.scanned_json;
         else cached.scanned_json = res.scanned_json;
       }
-      // Merge server values WITHOUT clobbering local state on undefined
-      // (the v10.342 flicker bug). Only update SKUs the server returned.
-      let serverByScannedSku = {};
+      // v10.390 — reconcile ONLY the SKU this tap changed. The old code
+      // merged the server's FULL scanned_json, which clobbered other
+      // in-flight optimistic toggles: tapping item B while item A's call is
+      // still running, A's response (which predates B's write) reset B to 0
+      // → "not following my click" + flicker. Each serialized call now
+      // trusts the server only for its own SKU; every other SKU keeps its
+      // optimistic value (a later call reconciles each in turn).
+      let serverScannedForThisSku;
       try {
         const arr = JSON.parse(res.scanned_json || '[]');
-        if (Array.isArray(arr)) arr.forEach(x => { serverByScannedSku[String(x.sku || '').trim()] = Number(x.scanned) || 0; });
+        if (Array.isArray(arr)) {
+          const hit = arr.find(x => String(x.sku || '').trim() === s.sku);
+          if (hit) serverScannedForThisSku = Number(hit.scanned) || 0;
+        }
       } catch(e) {}
       const localState = _packScanState[orderNumber];
-      if (localState) {
-        localState.skus.forEach(x => {
-          if (serverByScannedSku.hasOwnProperty(x.sku)) {
-            x.scanned = serverByScannedSku[x.sku];
-          }
-          // else: keep optimistic value — server didn't report this SKU,
-          // don't blank it. Eliminates the v10.342 "looks like it undoes
-          // for 10 seconds" race where stale responses zeroed checks.
-        });
+      if (localState && localState.skus[idx] && serverScannedForThisSku !== undefined) {
+        localState.skus[idx].scanned = serverScannedForThisSku;
       }
       if (typeof _packDetailOrderNumber !== 'undefined' && _packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
     } catch (err) {
