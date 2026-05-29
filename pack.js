@@ -1580,10 +1580,17 @@ function renderPackSkuList_(orderNumber) {
     // list now shows a clear no-scan-needed override path: tap
     // "Mark Packed (no SKU list)" → manager PIN → flips status
     // straight to packed bypassing scan verification.
+    // v10.387 — Zac: "a lot of orders still say no sku list available."
+    // When no PDF/email pick list was parsed, offer the NATIVE Bedrock
+    // pick list (Postgres BOM + variant map → cabinet/frame/hardware),
+    // so cabinet orders aren't dead-ended. One tap builds + persists it.
+    const pickStatusId = 'bedrockPickStatus_' + String(orderNumber).replace(/[^A-Za-z0-9]/g, '');
     list.innerHTML =
       '<div style="background:rgba(255,179,0,.10);border:1.5px dashed rgba(255,179,0,.55);border-radius:10px;padding:14px;margin-bottom:10px">'
       + '<div style="font-size:13px;font-weight:800;color:#FFB300;margin-bottom:6px">⚠ No SKU list available</div>'
-      + '<div style="font-size:12px;color:var(--text-dim);line-height:1.45;margin-bottom:10px">No pick list was parsed for this order (could be a remake / no email yet / gcal had no link). You can upload one below, OR use the override to mark packed without scan verification.</div>'
+      + '<div style="font-size:12px;color:var(--text-dim);line-height:1.45;margin-bottom:10px">No pick list was parsed for this order. Generate one from Bedrock\'s native pick-list engine (cabinet + frame + hardware), upload a PDF below, OR use the override to mark packed without scan verification.</div>'
+      + '<button onclick="loadBedrockPickList_(\'' + esc(orderNumber) + '\')" class="amp-btn" style="width:100%;padding:12px;font-size:13px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;margin-bottom:8px">📋 Generate Pick List (Bedrock)</button>'
+      + '<div id="' + pickStatusId + '" style="font-size:12px;color:var(--text-dim);min-height:16px;margin-bottom:10px"></div>'
       + '<button onclick="manualMarkPackedNoSku_(\'' + esc(orderNumber) + '\')" class="amp-btn go" style="width:100%;padding:12px;font-size:13px;font-weight:900;letter-spacing:.4px;text-transform:uppercase">✓ Mark Packed (no SKU list, manager PIN)</button>'
       + '</div>';
     if (prog) prog.textContent = '(no SKUs)';
@@ -4042,6 +4049,54 @@ async function applyPackParsedToActiveOrder_(parsed, source) {
     if (statusEl) statusEl.textContent = 'Loaded ' + parsed.items.length + ' line items from ' + source + ' — saved to sheet (scans reset)';
   } catch (err) {
     if (statusEl) statusEl.textContent = 'Loaded locally but server save errored: ' + err.message;
+  }
+}
+
+// v10.387 — flatten the native pick session's PICKABLE buckets (cabinet +
+// frame + hardware) into the pack view's sku_lines shape. Packaging is the
+// grayed/not-scan-verified bucket, so it's excluded from scan verification.
+function _bedrockPickToSkuLines_(session) {
+  const out = [];
+  const buckets = (session && session.buckets) || {};
+  ['cabinet', 'frame', 'hardware'].forEach(function (b) {
+    (buckets[b] || []).forEach(function (it) {
+      const sku = String(it.item_sku || it.sku || '').trim();
+      if (!sku) return;
+      out.push({ sku: sku, qty: Number(it.qty) || 1, name: String(it.label || it.name || sku) });
+    });
+  });
+  return out;
+}
+
+// v10.387 — build the native Bedrock pick list for an order with no parsed
+// SKU list (the "No SKU list available" state). Pulls pickListSessionForOrder
+// (Postgres BOM + variant map), persists via updatePackJobSkus so scans line
+// up, then re-renders. Mirrors the PDF-parse load flow.
+async function loadBedrockPickList_(orderNumber) {
+  const statusEl = document.getElementById('bedrockPickStatus_' + String(orderNumber).replace(/[^A-Za-z0-9]/g, ''));
+  const setStatus = function (t) { if (statusEl) statusEl.textContent = t; };
+  setStatus('Building pick list from Bedrock…');
+  try {
+    const res = await groundApi('pickListSessionForOrder', { orderNumber: orderNumber });
+    if (!res || !res.ok) { setStatus('Could not build: ' + ((res && res.error) || 'unknown')); return; }
+    const skuLines = _bedrockPickToSkuLines_(res);
+    if (!skuLines.length) {
+      const u = (res.unresolved && res.unresolved.length) ? (' (' + res.unresolved.length + ' unresolved)') : '';
+      setStatus('No pickable items resolved for this order' + u + '. Upload a PDF or use the manager override.');
+      return;
+    }
+    setPackScanState_(orderNumber, skuLines);
+    renderPackSkuList_(orderNumber);
+    setStatus('Loaded ' + skuLines.length + ' items — saving…');
+    const save = await groundApi('updatePackJobSkus', { orderNumber: orderNumber, skuLines: skuLines, source: 'bedrock_native' });
+    if (!save || !save.ok) { setStatus('Shown locally but server save failed: ' + ((save && save.error) || 'unknown')); return; }
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    if (cached) { cached.sku_lines_json = save.sku_lines_json; cached.scanned_json = ''; }
+    delete _packScanState[orderNumber];
+    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, '');
+    renderPackSkuList_(orderNumber);
+  } catch (e) {
+    setStatus('Error building pick list: ' + e.message);
   }
 }
 
