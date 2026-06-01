@@ -1562,6 +1562,35 @@ function setPackScanState_(orderNumber, skuArr) {
       scanned: Number(s.scanned) || 0,
     })),
   };
+  // v10.392 — pre-fetch the categorize map the moment SKUs are known, so by
+  // the time the packer taps Pre-Pack the cache is warm + the filter applies
+  // instantly (no async round-trip delay). Fire-and-forget; the client
+  // heuristic in _packLooksNonHardware_ still gives an immediate filter.
+  _prefetchPackCategoryCache_(orderNumber);
+}
+
+// v10.392 — kick off categorizePackSkus in the background so the Pre-Pack
+// filter has the server-refined category map ready BEFORE the user toggles
+// it on. Idempotent (skips if already cached or no skus). Re-renders the
+// SKU list if Pre-Pack is on for this order when the result arrives.
+function _prefetchPackCategoryCache_(orderNumber) {
+  if (!orderNumber) return;
+  if (_packDetailCategoryCache[orderNumber]) return;
+  const state = _packScanState[orderNumber];
+  const lines = (state && state.skus) ? state.skus : [];
+  if (!lines.length) return;
+  groundApi('categorizePackSkus', {
+    lines: lines.map(s => ({ sku: s.sku, qty: s.qty, name: s.name })),
+  }).then(res => {
+    if (res && res.ok && Array.isArray(res.lines)) {
+      const map = {};
+      res.lines.forEach(l => { map[String(l.sku || '').toUpperCase()] = l.category; });
+      _packDetailCategoryCache[orderNumber] = map;
+      if (String(_packDetailOrderNumber) === String(orderNumber) && _packDetailPrePackMode) {
+        renderPackSkuList_(orderNumber);
+      }
+    }
+  }).catch(() => { /* swallow — the heuristic covers us until next try */ });
 }
 
 function packNorm_(s) {
