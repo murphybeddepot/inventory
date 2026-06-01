@@ -1189,10 +1189,23 @@ function openPackDetail(orderNumber) {
     + '🔧 Pre-Pack' + (_packDetailPrePackMode ? ' ✓' : '')
     + '</button>';
 
+  // v10.395 — 1st-priority toggle (manager-PIN gated). Orange when set.
+  // WarehouseBoard reads this explicit flag first; the date heuristic is
+  // the fallback. Stays consistent with the "Orange = 1st priority" board.
+  const isPriority = row.priority === true || String(row.priority || '').toUpperCase() === 'TRUE';
+  const priBtnBg = isPriority ? 'linear-gradient(135deg,#FF6B00,#FF9100)' : 'rgba(255,255,255,.06)';
+  const priBtnColor = isPriority ? '#1a1a1a' : 'var(--text)';
+  const priorityToggleHtml = '<button onclick="togglePackOrderPriority_(\''+esc(row.order_number)+'\','+isPriority+')" '
+    + 'style="display:inline-flex;align-items:center;gap:6px;flex-shrink:0;padding:8px 14px;font-size:12px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;background:'+priBtnBg+';color:'+priBtnColor+';-webkit-text-fill-color:'+priBtnColor+';border:1.5px solid '+(isPriority?'#FF9100':'rgba(255,255,255,.20)')+';border-radius:999px;cursor:pointer" '
+    + 'title="' + (isPriority ? 'Clear 1st-priority flag' : 'Mark this order 1st priority — manager PIN required (shows orange on the warehouse board)') + '">'
+    + '🔥 ' + (isPriority ? 'Priority ✓' : 'Priority')
+    + '</button>';
+
   detail.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <button onclick="closePackDetail()" class="amp-btn" style="padding:8px 14px;font-size:13px">← Back</button>
       <div style="flex:1;font-family:'Barlow Condensed',Arial,sans-serif;font-size:22px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ${esc(row.order_number)}</div>
+      ${priorityToggleHtml}
       ${prePackToggleHtml}
       <span style="padding:6px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
     </div>
@@ -1562,7 +1575,31 @@ function setPackScanState_(orderNumber, skuArr) {
       scanned: Number(s.scanned) || 0,
     })),
   };
-  // v10.392 — pre-fetch the categorize map the moment SKUs are known, so by
+  // v10.395 — manager-gated 1st-priority toggle from the pack detail header.
+// Prompts for PIN, calls setOrderPriority on the server, updates the local
+// cache + re-renders so the orange chip flips immediately.
+async function togglePackOrderPriority_(orderNumber, currentlyPriority) {
+  const pin = prompt('Manager PIN to ' + (currentlyPriority ? 'CLEAR' : 'SET') + ' 1st-priority for order ' + orderNumber + ':');
+  if (!pin) return;
+  try {
+    const res = await groundApi('setOrderPriority', {
+      orderNumber: orderNumber,
+      priority: !currentlyPriority,
+      manager_pin: pin,
+      deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '',
+    });
+    if (!res || !res.ok) { showToast('Priority: ' + ((res && res.error) || 'failed')); return; }
+    showToast(currentlyPriority ? '🔥 Cleared 1st-priority' : '🔥 Marked 1st-priority');
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    if (cached) cached.priority = !currentlyPriority;
+    // Re-open the detail to refresh the toggle state.
+    if (typeof openPackDetail === 'function' && String(_packDetailOrderNumber) === String(orderNumber)) {
+      openPackDetail(orderNumber);
+    }
+  } catch (e) { showToast('Priority error: ' + e.message); }
+}
+
+// v10.392 — pre-fetch the categorize map the moment SKUs are known, so by
   // the time the packer taps Pre-Pack the cache is warm + the filter applies
   // instantly (no async round-trip delay). Fire-and-forget; the client
   // heuristic in _packLooksNonHardware_ still gives an immediate filter.
