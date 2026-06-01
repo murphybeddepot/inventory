@@ -6781,7 +6781,17 @@ function openHowItWorks() {
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">How Bedrock Works</div>'
     +   '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.231 (2026-05-23).</div>'
+    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.395 (2026-06-01).</div>'
+
+    + H('🆕 Recent wins (v10.347–v10.395)')
+    + pill('live', '🧱 Order spine LIVE in prod', 'orders_spine + order_events activated 2026-05-28. 267 orders seeded, reconcile on a 15-min trigger. Future timeline + status comes from here, not Google Sheets.')
+    + pill('live', '📋 Native pick list (Postgres)', 'Shopify variant → bundle/BOM → bucketed pick list (cabinet, frame, hardware, packaging, instruction). Cabinet excluded from pick SKUs (only in Cabinets to Pull as the stock #). FLIP-PACK absorbs PB pack + spacers. Dropship mattress excluded. INST-* instruction line with 🖨 Print chip.')
+    + pill('live', '🪑 Side-cab hardware (depth-aware)', 'For PBCAB/Daytona/etc. with side cabinets: HANDLE/PIN(15 or 21")/CAM/SHELF PINS/OVERLAY HINGES from PB HW, summed L+R. Three sources: sheet map → SKU LTx/RTx parse → Shopify line-item properties (Position+Width+Options).')
+    + pill('live', '📺 Warehouse TV board', 'Dark TV-style board at /inventory/board.html — Packing/Carriers/Today. Auto-refresh 45s. Orange "1ST" badge for manager-tagged priority orders (real flag, not date heuristic).')
+    + pill('live', '🔥 1st-priority toggle', 'Manager-PIN-gated 🔥 Priority button in pack detail → durable flag on PackingQueue → orange on the board. Replaces the date heuristic for "needs attention NOW".')
+    + pill('live', '⏱ Auto-sync (every 2h)', 'product info / Use This Tab / PB HW / Instruction Link auto-refresh into Postgres every 2 hours. New SKUs propagate without informing Claude.')
+    + pill('live', '🧹 False-stalls fix', 'Duplicate PackingQueue rows (re-sent PICK LIST emails) no longer trip past_ship_date stalls. Schedule dedup keeps the highest-signal row per order# (5 → 1 false stalls verified).')
+    + pill('live', '🛏 Mattress → spine', '21 MattressDropships rows projected onto orders_spine (mattress.ordered events). Kind-preserving (combo cabinet orders keep their cabinet kind).')
 
     + H('An order today, start → ship')
     + step(1, 'Schedule', 'Upcoming freight/cabinet shipments by day; a carrier on the calendar means it\'s booked. Kim works the to-book list (📋 N TO BOOK chip shows per-carrier breakdown on hover), taps an order to open a FedEx Freight quote and book in two clicks. Stalled view has sub-filter chips (Past Due / Needs Booking / Needs Customer / No Instructions). 14-day lookback keeps past-due cabinets visible.')
