@@ -26,6 +26,14 @@
   .row.prio{ background:rgba(255,145,0,.10); }
   .row.prio .on{ color:var(--orange); }
   .row.prio::after{ content:'1ST'; font-size:12px; font-weight:900; color:#0a0d0f; background:var(--orange); border-radius:5px; padding:2px 7px; align-self:center; }
+  .row.overdue{ border-left:4px solid #ff5252; padding-left:14px; }
+  .row.overdue-bad{ background:rgba(255,82,82,.14); border-left-width:6px; padding-left:12px; }
+  .row.overdue-bad .on{ color:#ff8a80; }
+  .overdue-badge{ font-size:12px; font-weight:900; color:#fff; background:#ff5252; border-radius:5px; padding:2px 7px; align-self:center; white-space:nowrap; }
+  .overdue-badge.bad{ background:#d32f2f; }
+  .fs-btn{ background:rgba(255,255,255,.08); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:14px; cursor:pointer; font-family:inherit; margin-right:10px; }
+  .fs-btn:hover{ background:rgba(255,255,255,.14); }
+  .countdown{ font-size:11px; color:var(--dim); font-family:monospace; letter-spacing:.5px; }
   .carrier{ padding:11px 18px; border-bottom:1px solid rgba(255,255,255,.05); display:flex; justify-content:space-between; align-items:center; }
   .carrier .cn{ font-size:22px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
   .carrier .cc{ font-size:30px; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; }
@@ -40,7 +48,14 @@
 <body>
 <header>
   <div class="brand">BED<span class="rock">ROCK</span> · <span style="color:var(--dim);font-size:24px;letter-spacing:3px">WAREHOUSE</span></div>
-  <div class="meta"><div class="clock" id="clock">--:--</div><div class="date" id="date"></div></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <button class="fs-btn" onclick="toggleFullscreen()" title="Toggle fullscreen (F)">⛶</button>
+    <div class="meta">
+      <div class="clock" id="clock">--:--</div>
+      <div class="date" id="date"></div>
+      <div class="countdown" id="cd">refresh in —</div>
+    </div>
+  </div>
 </header>
 <div class="grid">
   <div class="col"><h2>📦 To Pack <span class="badge" id="packBadge">0</span></h2><div class="body" id="packBody"><div class="empty">Loading…</div></div></div>
@@ -54,8 +69,34 @@
   var ORCH = /[?&]dev=1/.test(location.search) ? DEV_URL : STABLE_URL;
   var SECRET = localStorage.getItem('mbd_ground_secret') || '';
   function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
-  function tick(){ var d=new Date(); document.getElementById('clock').textContent=d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); document.getElementById('date').textContent=d.toLocaleDateString([], {weekday:'long',month:'short',day:'numeric'}); }
+  var REFRESH_MS = 45000;
+  var lastLoadAt = 0;
+  function tick(){
+    var d=new Date();
+    document.getElementById('clock').textContent=d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    document.getElementById('date').textContent=d.toLocaleDateString([], {weekday:'long',month:'short',day:'numeric'});
+    if (lastLoadAt) {
+      var sec = Math.max(0, Math.round((lastLoadAt + REFRESH_MS - Date.now())/1000));
+      document.getElementById('cd').textContent = 'refresh in '+sec+'s';
+    }
+  }
   setInterval(tick,1000); tick();
+
+  function toggleFullscreen(){
+    if (!document.fullscreenElement) { (document.documentElement.requestFullscreen||function(){})(); }
+    else { (document.exitFullscreen||function(){})(); }
+  }
+  // F key (or double-click anywhere) toggles fullscreen — easy on a TV remote / wireless keyboard.
+  document.addEventListener('keydown', function(e){ if (e.key==='f' || e.key==='F') toggleFullscreen(); });
+  document.addEventListener('dblclick', toggleFullscreen);
+
+  // Compute days past ship_date for an order (negative = future ship; 0 = today; positive = overdue).
+  function daysOverdue(shipIso){
+    if (!shipIso) return null;
+    var ship = new Date(shipIso + 'T12:00:00');
+    var today = new Date(); today.setHours(12,0,0,0);
+    return Math.round((today - ship) / (1000*60*60*24));
+  }
 
   async function load(){
     if(!SECRET){ document.getElementById('packBody').innerHTML='<div class="err">No saved credentials on this device. Open the Bedrock PWA here first (it stores the access key), then reload this board.</div>'; return; }
@@ -65,15 +106,27 @@
       var r = data.result || data;
       if(!r || !r.ok){ document.getElementById('packBody').innerHTML='<div class="err">'+esc((r&&r.error)||'failed to load')+'</div>'; return; }
       render(r);
-      document.getElementById('foot').textContent = 'board v1 · '+(/dev=1/.test(location.search)?'DEV':'STABLE')+' · '+new Date().toLocaleTimeString();
+      lastLoadAt = Date.now();
+      document.getElementById('foot').textContent = 'board v2 · '+(/dev=1/.test(location.search)?'DEV':'STABLE')+' · '+new Date().toLocaleTimeString();
     }catch(e){ document.getElementById('packBody').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
   function render(r){
     var pack=r.packing||[];
-    document.getElementById('packBadge').textContent = pack.length + (r.priority_count?(' · '+r.priority_count+' 🔥'):'');
+    var overdueCount = 0;
+    pack.forEach(function(p){ var d = daysOverdue(p.ship_date); if (d != null && d > 0) overdueCount++; });
+    document.getElementById('packBadge').textContent = pack.length
+      + (r.priority_count?(' · '+r.priority_count+' 🔥'):'')
+      + (overdueCount?(' · '+overdueCount+' ⏰'):'');
     document.getElementById('packBody').innerHTML = pack.length ? pack.map(function(p){
-      return '<div class="row'+(p.priority?' prio':'')+'"><span class="on">'+esc(p.order_number)+'</span>'
+      var od = daysOverdue(p.ship_date);
+      var cls = 'row' + (p.priority?' prio':'');
+      if (od != null && od > 0) cls += (od >= 7) ? ' overdue overdue-bad' : ' overdue';
+      var odBadge = (od != null && od > 0)
+        ? '<span class="overdue-badge'+(od >= 7?' bad':'')+'">'+od+'d</span>'
+        : '';
+      return '<div class="'+cls+'"><span class="on">'+esc(p.order_number)+'</span>'
         + '<span class="nm">'+esc(p.customer_name||p.task||'—')+'</span>'
+        + odBadge
         + '<span class="cr">'+esc(p.carrier||'')+'</span></div>';
     }).join('') : '<div class="empty">Nothing in the pack queue.</div>';
 
