@@ -195,6 +195,80 @@ function _renderInOrdersDetail_(o) {
   if (toggle) toggle.style.display = 'none';
   detail.style.display = '';
   detail.innerHTML = _orderDetailHtml_(o);
+  // v10.396 — async-load the spine event timeline (CS surface for "what
+  // happened on this order, when, and who?"). orderTimeline returns the
+  // events list (oldest→newest); we reverse for newest-first display.
+  if (o && o.order_number) {
+    const tlEl = document.getElementById('orderSpineTimeline_' + String(o.order_number).replace(/[^A-Za-z0-9]/g, ''));
+    if (tlEl) _loadOrderTimeline_(o.order_number, tlEl);
+  }
+}
+
+// v10.396 — spine event timeline (CS-facing). Pulls the order's events via
+// the existing orderTimeline doPost; degrades gracefully if the spine is
+// inactive or empty (the CS user just sees an empty-state line).
+const SPINE_EVENT_META = {
+  'order.imported':   { icon: '📥', label: 'Imported',         color: '#42a5f5' },
+  'pack.started':     { icon: '🔧', label: 'Pack started',     color: '#FFB300' },
+  'pack.completed':   { icon: '📦', label: 'Packed',           color: '#00C853' },
+  'checker.passed':   { icon: '✓',  label: 'Checker passed',   color: '#00C853' },
+  'ready_for_check':  { icon: '👀', label: 'Ready for check',  color: '#42a5f5' },
+  'freight.booked':   { icon: '📞', label: 'Freight booked',   color: '#42a5f5' },
+  'label.created':    { icon: '🏷', label: 'Label created',    color: '#42a5f5' },
+  'shipped':          { icon: '🚚', label: 'Shipped',          color: '#1A5C1A' },
+  'delivered':        { icon: '📬', label: 'Delivered',        color: '#1A5C1A' },
+  'mattress.ordered': { icon: '🛏', label: 'Mattress ordered', color: '#ab47bc' },
+  'mattress.shipped': { icon: '🛏', label: 'Mattress shipped', color: '#ab47bc' },
+  'hold.set':         { icon: '🛑', label: 'Hold set',         color: '#ff5252' },
+  'hold.cleared':     { icon: '✅', label: 'Hold cleared',     color: '#00C853' },
+};
+
+function _renderSpineEvent_(e) {
+  const meta = SPINE_EVENT_META[e.type] || { icon: '•', label: String(e.type || '').replace(/\./g, ' '), color: 'var(--text-dim)' };
+  const ts = String(e.ts || '').replace('T', ' ').slice(0, 16);
+  const payload = e.payload || {};
+  let detail = '';
+  if (payload.carrier) detail += '<span style="color:var(--text);font-weight:600">' + esc(String(payload.carrier)) + '</span>';
+  if (payload.booking_ref) detail += ' <span style="color:var(--text-dim)">#' + esc(String(payload.booking_ref)) + '</span>';
+  if (payload.tracking_number) detail += ' <span style="font-family:monospace;color:var(--text-dim);font-size:11px">' + esc(String(payload.tracking_number)) + '</span>';
+  if (payload.mattress_tracking_number) detail += ' <span style="font-family:monospace;color:var(--text-dim);font-size:11px">' + esc(String(payload.mattress_tracking_number)) + '</span>';
+  if (payload.mattress_sku) detail += ' <span style="color:var(--text-dim);font-size:11px">' + esc(String(payload.mattress_sku)) + '</span>';
+  if (payload.reason) detail += ' <span style="color:var(--text-dim)">— ' + esc(String(payload.reason)) + '</span>';
+  if (payload.source) detail += ' <span style="font-size:11px;color:var(--text-dim);opacity:.7">via ' + esc(String(payload.source)) + '</span>';
+  const actor = e.actor ? '<span style="font-size:11px;color:var(--text-dim);margin-left:6px;font-style:italic">' + esc(String(e.actor)) + '</span>' : '';
+  const sourceLabel = e.source ? '<span style="font-size:10px;color:var(--text-dim);margin-left:6px">[' + esc(String(e.source)) + ']</span>' : '';
+  return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">'
+    + '<div style="font-size:18px;flex:0 0 24px;text-align:center">' + meta.icon + '</div>'
+    + '<div style="flex:1;min-width:0">'
+    +   '<div style="font-weight:700;color:' + meta.color + ';-webkit-text-fill-color:' + meta.color + ';font-size:13px">' + esc(meta.label) + actor + sourceLabel + '</div>'
+    +   (detail ? '<div style="font-size:12px;margin-top:2px;line-height:1.4">' + detail + '</div>' : '')
+    + '</div>'
+    + '<div style="font-family:monospace;font-size:11px;color:var(--text-dim);flex:0 0 auto;align-self:start">' + esc(ts) + '</div>'
+    + '</div>';
+}
+
+async function _loadOrderTimeline_(orderNumber, targetEl) {
+  if (!targetEl) return;
+  try {
+    const res = await groundApi('orderTimeline', { order_number: orderNumber });
+    if (!res || !res.ok) {
+      targetEl.innerHTML = '<div style="color:var(--text-dim);font-style:italic;font-size:12px">Timeline unavailable.</div>';
+      return;
+    }
+    if (res.spine === 'disabled' || res.spine === 'inactive') {
+      targetEl.innerHTML = '<div style="color:var(--text-dim);font-style:italic;font-size:12px">Spine not active for this order.</div>';
+      return;
+    }
+    const events = Array.isArray(res.events) ? res.events : [];
+    if (!events.length) {
+      targetEl.innerHTML = '<div style="color:var(--text-dim);font-style:italic;font-size:12px">No spine events recorded yet for this order.</div>';
+      return;
+    }
+    // Newest first.
+    targetEl.innerHTML = events.slice().reverse().map(_renderSpineEvent_).join('');
+  } catch (err) {
+    targetEl.innerHTML = '<div style="color:var(--text-dim);font-size:12px">Timeline error: ' + esc(err.message || 'unknown') + '</div>';
+  }
 }
 
 function _closeOrdersDetail_() {
@@ -279,6 +353,12 @@ function _orderDetailHtml_(o) {
     + cabSection
     + hwSection
     + bookerSection
+    // v10.396 — spine event timeline (async-loaded; container id is
+    // safe-stripped to match _renderInOrdersDetail_'s lookup).
+    + '<div style="margin-top:16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:14px 16px">'
+    +   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#42a5f5;-webkit-text-fill-color:#42a5f5;text-transform:uppercase;letter-spacing:1.5px">🧭 Timeline</div><span style="font-size:11px;color:var(--text-dim);font-style:italic">spine events, newest first</span></div>'
+    +   '<div id="orderSpineTimeline_' + String(o.order_number || '').replace(/[^A-Za-z0-9]/g, '') + '" style="font-size:13px"><div style="color:var(--text-dim);font-style:italic;font-size:12px">Loading…</div></div>'
+    + '</div>'
     + '<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">'
     +   '<button onclick="_openPackWorkflowFromOrders_(\'' + ord + '\')" class="amp-btn" style="padding:12px 18px;font-size:13px;font-weight:800">📦 Open Pack Workflow →</button>'
     + '</div>'
