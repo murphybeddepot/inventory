@@ -5142,13 +5142,13 @@ function _showSecondPersonHandoff_(orderNumber) {
 async function _confirmSecondPersonPack_(orderNumber, originalPackerId) {
   const myId = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
   const myName = (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '';
-  // Block same-identity self-confirm (spec §9). The packer's deviceId is
-  // passed in from the handoff overlay; if this is the same physical
-  // device, ask the coworker to open it on THEIRS instead (Bedrock's
-  // identity is per-device localStorage so it can't be hand-overridden).
+  // Soft-warn same-identity (spec §9, plus the existing server warn at
+  // claimPackCheckJob:695). Single-packer warehouses still need the flow
+  // to function (Zac), so we WARN + allow proceed rather than hard-block.
+  // The server logs 'WARN: checker device === packer device' for audit.
   if (myId && originalPackerId && myId === originalPackerId) {
-    alert('You can\'t confirm your own pack — open this order on another device to confirm, or pass the order to a coworker on their device.\n\n(Bedrock identity is per-device; the same phone can\'t pack and confirm.)');
-    return;
+    const ok = confirm('Heads up — this phone packed AND confirmed.\n\nThe second-person check is meant to catch your own mistakes. If you\'re a one-person warehouse and you\'ve double-checked the pack yourself, tap OK to proceed.');
+    if (!ok) return;
   }
   // Photo soft-gate (spec §8). Zero photos → explicit confirm.
   const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
