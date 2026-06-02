@@ -1415,12 +1415,15 @@ function packCountSkus_(jsonStr) {
 }
 
 // Status meta used by openPackDetail to pick badge color + intent.
+// v10.400 — PACKED ≠ SHIPPED (spec §10). Label makes the distinction
+// visible so packers don't think it's done-done.
 const PACK_STATUS_META = {
-  pending:          { label: 'PENDING',          color: '#9aa0a6', bg: 'rgba(154,160,166,.10)' },
-  in_progress:      { label: 'PACKING',          color: '#ff9800', bg: 'rgba(255,152,0,.10)' },
-  ready_for_check:  { label: 'READY FOR CHECK',  color: '#42a5f5', bg: 'rgba(66,165,245,.10)' },
-  checking:         { label: 'CHECKING',         color: '#ab47bc', bg: 'rgba(171,71,188,.10)' },
-  packed:           { label: 'PACKED',           color: '#00e676', bg: 'rgba(0,230,118,.10)' },
+  pending:          { label: 'PENDING',                color: '#9aa0a6', bg: 'rgba(154,160,166,.10)' },
+  in_progress:      { label: 'PACKING',                color: '#ff9800', bg: 'rgba(255,152,0,.10)' },
+  ready_for_check:  { label: 'READY FOR CHECK',        color: '#42a5f5', bg: 'rgba(66,165,245,.10)' },
+  checking:         { label: 'CHECKING',               color: '#ab47bc', bg: 'rgba(171,71,188,.10)' },
+  packed:           { label: 'PACKED · AWAITING PICKUP', color: '#00e676', bg: 'rgba(0,230,118,.10)' },
+  shipped:          { label: 'SHIPPED',                color: '#1A5C1A', bg: 'rgba(26,92,26,.18)' },
 };
 
 function openPackDetail(orderNumber) {
@@ -2200,6 +2203,9 @@ function toggleSkuChecked(orderNumber, idx) {
   if (delta === 0) return;
   // Optimistic local update
   s.scanned = targetScanned;
+  // v10.400 — scan joy: light haptic on check, slightly heavier on uncheck.
+  // Honors prefers-reduced-motion via navigator (no-op on non-mobile).
+  try { if (navigator.vibrate) navigator.vibrate(targetScanned ? 18 : 8); } catch (e) {}
   renderPackSkuList_(orderNumber);
 
   const bumpAction = _packActivePhase === 'checker' ? 'recordPackCheckScan' : 'recordPackScan';
@@ -4645,8 +4651,13 @@ async function confirmMarkPackJobComplete(orderNumber) {
   const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
   let photoCount = 0;
   try { const a = JSON.parse((row && row.photo_urls_json) || '[]'); photoCount = Array.isArray(a) ? a.length : 0; } catch(e) {}
-  const warn = photoCount === 0 ? '\n\nWARNING: No shipment photos attached.' : '\n\n' + photoCount + ' photo' + (photoCount===1?'':'s') + ' attached.';
-  if (!confirm('Mark order ' + orderNumber + ' as completely packed?' + warn)) return;
+  // v10.400 — photo soft gate (§8): zero photos → explicit confirm. The
+  // confirm copy makes PACKED ≠ SHIPPED visible per §10.
+  if (photoCount === 0) {
+    if (!confirm('No photos yet — finish anyway?\n\nThe pack will be marked PACKED · waiting for carrier pickup.')) return;
+  } else {
+    if (!confirm('Mark order ' + orderNumber + ' as packed?\n\n' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + ' attached. The pack will be marked PACKED · waiting for carrier pickup (SHIPPED is a separate state, flipped when the carrier actually picks up).')) return;
+  }
   try {
     const res = await groundApi('markPackJobComplete', {
       orderNumber: orderNumber,
@@ -4657,7 +4668,9 @@ async function confirmMarkPackJobComplete(orderNumber) {
       showToast('Mark packed failed: ' + ((res && res.error) || 'unknown'));
       return;
     }
-    showToast('Order ' + orderNumber + ' marked packed ✓');
+    // v10.400 — § 15 / §10 — PACKED is NOT shipped. Surface it clearly.
+    showToast('Pack complete · Waiting for carrier pickup');
+    try { if (navigator.vibrate) navigator.vibrate([30, 60, 30]); } catch (e) {}
     closePackDetail();
     await refreshPackQueue();
   } catch (err) {
