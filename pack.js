@@ -838,7 +838,7 @@ function _packerDetailOverviewHtml_(o) {
     +   '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
     +     '<button onclick="_closeOrdersDetail_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">← Back</button>'
     +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">' + (isPriority ? '<span style="color:#FF9100;-webkit-text-fill-color:#FF9100;margin-right:4px">🔥</span>' : '') + 'Order ' + ord + mtoBadge + '</div>'
-    +     '<span style="padding:7px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:rgba(255,255,255,.08);color:#9aa0a6;-webkit-text-fill-color:#9aa0a6;border-radius:999px">READY</span>'
+    +     '<span onclick="_showWhyStatusModal_(\'' + ord + '\')" style="padding:7px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:rgba(255,255,255,.08);color:#9aa0a6;-webkit-text-fill-color:#9aa0a6;border-radius:999px;cursor:pointer" title="🔍 Tap to see why this status">READY 🔍</span>'
     +   '</div>'
     +   '<div style="margin-top:6px;font-size:13px;color:var(--text-dim);display:flex;gap:14px;flex-wrap:wrap"><span>Ship: <span style="color:var(--text)">' + esc(shipDateFriendly) + '</span></span>' + (carrier ? '<span>· <span style="color:var(--text)">' + esc(carrier) + '</span></span>' : '') + (pieces ? '<span>· <span style="color:var(--text)">' + pieces + ' piece' + (pieces === 1 ? '' : 's') + '</span></span>' : '') + '</div>'
     + '</div>'
@@ -2059,8 +2059,19 @@ function renderPackSkuList_(orderNumber) {
     // v10.400 — category icon at the left (long-press tooltip via title).
     const icon = _packSkuIcon_(s.sku, s.name);
     const iconTitle = _packSkuIconTitle_(s.sku, s.name);
-    // Qty pill on the right (bold, prominent) when qty > 1.
-    const qtyPill = s.qty > 1
+    // v10.405 — multi-qty hybrid (spec §7). qty ≤ 3 = scan each. qty > 3 +
+    // first scan = "✓ Yes, all N here" confirm button until tapped.
+    const awaitingMulti = _packIsMultiQtyAwaitingConfirm_(s);
+    const multiConfirmBtn = awaitingMulti
+      ? '<button onclick="event.stopPropagation();_confirmAllQtyOnRow_(\''+esc(orderNumber)+'\','+idx+')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:38px;padding:8px 14px;font-size:13px;font-weight:900;background:linear-gradient(135deg,#FF6B00,#FFB300);color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;cursor:pointer;line-height:1.2;white-space:nowrap" title="One tap confirms all '+s.qty+' units are packed">✓ Yes, all '+s.qty+' here</button>'
+      : '';
+    // v10.405 — pre-pack-by-other ★ (spec §9A). Row was scanned in pre-pack
+    // by SOMEONE ELSE → counts as the second-person check for this item.
+    const cachedRow = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    const prePackedByOther = (typeof _packIsPrePackedByOther_ === 'function') && _packIsPrePackedByOther_(s, cachedRow);
+    // Qty pill on the right (bold, prominent) when qty > 1. Suppressed
+    // when the multi-qty confirm button takes its slot.
+    const qtyPill = (s.qty > 1 && !awaitingMulti)
       ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:900;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);padding:4px 10px;border-radius:6px;flex-shrink:0;letter-spacing:.5px">×' + s.qty + '</span>'
       : '';
     // Lead with the human description; SKU code small + secondary. Falls
@@ -2085,8 +2096,9 @@ function renderPackSkuList_(orderNumber) {
       + '<div style="flex:1;min-width:0;'+(isDone?'text-decoration:line-through;opacity:.7':'')+'">'
       +   '<div style="font-size:14px;font-weight:'+(isDone?'700':'800')+';color:var(--text);line-height:1.25;word-break:break-word">' + primaryLabel + '</div>'
       +   secondaryLabel
+      +   (prePackedByOther ? '<div style="font-size:11px;color:#00C853;-webkit-text-fill-color:#00C853;margin-top:3px;font-weight:700">★ pre-packed earlier · counts as second-person check</div>' : '')
       + '</div>'
-      + qtyPill
+      + (multiConfirmBtn || qtyPill)
       + (printChip ? '<div style="flex-shrink:0">' + printChip + '</div>' : '')
       + '</div>';
   }).join('');
@@ -4931,6 +4943,59 @@ async function releasePackOrder(orderNumber) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// v10.405 — "🔍 Why this status?" debug modal. Surfaces diagOrderPipeline
+// (the server-side decision path) so a confused operator can see EXACTLY
+// why an order is showing as packed / stalled / unknown / etc. Wires into
+// the existing endpoint that already returns the verdict array.
+async function _showWhyStatusModal_(orderNumber) {
+  const prior = document.getElementById('whyStatusOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'whyStatusOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;border-radius:14px;padding:18px;max-width:520px;width:100%;border:1px solid rgba(255,255,255,.10);color:var(--text);max-height:85vh;overflow-y:auto">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:15px;font-weight:900;display:flex;align-items:center;gap:8px">🔍 Why is ' + esc(orderNumber) + ' showing this status?</div><button onclick="document.getElementById(\'whyStatusOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:22px;cursor:pointer;padding:0 4px">✕</button></div>'
+    + '<div id="whyStatusBody" style="font-size:12px;color:var(--text-dim);font-family:\'JetBrains Mono\',monospace;line-height:1.6">Loading decision path…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  try {
+    const res = await groundApi('diagOrderPipeline', { orderNumber: orderNumber });
+    const body = document.getElementById('whyStatusBody');
+    if (!body) return;
+    if (!res || !res.ok) { body.innerHTML = '<span style="color:#ff8a80">' + esc((res && res.error) || 'unknown') + '</span>'; return; }
+    const verdict = Array.isArray(res.verdict) ? res.verdict : [];
+    const pq = res.pqRow || {};
+    const sched = res.schedRow || {};
+    const lines = [];
+    lines.push('<div style="color:var(--text);font-weight:800;margin-bottom:6px">Computed: <span style="color:#00e676;-webkit-text-fill-color:#00e676">' + esc(res.computed_pipeline_status || '?') + '</span></div>');
+    if (verdict.length) {
+      lines.push('<div style="margin-top:8px;color:var(--text-dim)">Decision path:</div>');
+      verdict.forEach(v => lines.push('<div style="margin-left:10px;color:var(--text)">› ' + esc(String(v)) + '</div>'));
+    }
+    lines.push('<div style="margin-top:14px;color:var(--text-dim)">PackingQueue row:</div>');
+    if (Object.keys(pq).length === 0) {
+      lines.push('<div style="margin-left:10px;color:#ff8a80">(no row found in PackingQueue)</div>');
+    } else {
+      ['status', 'ship_date', 'started_by', 'checker_started_by', 'packed_at', 'shipped_at', 'on_active_list', 'on_hold', 'hardware_packed_at'].forEach(k => {
+        if (pq[k] !== undefined && pq[k] !== null && pq[k] !== '') lines.push('<div style="margin-left:10px"><span style="color:var(--text-dim)">' + esc(k) + ':</span> <span style="color:var(--text)">' + esc(String(pq[k]).slice(0, 50)) + '</span></div>');
+      });
+    }
+    lines.push('<div style="margin-top:14px;color:var(--text-dim)">Schedule signals:</div>');
+    if (Object.keys(sched).length === 0) {
+      lines.push('<div style="margin-left:10px;color:var(--text-dim)">(not on the schedule)</div>');
+    } else {
+      ['status', 'cal_h', 'cal_b', 'cal_p', 'cal_l', 'cal_shipped', 'cal_sourced', 'sched_stage', 'stalled', 'booked_at', 'customer_ready'].forEach(k => {
+        if (sched[k] !== undefined && sched[k] !== null && sched[k] !== '' && sched[k] !== false) lines.push('<div style="margin-left:10px"><span style="color:var(--text-dim)">' + esc(k) + ':</span> <span style="color:var(--text)">' + esc(String(sched[k]).slice(0, 50)) + '</span></div>');
+      });
+    }
+    body.innerHTML = lines.join('');
+  } catch (err) {
+    const body = document.getElementById('whyStatusBody');
+    if (body) body.innerHTML = '<span style="color:#ff8a80">' + esc(err.message || 'error') + '</span>';
+  }
+}
+
 // v10.401 — final-push helpers (spec §7 wrong-SKU modal · §7 multi-qty
 // hybrid · §9 second-person handoff · §11 timer auto-pause · §12
 // interleaving · §13 cancel · §15 celebration + scan-joy sound).
