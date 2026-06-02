@@ -193,6 +193,7 @@ function _renderInOrdersDetail_(o) {
   if (!detail) return;
   if (list) list.style.display = 'none';
   if (toggle) toggle.style.display = 'none';
+  _setOrdersListChrome_(false);   // v10.399 — strip list chrome on detail open
   detail.style.display = '';
   detail.innerHTML = _orderDetailHtml_(o);
   // v10.396 — async-load the spine event timeline (CS surface for "what
@@ -278,6 +279,8 @@ function _closeOrdersDetail_() {
   if (detail) { detail.style.display = 'none'; detail.innerHTML = ''; }
   if (list) list.style.display = '';
   if (toggle) toggle.style.display = '';
+  _setOrdersListChrome_(true);   // v10.399 — restore list chrome on close
+  _packDetailMode = null;         // reset mode for next order open
 }
 
 function _orderDetailHtml_(o) {
@@ -401,6 +404,54 @@ function _resolveOrderCabinets_(o) {
   });
 }
 
+// v10.399 — Three-mode order detail (Overview / Pre-Pack / Active Pack).
+// One screen, one job: help a packer pack one order, fast + correctly.
+// State machine: _packDetailMode = 'overview' | 'pre_pack' | 'active_pack'.
+// Active Pack is sticky once status flips to in_progress/checking; the user
+// chooses Overview vs Pre-Pack before that. Mode changes show a 1s toast.
+// All existing endpoint calls (claimPackOrder, handlePackScanSubmit,
+// confirmReadyForCheck, claimPackCheck, confirmMarkPackJobComplete) are
+// preserved — this is a UI redesign, the spine wiring is untouched.
+let _packDetailMode = null;   // null = auto-pick by status
+
+function _setOrdersListChrome_(visible) {
+  // Phase A — when the order detail is open we don't want the list-view
+  // chrome (header / lens grid / HBPL legend / "N orders" status / refresh
+  // toggle). Restore on close.
+  const ids = ['ordersHeaderRow', 'ordersLensGrid', 'ordersLetterLegend', 'ordersStatus', 'ordersScheduleViewToggle'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = visible ? '' : 'none';
+  });
+}
+
+function _packDetailEffectiveMode_(o) {
+  const status = String((o && o.status) || '').toLowerCase();
+  // Active Pack is sticky once the order is in_progress / ready_for_check /
+  // checking / packed — the workflow has begun and the operator can't
+  // sensibly drop back to Overview without releasing the claim.
+  if (status === 'in_progress' || status === 'ready_for_check' || status === 'checking' || status === 'packed') {
+    return 'active_pack';
+  }
+  return _packDetailMode || 'overview';
+}
+
+function _setPackDetailMode_(mode, orderNumber) {
+  const toastMsg = { overview: 'Overview', pre_pack: 'Pre-pack mode — only hardware items shown', active_pack: 'Pack mode — scan items as you box them' }[mode] || mode;
+  _packDetailMode = mode === 'overview' ? null : mode;
+  // Keep the legacy _packDetailPrePackMode boolean in sync — renderPackSkuList_
+  // reads it to filter the SKU list to hardware-only.
+  if (typeof _packDetailPrePackMode !== 'undefined') {
+    try { _packDetailPrePackMode = (mode === 'pre_pack'); } catch (e) {}
+  }
+  if (typeof showToast === 'function') showToast(toastMsg);
+  if (mode === 'pre_pack' && typeof _prefetchPackCategoryCache_ === 'function') {
+    _prefetchPackCategoryCache_(orderNumber);
+  }
+  const o = (typeof getCachedPipelineOrder === 'function') ? getCachedPipelineOrder(orderNumber) : null;
+  if (o) _renderInOrdersPackerDetail_(o);
+}
+
 // v10.342 — Packer workflow detail INSIDE the Orders tab. Replaces
 // the routing-to-old-Pack-tab escape hatch from v10.341 (Zac:
 // "the old pack detail screen was horridly jumbled and non-intuitive
@@ -429,6 +480,7 @@ function _renderInOrdersPackerDetail_(o) {
   if (!detail) return;
   if (list) list.style.display = 'none';
   if (toggle) toggle.style.display = 'none';
+  _setOrdersListChrome_(false);   // v10.399 — strip list chrome on detail open
   detail.style.display = '';
   // v10.344 — Pack-tab #packDetail also has <div id="packSkuList"> from any
   // previous openPackDetail call. Two elements with same ID = getElementById
@@ -462,7 +514,20 @@ function _renderInOrdersPackerDetail_(o) {
   } catch (e) { /* swallow — list paints empty if state seed fails */ }
 }
 
+// v10.399 — mode dispatcher. Three modes:
+//   • overview     — pending order, no scanner, two equal CTAs
+//   • pre_pack     — hardware-only, scan tomorrow's HW kit
+//   • active_pack  — full pack flow (scan / photos / actions)
+// Pre-Pack and Active Pack reuse the existing full render
+// (_packerDetailFullHtml_) which carries the spine-wired flow intact;
+// Overview is the new lean screen.
 function _packerDetailHtml_(o) {
+  const mode = _packDetailEffectiveMode_(o);
+  if (mode === 'overview') return _packerDetailOverviewHtml_(o);
+  return _packerDetailFullHtml_(o, mode);
+}
+
+function _packerDetailFullHtml_(o, mode) {
   const ord = esc(String(o.order_number || '?'));
   const status = String(o.status || 'pending');
   const phase = (status === 'checking' || status === 'ready_for_check' || status === 'packed') ? 'checker' : 'packer';
@@ -534,14 +599,40 @@ function _packerDetailHtml_(o) {
   const scanPhaseColor = phase === 'checker' ? '#ce93d8' : 'var(--green-bright)';
   const scanPhaseAccent = phase === 'checker' ? 'rgba(171,71,188,.55)' : 'rgba(0,230,118,.55)';
 
+  // v10.399 — mode chip replaces the raw status badge so the screen
+  // announces its mode at a glance. The packer-friendly name + green/amber
+  // color reads from across the room. Existing PrePack toggle button is
+  // hidden in active_pack (Phase A scope; Phase B polishes the header).
+  const modeChipBg = mode === 'pre_pack'
+    ? 'linear-gradient(135deg,#FF6B00,#FFB300)'
+    : mode === 'active_pack'
+      ? 'linear-gradient(135deg,#00C853,#43A047)'
+      : 'rgba(255,255,255,.08)';
+  const modeChipColor = (mode === 'pre_pack' || mode === 'active_pack') ? '#0a0a0a' : '#fff';
+  const myDeviceName = (typeof getPackDeviceName_ === 'function' && getPackDeviceName_()) || (typeof getPackDeviceId_ === 'function' ? getPackDeviceId_() : '');
+  const activePackerLabel = (status === 'in_progress' && packerMine ? myDeviceName
+    : status === 'checking' && checkerMine ? myDeviceName
+    : (o.started_by || o.checker_started_by || '')) || '';
+  const modeChipLabel = mode === 'pre_pack' ? '🔧 PRE-PACK MODE'
+    : mode === 'active_pack' ? '⏱ ' + esc(activePackerLabel || 'PACKING')
+    : (esc(meta.label));
+  // Read priority + MTO once for the header.
+  const isPriority = o.priority === true || String(o.priority || '').toUpperCase() === 'TRUE';
+  const mtoBadge = o && /\bMTO\b/i.test(String(o.task_line || o.cal_label || '')) ? ' <span style="font-size:10px;font-weight:900;background:rgba(171,71,188,.20);color:#ce93d8;-webkit-text-fill-color:#ce93d8;padding:2px 6px;border-radius:4px;letter-spacing:1px;margin-left:6px;vertical-align:middle">MTO</span>' : '';
+  const backToOverview = (mode === 'pre_pack')
+    ? '<button onclick="_setPackDetailMode_(\'overview\',\'' + ord + '\')" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">← Overview</button>'
+    : '';
+
   return ''
-    // Header (sticky)
+    // Header (sticky) — packer-focused, mode chip on the right
+    + (isPriority ? '<div style="height:4px;background:linear-gradient(90deg,#FF6B00,#FF9100);margin:-14px -14px 10px;border-radius:4px 4px 0 0"></div>' : '')
     + '<div style="position:sticky;top:0;background:linear-gradient(180deg,#0E1520 0%,#0E1520 70%,rgba(14,21,32,.0) 100%);padding-bottom:8px;margin-bottom:10px;z-index:5">'
     +   '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
     +     '<button onclick="_closeOrdersDetail_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">← Back</button>'
-    +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">Order ' + ord + '</div>'
-    +     prePackBtn
-    +     '<span style="padding:6px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:' + meta.bg + ';color:' + meta.color + ';border:1px solid ' + meta.color + '55;border-radius:999px">' + esc(meta.label) + '</span>'
+    +     (backToOverview)
+    +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">' + (isPriority ? '<span style="color:#FF9100;-webkit-text-fill-color:#FF9100;margin-right:4px">🔥</span>' : '') + 'Order ' + ord + mtoBadge + '</div>'
+    +     (mode === 'active_pack' ? '' : prePackBtn)
+    +     '<span style="padding:7px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:' + modeChipBg + ';color:' + modeChipColor + ';-webkit-text-fill-color:' + modeChipColor + ';border-radius:999px;display:inline-flex;align-items:center;gap:4px">' + modeChipLabel + '</span>'
     +   '</div>'
     // v10.343 — Print Instructions button at the top of the detail
     // (Zac: "at the top of pre-pack or pack should be the print
@@ -616,7 +707,162 @@ function _packerDetailHtml_(o) {
     + '</details>';
 }
 
+// v10.399 — NEW Overview render. Lean, packer-focused, one obvious next
+// action. No scanner, no photos prompt; the full pack flow lives in the
+// existing _packerDetailFullHtml_ that the dispatcher routes to once the
+// packer starts (status → in_progress) or chooses Pre-Pack.
+function _packerDetailOverviewHtml_(o) {
+  const ord = esc(String(o.order_number || '?'));
+  const isPriority = o.priority === true || String(o.priority || '').toUpperCase() === 'TRUE';
+  const mtoBadge = /\bMTO\b/i.test(String(o.task_line || o.cal_label || '')) ? ' <span style="font-size:10px;font-weight:900;background:rgba(171,71,188,.20);color:#ce93d8;-webkit-text-fill-color:#ce93d8;padding:2px 6px;border-radius:4px;letter-spacing:1px;margin-left:6px;vertical-align:middle">MTO</span>' : '';
+  // Pieces count from sku_lines_json (sum of qty across rows).
+  let pieces = 0;
+  try { const arr = JSON.parse(String(o.sku_lines_json || '[]')); if (Array.isArray(arr)) pieces = arr.reduce((s, l) => s + (Number(l && l.qty) || 0), 0); } catch (e) {}
+  const carrier = o.carrier_display || (o.carrier || '');
+  const shipDateFriendly = o.ship_date
+    ? (function (iso) {
+        try { return new Date(iso + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' }); }
+        catch (e) { return iso; }
+      })(String(o.ship_date).slice(0, 10))
+    : '—';
+
+  // Readiness — three chips. Truthy → ✓ green; falsy → "needs X" amber.
+  const hwReady = !!String(o.hardware_packed_at || '').trim();
+  const cabRows = (typeof _resolveOrderCabinets_ === 'function') ? _resolveOrderCabinets_(o) : [];
+  const allCabsPulled = cabRows.length > 0 && cabRows.every(c => c.pulled || !c.location);
+  const noCabsNeeded = cabRows.length === 0;
+  const cabReady = noCabsNeeded || allCabsPulled;
+  const instrPrinted = !!String(o.instructions_printed_at || '').trim();
+  function readyChip(ok, okLabel, needLabel) {
+    return ok
+      ? '<div style="flex:1;min-width:140px;padding:10px 12px;background:rgba(0,200,83,.10);border:1px solid rgba(0,200,83,.45);border-radius:10px;font-size:13px;color:#00C853;-webkit-text-fill-color:#00C853;font-weight:700;display:flex;align-items:center;gap:8px"><span style="font-size:18px">✓</span><span>' + esc(okLabel) + '</span></div>'
+      : '<div style="flex:1;min-width:140px;padding:10px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.45);border-radius:10px;font-size:13px;color:#FFB300;-webkit-text-fill-color:#FFB300;font-weight:700;display:flex;align-items:center;gap:8px"><span style="font-size:18px">○</span><span>' + esc(needLabel) + '</span></div>';
+  }
+  const readinessRow = ''
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+    +   readyChip(hwReady, 'Hardware pre-packed', 'Hardware needs pre-pack')
+    +   readyChip(cabReady, noCabsNeeded ? 'No cabinets needed' : 'Cabinet pulled', 'Cabinet needs pulling')
+    +   readyChip(instrPrinted, 'Instructions printed', 'Instructions not yet printed')
+    + '</div>';
+
+  // Cabinets section — collapsed one-liner if all pulled; full card otherwise.
+  let cabSection = '';
+  if (cabRows.length) {
+    if (allCabsPulled) {
+      const c = cabRows[0];
+      cabSection = '<div style="margin-top:14px;padding:10px 14px;background:rgba(0,200,83,.06);border:1px solid rgba(0,200,83,.30);border-radius:8px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px">'
+        + '<span style="color:#00C853;font-weight:800">✓</span>'
+        + '<span>Cabinet <span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + '</span>' + (c.location ? ' · pulled from ' + esc(c.location) : '') + '</span>'
+        + '</div>';
+    } else {
+      // Reuse the full cab card render style — small inline version
+      cabSection = '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🗄 Cabinets to Pull (' + cabRows.length + ')</div>'
+        + cabRows.map(c => {
+            const pullBtn = (!c.pulled && !c.damaged && c.location)
+              ? '<button onclick="_quickPullCabinetFromPacker_(\'' + esc(c.num) + '\',\'' + ord + '\')" style="padding:8px 14px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;flex-shrink:0">📤 Pull</button>'
+              : c.pulled ? '<span style="padding:6px 12px;background:rgba(0,200,83,.10);color:#00C853;-webkit-text-fill-color:#00C853;border:1px solid rgba(0,200,83,.45);border-radius:6px;font-size:11px;font-weight:700;flex-shrink:0">✓ Pulled</span>'
+              : c.damaged ? '<span style="padding:6px 12px;background:rgba(139,0,0,.20);color:#ff5252;-webkit-text-fill-color:#ff5252;border:1px solid rgba(139,0,0,.55);border-radius:6px;font-size:11px;font-weight:700;flex-shrink:0">🚫 Damaged</span>'
+              : '';
+            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? '#00e676' : '#ff5252') + ';border-radius:6px;margin-bottom:4px">'
+              + '<div style="min-width:0;flex:1">'
+              +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + '</span></div>'
+              +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + ';margin-top:2px">📍 ' + esc(c.location || '? not in inventory') + '</div>'
+              + '</div>' + pullBtn + '</div>';
+          }).join('')
+        + '</div>';
+    }
+  }
+
+  // CTAs — two equal-weight primaries (or one if HW already done).
+  let ctaRow = '';
+  if (hwReady) {
+    ctaRow = ''
+      + '<button onclick="_setPackDetailMode_(\'pre_pack\',\'' + ord + '\')" style="flex:1;min-width:200px;padding:16px;background:rgba(0,200,83,.10);color:#00C853;-webkit-text-fill-color:#00C853;border:1.5px solid rgba(0,200,83,.45);border-radius:12px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-align:left">'
+      +   '<div style="font-size:14px;text-transform:uppercase;letter-spacing:1px">✓ HARDWARE PRE-PACKED</div>'
+      +   '<div style="font-size:11px;color:#00C853;font-weight:700;opacity:.85;margin-top:2px">tap to open · re-scan if needed</div>'
+      + '</button>'
+      + '<button onclick="claimPackOrder(\'' + ord + '\')" style="flex:2;min-width:240px;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:12px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-align:left">'
+      +   '<div style="font-size:18px;text-transform:uppercase;letter-spacing:1.2px">▶ START PACKING</div>'
+      +   '<div style="font-size:12px;font-weight:700;opacity:.75;margin-top:2px">Pack this order onto the pallet now</div>'
+      + '</button>';
+  } else {
+    ctaRow = ''
+      + '<button onclick="_setPackDetailMode_(\'pre_pack\',\'' + ord + '\')" style="flex:1;min-width:240px;padding:18px;background:linear-gradient(135deg,#FF6B00,#FFB300);color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:12px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-align:left">'
+      +   '<div style="font-size:18px;text-transform:uppercase;letter-spacing:1.2px">🔧 PRE-PACK HARDWARE</div>'
+      +   '<div style="font-size:12px;font-weight:700;opacity:.75;margin-top:2px">Bag tomorrow\'s hardware kit</div>'
+      + '</button>'
+      + '<button onclick="claimPackOrder(\'' + ord + '\')" style="flex:1;min-width:240px;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:12px;font-weight:900;letter-spacing:.5px;cursor:pointer;text-align:left">'
+      +   '<div style="font-size:18px;text-transform:uppercase;letter-spacing:1.2px">▶ START PACKING</div>'
+      +   '<div style="font-size:12px;font-weight:700;opacity:.75;margin-top:2px">Pack this order onto the pallet now</div>'
+      + '</button>';
+  }
+
+  // "Next step" hint — state-aware single line.
+  const nextStep = !hwReady
+    ? 'Next: pre-pack the hardware kit, or start packing now.'
+    : !cabReady
+      ? 'Next: pull the cabinet, then start packing.'
+      : 'Next: tap Start Packing.';
+
+  // Secondary action chips — small, no clutter.
+  const secondary = ''
+    + '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">'
+    +   (o.pick_list_pdf_url ? '<a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Pick List PDF</a>' : '')
+    +   (o.instructions_pdf_url ? '<a href="' + esc(o.instructions_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Cabinet Instructions PDF</a>' : '')
+    +   '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
+    + '</div>';
+
+  // Muted read-only SKU preview (full list for context — no scan UI).
+  let skuPreview = '';
+  try {
+    const arr = JSON.parse(String(o.sku_lines_json || '[]'));
+    if (Array.isArray(arr) && arr.length) {
+      skuPreview = '<div style="margin-top:14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:10px 14px">'
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">📋 SKUs (' + arr.length + ') — preview</div>'
+        + arr.slice(0, 20).map(l => '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:12px;color:rgba(255,255,255,.65);-webkit-text-fill-color:rgba(255,255,255,.65)"><span>' + esc(l.name || l.sku || '') + '</span><span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);font-size:11px">' + (l.sku && l.sku !== l.name ? esc(l.sku) + ' · ' : '') + '×' + Number(l.qty || 1) + '</span></div>').join('')
+        + (arr.length > 20 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (arr.length - 20) + ' more</div>' : '')
+        + '</div>';
+    }
+  } catch (e) {}
+
+  return ''
+    + (isPriority ? '<div style="height:4px;background:linear-gradient(90deg,#FF6B00,#FF9100);margin:-14px -14px 10px;border-radius:4px 4px 0 0"></div>' : '')
+    + '<div style="position:sticky;top:0;background:linear-gradient(180deg,#0E1520 0%,#0E1520 70%,rgba(14,21,32,.0) 100%);padding-bottom:8px;margin-bottom:10px;z-index:5">'
+    +   '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +     '<button onclick="_closeOrdersDetail_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">← Back</button>'
+    +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">' + (isPriority ? '<span style="color:#FF9100;-webkit-text-fill-color:#FF9100;margin-right:4px">🔥</span>' : '') + 'Order ' + ord + mtoBadge + '</div>'
+    +     '<span style="padding:7px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:rgba(255,255,255,.08);color:#9aa0a6;-webkit-text-fill-color:#9aa0a6;border-radius:999px">READY</span>'
+    +   '</div>'
+    +   '<div style="margin-top:6px;font-size:13px;color:var(--text-dim);display:flex;gap:14px;flex-wrap:wrap"><span>Ship: <span style="color:var(--text)">' + esc(shipDateFriendly) + '</span></span>' + (carrier ? '<span>· <span style="color:var(--text)">' + esc(carrier) + '</span></span>' : '') + (pieces ? '<span>· <span style="color:var(--text)">' + pieces + ' piece' + (pieces === 1 ? '' : 's') + '</span></span>' : '') + '</div>'
+    + '</div>'
+    + readinessRow
+    + cabSection
+    + '<div style="margin-top:18px;font-size:13px;color:var(--text-dim);font-style:italic">' + esc(nextStep) + '</div>'
+    + '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">' + ctaRow + '</div>'
+    + secondary
+    + skuPreview
+    + '<details style="margin-top:14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:0">'
+    +   '<summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;list-style:none">▸ Order info (customer / address / phone / task line)</summary>'
+    +   '<div style="padding:10px 14px 14px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px">'
+    +     '<div style="color:var(--text-dim)">Customer</div><div style="color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Address</div><div style="color:var(--text)">' + esc(o.customer_address || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Phone</div><div style="color:var(--text)">' + esc(o.customer_phone || '—') + '</div>'
+    +     '<div style="color:var(--text-dim)">Booker</div><div style="color:var(--text)">' + (o.booker ? '👤 ' + esc(o.booker) : '—') + '</div>'
+    +     (o.shopify_admin_url ? '<div style="color:var(--text-dim)">Shopify</div><div><a href="' + esc(o.shopify_admin_url) + '" target="_blank" rel="noopener" style="color:#42a5f5">🛒 Open</a></div>' : '')
+    +     (o.task_line ? '<div style="color:var(--text-dim)">Task line</div><div style="color:var(--text);font-family:\'JetBrains Mono\',monospace;font-size:11px">' + esc(o.task_line) + '</div>' : '')
+    +   '</div>'
+    + '</details>';
+}
+
 async function _togglePackerPrePackMode_(orderNumber) {
+  // v10.399 — delegate to the new mode system; this preserves the legacy
+  // boolean (so renderPackSkuList_'s HW-only filter still works) AND routes
+  // through the toast / categorize-prefetch flow.
+  const target = (_packDetailMode === 'pre_pack') ? 'overview' : 'pre_pack';
+  if (typeof _setPackDetailMode_ === 'function') {
+    _setPackDetailMode_(target, orderNumber);
+    return;
+  }
   _packDetailPrePackMode = !_packDetailPrePackMode;
   const o = getCachedPipelineOrder(orderNumber);
   if (o) _renderInOrdersPackerDetail_(o);
