@@ -2021,7 +2021,18 @@ function renderPackSkuList_(orderNumber) {
     });
   }
   const done = visibleSkus.filter(s => s.scanned >= s.qty).length;
-  if (prog) prog.textContent = '(' + done + '/' + visibleSkus.length + (_packDetailPrePackMode ? ' HW' : '') + ' complete)';
+  // v10.400 — progress BAR replaces "X/Y complete" text. Filling bar +
+  // "N of M" counter beside it for at-a-glance progress.
+  if (prog) {
+    const pct = visibleSkus.length ? Math.round((done / visibleSkus.length) * 100) : 0;
+    const barColor = done === visibleSkus.length ? '#00C853' : '#42a5f5';
+    prog.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);font-weight:700">'
+      + '<span style="position:relative;width:120px;height:8px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden;display:inline-block">'
+      +   '<span style="position:absolute;top:0;left:0;bottom:0;width:' + pct + '%;background:' + barColor + ';transition:width .2s"></span>'
+      + '</span>'
+      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:var(--text)">' + done + ' of ' + visibleSkus.length + (_packDetailPrePackMode ? ' HW' : '') + '</span>'
+      + '</span>';
+  }
   list.innerHTML = visibleSkus.map((s) => {
     // v10.314 — keep idx pointing at the ORIGINAL state.skus index so
     // bumpPackSku still hits the right SKU when the list is filtered.
@@ -2030,38 +2041,147 @@ function renderPackSkuList_(orderNumber) {
     const isOver = s.scanned > s.qty;
     const bg = isDone ? 'rgba(0,230,118,.10)' : isOver ? 'rgba(255,82,82,.10)' : 'rgba(255,255,255,.02)';
     const border = isDone ? 'rgba(0,230,118,.45)' : isOver ? 'rgba(255,82,82,.45)' : 'rgba(255,255,255,.08)';
-    const checkColor = isDone ? '#00e676' : isOver ? '#ff5252' : 'var(--text-dim)';
-    const checkChar = isDone ? '✓' : isOver ? '!' : '○';
-    // v10.311 — Zac 13:08 EDT: 'STILL no print button on the
-    // instructions line of the packer scan list.' INST-* SKUs are
-    // instructions stickers — packer needs to print them at the
-    // assembly point. Add a Print chip on every INST-* row.
+    // v10.311 — INST-* SKUs get a per-row Print chip.
     const isInstSku = /^INST-/i.test(String(s.sku || ''));
     const printChip = isInstSku
-      ? '<button onclick="printInstructionsLink_(\''+esc(orderNumber)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:34px;padding:6px 10px;font-size:12px;font-weight:700;background:#37474f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;line-height:1.2;margin-right:4px" title="Print this INST-* instructions PDF">🖨 Print</button>'
+      ? '<button onclick="event.stopPropagation();printInstructionsLink_(\''+esc(orderNumber)+'\')" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:34px;padding:6px 10px;font-size:12px;font-weight:700;background:#37474f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;line-height:1.2" title="Print this INST-* instructions PDF">🖨 Print</button>'
       : '';
-    // v10.343 — Zac: "those minus and plus buttons are also absolutely
-    // horrible with the dots etc and i don't think we need them at all.
-    // i think what i'd originally asked for there was a simple click-
-    // to-mark-as-added-to-order not plus and minus buttons. a simple
-    // check or not would be fine." Row is the whole tap target. Tap
-    // toggles between scanned=0 (unchecked) and scanned=qty (checked).
-    // Qty>1 still tracks as scanned/qty progress but each tap is a
-    // full toggle (no partial). One tap = one server call = no race.
-    const qtyLabel = s.qty > 1 ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:var(--text-dim);margin-left:8px;flex-shrink:0">×' + s.qty + '</span>' : '';
+    // v10.400 — category icon at the left (long-press tooltip via title).
+    const icon = _packSkuIcon_(s.sku, s.name);
+    const iconTitle = _packSkuIconTitle_(s.sku, s.name);
+    // Qty pill on the right (bold, prominent) when qty > 1.
+    const qtyPill = s.qty > 1
+      ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:900;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);padding:4px 10px;border-radius:6px;flex-shrink:0;letter-spacing:.5px">×' + s.qty + '</span>'
+      : '';
+    // Lead with the human description; SKU code small + secondary. Falls
+    // back to sku if name is missing or identical.
+    const hasDistinctName = s.name && s.name !== s.sku;
+    const primaryLabel = hasDistinctName ? esc(s.name) : esc(s.sku);
+    const secondaryLabel = hasDistinctName
+      ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:var(--text-dim);margin-top:2px;'+(isDone?'opacity:.6':'')+'">'+esc(s.sku)+'</div>'
+      : '';
+    // Long-press menu (touchstart + 500ms timer). v10.400.
+    const lpHandlers = ' ontouchstart="_packRowLongPressStart_(event,\''+esc(orderNumber)+'\','+idx+')" ontouchend="_packRowLongPressEnd_()" ontouchmove="_packRowLongPressEnd_()" oncontextmenu="event.preventDefault();_showPackRowMenu_(\''+esc(orderNumber)+'\','+idx+');return false;"';
     return '<div onclick="toggleSkuChecked(\''+esc(orderNumber)+'\',' + idx + ')" '
-      + 'onmouseover="this.style.background=\'' + (isDone ? 'rgba(0,230,118,.18)' : 'rgba(255,255,255,.06)') + '\'" '
-      + 'onmouseout="this.style.background=\'' + bg + '\'" '
-      + 'style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:6px;background:'+bg+';border:1.5px solid '+border+';border-radius:10px;cursor:pointer;transition:background .12s,border-color .12s">'
-      // Big checkbox-style indicator (24px square)
-      + '<div style="width:26px;height:26px;border-radius:6px;border:2px solid '+(isDone?'#00C853':isOver?'#ff5252':'rgba(255,255,255,.35)')+';background:'+(isDone?'#00C853':'transparent')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;font-weight:900;color:'+(isDone?'#0a0a0a':isOver?'#ff5252':'transparent')+';-webkit-text-fill-color:'+(isDone?'#0a0a0a':isOver?'#ff5252':'transparent')+'">'+(isDone?'✓':isOver?'!':'')+'</div>'
-      + '<div style="flex:1;min-width:0">'
-      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:'+(isDone?'700':'600')+';color:var(--text);word-break:break-all;'+(isDone?'text-decoration:line-through;opacity:.7':'')+'">'+esc(s.sku)+ qtyLabel +'</div>'
-      +   (s.name && s.name !== s.sku ? '<div style="font-size:11px;color:var(--text-dim);margin-top:2px;'+(isDone?'opacity:.6':'')+'">'+esc(s.name)+'</div>' : '')
+      + lpHandlers
+      + ' onmouseover="this.style.background=\'' + (isDone ? 'rgba(0,230,118,.18)' : 'rgba(255,255,255,.06)') + '\'"'
+      + ' onmouseout="this.style.background=\'' + bg + '\'"'
+      + ' style="display:flex;align-items:center;gap:10px;padding:12px 14px;margin-bottom:6px;background:'+bg+';border:1.5px solid '+border+';border-radius:10px;cursor:pointer;transition:background .12s,border-color .12s;-webkit-user-select:none;user-select:none">'
+      // Category icon (long-press tooltip on title)
+      + '<div title="' + esc(iconTitle) + '" style="font-size:20px;flex-shrink:0;width:30px;text-align:center;'+(isDone?'opacity:.5':'')+'">' + icon + '</div>'
+      // Big checkbox-style indicator (≥44pt tap target via padding on parent row)
+      + '<div style="width:28px;height:28px;border-radius:6px;border:2px solid '+(isDone?'#00C853':isOver?'#ff5252':'rgba(255,255,255,.35)')+';background:'+(isDone?'#00C853':'transparent')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;font-weight:900;color:'+(isDone?'#0a0a0a':isOver?'#ff5252':'transparent')+';-webkit-text-fill-color:'+(isDone?'#0a0a0a':isOver?'#ff5252':'transparent')+'">'+(isDone?'✓':isOver?'!':'')+'</div>'
+      // Body — lead with human description, sku small + secondary
+      + '<div style="flex:1;min-width:0;'+(isDone?'text-decoration:line-through;opacity:.7':'')+'">'
+      +   '<div style="font-size:14px;font-weight:'+(isDone?'700':'800')+';color:var(--text);line-height:1.25;word-break:break-word">' + primaryLabel + '</div>'
+      +   secondaryLabel
       + '</div>'
-      + (printChip ? '<div onclick="event.stopPropagation()" style="flex-shrink:0">' + printChip + '</div>' : '')
+      + qtyPill
+      + (printChip ? '<div style="flex-shrink:0">' + printChip + '</div>' : '')
       + '</div>';
   }).join('');
+}
+
+// v10.400 — category icons for the SKU row. Long-press tooltip explains.
+function _packSkuIcon_(sku, name) {
+  const u = String(sku || '').toUpperCase();
+  const n = String(name || '').toUpperCase();
+  const k = u + ' ' + n;
+  if (/^INST-/.test(u)) return '📄';
+  if (/^LIGHTS|LIGHT.*BLK|LIGHT.*SLV/.test(k)) return '💡';
+  if (/SLAT|^BC[12]\b|^SBF\b|^SBF-|^SBLM\b|NEXTBED|FRAME|^FRAME-/.test(k)) return '📐';
+  if (/MATTRESS|SLEEPYS/.test(k)) return '🛏';
+  if (/^\d{3}\.\d{2}\.\d{3}/.test(u) || /HARDWARE|PACK|HW|MAGNETS-|HINGE|SCREW|CAM\b|PIN\b|HANDLES|KIT|FLIP-PACK|PUSH-LATCH|KEPS|SPACERS/.test(k)) return '🔧';
+  return '📦';
+}
+function _packSkuIconTitle_(sku, name) {
+  const ic = _packSkuIcon_(sku, name);
+  return ({
+    '📄': 'instruction sheet',
+    '💡': 'lights / accessory',
+    '📐': 'frame piece',
+    '🛏': 'mattress / dropship',
+    '🔧': 'hardware kit item',
+    '📦': 'pickable item',
+  })[ic] || 'pickable item';
+}
+
+// v10.400 — long-press handlers + per-row menu (Mark damaged · Mark OOS ·
+// Why is this on the order?). Touch start arms a 500ms timer; touch end or
+// move cancels. The menu is a centered modal.
+let _packLongPressTimer = null;
+function _packRowLongPressStart_(ev, orderNumber, idx) {
+  _packRowLongPressEnd_();
+  _packLongPressTimer = setTimeout(function () {
+    try { if (navigator.vibrate) navigator.vibrate(20); } catch (e) {}
+    _showPackRowMenu_(orderNumber, idx);
+  }, 500);
+}
+function _packRowLongPressEnd_() {
+  if (_packLongPressTimer) { clearTimeout(_packLongPressTimer); _packLongPressTimer = null; }
+}
+
+function _showPackRowMenu_(orderNumber, idx) {
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus[idx]) return;
+  const s = state.skus[idx];
+  const prior = document.getElementById('packRowMenuOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'packRowMenuOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+  const btnStyle = 'display:block;width:100%;padding:14px 16px;margin-bottom:8px;background:rgba(255,255,255,.06);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.20);border-radius:10px;font-size:14px;font-weight:700;text-align:left;cursor:pointer;font-family:inherit';
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;border-radius:14px;padding:18px;max-width:380px;width:100%;border:1px solid rgba(255,255,255,.10);color:var(--text)">'
+    + '<div style="font-size:14px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:4px">SKU options</div>'
+    + '<div style="font-size:15px;font-weight:800;margin-bottom:14px;line-height:1.3">' + esc(s.name || s.sku) + (s.qty > 1 ? ' <span style="font-size:12px;color:var(--text-dim)">×' + s.qty + '</span>' : '') + '</div>'
+    + '<button style="' + btnStyle + '" onclick="document.getElementById(\'packRowMenuOverlay\').remove();_packRowReportOos_(\'' + esc(orderNumber) + '\',' + idx + ')">📭 Mark out of stock</button>'
+    + '<button style="' + btnStyle + '" onclick="document.getElementById(\'packRowMenuOverlay\').remove();_packRowReportDamaged_(\'' + esc(orderNumber) + '\',' + idx + ')">⚠ Mark damaged</button>'
+    + '<button style="' + btnStyle + '" onclick="document.getElementById(\'packRowMenuOverlay\').remove();_packRowWhyOnOrder_(\'' + esc(orderNumber) + '\',' + idx + ')">❓ Why is this on the order?</button>'
+    + '<button style="display:block;width:100%;margin-top:6px;padding:12px;background:transparent;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border:1px solid rgba(255,255,255,.15);border-radius:10px;font-size:13px;cursor:pointer;font-family:inherit" onclick="document.getElementById(\'packRowMenuOverlay\').remove()">Cancel</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+async function _packRowReportOos_(orderNumber, idx) {
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus[idx]) return;
+  const s = state.skus[idx];
+  const note = prompt('Mark "' + (s.name || s.sku) + '" out of stock for order ' + orderNumber + '?\n\nOptional note (e.g. "expected 4, found 2 in bin"):', '');
+  if (note === null) return;
+  try {
+    const res = await groundApi('reportPackerOos', {
+      orderNumber: orderNumber,
+      sku: s.sku,
+      itemName: s.name || s.sku,
+      qtyNeeded: s.qty || 1,
+      packerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '',
+      deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '',
+      notes: String(note || ''),
+    });
+    if (res && res.ok) showToast('Out of stock report sent — Slack pinged');
+    else showToast('OOS report failed: ' + ((res && res.error) || 'unknown'));
+  } catch (e) {
+    showToast('OOS report error: ' + e.message);
+  }
+}
+
+function _packRowReportDamaged_(orderNumber, idx) {
+  // Route to the existing Remakes intake — "damaged from MFG" / "wrong part"
+  // is the same flow CS uses for replacement parts.
+  if (typeof openRemakesPanel === 'function') {
+    openRemakesPanel('open');
+    showToast('Damaged → opening Remakes intake');
+  } else {
+    showToast('Remakes panel not available in this view');
+  }
+}
+
+function _packRowWhyOnOrder_(orderNumber, idx) {
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus[idx]) return;
+  const s = state.skus[idx];
+  alert('SKU: ' + s.sku + '\nDescription: ' + (s.name || '—') + '\nQty: ' + s.qty + '\n\nThis item came from the order\'s parsed pick list (sku_lines_json). Reach back to the source pick-list PDF or Shopify line items for further detail.');
 }
 
 // v10.343 — replaces bumpPackSku ± clicks per Zac's "simple click-to-
