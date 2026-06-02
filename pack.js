@@ -639,7 +639,7 @@ function _packerDetailFullHtml_(o, mode) {
     +     (backToOverview)
     +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">' + (isPriority ? '<span style="color:#FF9100;-webkit-text-fill-color:#FF9100;margin-right:4px">🔥</span>' : '') + 'Order ' + ord + mtoBadge + '</div>'
     +     (mode === 'active_pack' ? '' : prePackBtn)
-    +     '<span style="padding:7px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:' + modeChipBg + ';color:' + modeChipColor + ';-webkit-text-fill-color:' + modeChipColor + ';border-radius:999px;display:inline-flex;align-items:center;gap:4px">' + modeChipLabel + '</span>'
+    +     '<span id="packModeChip" onclick="_showWhyStatusModal_(\'' + ord + '\')" style="padding:7px 14px;font-size:11px;font-weight:900;letter-spacing:1.5px;background:' + modeChipBg + ';color:' + modeChipColor + ';-webkit-text-fill-color:' + modeChipColor + ';border-radius:999px;display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="🔍 Tap to see why this status">' + modeChipLabel + ' 🔍</span>'
     +   '</div>'
     // v10.343 — Print Instructions button at the top of the detail
     // (Zac: "at the top of pre-pack or pack should be the print
@@ -4917,6 +4917,15 @@ async function claimPackOrder(orderNumber) {
     _packDetailMode = 'active_pack';
     _packMarkScanActivity_();
     _startPackIdleCheck_();
+    // v10.406 — spec §6: tapping START PACKING auto-prints the cabinet
+    // instructions via PrintNode silently (parallels the hardware-label
+    // auto-print in Pre-Pack mode). Fire-and-forget — failures don't block
+    // the claim and surface as a toast for the packer to retry manually.
+    try {
+      if (typeof printInstructionsLink_ === 'function') {
+        printInstructionsLink_(orderNumber, /*silent=*/true);
+      }
+    } catch (eAutoPrint) { /* swallow */ }
     await refreshPackQueue();
     openPackDetail(orderNumber);
   } catch (err) {
