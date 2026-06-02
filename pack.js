@@ -551,9 +551,13 @@ function _packerDetailFullHtml_(o, mode) {
       actionRow = '<div style="flex:1;padding:14px 18px;background:rgba(255,165,0,.10);border:1px solid rgba(255,165,0,.45);border-radius:10px;font-size:14px;color:var(--text)">⚠ Packing in progress by ' + esc(o.started_by || 'another device') + '</div>';
     }
   } else if (status === 'ready_for_check') {
+    // v10.402 — spec §9. Replace the two-step Start Checking → confirm with
+    // the one-tap handoff hero. Any device that opens this order goes
+    // straight into the "Hand the phone to anyone else → Confirm Pack"
+    // flow; the same-identity block enforces the second-person rule.
     actionRow = ''
-      + '<div style="flex:1;min-width:260px;padding:14px 18px;background:rgba(66,165,245,.10);border:1px solid rgba(66,165,245,.45);border-radius:10px;font-size:13px;color:var(--text)">📦 Packed by ' + esc(o.packed_by || o.started_by || '?') + ' — checker needed.</div>'
-      + '<button onclick="claimPackCheck(\'' + ord + '\')" style="flex:1;min-width:200px;padding:18px;background:#ab47bc;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">▶ Start Checking</button>';
+      + '<div style="flex:1;min-width:260px;padding:14px 18px;background:rgba(66,165,245,.10);border:1px solid rgba(66,165,245,.45);border-radius:10px;font-size:13px;color:var(--text)">📦 Packed by ' + esc(o.packed_by || o.started_by || '?') + ' — needs second-person confirm.</div>'
+      + '<button onclick="_showSecondPersonHandoff_(\'' + ord + '\')" style="flex:1;min-width:240px;padding:18px;background:#ab47bc;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">👐 Confirm pack</button>';
   } else if (status === 'checking') {
     if (checkerMine) {
       actionRow = ''
@@ -3244,9 +3248,23 @@ function processPackScan_(code) {
             Math.max(0, _packScanState[orderNumber].skus[optimisticIdx].scanned - 1);
           if (_packDetailOrderNumber === orderNumber) renderPackSkuList_(orderNumber);
         }
-        showToast(((res && res.error) || 'Scan rejected'));
+        // v10.401 — §7 wrong-SKU "did you mean" modal replaces the silent toast
+        // when the scan didn't match any sku on the order. Server-side rejections
+        // for other reasons (sku not in order's lines) get the modal; alias/box
+        // rejections still surface as toasts (different error shape).
+        const errStr = String((res && res.error) || '').toLowerCase();
+        const noMatch = /not on this order|no match|sku.*not found|unknown sku|reject/i.test(errStr) || optimisticIdx < 0;
+        if (noMatch) {
+          _showWrongSkuModal_(code, orderNumber);
+        } else {
+          showToast(((res && res.error) || 'Scan rejected'));
+        }
         return;
       }
+      // v10.401 — scan match: light haptic + success tone + activity ping.
+      try { if (navigator.vibrate) navigator.vibrate(18); } catch (eVib) {}
+      _packPlayScanTone_(true);
+      _packMarkScanActivity_();
       // Merge: keep counts at max(local, server) so an earlier server
       // response from a stale scan can't overwrite a later optimistic
       // increment. Once the whole queue drains, the two converge.
@@ -3317,11 +3335,18 @@ async function resetPackScansViaAction_(orderNumber, action) {
 }
 
 async function confirmReadyForCheck(orderNumber) {
+  // v10.402 — spec § 9 second-person handoff. Instead of confirm-dialog +
+  // close-and-find-the-order-from-another-device, we go directly to a hero
+  // overlay on this device. The packer literally hands the phone to anyone
+  // else, who taps Confirm Pack. That one button does claim + complete in
+  // sequence on the server, blocked if the confirming device === packer.
   const state = _packScanState[orderNumber];
   let unscanned = 0;
   if (state) state.skus.forEach(s => { if (s.scanned < s.qty) unscanned += (s.qty - s.scanned); });
-  const warn = unscanned > 0 ? '\n\nWARNING: ' + unscanned + ' SKU unit' + (unscanned===1?'':'s') + ' still unscanned. Tap Cancel and finish scanning, or push through if it\'s OK.' : '';
-  if (!confirm('Hand off order ' + orderNumber + ' to the checker?' + warn)) return;
+  if (unscanned > 0) {
+    const proceed = confirm(unscanned + ' SKU unit' + (unscanned === 1 ? '' : 's') + ' still unscanned.\n\nHand off anyway? (the second person can still spot-check.)');
+    if (!proceed) return;
+  }
   try {
     const res = await groundApi('markPackJobReadyForCheck', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
     if (!res || !res.ok) {
@@ -3332,9 +3357,21 @@ async function confirmReadyForCheck(orderNumber) {
       showToast('Ready-for-check failed: ' + msg);
       return;
     }
-    showToast('Handed off to checker ✓');
-    closePackDetail();
-    await refreshPackQueue();
+    // Patch local cache so handoff overlay reads the latest status without
+    // an extra refresh roundtrip.
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    if (cached) cached.status = 'ready_for_check';
+    // Show the handoff hero (spec §9B). The packer's deviceId is the
+    // "original packer" identity used by _confirmSecondPersonPack_ to block
+    // same-identity self-confirm.
+    if (typeof _showSecondPersonHandoff_ === 'function') {
+      _showSecondPersonHandoff_(orderNumber);
+    } else {
+      // Defensive fallback — older client without the helper.
+      showToast('Handed off to checker ✓');
+      closePackDetail();
+      await refreshPackQueue();
+    }
   } catch (err) {
     showToast('Ready-for-check error: ' + err.message);
   }
@@ -4798,6 +4835,15 @@ async function printPrePackLabelFromPackDetail_(orderNumber) {
 }
 
 async function claimPackOrder(orderNumber) {
+  // v10.401 — § 12 interleaving guard. Block opening a SECOND active pack
+  // while one's already in progress on this device — the spec only allows
+  // one active pack at a time per packer.
+  const block = _checkPackInterleavingBlock_(orderNumber);
+  if (block) {
+    const goBack = confirm('You have an active pack on order ' + block + '.\n\nFinish or cancel it first?\n\nTap OK to jump back to it.');
+    if (goBack && typeof openOrderDetail === 'function') openOrderDetail(block);
+    return;
+  }
   try {
     const data = await groundApi('claimPackJob', {
       orderNumber: orderNumber,
@@ -4809,6 +4855,9 @@ async function claimPackOrder(orderNumber) {
       return;
     }
     showToast('Claimed order ' + orderNumber);
+    _packDetailMode = 'active_pack';
+    _packMarkScanActivity_();
+    _startPackIdleCheck_();
     await refreshPackQueue();
     openPackDetail(orderNumber);
   } catch (err) {
@@ -4833,6 +4882,387 @@ async function releasePackOrder(orderNumber) {
     showToast('Release error: ' + err.message);
   }
 }
+
+// ══════════════════════════════════════════════════════════════════
+// v10.401 — final-push helpers (spec §7 wrong-SKU modal · §7 multi-qty
+// hybrid · §9 second-person handoff · §11 timer auto-pause · §12
+// interleaving · §13 cancel · §15 celebration + scan-joy sound).
+// ══════════════════════════════════════════════════════════════════
+
+// — § 13 CANCEL PACK ────────────────────────────────────────────────
+async function _confirmCancelPackJob_(orderNumber) {
+  const ok = confirm('Start this order over from scratch?\n\nNothing is lost — the order goes back to the list and you can reopen it any time.');
+  if (!ok) return;
+  await releasePackOrder(orderNumber);
+  _packDetailMode = null;
+  _stopPackIdleCheck_();
+  if (typeof _closeOrdersDetail_ === 'function') _closeOrdersDetail_();
+}
+
+// — § 7 WRONG-SKU MODAL ─────────────────────────────────────────────
+// On a rejected scan, surface the order's open (under-qty) SKUs and let
+// the packer choose a substitution — logs to the existing scan-rejection
+// trail via recordPackScan(manualAdjustment) on the chosen SKU.
+function _packOpenSkusForOrder_(orderNumber) {
+  const state = _packScanState[orderNumber];
+  if (!state) return [];
+  return state.skus
+    .map(function (s, i) { return { sku: s.sku, name: s.name, qty: s.qty, scanned: s.scanned, idx: i }; })
+    .filter(function (s) { return s.scanned < s.qty; });
+}
+
+function _showWrongSkuModal_(scannedSku, orderNumber) {
+  const openSkus = _packOpenSkusForOrder_(orderNumber);
+  // Haptic miss (heavier than the success blip).
+  try { if (navigator.vibrate) navigator.vibrate([60, 30, 60]); } catch (e) {}
+  _packPlayScanTone_(false);
+  if (!openSkus.length) {
+    showToast('"' + scannedSku + '" not on order — all SKUs already scanned');
+    return;
+  }
+  const prior = document.getElementById('wrongSkuModal');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'wrongSkuModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+  const rowsHtml = openSkus.map(function (s) {
+    const lead = (s.name && s.name !== s.sku) ? esc(s.name) : esc(s.sku);
+    const subLine = (s.name && s.name !== s.sku) ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;opacity:.7;margin-top:2px">' + esc(s.sku) + '</div>' : '';
+    return '<button onclick="_substituteScanForRow_(\'' + esc(orderNumber) + '\',\'' + esc(scannedSku) + '\',' + s.idx + ')" style="display:block;width:100%;padding:14px;margin-bottom:8px;background:rgba(0,200,83,.10);color:#00C853;-webkit-text-fill-color:#00C853;border:1.5px solid rgba(0,200,83,.45);border-radius:10px;font-size:14px;font-weight:800;text-align:left;cursor:pointer;font-family:inherit;line-height:1.3">'
+      + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><span>' + lead + '</span><span style="font-family:\'JetBrains Mono\',monospace;font-size:12px;opacity:.85">' + s.scanned + '/' + s.qty + '</span></div>'
+      + subLine
+      + '</button>';
+  }).join('');
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;border-radius:14px;padding:18px;max-width:420px;width:100%;border:1px solid rgba(255,255,255,.10);color:var(--text);max-height:80vh;overflow-y:auto">'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:26px">❓</span><div style="font-size:16px;font-weight:900;color:#ff8a80;-webkit-text-fill-color:#ff8a80">"' + esc(scannedSku) + '" isn\'t on this order</div></div>'
+    + '<div style="font-size:13px;color:var(--text-dim);margin-bottom:14px">Did you mean one of these?</div>'
+    + rowsHtml
+    + '<button onclick="document.getElementById(\'wrongSkuModal\').remove()" style="display:block;width:100%;margin-top:8px;padding:12px;background:transparent;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border:1px solid rgba(255,255,255,.18);border-radius:10px;font-size:13px;cursor:pointer;font-family:inherit">Nope, my mistake — close</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+async function _substituteScanForRow_(orderNumber, scannedSku, idx) {
+  const modal = document.getElementById('wrongSkuModal');
+  if (modal) modal.remove();
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus[idx]) return;
+  const s = state.skus[idx];
+  // Optimistic bump + haptic feedback.
+  s.scanned = Math.min(s.qty + 5, s.scanned + 1);
+  renderPackSkuList_(orderNumber);
+  try { if (navigator.vibrate) navigator.vibrate(18); } catch (e) {}
+  _packPlayScanTone_(true);
+  _packMarkScanActivity_();
+  const action = _packActivePhase === 'checker' ? 'recordPackCheckScan' : 'recordPackScan';
+  try {
+    await groundApi(action, {
+      orderNumber: orderNumber,
+      scannedSku: s.sku,
+      manualAdjustment: true,
+      delta: 1,
+      deviceId: getPackDeviceId_(),
+      notes: 'substituted_from:' + scannedSku,
+    });
+    showToast('Counted as ' + s.sku);
+  } catch (e) {
+    showToast('Substitution error: ' + e.message);
+  }
+}
+
+// — § 7 MULTI-QTY HYBRID ───────────────────────────────────────────
+// qty ≤ 3 → scan each (existing behavior).
+// qty > 3 → first scan sets scanned=1 (and marks _needsConfirm). Row shows
+// a "✓ Yes, all N here" button until tapped, then jumps to scanned=qty.
+function _packIsMultiQtyAwaitingConfirm_(s) {
+  return s && Number(s.qty) > 3 && s.scanned > 0 && s.scanned < s.qty;
+}
+
+async function _confirmAllQtyOnRow_(orderNumber, idx) {
+  const state = _packScanState[orderNumber];
+  if (!state || !state.skus[idx]) return;
+  const s = state.skus[idx];
+  if (Number(s.qty) <= 3) { showToast('Not a multi-qty row'); return; }
+  const prev = s.scanned;
+  const delta = s.qty - prev;
+  if (delta <= 0) return;
+  s.scanned = s.qty;
+  try { if (navigator.vibrate) navigator.vibrate([18, 12, 18]); } catch (e) {}
+  _packPlayScanTone_(true);
+  _packMarkScanActivity_();
+  renderPackSkuList_(orderNumber);
+  const action = _packActivePhase === 'checker' ? 'recordPackCheckScan' : 'recordPackScan';
+  try {
+    const res = await groundApi(action, {
+      orderNumber: orderNumber,
+      scannedSku: s.sku,
+      manualAdjustment: true,
+      delta: delta,
+      deviceId: getPackDeviceId_(),
+    });
+    if (!res || !res.ok) {
+      // Revert
+      if (_packScanState[orderNumber] && _packScanState[orderNumber].skus[idx]) {
+        _packScanState[orderNumber].skus[idx].scanned = prev;
+        renderPackSkuList_(orderNumber);
+      }
+      showToast('Bulk confirm failed: ' + ((res && res.error) || 'unknown'));
+    }
+  } catch (e) {
+    showToast('Bulk confirm error: ' + e.message);
+  }
+}
+
+// — § 15 SCAN-JOY SOUND (web audio) ─────────────────────────────────
+// Short success tone (instrument-fret pluck-ish) on match; soft thunk on
+// miss. Falls back silently if Web Audio isn't supported (older Safari).
+let _packScanAudioCtx = null;
+function _packPlayScanTone_(success) {
+  try {
+    if (!_packScanAudioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      _packScanAudioCtx = new AC();
+    }
+    const ctx = _packScanAudioCtx;
+    if (ctx.state === 'suspended' && ctx.resume) { try { ctx.resume(); } catch (e) {} }
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    if (success) {
+      o.frequency.setValueAtTime(880, ctx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.08);
+      g.gain.setValueAtTime(0.10, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      o.start(); o.stop(ctx.currentTime + 0.20);
+    } else {
+      o.frequency.setValueAtTime(220, ctx.currentTime);
+      g.gain.setValueAtTime(0.08, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+      o.start(); o.stop(ctx.currentTime + 0.20);
+    }
+  } catch (e) { /* swallow */ }
+}
+
+// — § 11 TIMER + AUTO-PAUSE ────────────────────────────────────────
+let _packDetailLastActivityAt = 0;
+let _packDetailIdleCheckTimer = null;
+const PACK_IDLE_MS = 10 * 60 * 1000;   // 10 minutes per spec
+
+function _packMarkScanActivity_() {
+  _packDetailLastActivityAt = Date.now();
+}
+function _startPackIdleCheck_() {
+  _stopPackIdleCheck_();
+  _packMarkScanActivity_();
+  _packDetailIdleCheckTimer = setInterval(function () {
+    if (!_packDetailOrderNumber || _packDetailMode !== 'active_pack') { _stopPackIdleCheck_(); return; }
+    const idleMs = Date.now() - _packDetailLastActivityAt;
+    const chip = document.getElementById('packModeChip');
+    if (chip) {
+      if (idleMs >= PACK_IDLE_MS) {
+        const idleMin = Math.floor(idleMs / 60000);
+        const idleSec = Math.floor((idleMs % 60000) / 1000);
+        chip.textContent = '⏸ PAUSED ' + idleMin + ':' + (idleSec < 10 ? '0' : '') + idleSec;
+        chip.style.background = 'linear-gradient(135deg,#FF9100,#FFB300)';
+        chip.style.color = '#1a1a1a';
+        chip.style.webkitTextFillColor = '#1a1a1a';
+        chip.dataset.paused = 'true';
+      }
+    }
+  }, 30000);
+}
+function _stopPackIdleCheck_() {
+  if (_packDetailIdleCheckTimer) { clearInterval(_packDetailIdleCheckTimer); _packDetailIdleCheckTimer = null; }
+}
+function _packShowWelcomeBackIfPaused_() {
+  const chip = document.getElementById('packModeChip');
+  if (chip && chip.dataset && chip.dataset.paused === 'true') {
+    showToast('👋 Welcome back — tap anywhere to resume');
+    _packMarkScanActivity_();
+    chip.dataset.paused = '';
+  }
+}
+
+// — § 12 INTERLEAVING GUARD ────────────────────────────────────────
+// Returns the OTHER active pack's order_number if one's already in
+// progress on this device (and it's not the order the packer is about
+// to claim). Null = clear to proceed.
+function _checkPackInterleavingBlock_(claimingOrderNumber) {
+  try {
+    const myDevice = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
+    if (!myDevice) return null;
+    // Scan _packQueueCache for an in_progress row claimed by me on another order.
+    const blocker = (_packQueueCache || []).find(function (r) {
+      return r && r.order_number && String(r.order_number) !== String(claimingOrderNumber)
+        && String(r.status || '') === 'in_progress'
+        && String(r.started_by || '') === myDevice;
+    });
+    return blocker ? String(blocker.order_number) : null;
+  } catch (e) { return null; }
+}
+
+// — § 9 SECOND-PERSON HANDOFF SCREEN ───────────────────────────────
+// Wraps the existing confirmReadyForCheck / claimPackCheckJob /
+// confirmMarkPackJobComplete chain with a cleaner "hand the phone to
+// anyone else" hero. Blocks same-identity self-confirm. The underlying
+// spine flow (markPackJobReadyForCheck → claimPackCheckJob → markPack-
+// JobComplete) is untouched.
+function _showSecondPersonHandoff_(orderNumber) {
+  const prior = document.getElementById('packHandoffOverlay');
+  if (prior) prior.remove();
+  const myName = (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '';
+  const myId = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
+  const ov = document.createElement('div');
+  ov.id = 'packHandoffOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10003;display:flex;align-items:center;justify-content:center;padding:24px';
+  const photoCount = (function () {
+    const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    try { const a = JSON.parse((row && row.photo_urls_json) || '[]'); return Array.isArray(a) ? a.length : 0; }
+    catch (e) { return 0; }
+  })();
+  const state = _packScanState[orderNumber];
+  const skuCount = state ? state.skus.length : 0;
+  const skuDone = state ? state.skus.filter(s => s.scanned >= s.qty).length : 0;
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;border-radius:18px;padding:24px;max-width:480px;width:100%;border:1px solid rgba(255,255,255,.10);color:var(--text);text-align:center">'
+    + '<div style="font-size:48px;margin-bottom:8px">👐</div>'
+    + '<div style="font-size:20px;font-weight:900;margin-bottom:6px">Hand the phone to anyone else</div>'
+    + '<div style="font-size:13px;color:var(--text-dim);margin-bottom:18px;line-height:1.5">A second pair of eyes confirms the pack before it ships. You (' + esc(myName || 'packer') + ') can\'t confirm your own order.</div>'
+    + '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:12px 14px;margin-bottom:18px;text-align:left">'
+    +   '<div style="font-size:14px;font-weight:800;margin-bottom:6px">Order ' + esc(orderNumber) + '</div>'
+    +   '<div style="font-size:12px;color:var(--text-dim)">' + skuDone + ' of ' + skuCount + ' SKUs scanned · ' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + '</div>'
+    + '</div>'
+    + '<button onclick="_confirmSecondPersonPack_(\'' + esc(orderNumber) + '\',\'' + esc(myId) + '\')" style="display:block;width:100%;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:12px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer;margin-bottom:8px">✓ Confirm pack</button>'
+    + '<button onclick="document.getElementById(\'packHandoffOverlay\').remove()" style="display:block;width:100%;padding:12px;background:transparent;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border:1px solid rgba(255,255,255,.18);border-radius:10px;font-size:13px;cursor:pointer;font-family:inherit">← Ask packer to recheck</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
+async function _confirmSecondPersonPack_(orderNumber, originalPackerId) {
+  const myId = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
+  const myName = (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '';
+  // Block same-identity self-confirm (spec §9). The packer's deviceId is
+  // passed in from the handoff overlay; if this is the same physical
+  // device, ask the coworker to open it on THEIRS instead (Bedrock's
+  // identity is per-device localStorage so it can't be hand-overridden).
+  if (myId && originalPackerId && myId === originalPackerId) {
+    alert('You can\'t confirm your own pack — open this order on another device to confirm, or pass the order to a coworker on their device.\n\n(Bedrock identity is per-device; the same phone can\'t pack and confirm.)');
+    return;
+  }
+  // Photo soft-gate (spec §8). Zero photos → explicit confirm.
+  const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+  let photoCount = 0;
+  try { const a = JSON.parse((row && row.photo_urls_json) || '[]'); photoCount = Array.isArray(a) ? a.length : 0; } catch (e) {}
+  if (photoCount === 0) {
+    if (!confirm('No photos yet — confirm pack anyway?\n\nIt will be marked PACKED · waiting for carrier pickup.')) return;
+  }
+  // Close the handoff overlay; we'll show the celebration overlay on success.
+  const ov = document.getElementById('packHandoffOverlay');
+  if (ov) ov.remove();
+  // Server: claim the check phase, then mark packed, in sequence. The spec
+  // §9B describes this as one tap — the two underlying endpoints stay
+  // intact (spine wiring untouched), we just chain them client-side.
+  try {
+    const claim = await groundApi('claimPackCheckJob', {
+      orderNumber: orderNumber,
+      deviceId: myId,
+      checkerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '',
+    });
+    if (!claim || !claim.ok) {
+      // Specific server messages are already plain-English; surface them.
+      showToast('Confirm failed: ' + ((claim && claim.error) || 'unknown'));
+      return;
+    }
+    const complete = await groundApi('markPackJobComplete', {
+      orderNumber: orderNumber,
+      deviceId: myId,
+      packerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '',
+    });
+    if (!complete || !complete.ok) {
+      showToast('Pack-complete failed: ' + ((complete && complete.error) || 'unknown'));
+      return;
+    }
+    // Patch local cache so the celebration's daily-count read is fresh.
+    if (row) { row.status = 'packed'; row.packed_at = new Date().toISOString(); row.packed_by = myId; }
+    if (typeof _showPackCompleteCelebration_ === 'function') _showPackCompleteCelebration_(orderNumber);
+    setTimeout(function () {
+      if (typeof closePackDetail === 'function') closePackDetail();
+      if (typeof refreshPackQueue === 'function') refreshPackQueue();
+      if (typeof _closeOrdersDetail_ === 'function') _closeOrdersDetail_();
+    }, 2200);
+  } catch (err) {
+    showToast('Handoff confirm error: ' + err.message);
+  }
+}
+
+// — § 15 / §10 CELEBRATION + PACKED ≠ SHIPPED ───────────────────────
+// 2s full-screen success state on complete. Shows daily count derived
+// from _packQueueCache (orders packed today by this device). Per spec:
+// "Waiting for carrier pickup" line is critical — makes PACKED ≠ SHIPPED
+// visible.
+function _packDailyCompletedCount_() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const myId = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
+    const list = _packQueueCache || [];
+    let done = 0, eligible = 0;
+    list.forEach(function (r) {
+      if (!r) return;
+      const packedDay = String(r.packed_at || '').slice(0, 10);
+      const isMine = !myId || String(r.packed_by || r.checker_started_by || '') === myId;
+      if (packedDay === today && isMine && (r.status === 'packed' || r.status === 'shipped')) done++;
+      const shipDay = String(r.ship_date || '').slice(0, 10);
+      if (shipDay <= today) eligible++;
+    });
+    return { done: done, eligible: eligible };
+  } catch (e) { return { done: 0, eligible: 0 }; }
+}
+
+function _showPackCompleteCelebration_(orderNumber) {
+  const counts = _packDailyCompletedCount_();
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const prior = document.getElementById('packCompleteOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'packCompleteOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,40,15,.92);z-index:10004;display:flex;align-items:center;justify-content:center;text-align:center;color:#fff';
+  ov.innerHTML = '<div>'
+    + '<div style="font-size:80px;margin-bottom:14px">✓</div>'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:42px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#00e676;-webkit-text-fill-color:#00e676">Pack complete</div>'
+    + '<div style="font-size:18px;color:#fff;opacity:.85;margin-top:6px">' + esc(time) + '</div>'
+    + '<div style="font-size:16px;font-weight:700;color:#FFB300;-webkit-text-fill-color:#FFB300;margin-top:14px;letter-spacing:1px">Waiting for carrier pickup</div>'
+    + (counts.eligible ? '<div style="font-size:22px;font-weight:900;margin-top:24px;color:#fff">Today: ' + counts.done + ' of ' + counts.eligible + ' <span style="color:#00e676;-webkit-text-fill-color:#00e676">✓</span></div>' : '')
+    + '</div>';
+  document.body.appendChild(ov);
+  try { if (navigator.vibrate) navigator.vibrate([30, 50, 30, 50, 60]); } catch (e) {}
+  _packPlayScanTone_(true);
+  setTimeout(function () {
+    const live = document.getElementById('packCompleteOverlay');
+    if (live) live.remove();
+  }, 2000);
+}
+
+// — § 9 PRE-PACKED-BY-OTHER STAR CREDIT ─────────────────────────────
+// A hardware SKU pre-packed earlier by SOMEONE OTHER than the current
+// packer counts as the second-person check for that line. The data comes
+// from the existing scanned_json + hardware_packed_by columns on the
+// PackingQueue row; the renderPackSkuList_ row decides whether to render
+// the green star + "pre-packed by X" line.
+function _packIsPrePackedByOther_(s, row) {
+  if (!s || !row) return false;
+  const hwPackedAt = String((row && row.hardware_packed_at) || '').trim();
+  const hwPackedBy = String((row && row.hardware_packed_by) || '').trim();
+  const myId = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
+  if (!hwPackedAt) return false;
+  if (!hwPackedBy || !myId) return false;
+  if (hwPackedBy === myId) return false;
+  // Only mark "by other" when the SKU is classified as hardware and the
+  // pre-pack row has been credited.
+  const k = String((s && s.sku) || '').toUpperCase();
+  return _packLooksNonHardware_(k) ? false : (s.scanned >= s.qty);
+}
+
 
 // ──────────────────────────────────────────────────────────────────────
 // PRE-PACK TAB — hardware-box prep, day before cabinet pack
