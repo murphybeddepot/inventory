@@ -544,8 +544,11 @@ function _packerDetailFullHtml_(o, mode) {
     actionRow = '<button onclick="claimPackOrder(\'' + ord + '\')" style="flex:1;min-width:200px;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">▶ Start Packing</button>';
   } else if (status === 'in_progress') {
     if (packerMine) {
+      // v10.404 — spec § 13 Cancel pack (separated visually from FINISH so
+      // the packer can't fat-finger it). Reassuring confirm copy.
       actionRow = ''
-        + '<button onclick="releasePackOrder(\'' + ord + '\')" style="padding:14px 18px;background:rgba(255,255,255,.08);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.30);border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">↩ Release Claim</button>'
+        + '<button onclick="_confirmCancelPackJob_(\'' + ord + '\')" style="padding:14px 18px;background:rgba(255,82,82,.08);color:#ff8a80;-webkit-text-fill-color:#ff8a80;border:1.5px solid rgba(255,82,82,.35);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">✕ Cancel pack</button>'
+        + '<button onclick="releasePackOrder(\'' + ord + '\')" style="padding:14px 18px;background:rgba(255,255,255,.08);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.30);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">↩ Release Claim</button>'
         + '<button onclick="confirmReadyForCheck(\'' + ord + '\')" style="flex:1;min-width:240px;padding:18px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:10px;font-size:17px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">✓ Ready for Checker →</button>';
     } else {
       actionRow = '<div style="flex:1;padding:14px 18px;background:rgba(255,165,0,.10);border:1px solid rgba(255,165,0,.45);border-radius:10px;font-size:14px;color:var(--text)">⚠ Packing in progress by ' + esc(o.started_by || 'another device') + '</div>';
@@ -4688,30 +4691,74 @@ async function confirmMarkPackJobComplete(orderNumber) {
   const row = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
   let photoCount = 0;
   try { const a = JSON.parse((row && row.photo_urls_json) || '[]'); photoCount = Array.isArray(a) ? a.length : 0; } catch(e) {}
-  // v10.400 — photo soft gate (§8): zero photos → explicit confirm. The
-  // confirm copy makes PACKED ≠ SHIPPED visible per §10.
+  // v10.400 — photo soft gate (§8): zero photos → explicit confirm.
   if (photoCount === 0) {
     if (!confirm('No photos yet — finish anyway?\n\nThe pack will be marked PACKED · waiting for carrier pickup.')) return;
   } else {
     if (!confirm('Mark order ' + orderNumber + ' as packed?\n\n' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + ' attached. The pack will be marked PACKED · waiting for carrier pickup (SHIPPED is a separate state, flipped when the carrier actually picks up).')) return;
   }
+  await _runMarkPackComplete_(orderNumber, /*managerPin*/'');
+}
+
+// v10.402b — shared complete-pack server call with proper error handling
+// (pending-scans → actionable modal) and full UI refresh on success (Pack
+// tab + Orders tab + Order pipeline). Called from both the legacy
+// confirmMarkPackJobComplete and the new handoff hero confirm flow.
+async function _runMarkPackComplete_(orderNumber, managerPin) {
   try {
-    const res = await groundApi('markPackJobComplete', {
+    const body = {
       orderNumber: orderNumber,
       deviceId: getPackDeviceId_(),
-      packerName: localStorage.getItem('mbd_ground_packer') || '',
-    });
+      packerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : (localStorage.getItem('mbd_ground_packer') || ''),
+    };
+    if (managerPin) body.manager_pin = managerPin;
+    const res = await groundApi('markPackJobComplete', body);
     if (!res || !res.ok) {
-      showToast('Mark packed failed: ' + ((res && res.error) || 'unknown'));
+      const errStr = String((res && res.error) || 'unknown');
+      // Pending checker scans is the most common blocking case. Make it
+      // actionable: show the unscanned items + a "skip with PIN" path.
+      if (/checker scans not complete|pending/i.test(errStr) && res && res.pending && res.pending.length) {
+        const pendList = res.pending.map(p => '  • ' + p.sku + ' (' + p.scanned + '/' + p.qty + ')').join('\n');
+        const ok = confirm('Checker scans not complete:\n\n' + pendList + '\n\nThe second person needs to scan these in checker mode.\n\nTap OK to enter the manager PIN to skip the re-scan (solo-packer flow), or Cancel to go back and scan them.');
+        if (!ok) return;
+        const pin = prompt('Manager PIN to skip the checker re-scan:');
+        if (!pin) return;
+        await _runMarkPackComplete_(orderNumber, pin);
+        return;
+      }
+      alert('Mark packed failed: ' + errStr);
       return;
     }
-    // v10.400 — § 15 / §10 — PACKED is NOT shipped. Surface it clearly.
-    showToast('Pack complete · Waiting for carrier pickup');
+    // Patch caches so any UI re-read picks up the new state without a roundtrip.
+    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+    if (cached) {
+      cached.status = 'packed';
+      cached.packed_at = new Date().toISOString();
+      cached.packed_by = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
+    }
+    if (typeof getCachedPipelineOrder === 'function') {
+      const po = getCachedPipelineOrder(orderNumber);
+      if (po) { po.status = 'packed'; po.pipeline_status = 'packed'; }
+    }
+    // Spec §15 — full-screen celebration. Replaces the plain toast.
+    if (typeof _showPackCompleteCelebration_ === 'function') {
+      _showPackCompleteCelebration_(orderNumber);
+    } else {
+      showToast('Pack complete · Waiting for carrier pickup');
+    }
     try { if (navigator.vibrate) navigator.vibrate([30, 60, 30]); } catch (e) {}
-    closePackDetail();
-    await refreshPackQueue();
+    // After the celebration, refresh BOTH the Pack-tab queue AND the Orders
+    // pipeline + close BOTH detail surfaces. The previous version only
+    // touched Pack-tab DOM, leaving the Orders-tab detail visually frozen.
+    setTimeout(async function () {
+      try { if (typeof closePackDetail === 'function') closePackDetail(); } catch (e) {}
+      try { if (typeof _closeOrdersDetail_ === 'function') _closeOrdersDetail_(); } catch (e) {}
+      try { if (typeof refreshPackQueue === 'function') await refreshPackQueue(); } catch (e) {}
+      try { if (typeof refreshOrderPipeline === 'function') await refreshOrderPipeline({ force: true }); } catch (e) {}
+      try { if (typeof renderOrdersTab === 'function') renderOrdersTab(); } catch (e) {}
+    }, 2200);
   } catch (err) {
-    showToast('Mark packed error: ' + err.message);
+    alert('Mark packed error: ' + err.message);
   }
 }
 
