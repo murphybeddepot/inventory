@@ -1421,6 +1421,40 @@ function packCountSkus_(jsonStr) {
   } catch(e) { return 0; }
 }
 
+// v10.407 — short human-friendly product summary for Orders cards.
+// Reads sku_lines_json, drops the inside-item hardware noise the spine
+// already broke out (HWKIT/HORIZ/HLR/PBFRAME parts), and joins up to 3
+// distinct top-level descriptions with "·". Returns '' when nothing
+// renderable so the card layout doesn't gain an empty row.
+function _orderSkuSummary_(o) {
+  try {
+    const arr = JSON.parse(String((o && o.sku_lines_json) || '[]'));
+    if (!Array.isArray(arr) || !arr.length) return '';
+    const seen = Object.create(null);
+    const names = [];
+    for (let i = 0; i < arr.length; i++) {
+      const l = arr[i] || {};
+      const sku = String(l.sku || '').toUpperCase();
+      // Skip hardware/inside-item rows — they show in the pre-pack lens
+      // already and would otherwise crowd the card subtitle.
+      if (/HWKIT|HORIZ|HLR\d|^PBFRAME-.*-(HWKIT|HORIZ)/i.test(sku)) continue;
+      const raw = String(l.name || l.sku || '').trim();
+      if (!raw) continue;
+      // Truncate per-item so a single long description doesn't blow out
+      // the card width. 36 chars matches the customer line's wrap point.
+      const short = raw.length > 36 ? raw.slice(0, 34).trim() + '…' : raw;
+      const key = short.toLowerCase();
+      if (seen[key]) continue;
+      seen[key] = true;
+      names.push(short);
+      if (names.length >= 3) break;
+    }
+    if (!names.length) return '';
+    const remaining = arr.length - names.length;
+    return names.join(' · ') + (remaining > 0 ? ' · +' + remaining + ' more' : '');
+  } catch (e) { return ''; }
+}
+
 // Status meta used by openPackDetail to pick badge color + intent.
 // v10.400 — PACKED ≠ SHIPPED (spec §10). Label makes the distinction
 // visible so packers don't think it's done-done.
@@ -4923,9 +4957,13 @@ async function claimPackOrder(orderNumber) {
     // the claim and surface as a toast for the packer to retry manually.
     try {
       if (typeof printInstructionsLink_ === 'function') {
-        printInstructionsLink_(orderNumber, /*silent=*/true);
+        // printInstructionsLink_(orderNumber, presetSkus?) — presetSkus must
+        // be an array if supplied; null/undefined is fine for the default
+        // INST-* resolution path. Banner+toast feedback is wanted on auto-
+        // print so the packer knows the print fired.
+        printInstructionsLink_(orderNumber, null);
       }
-    } catch (eAutoPrint) { /* swallow */ }
+    } catch (eAutoPrint) { /* swallow — don't block claim on print failure */ }
     await refreshPackQueue();
     openPackDetail(orderNumber);
   } catch (err) {
