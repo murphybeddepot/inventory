@@ -3571,7 +3571,7 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
   }).join('');
 }
 
-// v10.409 — Schedule "carrier" view: group in-flight orders by booked
+// v10.410 — Schedule "carrier" view: group in-flight orders by booked
 // carrier so the operator can see "what's waiting on whom." Priority
 // buckets: UNASSIGNED first, then manual placeholders (KIM/SETH/WG-PAY)
 // per the calendar carrier convention, then real freight/parcel
@@ -3848,11 +3848,12 @@ function _renderOrdersCardHtml_(o, lens) {
   const dismissBtn = (lens === 'pack')
     ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Remove from today\'s pack list (the order isn\'t deleted — it just won\'t show on Pack Today). Operator override; auto-populate stops re-adding it." style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(255,179,0,.10);color:#FFB300;-webkit-text-fill-color:#FFB300;border:1px solid rgba(255,179,0,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">⏭ Not Today</button>'
     : '';
-  // v10.338 — Why? button on every lens card (was attention-only).
-  // Zac: "you still have shipped orders like 31838 on the pack today
-  // schedule for some reason" — operator needs to be able to diagnose
-  // from any lens, not just Needs Attention. Tiny chip, far-right.
-  const whyBtn = '<button onclick="event.stopPropagation();_diagOrderPipeline_(\'' + orderNum + '\')" title="Diagnose why this order shows here (server-side pipeline_status + Schedule overlay + Holds + raw PQ)" style="display:inline-flex;align-items:center;flex-shrink:0;padding:4px 8px;background:transparent;color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border:1px solid rgba(255,255,255,.20);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer">🔍</button>';
+  // v10.410 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
+  // decision). It was a debug aid (v10.338), not a packer affordance —
+  // visual noise on every card. The diagnostic stays available from
+  // the order-detail header chip (_showWhyStatusModal_ on the READY
+  // pill) so operators can still drill in when something looks off.
+  const whyBtn = '';
   // v10.345 — suppress redundant pStatus pill on Pack lens (lens chip
   // already says "Pack Today"); suppress per-row 📅 date when caller
   // signals it matches the section header (Schedule date-grouped view).
@@ -18269,7 +18270,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.409<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.410<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
