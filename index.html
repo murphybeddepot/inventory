@@ -3015,7 +3015,7 @@ function _getOrdersActiveLens_() {
 function setOrdersLens(lens) {
   if (_ORDERS_VALID_LENSES.indexOf(lens) < 0) lens = 'schedule';
   try { localStorage.setItem('mbd_orders_lens', lens); } catch (e) {}
-  // v10.428 — Zac: tapping a lens chip should also act as a "home"
+  // v10.429 — Zac: tapping a lens chip should also act as a "home"
   // button when a detail view is open. Close the detail before
   // re-rendering so the operator lands on the lens list, not the
   // detail they were already in.
@@ -3044,7 +3044,7 @@ function renderOrdersTab() {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
     if (!btn) return;
     const active = (L === lens);
-    // v10.428 — Zac round 2: .09 surface was still too dim; chips read
+    // v10.429 — Zac round 2: .09 surface was still too dim; chips read
     // as dark text on dark gray. Bump to .16 surface + .50 border +
     // explicit bright text so unselected lenses read as clear cards,
     // not faded controls. Active stays solid blue + 1px glow.
@@ -3110,7 +3110,7 @@ function renderOrdersTab() {
       toggleEl.style.cssText = 'display:flex;gap:6px;margin-bottom:10px';
       list.parentNode.insertBefore(toggleEl, list);
     }
-    // v10.428 — round 2 contrast bump (matches the lens chips).
+    // v10.429 — round 2 contrast bump (matches the lens chips).
     const _viewBtn = (v, emoji, label) => '<button onclick="setOrdersScheduleView(\'' + v + '\')" style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:' + (view === v ? '#003087' : 'rgba(255,255,255,.16)') + ';color:' + (view === v ? '#fff' : 'rgba(255,255,255,.92)') + ';-webkit-text-fill-color:' + (view === v ? '#fff' : 'rgba(255,255,255,.92)') + ';border:1px solid ' + (view === v ? '#1565c0' : 'rgba(255,255,255,.50)') + ';border-radius:6px;cursor:pointer">' + emoji + ' ' + label + '</button>';
     const viewHint = view === 'week' ? 'Calendar grid (desktop best)'
       : view === 'carrier' ? 'Grouped by booked carrier'
@@ -3142,7 +3142,7 @@ function renderOrdersTab() {
   // list to print (not assume all, just in case, but have all as
   // one of the choices)").
   let topActionsEl = document.getElementById('ordersTopActionsBar');
-  // v10.428 — Pack-today lens always shows Update List (even when the
+  // v10.429 — Pack-today lens always shows Update List (even when the
   // list is empty), so the manager can top up from zero. Prepack
   // keeps the prior "only-when-populated" behavior.
   const wantsTopActions = (lens === 'pack') || (lens === 'prepack' && filtered.length > 0);
@@ -3159,7 +3159,7 @@ function renderOrdersTab() {
     const printBtn = (filtered.length > 0)
       ? '<button onclick="_openBulkPrintInstructionsPicker_(\'' + lens + '\')" style="padding:10px 18px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px">🖨 Print Instructions…</button>'
       : '';
-    // v10.428 — Update List: manager PIN gated; loads next N orders by
+    // v10.429 — Update List: manager PIN gated; loads next N orders by
     // ship_date that aren't yet flagged on_active_list. Re-renders on
     // success so the new orders surface immediately.
     const updateBtn = (lens === 'pack')
@@ -3252,13 +3252,13 @@ async function _runBulkPrintInstructions_() {
 // Data sources: (a) cabinets_packed_json on each order (already
 // captured) + (b) cabinet#-shape patterns extracted from task_line
 // (predictive). Locations come from the main local cabinets[] array.
-// v10.428 — Zac: pick-route should let the operator tap each cabinet
+// v10.429 — Zac: pick-route should let the operator tap each cabinet
 // row to mark it as pulled as they walk the warehouse. Uses the same
 // cabinets[] mutation + saveCabinets + syncCabinetsNow path as the
 // existing _quickPullCabinetFromPacker_ helper, but skips the confirm
 // dialog (the route view IS the picking surface — adding a confirm
 // per row would kill the rhythm).
-// v10.428 — second-tap un-pulls so an accidental tap is recoverable
+// v10.429 — second-tap un-pulls so an accidental tap is recoverable
 // without bouncing out to a separate undo affordance.
 function _pickRouteTogglePulled_(cabinetNum, orderNumber) {
   if (typeof cabinets === 'undefined' || !Array.isArray(cabinets)) {
@@ -3491,7 +3491,7 @@ function _renderPackRouteModal_(sortedZones, byZone, orderCount, cabinetCount, o
           const srcChip = it.source === 'task_line'
             ? '<span style="font-size:10px;background:rgba(255,179,0,.20);color:#FFB300;padding:2px 6px;border-radius:3px;margin-left:6px;letter-spacing:.5px">PREDICTED</span>'
             : '';
-          // v10.428 — bigger mono locations + tap-to-pull. v10.428 —
+          // v10.429 — bigger mono locations + tap-to-pull. v10.429 —
           // pulled rows stay tappable so a second tap un-pulls
           // (accidental-tap recovery). Damaged + missing stay inert.
           const isInteractive = !it.damaged && !it.missing;
@@ -3577,7 +3577,7 @@ function setOrdersScheduleShowPast(show) {
 
 // v10.332 — Mon-Sun calendar grid showing 2 weeks (current + next)
 // at a time. Each day cell lists abbreviated order rows; tap to open.
-// v10.428 — Week-view forward/back navigation. Offset (in weeks) is
+// v10.429 — Week-view forward/back navigation. Offset (in weeks) is
 // persisted to localStorage so the view doesn't snap back when the
 // operator drills into an order + comes out.
 function _getOrdersWeekOffset_() {
@@ -3714,7 +3714,7 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
     // matches the section date. Set the module-local before rendering
     // the day's cards, clear after.
     _renderOrdersCardHtml_._sectionShipDate = d;
-    // v10.428 — drag-and-drop: cards are draggable + day headers are
+    // v10.429 — drag-and-drop: cards are draggable + day headers are
     // drop targets. _renderOrdersCardHtml_._draggable signals the
     // card renderer to add draggable=true + ondragstart so we don't
     // duplicate that wiring in every lens.
@@ -3735,7 +3735,85 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
   }).join('');
 }
 
-// v10.428 — drag-and-drop ship_date change. Drag an order card onto a
+// v10.429 — iPad-friendly Move popover. HTML5 drag doesn't fire on
+// touch devices, so this gives the operator quick day-move options
+// without leaving the Schedule. Reuses _onOrderDropOnDay_ for the
+// optimistic-update + server-call + refresh flow.
+function _openMoveOrderDateMenu_(orderNumber, evt) {
+  try { evt.stopPropagation(); } catch (e) {}
+  const prior = document.getElementById('moveOrderPopover');
+  if (prior) prior.remove();
+  const btn = evt && evt.currentTarget;
+  const rect = btn ? btn.getBoundingClientRect() : null;
+  const pop = document.createElement('div');
+  pop.id = 'moveOrderPopover';
+  pop.style.cssText = 'position:fixed;z-index:10030;background:#12181f;border:1.5px solid rgba(0,230,118,.40);border-radius:10px;padding:10px;box-shadow:0 8px 28px rgba(0,0,0,.65);min-width:230px;font-family:\'Barlow Condensed\',Arial,sans-serif';
+  pop.style.top = (rect ? (rect.bottom + 6) : 100) + 'px';
+  pop.style.left = (rect ? Math.max(8, Math.min(window.innerWidth - 250, rect.right - 230)) : 100) + 'px';
+  pop.addEventListener('click', e => e.stopPropagation());
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const addDays = (n) => { const d = new Date(today); d.setDate(today.getDate() + n); return d; };
+  const isoOf = (d) => d.toISOString().slice(0, 10);
+  const dayLabel = (d) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const nextBizDay = (() => {
+    let d = addDays(1);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    return d;
+  })();
+  const nextFri = (() => {
+    let d = addDays(1);
+    while (d.getDay() !== 5) d.setDate(d.getDate() + 1);
+    return d;
+  })();
+  const nextMon = (() => {
+    let d = addDays(1);
+    while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
+    return d;
+  })();
+  const opts = [
+    { label: '→ Tomorrow · ' + dayLabel(addDays(1)), iso: isoOf(addDays(1)) },
+    { label: '→ Next biz day · ' + dayLabel(nextBizDay), iso: isoOf(nextBizDay) },
+    { label: '→ Next Fri · ' + dayLabel(nextFri), iso: isoOf(nextFri) },
+    { label: '→ Next Mon · ' + dayLabel(nextMon), iso: isoOf(nextMon) },
+    { label: '→ +1 week · ' + dayLabel(addDays(7)), iso: isoOf(addDays(7)) },
+  ];
+  const seenIso = {};
+  const uniqOpts = opts.filter(o => { if (seenIso[o.iso]) return false; seenIso[o.iso] = true; return true; });
+  let html = '<div style="font-size:11px;font-weight:900;color:#00e676;-webkit-text-fill-color:#00e676;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.10)">📅 Move #' + esc(orderNumber) + '</div>';
+  uniqOpts.forEach(o => {
+    html += '<button onclick="_moveOrderTo_(\'' + esc(orderNumber) + '\',\'' + o.iso + '\')" style="display:block;width:100%;text-align:left;padding:9px 12px;background:rgba(255,255,255,.04);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.15);border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:4px;font-family:inherit">' + o.label + '</button>';
+  });
+  html += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.10)">'
+    + '<div style="font-size:10px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Specific date</div>'
+    + '<input type="date" id="moveOrderCustomDate" min="' + isoOf(today) + '" style="width:100%;padding:8px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:6px;font-size:13px;font-family:inherit">'
+    + '<button onclick="(function(){var d=document.getElementById(\'moveOrderCustomDate\').value;if(d)_moveOrderTo_(\'' + esc(orderNumber) + '\',d);})()" style="display:block;width:100%;margin-top:6px;padding:9px;background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">Move</button>'
+    + '</div>';
+  html += '<button onclick="document.getElementById(\'moveOrderPopover\').remove()" style="display:block;width:100%;margin-top:6px;padding:8px;background:transparent;color:rgba(255,255,255,.55);-webkit-text-fill-color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.18);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">Cancel</button>';
+  pop.innerHTML = html;
+  document.body.appendChild(pop);
+  setTimeout(() => {
+    const onDoc = (e) => {
+      if (!pop.contains(e.target)) {
+        pop.remove();
+        document.removeEventListener('click', onDoc);
+      }
+    };
+    document.addEventListener('click', onDoc);
+  }, 50);
+}
+
+function _moveOrderTo_(orderNumber, isoDate) {
+  const pop = document.getElementById('moveOrderPopover');
+  if (pop) pop.remove();
+  const fakeEv = {
+    preventDefault: () => {},
+    currentTarget: null,
+    dataTransfer: { getData: () => String(orderNumber) },
+  };
+  _onOrderDropOnDay_(fakeEv, isoDate);
+}
+
+// v10.429 — drag-and-drop ship_date change. Drag an order card onto a
 // different day's header to update its ship_date. Optimistic local
 // update + server persist; refresh fetches the canonical state.
 async function _onOrderDropOnDay_(event, targetDay) {
@@ -3772,7 +3850,7 @@ async function _onOrderDropOnDay_(event, targetDay) {
   }
 }
 
-// v10.428 — Schedule "carrier" view: group in-flight orders by booked
+// v10.429 — Schedule "carrier" view: group in-flight orders by booked
 // carrier so the operator can see "what's waiting on whom." Priority
 // buckets: UNASSIGNED first, then manual placeholders (KIM/SETH/WG-PAY)
 // per the calendar carrier convention, then real freight/parcel
@@ -3840,7 +3918,7 @@ function _renderOrdersScheduleByCarrierHtml_(orders) {
   }).join('');
 }
 
-// v10.428 — drop rows where order_number is obviously a Shopify
+// v10.429 — drop rows where order_number is obviously a Shopify
 // numeric order id (10+ digits) rather than the human order # (4-6
 // digits). Zac flagged order 1374686394 surfacing on the Schedule
 // view; that's a Shopify ID leaking through. Hard cap at 7 digits so
@@ -3924,7 +4002,7 @@ function _renderOrdersCardHtml_(o, lens) {
     on_hold:           '#7A3E00',
     unknown:           '#FF8F00',
   })[pStatus] || '#FF8F00';
-  // v10.428 — Zac: "SCHEDULED" pill was redundant (of course they're
+  // v10.429 — Zac: "SCHEDULED" pill was redundant (of course they're
   // scheduled — they're on the schedule). Same goes for IN WAREHOUSE.
   // Suppress these two noise-pills entirely; only show pipeline pills
   // that convey real workflow state (pre_pack_today / pack_today /
@@ -4027,7 +4105,7 @@ function _renderOrdersCardHtml_(o, lens) {
   const onHoldBadge = o.on_hold
     ? '<span style="font-size:10px;font-weight:800;background:rgba(122,62,0,.15);color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.hold_reason || '') + '">🚧 HOLD</span>'
     : '';
-  // v10.428 — missing-installer amber flag (v10.346 reviewer cleanup
+  // v10.429 — missing-installer amber flag (v10.346 reviewer cleanup
   // item, finally buildable now that v10.415/416 surface fm_service +
   // fm_agent_name on the order object). Fires when:
   //   • fm_service === 'white_glove' (the WG template REQUIRES an agent)
@@ -4089,7 +4167,16 @@ function _renderOrdersCardHtml_(o, lens) {
   const dismissBtn = (lens === 'pack')
     ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Remove from today\'s pack list (the order isn\'t deleted — it just won\'t show on Pack Today). Operator override; auto-populate stops re-adding it." style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(255,179,0,.10);color:#FFB300;-webkit-text-fill-color:#FFB300;border:1px solid rgba(255,179,0,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">⏭ Not Today</button>'
     : '';
-  // v10.428 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
+  // v10.429 — iPad-friendly "📅 Move" button. HTML5 drag-and-drop
+  // doesn't fire on touch devices, so this button is the iPad
+  // affordance for moving an order to a different day. Tap → opens
+  // a small popover with native date picker + quick buttons. Same
+  // setOrderShipDate endpoint as the drag-and-drop path so gcal
+  // write-back fires either way.
+  const moveBtn = (lens === 'schedule')
+    ? '<button onclick="event.stopPropagation();_openMoveOrderDateMenu_(\'' + orderNum + '\',event)" title="Move this order to a different day" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(66,165,245,.12);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(66,165,245,.45);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">📅 Move</button>'
+    : '';
+  // v10.429 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
   // decision). It was a debug aid (v10.338), not a packer affordance —
   // visual noise on every card. The diagnostic stays available from
   // the order-detail header chip (_showWhyStatusModal_ on the READY
@@ -4099,12 +4186,12 @@ function _renderOrdersCardHtml_(o, lens) {
   // already says "Pack Today"); suppress per-row 📅 date when caller
   // signals it matches the section header (Schedule date-grouped view).
   const hidePackTodayPill = (lens === 'pack' && pStatus === 'pack_today');
-  // v10.428 — also suppress the pill entirely when pillLabel is blank
+  // v10.429 — also suppress the pill entirely when pillLabel is blank
   // (the noise-pipeline-status case).
   const statusPillHtml = (hidePackTodayPill || !pillLabel)
     ? ''
     : '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:' + pillBg + ';color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:999px">' + esc(pillLabel) + '</span>';
-  // v10.428 — cabinet availability chip. Replaces the meaningless
+  // v10.429 — cabinet availability chip. Replaces the meaningless
   // SCHEDULED/ARRIVING pill with something the operator actually cares
   // about: are the cabinets needed for this order in inventory + ready
   // to pull, or are some not yet received / damaged / already gone?
@@ -4131,7 +4218,7 @@ function _renderOrdersCardHtml_(o, lens) {
       const mtoCab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(orderNumStr));
       if (mtoCab) cabNums.add(String(mtoCab.cabinet || orderNumStr).trim().toUpperCase());
     }
-    // v10.428 — Zac: orders with no D###/STK###/C###/E### code AND no
+    // v10.429 — Zac: orders with no D###/STK###/C###/E### code AND no
     // MTO match weren't getting a chip at all (e.g. 31429 FedEx SHA
     // SL42-X LA WG, 31626 FedEx CUN QL8M-BKS-X ME WG). Those are real
     // cabinet orders awaiting cabinets, not frame-only. Default to
@@ -4151,7 +4238,7 @@ function _renderOrdersCardHtml_(o, lens) {
         ready++;
       });
       const total = cabNums.size;
-      // v10.428 — Zac: "almost every order has just 1 cabinet so only
+      // v10.429 — Zac: "almost every order has just 1 cabinet so only
       // add the n/m stuff if it has more than one." Singular orders
       // get short labels; multi-cabinet orders show counts.
       const showCount = total > 1;
@@ -4220,6 +4307,7 @@ function _renderOrdersCardHtml_(o, lens) {
     +   '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">'
     +     rowDateHtml
     +     dismissBtn
+    +     moveBtn
     +     whyBtn
     +     '<span style="font-size:18px;color:rgba(255,255,255,.30);line-height:1;align-self:center" title="Tap row to open detail">›</span>'
     +   '</div>'
@@ -4231,7 +4319,7 @@ function _renderOrdersCardHtml_(o, lens) {
 // operator can re-add via "+ Add to List" on the old Pack tab (still
 // hidden but available) or a future Orders-tab add button.
 async function _dismissFromPackLens_(orderNumber) {
-  // v10.428 — Zac: kill the confirm dialog. Not Today is a low-risk
+  // v10.429 — Zac: kill the confirm dialog. Not Today is a low-risk
   // toggle (server explicit-FALSE, fully reversible). The native
   // confirm() was friction-as-feature.
   // Optimistic local update first so the card disappears immediately.
@@ -4257,7 +4345,7 @@ async function _dismissFromPackLens_(orderNumber) {
 // URL hash router — runs on boot + on hashchange. Supports:
 //   #/order/31510            → openOrderDetail(31510) (auto-routes to Orders tab)
 //   #/orders/{lens}          → setOrdersLens, switch to Orders tab
-//   #schedule|#pack|#…       → legacy alias, redirects to #/orders/{lens} (v10.428)
+//   #schedule|#pack|#…       → legacy alias, redirects to #/orders/{lens} (v10.429)
 function _handleOrdersHashRoute_() {
   const h = String(location.hash || '');
   let m;
@@ -4277,7 +4365,7 @@ function _handleOrdersHashRoute_() {
     if (typeof switchTab === 'function') switchTab('orders');
     return true;
   }
-  // v10.428 — legacy aliases: #schedule, #prepack, #pack, #attention,
+  // v10.429 — legacy aliases: #schedule, #prepack, #pack, #attention,
   // and the old #pack-today / #pre-pack-today / #needs-attention forms.
   // Rewrite the hash to the canonical #/orders/{lens} so back-button +
   // bookmarks normalize, then re-dispatch.
@@ -8223,7 +8311,7 @@ function _kbFallbackPopupPrint_(itemList, dest) {
 // adds version history + auto-Slack diff to #claude_bedrock.
 
 let _emailTplsCache = null;     // cached list from listShipConfTemplates
-let _currentEmailTplFlow = '';  // v10.428 — active flow ('shipping_confirmation' | 'customer_ready' | 'tracking_email') so preview / test / save route correctly
+let _currentEmailTplFlow = '';  // v10.429 — active flow ('shipping_confirmation' | 'customer_ready' | 'tracking_email') so preview / test / save route correctly
 let _quillInstance = null;      // singleton Quill editor instance
 let _quillLoadPromise = null;   // dedup CDN load
 
@@ -8314,7 +8402,7 @@ async function openEmailTemplatesEditor() {
   document.body.appendChild(ov);
 
   // v10.142: fetch both ShipConf + Customer Ready templates in parallel.
-  // v10.428: also pull the tracking-email templates so the editor
+  // v10.429: also pull the tracking-email templates so the editor
   // surfaces all three flows. Group by flow so the editor mirrors
   // the Email Types in docs/EMAIL_TEMPLATES_EDITOR.md §2.
   try {
@@ -8596,7 +8684,7 @@ async function _refreshEmailTplPreview_(templateKey) {
   if (!pane || !subjEl || !bodyEl || !_quillInstance) return;
   const subject = (document.getElementById('emailTplSubject') || {}).value || '';
   const bodyHtml = _quillInstance.root.innerHTML || '';
-  // v10.428 — route by active flow. ShipConf endpoint resolves
+  // v10.429 — route by active flow. ShipConf endpoint resolves
   // Customer Ready templates too (server-side fallback), but the
   // tracking-email templates live in a separate tab + need their
   // own preview endpoint.
@@ -8632,7 +8720,7 @@ async function _sendEmailTplTest_(templateKey, selectEl, btn) {
   btn.disabled = true;
   btn.textContent = 'Sending…';
   if (status) { status.textContent = ''; status.style.color = '#666'; }
-  // v10.428 — route by active flow (same pattern as preview).
+  // v10.429 — route by active flow (same pattern as preview).
   const sendTestEndpoint = _currentEmailTplFlow === 'tracking_email'
     ? 'sendTrackingEmailTestEmail' : 'sendShipConfTestEmail';
   try {
@@ -8668,7 +8756,7 @@ async function _saveEmailTpl_(templateKey, flow, ov, status, saveBtn) {
   status.textContent = '';
   let person = '';
   try { person = localStorage.getItem('mbd_ground_packer') || ''; } catch(e) {}
-  // v10.428: route to the right save endpoint by flow.
+  // v10.429: route to the right save endpoint by flow.
   const endpoint = flow === 'tracking_email' ? 'saveTrackingEmailTemplate'
     : flow === 'customer_ready' ? 'saveCustomerReadyTemplate'
     : 'saveShipConfTemplate';
@@ -18628,7 +18716,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.428<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.429<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
