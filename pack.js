@@ -13200,7 +13200,75 @@ function _renderRecountProgress_() {
   if (!prog) return;
   const total = _recountItems.length;
   const counted = _recountItems.filter(i => i.last_counted_at).length;
-  prog.textContent = counted + ' counted · ' + (total - counted) + ' uncounted · ' + total + ' items';
+  const pct = total ? Math.round(100 * counted / total) : 0;
+  // v10.430 — tappable to open the full progress dashboard.
+  prog.innerHTML = '<span onclick="openRecountProgressDashboard()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.35);border-radius:999px;color:var(--text);font-weight:700"><span style="color:#00e676">' + pct + '%</span> · ' + counted + ' / ' + total + ' counted · 📊 dashboard</span>';
+}
+
+// v10.430 — Guided-recount progress dashboard. Pulls
+// getInventoryRecountProgress (server aggregator) and renders by-
+// category + by-aisle breakdowns + velocity. Useful for the team to
+// see which areas of the warehouse still need a sweep.
+async function openRecountProgressDashboard() {
+  const prior = document.getElementById('recountProgressOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'recountProgressOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10030;display:flex;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const body = document.createElement('div');
+  body.style.cssText = 'background:#0E1520;color:#fff;border-radius:14px;padding:20px;max-width:720px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.6);border:1px solid rgba(0,230,118,.30)';
+  body.innerHTML = '<div style="padding:30px;text-align:center;color:rgba(255,255,255,.55);font-size:14px">Loading…</div>';
+  ov.appendChild(body);
+  document.body.appendChild(ov);
+  let res;
+  try { res = await groundApi('getInventoryRecountProgress', {}); }
+  catch (e) {
+    body.innerHTML = '<div style="padding:24px;color:#ff8a80">Load failed: ' + esc(e.message) + '</div>';
+    return;
+  }
+  if (!res || !res.ok) {
+    body.innerHTML = '<div style="padding:24px;color:#ff8a80">Server error: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+  const pct = res.pct_counted || 0;
+  const v = res.velocity || {};
+  const cats = res.by_category || [];
+  const aisles = res.by_aisle || [];
+  const renderBar = (counted, total, color) => {
+    const p = total ? Math.round(100 * counted / total) : 0;
+    return '<div style="display:flex;align-items:center;gap:8px;font-size:12px"><div style="flex:1;height:10px;background:rgba(255,255,255,.10);border-radius:999px;overflow:hidden"><div style="height:100%;width:' + p + '%;background:' + color + ';transition:width .3s"></div></div><span style="min-width:50px;text-align:right;color:var(--text-dim);font-family:\'JetBrains Mono\',monospace;font-size:11px">' + counted + '/' + total + '</span></div>';
+  };
+  const renderRows = (rows, color) => rows.slice(0, 30).map(b =>
+    '<div style="display:grid;grid-template-columns:1.4fr 2fr 70px;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)">'
+    + '<div style="font-size:12px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(b.name) + '">' + esc(b.name) + '</div>'
+    + '<div>' + renderBar(b.counted, b.total, color) + '</div>'
+    + '<div style="font-size:11px;font-weight:800;color:' + (b.pct_counted >= 80 ? '#00e676' : b.pct_counted >= 40 ? '#FFB300' : '#ff8a80') + ';text-align:right">' + b.pct_counted + '%</div>'
+    + '</div>'
+  ).join('');
+  body.innerHTML = ''
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:1px">📊 Recount Progress</div>'
+    + '<button onclick="document.getElementById(\'recountProgressOverlay\').remove()" style="background:transparent;border:none;font-size:22px;color:rgba(255,255,255,.65);cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.30);border-radius:10px;padding:16px;margin-bottom:14px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:42px;font-weight:900;color:#00e676;-webkit-text-fill-color:#00e676;line-height:1">' + pct + '%</div>'
+    +   '<div style="font-size:13px;color:var(--text-dim);margin-top:4px">' + res.counted + ' of ' + res.total + ' items counted</div>'
+    +   '<div style="margin-top:10px">' + renderBar(res.counted, res.total, '#00e676') + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">'
+    +   '<div style="padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:900;color:#42a5f5;font-family:\'Barlow Condensed\',Arial,sans-serif">' + (v.last_24h || 0) + '</div><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-top:2px">last 24h</div></div>'
+    +   '<div style="padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:900;color:#42a5f5;font-family:\'Barlow Condensed\',Arial,sans-serif">' + (v.last_7d || 0) + '</div><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-top:2px">last 7d</div></div>'
+    +   '<div style="padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:900;color:#42a5f5;font-family:\'Barlow Condensed\',Arial,sans-serif">' + (v.last_30d || 0) + '</div><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-top:2px">last 30d</div></div>'
+    + '</div>'
+    + (cats.length ? '<div style="margin-bottom:14px">'
+        + '<div style="font-size:11px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">By category · most work-remaining first</div>'
+        + renderRows(cats, '#42a5f5')
+      + '</div>' : '')
+    + (aisles.length ? '<div>'
+        + '<div style="font-size:11px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">By aisle · most work-remaining first</div>'
+        + renderRows(aisles, '#FFB300')
+      + '</div>' : '');
 }
 
 function _renderRecountRecent_() {
