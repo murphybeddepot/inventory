@@ -3571,7 +3571,7 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
   }).join('');
 }
 
-// v10.410 — Schedule "carrier" view: group in-flight orders by booked
+// v10.411 — Schedule "carrier" view: group in-flight orders by booked
 // carrier so the operator can see "what's waiting on whom." Priority
 // buckets: UNASSIGNED first, then manual placeholders (KIM/SETH/WG-PAY)
 // per the calendar carrier convention, then real freight/parcel
@@ -3848,7 +3848,7 @@ function _renderOrdersCardHtml_(o, lens) {
   const dismissBtn = (lens === 'pack')
     ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Remove from today\'s pack list (the order isn\'t deleted — it just won\'t show on Pack Today). Operator override; auto-populate stops re-adding it." style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(255,179,0,.10);color:#FFB300;-webkit-text-fill-color:#FFB300;border:1px solid rgba(255,179,0,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">⏭ Not Today</button>'
     : '';
-  // v10.410 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
+  // v10.411 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
   // decision). It was a debug aid (v10.338), not a packer affordance —
   // visual noise on every card. The diagnostic stays available from
   // the order-detail header chip (_showWhyStatusModal_ on the READY
@@ -3936,6 +3936,7 @@ async function _dismissFromPackLens_(orderNumber) {
 // URL hash router — runs on boot + on hashchange. Supports:
 //   #/order/31510            → openOrderDetail(31510) (auto-routes to Orders tab)
 //   #/orders/{lens}          → setOrdersLens, switch to Orders tab
+//   #schedule|#pack|#…       → legacy alias, redirects to #/orders/{lens} (v10.411)
 function _handleOrdersHashRoute_() {
   const h = String(location.hash || '');
   let m;
@@ -3952,6 +3953,25 @@ function _handleOrdersHashRoute_() {
     if (_ORDERS_VALID_LENSES.indexOf(lens) >= 0) {
       try { localStorage.setItem('mbd_orders_lens', lens); } catch (e) {}
     }
+    if (typeof switchTab === 'function') switchTab('orders');
+    return true;
+  }
+  // v10.411 — legacy aliases: #schedule, #prepack, #pack, #attention,
+  // and the old #pack-today / #pre-pack-today / #needs-attention forms.
+  // Rewrite the hash to the canonical #/orders/{lens} so back-button +
+  // bookmarks normalize, then re-dispatch.
+  const legacyMatch = h.match(/^#(schedule|pack|prepack|attention|pack-today|pre-pack-today|needs-attention)$/i);
+  if (legacyMatch) {
+    const alias = legacyMatch[1].toLowerCase();
+    const lensMap = {
+      'schedule': 'schedule',
+      'pack': 'pack', 'pack-today': 'pack',
+      'prepack': 'prepack', 'pre-pack-today': 'prepack',
+      'attention': 'attention', 'needs-attention': 'attention',
+    };
+    const lens = lensMap[alias] || 'schedule';
+    try { history.replaceState(null, '', '#/orders/' + lens); } catch (e) { location.hash = '#/orders/' + lens; }
+    try { localStorage.setItem('mbd_orders_lens', lens); } catch (e) {}
     if (typeof switchTab === 'function') switchTab('orders');
     return true;
   }
@@ -18270,7 +18290,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.410<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.411<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
