@@ -418,10 +418,33 @@ function _setOrdersListChrome_(visible) {
   // Phase A — when the order detail is open we don't want the list-view
   // chrome (header / lens grid / HBPL legend / "N orders" status / refresh
   // toggle). Restore on close.
+  // v10.415 — `el.style.display = ''` clobbered the inline display value
+  // (`grid` for the lens grid, `flex` for the header) and let the user-
+  // agent default `block` take over → the 2x2 lens grid collapsed to a
+  // single column when navigating back from an order detail. Stash the
+  // original display on first hide; restore from the stash on show.
   const ids = ['ordersHeaderRow', 'ordersLensGrid', 'ordersLetterLegend', 'ordersStatus', 'ordersScheduleViewToggle'];
   ids.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = visible ? '' : 'none';
+    if (!el) return;
+    if (visible) {
+      const orig = el.getAttribute('data-orig-display');
+      // Fall back to per-id sensible defaults so we never accidentally
+      // unset a grid/flex layout if the stash got skipped.
+      const fallback = (id === 'ordersLensGrid') ? 'grid'
+        : (id === 'ordersHeaderRow' || id === 'ordersLetterLegend' || id === 'ordersScheduleViewToggle') ? 'flex'
+        : 'block';
+      el.style.display = orig || fallback;
+    } else {
+      if (!el.hasAttribute('data-orig-display')) {
+        // Capture whatever display the element is using right now so we
+        // can put it back verbatim. getComputedStyle is the source of
+        // truth (inline style might be empty when CSS sets the default).
+        const computed = window.getComputedStyle(el).display;
+        el.setAttribute('data-orig-display', computed && computed !== 'none' ? computed : '');
+      }
+      el.style.display = 'none';
+    }
   });
 }
 
@@ -10255,12 +10278,18 @@ async function openTrackingEmailComposer(orderNumber, prefillCtx) {
   }, prefillCtx || {});
 
   try {
-    const res = await groundApi('trackingEmailPreview', { orderCtx: ctx });
+    // v10.415 — fetch preview + FM agent autocomplete in parallel so
+    // the composer renders with the datalist ready on first paint.
+    const [res, agentsRes] = await Promise.all([
+      groundApi('trackingEmailPreview', { orderCtx: ctx }),
+      groundApi('listFmAgents', {}).catch(() => ({ ok: false })),
+    ]);
     if (!res || !res.ok) {
       body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Preview failed: ' + esc((res && res.error) || 'unknown') + '<br><br><button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="padding:10px 18px">Close</button></div>';
       return;
     }
-    _renderTrackingEmailComposer_(body, res, ctx);
+    const agents = (agentsRes && agentsRes.ok && Array.isArray(agentsRes.agents)) ? agentsRes.agents : [];
+    _renderTrackingEmailComposer_(body, res, ctx, agents);
   } catch (err) {
     body.innerHTML = '<div style="padding:24px;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important">Error: ' + esc(err.message) + '<br><br><button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="padding:10px 18px">Close</button></div>';
   }
