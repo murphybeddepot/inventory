@@ -329,7 +329,13 @@ function _orderDetailHtml_(o) {
     + (bookedAt ? '<span style="font-size:11px;font-weight:800;color:#00e676;-webkit-text-fill-color:#00e676">✓ Booked ' + esc(bookedAt.slice(0, 10)) + (bookingRef ? ' · #' + esc(bookingRef) : '') + '</span>' : '<span style="font-size:11px;color:#ff9800;font-weight:700">⚠ Not yet booked</span>')
     + '</div><div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:13px;color:var(--text-dim)">Assigned to:</span>'
     + (bookerName ? '<span style="font-size:13px;font-weight:800;background:rgba(0,230,118,.15);color:#00e676;-webkit-text-fill-color:#00e676;padding:4px 10px;border-radius:6px">👤 ' + esc(bookerName) + '</span>' : '<span style="font-size:13px;color:var(--text-dim);font-style:italic">— unassigned —</span>')
-    + '<button onclick="_openAssignBookerModal_(\'' + ord + '\')" style="padding:6px 12px;background:rgba(255,255,255,.06);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">' + (bookerName ? '↻ Reassign' : '+ Assign Booker') + '</button>'
+    // v10.419 — Zac: hide Assign Booker once booked (booker is a
+    // pre-booking step). Keep Reassign visible so the manager can
+    // still correct mid-flight if the wrong booker got assigned. Mark
+    // Booked already had this guard.
+    + (!bookedAt
+        ? '<button onclick="_openAssignBookerModal_(\'' + ord + '\')" style="padding:6px 12px;background:rgba(255,255,255,.06);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">' + (bookerName ? '↻ Reassign' : '+ Assign Booker') + '</button>'
+        : (bookerName ? '<button onclick="_openAssignBookerModal_(\'' + ord + '\')" title="Booker already set — tap to correct if needed" style="padding:6px 12px;background:rgba(255,255,255,.04);color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border:1px dashed rgba(255,255,255,.18);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">↻ Reassign</button>' : ''))
     + (!bookedAt ? '<button onclick="_markOrderBookedPrompt_(\'' + ord + '\')" style="padding:6px 12px;background:rgba(0,230,118,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,230,118,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">✓ Mark Booked</button>' : '')
     + '</div></div>';
   // Pipeline + Schedule diag chip

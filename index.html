@@ -3039,14 +3039,14 @@ function renderOrdersTab() {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
     if (!btn) return;
     const active = (L === lens);
-    // v10.418 — Zac: inactive chips were too "blacked-out" against the
-    // active filled-blue chip. Bumped surface from .04 → .09 and border
-    // from .14 → .30 so the unselected lenses read as legitimate
-    // options, not faded controls. Active stays solid blue + 1px glow.
-    btn.style.background = active ? '#003087' : 'rgba(255,255,255,.09)';
-    btn.style.color = active ? '#fff' : '';
-    btn.style.webkitTextFillColor = active ? '#fff' : '';
-    btn.style.borderColor = active ? '#1565c0' : 'rgba(255,255,255,.30)';
+    // v10.419 — Zac round 2: .09 surface was still too dim; chips read
+    // as dark text on dark gray. Bump to .16 surface + .50 border +
+    // explicit bright text so unselected lenses read as clear cards,
+    // not faded controls. Active stays solid blue + 1px glow.
+    btn.style.background = active ? '#003087' : 'rgba(255,255,255,.16)';
+    btn.style.color = active ? '#fff' : 'rgba(255,255,255,.92)';
+    btn.style.webkitTextFillColor = active ? '#fff' : 'rgba(255,255,255,.92)';
+    btn.style.borderColor = active ? '#1565c0' : 'rgba(255,255,255,.50)';
     btn.style.boxShadow = active ? '0 0 0 1px rgba(21,101,192,.45)' : '';
     // Count badge
     const cnt = lensCounts[L];
@@ -3105,10 +3105,8 @@ function renderOrdersTab() {
       toggleEl.style.cssText = 'display:flex;gap:6px;margin-bottom:10px';
       list.parentNode.insertBefore(toggleEl, list);
     }
-    // v10.418 — match the lens-chip contrast bump: inactive view buttons
-    // get a visible surface (.08) + brighter border (.30) so they don't
-    // disappear next to the filled-blue active button.
-    const _viewBtn = (v, emoji, label) => '<button onclick="setOrdersScheduleView(\'' + v + '\')" style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:' + (view === v ? '#003087' : 'rgba(255,255,255,.08)') + ';color:' + (view === v ? '#fff' : 'var(--text)') + ';-webkit-text-fill-color:' + (view === v ? '#fff' : 'var(--text)') + ';border:1px solid ' + (view === v ? '#1565c0' : 'rgba(255,255,255,.30)') + ';border-radius:6px;cursor:pointer">' + emoji + ' ' + label + '</button>';
+    // v10.419 — round 2 contrast bump (matches the lens chips).
+    const _viewBtn = (v, emoji, label) => '<button onclick="setOrdersScheduleView(\'' + v + '\')" style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:' + (view === v ? '#003087' : 'rgba(255,255,255,.16)') + ';color:' + (view === v ? '#fff' : 'rgba(255,255,255,.92)') + ';-webkit-text-fill-color:' + (view === v ? '#fff' : 'rgba(255,255,255,.92)') + ';border:1px solid ' + (view === v ? '#1565c0' : 'rgba(255,255,255,.50)') + ';border-radius:6px;cursor:pointer">' + emoji + ' ' + label + '</button>';
     const viewHint = view === 'week' ? 'Calendar grid (desktop best)'
       : view === 'carrier' ? 'Grouped by booked carrier'
       : 'Date-grouped list';
@@ -3460,13 +3458,45 @@ function setOrdersScheduleShowPast(show) {
 
 // v10.332 — Mon-Sun calendar grid showing 2 weeks (current + next)
 // at a time. Each day cell lists abbreviated order rows; tap to open.
+// v10.419 — Week-view forward/back navigation. Offset (in weeks) is
+// persisted to localStorage so the view doesn't snap back when the
+// operator drills into an order + comes out.
+function _getOrdersWeekOffset_() {
+  try { const v = Number(localStorage.getItem('mbd_orders_week_offset') || '0'); return isNaN(v) ? 0 : v; }
+  catch (e) { return 0; }
+}
+function setOrdersWeekOffset(delta) {
+  try {
+    const cur = _getOrdersWeekOffset_();
+    const next = (typeof delta === 'number') ? cur + delta : Number(delta || 0);
+    localStorage.setItem('mbd_orders_week_offset', String(next));
+  } catch (e) {}
+  renderOrdersTab();
+}
+
 function _renderOrdersScheduleWeekGridHtml_(orders) {
   const todayIso = new Date().toISOString().slice(0, 10);
-  // Anchor on the Monday of this week.
+  // Anchor on the Monday of this week, then shift by the current
+  // offset (weeks). Forward/back chevrons set the offset; "Today"
+  // resets to 0.
   const today = new Date();
   const dayOfWeek = today.getDay(); // 0=Sun
   const mondayOffset = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-  const monday = new Date(today); monday.setDate(today.getDate() + mondayOffset);
+  const weekOffset = _getOrdersWeekOffset_();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + mondayOffset + (weekOffset * 7));
+  const sundayEnd = new Date(monday); sundayEnd.setDate(monday.getDate() + 13);
+  const fmtRange = (d) => {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  const navHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:8px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.15);border-radius:8px">'
+    + '<button onclick="setOrdersWeekOffset(' + (weekOffset - 1) + ')" style="padding:6px 12px;background:rgba(255,255,255,.16);color:rgba(255,255,255,.92);-webkit-text-fill-color:rgba(255,255,255,.92);border:1px solid rgba(255,255,255,.40);border-radius:6px;font-size:13px;font-weight:800;cursor:pointer">← Prev</button>'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:var(--text);letter-spacing:1px">' + esc(fmtRange(monday)) + ' – ' + esc(fmtRange(sundayEnd)) + (weekOffset === 0 ? ' · NOW' : '') + '</div>'
+    + (weekOffset !== 0
+        ? '<button onclick="setOrdersWeekOffset(0)" style="padding:6px 12px;background:rgba(0,230,118,.18);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,230,118,.55);border-radius:6px;font-size:13px;font-weight:800;cursor:pointer">Today</button>'
+        : '<span style="width:60px"></span>')
+    + '<button onclick="setOrdersWeekOffset(' + (weekOffset + 1) + ')" style="padding:6px 12px;background:rgba(255,255,255,.16);color:rgba(255,255,255,.92);-webkit-text-fill-color:rgba(255,255,255,.92);border:1px solid rgba(255,255,255,.40);border-radius:6px;font-size:13px;font-weight:800;cursor:pointer">Next →</button>'
+    + '</div>';
   const isoFromDate = (d) => d.toISOString().slice(0, 10);
   const ordersByDate = {};
   orders.forEach(o => {
@@ -3474,7 +3504,7 @@ function _renderOrdersScheduleWeekGridHtml_(orders) {
     if (!k) return;
     (ordersByDate[k] = ordersByDate[k] || []).push(o);
   });
-  let html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">';
+  let html = navHtml + '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">';
   // Header row: day names
   ['MON','TUE','WED','THU','FRI','SAT','SUN'].forEach(name => {
     html += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:1px;color:var(--text-dim);text-align:center;padding:4px 0">' + name + '</div>';
@@ -3577,7 +3607,7 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
   }).join('');
 }
 
-// v10.418 — Schedule "carrier" view: group in-flight orders by booked
+// v10.419 — Schedule "carrier" view: group in-flight orders by booked
 // carrier so the operator can see "what's waiting on whom." Priority
 // buckets: UNASSIGNED first, then manual placeholders (KIM/SETH/WG-PAY)
 // per the calendar carrier convention, then real freight/parcel
@@ -3645,8 +3675,23 @@ function _renderOrdersScheduleByCarrierHtml_(orders) {
   }).join('');
 }
 
+// v10.419 — drop rows where order_number is obviously a Shopify
+// numeric order id (10+ digits) rather than the human order # (4-6
+// digits). Zac flagged order 1374686394 surfacing on the Schedule
+// view; that's a Shopify ID leaking through. Hard cap at 7 digits so
+// any future expansion of the human series isn't artificially
+// truncated. Blank order_number stays blocked too.
+function _orderNumberLooksReal_(o) {
+  if (!o) return false;
+  const raw = String(o.order_number || '').trim();
+  if (!raw) return false;
+  if (!/^\d+$/.test(raw)) return true; // allow non-numeric (e.g. MTO codes)
+  return raw.length <= 7;
+}
+
 function _filterOrdersForLens_(orders, lens) {
   if (!Array.isArray(orders)) return [];
+  orders = orders.filter(_orderNumberLooksReal_);
   switch (lens) {
     case 'prepack':
       // HW prep needed, ship in pre-pack window, not already done
@@ -3809,7 +3854,7 @@ function _renderOrdersCardHtml_(o, lens) {
   const onHoldBadge = o.on_hold
     ? '<span style="font-size:10px;font-weight:800;background:rgba(122,62,0,.15);color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.hold_reason || '') + '">🚧 HOLD</span>'
     : '';
-  // v10.418 — missing-installer amber flag (v10.346 reviewer cleanup
+  // v10.419 — missing-installer amber flag (v10.346 reviewer cleanup
   // item, finally buildable now that v10.415/416 surface fm_service +
   // fm_agent_name on the order object). Fires when:
   //   • fm_service === 'white_glove' (the WG template REQUIRES an agent)
@@ -3871,7 +3916,7 @@ function _renderOrdersCardHtml_(o, lens) {
   const dismissBtn = (lens === 'pack')
     ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Remove from today\'s pack list (the order isn\'t deleted — it just won\'t show on Pack Today). Operator override; auto-populate stops re-adding it." style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(255,179,0,.10);color:#FFB300;-webkit-text-fill-color:#FFB300;border:1px solid rgba(255,179,0,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">⏭ Not Today</button>'
     : '';
-  // v10.418 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
+  // v10.419 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
   // decision). It was a debug aid (v10.338), not a packer affordance —
   // visual noise on every card. The diagnostic stays available from
   // the order-detail header chip (_showWhyStatusModal_ on the READY
@@ -3960,7 +4005,7 @@ async function _dismissFromPackLens_(orderNumber) {
 // URL hash router — runs on boot + on hashchange. Supports:
 //   #/order/31510            → openOrderDetail(31510) (auto-routes to Orders tab)
 //   #/orders/{lens}          → setOrdersLens, switch to Orders tab
-//   #schedule|#pack|#…       → legacy alias, redirects to #/orders/{lens} (v10.418)
+//   #schedule|#pack|#…       → legacy alias, redirects to #/orders/{lens} (v10.419)
 function _handleOrdersHashRoute_() {
   const h = String(location.hash || '');
   let m;
@@ -3980,7 +4025,7 @@ function _handleOrdersHashRoute_() {
     if (typeof switchTab === 'function') switchTab('orders');
     return true;
   }
-  // v10.418 — legacy aliases: #schedule, #prepack, #pack, #attention,
+  // v10.419 — legacy aliases: #schedule, #prepack, #pack, #attention,
   // and the old #pack-today / #pre-pack-today / #needs-attention forms.
   // Rewrite the hash to the canonical #/orders/{lens} so back-button +
   // bookmarks normalize, then re-dispatch.
@@ -7926,7 +7971,7 @@ function _kbFallbackPopupPrint_(itemList, dest) {
 // adds version history + auto-Slack diff to #claude_bedrock.
 
 let _emailTplsCache = null;     // cached list from listShipConfTemplates
-let _currentEmailTplFlow = '';  // v10.418 — active flow ('shipping_confirmation' | 'customer_ready' | 'tracking_email') so preview / test / save route correctly
+let _currentEmailTplFlow = '';  // v10.419 — active flow ('shipping_confirmation' | 'customer_ready' | 'tracking_email') so preview / test / save route correctly
 let _quillInstance = null;      // singleton Quill editor instance
 let _quillLoadPromise = null;   // dedup CDN load
 
@@ -8017,7 +8062,7 @@ async function openEmailTemplatesEditor() {
   document.body.appendChild(ov);
 
   // v10.142: fetch both ShipConf + Customer Ready templates in parallel.
-  // v10.418: also pull the tracking-email templates so the editor
+  // v10.419: also pull the tracking-email templates so the editor
   // surfaces all three flows. Group by flow so the editor mirrors
   // the Email Types in docs/EMAIL_TEMPLATES_EDITOR.md §2.
   try {
@@ -8299,7 +8344,7 @@ async function _refreshEmailTplPreview_(templateKey) {
   if (!pane || !subjEl || !bodyEl || !_quillInstance) return;
   const subject = (document.getElementById('emailTplSubject') || {}).value || '';
   const bodyHtml = _quillInstance.root.innerHTML || '';
-  // v10.418 — route by active flow. ShipConf endpoint resolves
+  // v10.419 — route by active flow. ShipConf endpoint resolves
   // Customer Ready templates too (server-side fallback), but the
   // tracking-email templates live in a separate tab + need their
   // own preview endpoint.
@@ -8335,7 +8380,7 @@ async function _sendEmailTplTest_(templateKey, selectEl, btn) {
   btn.disabled = true;
   btn.textContent = 'Sending…';
   if (status) { status.textContent = ''; status.style.color = '#666'; }
-  // v10.418 — route by active flow (same pattern as preview).
+  // v10.419 — route by active flow (same pattern as preview).
   const sendTestEndpoint = _currentEmailTplFlow === 'tracking_email'
     ? 'sendTrackingEmailTestEmail' : 'sendShipConfTestEmail';
   try {
@@ -8371,7 +8416,7 @@ async function _saveEmailTpl_(templateKey, flow, ov, status, saveBtn) {
   status.textContent = '';
   let person = '';
   try { person = localStorage.getItem('mbd_ground_packer') || ''; } catch(e) {}
-  // v10.418: route to the right save endpoint by flow.
+  // v10.419: route to the right save endpoint by flow.
   const endpoint = flow === 'tracking_email' ? 'saveTrackingEmailTemplate'
     : flow === 'customer_ready' ? 'saveCustomerReadyTemplate'
     : 'saveShipConfTemplate';
@@ -18320,7 +18365,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.415"></script>
+<script src="./pack.js?v=10.419"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -18331,7 +18376,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.418<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.419<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
