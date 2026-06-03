@@ -37,8 +37,17 @@
   .carrier{ padding:11px 18px; border-bottom:1px solid rgba(255,255,255,.05); display:flex; justify-content:space-between; align-items:center; }
   .carrier .cn{ font-size:22px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
   .carrier .cc{ font-size:30px; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; }
-  .check{ display:flex; align-items:center; gap:12px; padding:13px 18px; font-size:22px; border-bottom:1px solid rgba(255,255,255,.05); }
-  .check .box{ width:26px; height:26px; border:2px solid var(--dim); border-radius:6px; }
+  .check{ display:flex; align-items:center; gap:12px; padding:13px 18px; font-size:22px; border-bottom:1px solid rgba(255,255,255,.05); cursor:pointer; user-select:none; transition:background .15s; }
+  .check:hover{ background:rgba(255,255,255,.03); }
+  .check .box{ width:26px; height:26px; border:2px solid var(--dim); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; transition:background .15s,border-color .15s; }
+  .check.done .box{ background:var(--green); border-color:var(--green); color:#0a0d0f; font-weight:900; font-size:18px; }
+  .check.done .lbl{ color:var(--dim); text-decoration:line-through; }
+  .check .attr{ font-size:12px; color:var(--dim); font-style:italic; margin-left:auto; font-family:monospace; }
+  .add-item{ display:flex; align-items:center; gap:10px; padding:11px 18px; font-size:16px; color:var(--dim); cursor:pointer; border-top:1px dashed rgba(255,255,255,.10); }
+  .add-item:hover{ background:rgba(0,230,118,.06); color:var(--green); }
+  .notes-ta{ width:calc(100% - 36px); margin:8px 18px; min-height:90px; background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:8px; padding:10px 12px; color:var(--text); font-family:inherit; font-size:16px; resize:vertical; }
+  .notes-ta:focus{ outline:none; border-color:var(--green); background:rgba(0,230,118,.04); }
+  .notes-attr{ padding:0 18px 12px; font-size:12px; color:var(--dim); font-family:monospace; }
   .legend{ padding:14px 18px; font-size:15px; color:var(--dim); font-style:italic; }
   .empty{ padding:24px 18px; color:var(--dim); font-style:italic; font-size:18px; }
   .err{ padding:24px; color:#ff8a80; font-size:18px; }
@@ -62,7 +71,7 @@
   <div class="col"><h2>🚚 Carriers <span class="badge" id="carrBadge">0</span></h2><div class="body" id="carrBody"></div></div>
   <div class="col"><h2>📋 Today <span class="badge" id="dateBadge"></span></h2><div class="body" id="noteBody"></div></div>
 </div>
-<footer id="foot">board v1 · —</footer>
+<footer id="foot">board v3 · —</footer>
 <script>
   var STABLE_URL = 'https://script.google.com/macros/s/AKfycbzVbS4Ofd3ScWvzyw5FUtCk5rtYx61GcNFB8GFdsnlB33WnDJssPj8L8LF66w8dGKCt/exec';
   var DEV_URL = 'https://script.google.com/macros/s/AKfycbxRWGc8U4Q9upNJayYDdOh1Wbveamaob8I2tnK_pnVutACZMv86g3f6QV4PN0L2KKH2/exec';
@@ -107,7 +116,7 @@
       if(!r || !r.ok){ document.getElementById('packBody').innerHTML='<div class="err">'+esc((r&&r.error)||'failed to load')+'</div>'; return; }
       render(r);
       lastLoadAt = Date.now();
-      document.getElementById('foot').textContent = 'board v2 · '+(/dev=1/.test(location.search)?'DEV':'STABLE')+' · '+new Date().toLocaleTimeString();
+      document.getElementById('foot').textContent = 'board v3 · '+(/dev=1/.test(location.search)?'DEV':'STABLE')+' · '+new Date().toLocaleTimeString();
     }catch(e){ document.getElementById('packBody').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
   function render(r){
@@ -138,9 +147,89 @@
 
     var n=r.notes||{};
     document.getElementById('dateBadge').textContent = n.date||r.date||'';
-    var checks = (n.checklist||[]).map(function(c){ return '<div class="check"><span class="box"></span>'+esc(c.label)+'</div>'; }).join('');
-    document.getElementById('noteBody').innerHTML = checks + '<div class="legend">'+esc(n.legend||'')+'</div>';
+    _currentNotes = {
+      date: n.date || r.date || '',
+      checklist: Array.isArray(n.checklist) ? n.checklist.slice() : [],
+      free_notes: typeof n.free_notes === 'string' ? n.free_notes : '',
+      updated_at: n.updated_at || '',
+      updated_by: n.updated_by || '',
+    };
+    renderNotesPanel(n.legend || '');
   }
+
+  // v10.408 — interactive notes panel. Tap a row → toggle done +
+  // persist. Tap "+ add" → prompt for label + persist. Free-notes
+  // textarea debounces saves on input.
+  var _currentNotes = null;
+  var _freeNotesSaveTimer = null;
+
+  function _bedrockDeviceName(){
+    try { return String(localStorage.getItem('mbd_device_name') || '').trim() || 'unknown'; }
+    catch (e) { return 'unknown'; }
+  }
+
+  function renderNotesPanel(legendText){
+    if (!_currentNotes) return;
+    var checksHtml = (_currentNotes.checklist || []).map(function(c, idx){
+      var done = c && c.done === true;
+      var attr = (c && c.set_by) ? ('· '+esc(c.set_by)) : '';
+      return '<div class="check'+(done?' done':'')+'" onclick="toggleChecklistItem('+idx+')">'
+        + '<span class="box">'+(done?'✓':'')+'</span>'
+        + '<span class="lbl">'+esc(c.label||'')+'</span>'
+        + (attr?'<span class="attr">'+attr+'</span>':'')
+        + '</div>';
+    }).join('');
+    var addRow = '<div class="add-item" onclick="addChecklistItem()">+ add item</div>';
+    var freeNotes = '<textarea class="notes-ta" id="freeNotesTa" placeholder="Free notes — anything for the day…" oninput="scheduleFreeNotesSave()">'+esc(_currentNotes.free_notes||'')+'</textarea>';
+    var attrLine = (_currentNotes.updated_at)
+      ? '<div class="notes-attr">last edit: '+esc(String(_currentNotes.updated_at).slice(0,16).replace('T',' '))+(_currentNotes.updated_by?' · '+esc(_currentNotes.updated_by):'')+'</div>'
+      : '';
+    var legend = legendText ? '<div class="legend">'+esc(legendText)+'</div>' : '';
+    document.getElementById('noteBody').innerHTML = checksHtml + addRow + freeNotes + attrLine + legend;
+  }
+
+  function toggleChecklistItem(idx){
+    if (!_currentNotes || !_currentNotes.checklist || !_currentNotes.checklist[idx]) return;
+    _currentNotes.checklist[idx].done = !_currentNotes.checklist[idx].done;
+    renderNotesPanel('Orange = 1st priority (ship date today or past)');
+    persistNotes({ checklist: _currentNotes.checklist });
+  }
+
+  function addChecklistItem(){
+    var label = (window.prompt('New checklist item') || '').trim();
+    if (!label) return;
+    _currentNotes.checklist = _currentNotes.checklist || [];
+    _currentNotes.checklist.push({ key: label.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0,40), label: label, done: false });
+    renderNotesPanel('Orange = 1st priority (ship date today or past)');
+    persistNotes({ checklist: _currentNotes.checklist });
+  }
+
+  function scheduleFreeNotesSave(){
+    if (_freeNotesSaveTimer) clearTimeout(_freeNotesSaveTimer);
+    _freeNotesSaveTimer = setTimeout(function(){
+      var ta = document.getElementById('freeNotesTa');
+      if (!ta) return;
+      var txt = String(ta.value || '');
+      _currentNotes.free_notes = txt;
+      persistNotes({ free_notes: txt });
+    }, 900);
+  }
+
+  async function persistNotes(payload){
+    try {
+      var body = Object.assign({ action: 'setWarehouseBoardNotes', secret: SECRET, by: _bedrockDeviceName() }, payload || {});
+      var resp = await fetch(ORCH, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(body) });
+      var data = await resp.json();
+      var r = data.result || data;
+      if (r && r.ok && r.notes) {
+        // refresh attribution + ensure server-normalized state wins
+        _currentNotes.updated_at = r.notes.updated_at || _currentNotes.updated_at;
+        _currentNotes.updated_by = r.notes.updated_by || _currentNotes.updated_by;
+        if (Array.isArray(r.notes.checklist)) _currentNotes.checklist = r.notes.checklist;
+      }
+    } catch (e) { console.log('persistNotes failed: ' + e.message); }
+  }
+
   load();
   setInterval(load, 45000);
 </script>
