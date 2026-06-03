@@ -1453,34 +1453,57 @@ function packCountSkus_(jsonStr) {
 // v10.407 — short human-friendly product summary for Orders cards.
 // Reads sku_lines_json, drops the inside-item hardware noise the spine
 // already broke out (HWKIT/HORIZ/HLR/PBFRAME parts), and joins up to 3
-// distinct top-level descriptions with "·". Returns '' when nothing
-// renderable so the card layout doesn't gain an empty row.
+// distinct top-level descriptions with "·". v10.419 — fall back to a
+// cleaned task_line / cal_label when sku_lines_json is empty (gcal-
+// sourced rows without a PQ pick-list yet) so every card carries SOME
+// preview. Returns '' only when truly nothing renderable.
 function _orderSkuSummary_(o) {
   try {
     const arr = JSON.parse(String((o && o.sku_lines_json) || '[]'));
-    if (!Array.isArray(arr) || !arr.length) return '';
-    const seen = Object.create(null);
-    const names = [];
-    for (let i = 0; i < arr.length; i++) {
-      const l = arr[i] || {};
-      const sku = String(l.sku || '').toUpperCase();
-      // Skip hardware/inside-item rows — they show in the pre-pack lens
-      // already and would otherwise crowd the card subtitle.
-      if (/HWKIT|HORIZ|HLR\d|^PBFRAME-.*-(HWKIT|HORIZ)/i.test(sku)) continue;
-      const raw = String(l.name || l.sku || '').trim();
-      if (!raw) continue;
-      // Truncate per-item so a single long description doesn't blow out
-      // the card width. 36 chars matches the customer line's wrap point.
-      const short = raw.length > 36 ? raw.slice(0, 34).trim() + '…' : raw;
-      const key = short.toLowerCase();
-      if (seen[key]) continue;
-      seen[key] = true;
-      names.push(short);
-      if (names.length >= 3) break;
+    if (Array.isArray(arr) && arr.length) {
+      const seen = Object.create(null);
+      const names = [];
+      for (let i = 0; i < arr.length; i++) {
+        const l = arr[i] || {};
+        const sku = String(l.sku || '').toUpperCase();
+        // Skip hardware/inside-item rows — they show in the pre-pack lens
+        // already and would otherwise crowd the card subtitle.
+        if (/HWKIT|HORIZ|HLR\d|^PBFRAME-.*-(HWKIT|HORIZ)/i.test(sku)) continue;
+        const raw = String(l.name || l.sku || '').trim();
+        if (!raw) continue;
+        // Truncate per-item so a single long description doesn't blow out
+        // the card width. 36 chars matches the customer line's wrap point.
+        const short = raw.length > 36 ? raw.slice(0, 34).trim() + '…' : raw;
+        const key = short.toLowerCase();
+        if (seen[key]) continue;
+        seen[key] = true;
+        names.push(short);
+        if (names.length >= 3) break;
+      }
+      if (names.length) {
+        const remaining = arr.length - names.length;
+        return names.join(' · ') + (remaining > 0 ? ' · +' + remaining + ' more' : '');
+      }
     }
-    if (!names.length) return '';
-    const remaining = arr.length - names.length;
-    return names.join(' · ') + (remaining > 0 ? ' · +' + remaining + ' more' : '');
+    // Fallback path — gcal-sourced rows + no-PQ orders. Use task_line or
+    // cal_label, strip leading carrier-token + order# + customer-initials
+    // to surface the descriptive tail (e.g. "RMK LOP QFLIP-SIDES WA WG"
+    // from "ABF 31100 RMK LOP QFLIP-SIDES WA WG"). Better than blank.
+    const rawLine = String((o && (o.cal_label || o.task_line)) || '').trim();
+    if (rawLine) {
+      // Drop carrier prefix (ABF/FedEx/KIM/SETH/ESTES/SAIA/ABF/ABF/UPS/USPS)
+      // + order #. Carrier match is loose; we then drop any 4-7 digit
+      // run + a leading apostrophed surname token if present.
+      const cleaned = rawLine
+        .replace(/^[A-Z]+(?:Ex)?\s+\d{4,7}\b/i, '')   // "ABF 31100"
+        .replace(/^\(?\(?[A-Z'\.]+\)?\)?\s+/i, '')    // "O'D " / "(O'D) "
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleaned) {
+        return (cleaned.length > 70 ? cleaned.slice(0, 68).trim() + '…' : cleaned);
+      }
+    }
+    return '';
   } catch (e) { return ''; }
 }
 
