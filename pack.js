@@ -10295,14 +10295,17 @@ async function openTrackingEmailComposer(orderNumber, prefillCtx) {
   }
 }
 
-function _renderTrackingEmailComposer_(body, preview, ctx) {
+function _renderTrackingEmailComposer_(body, preview, ctx, agents) {
   const missing = Array.isArray(preview.missing_vars) ? preview.missing_vars : [];
+  const agentList = Array.isArray(agents) ? agents : [];
+  // Stash for the FM agent change handler (re-preview + persist on Send).
+  window._trackingComposerState = { ctx: Object.assign({}, ctx), agents: agentList };
   let html = '';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">';
   html += '  <div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">📧 Tracking Email · ' + esc(ctx.order_number) + '</div>';
   html += '  <button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="font-size:13px;padding:6px 14px">✕ Close</button>';
   html += '</div>';
-  html += '<div style="margin-bottom:10px;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px;font-weight:700">Template: <span style="color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(preview.template_key) + '</span></div>';
+  html += '<div id="trackEmailTemplateChip" style="margin-bottom:10px;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px;font-weight:700">Template: <span style="color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(preview.template_key) + '</span></div>';
   // To + CC inputs
   html += '<div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">';
   html += '  <div style="flex:1;min-width:200px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">To</label>';
@@ -10310,21 +10313,109 @@ function _renderTrackingEmailComposer_(body, preview, ctx) {
   html += '  <div style="flex:1;min-width:200px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">CC</label>';
   html += '    <input id="trackEmailCc" type="email" value="' + esc(preview.cc || '') + '" placeholder="(optional)" style="width:100%;padding:8px 10px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px"></div>';
   html += '</div>';
+  // v10.415 — Final-mile agent section (#9). fm_service selection
+  // flips the template (white_glove → wg_wwex_speedship, curbside →
+  // curbside_delivery); name + phone fill {{fm_agent_name}} +
+  // {{fm_agent_phone}} placeholders in the body. Datalist offers
+  // most-used agents from prior orders.
+  const datalistOpts = agentList.slice(0, 50).map(a =>
+    '<option value="' + esc(a.name || '') + '" data-phone="' + esc(a.phone || '') + '" data-service="' + esc(a.service || '') + '">'
+    + esc(a.name || '') + (a.service ? ' · ' + esc(a.service) : '') + (a.count ? ' (' + a.count + ')' : '')
+    + '</option>'
+  ).join('');
+  html += '<div style="margin-bottom:10px;padding:12px;background:#F5F7FA !important;border:1px solid #d8dde6 !important;border-radius:8px">';
+  html += '  <div style="font-size:11px;font-weight:900;color:#003087 !important;-webkit-text-fill-color:#003087 !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">🚚 Final-mile agent</div>';
+  html += '  <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px">';
+  html += '    <div><label style="font-size:10px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:.5px">Agent name</label>';
+  html += '      <input id="trackEmailFmName" list="trackEmailFmAgents" value="' + esc(ctx.fm_agent_name || '') + '" placeholder="e.g. Federal Companies" oninput="_trackingComposerOnAgentNameInput_()" style="width:100%;padding:8px 10px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px"></div>';
+  html += '    <div><label style="font-size:10px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:.5px">Agent phone</label>';
+  html += '      <input id="trackEmailFmPhone" type="tel" value="' + esc(ctx.fm_agent_phone || '') + '" placeholder="555-555-5555" style="width:100%;padding:8px 10px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px"></div>';
+  html += '    <div><label style="font-size:10px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:.5px">Service</label>';
+  const _svc = String(ctx.fm_service || '').toLowerCase();
+  html += '      <select id="trackEmailFmService" onchange="_trackingComposerRefreshPreview_()" style="width:100%;padding:8px 10px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px">';
+  html += '        <option value=""' + (!_svc ? ' selected' : '') + '>— none —</option>';
+  html += '        <option value="white_glove"' + (_svc === 'white_glove' ? ' selected' : '') + '>White Glove</option>';
+  html += '        <option value="curbside"' + (_svc === 'curbside' ? ' selected' : '') + '>Curbside</option>';
+  html += '      </select></div>';
+  html += '  </div>';
+  html += '  <datalist id="trackEmailFmAgents">' + datalistOpts + '</datalist>';
+  html += '  <div style="margin-top:6px;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">Pick a saved agent to auto-fill phone + service. Changes save with Send.</div>';
+  html += '</div>';
   // Subject
   html += '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">Subject</label>';
   html += '  <input id="trackEmailSubject" type="text" value="' + esc(preview.subject || '') + '" style="width:100%;padding:10px;font-size:14px;font-weight:700;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ccc !important;border-radius:6px"></div>';
   // HTML preview
   html += '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:1px">Body preview</label>';
-  html += '  <div style="padding:14px;background:#fafafa !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ddd !important;border-radius:6px;max-height:280px;overflow-y:auto">' + (preview.html || preview.text || '<em>(empty body)</em>') + '</div></div>';
+  html += '  <div id="trackEmailBodyPreview" style="padding:14px;background:#fafafa !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #ddd !important;border-radius:6px;max-height:280px;overflow-y:auto">' + (preview.html || preview.text || '<em>(empty body)</em>') + '</div></div>';
+  html += '<div id="trackEmailMissingVars" style="margin-bottom:12px">';
   if (missing.length) {
-    html += '<div style="margin-bottom:12px;padding:10px 12px;background:#FFF3E0 !important;border:1px solid #FB8C00 !important;border-radius:8px;font-size:12px;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important">⚠ Missing variables: <strong>' + missing.map(esc).join(', ') + '</strong>. The email will still send but with empty values where these placeholders appear. Edit the order row to populate.</div>';
+    html += '  <div style="padding:10px 12px;background:#FFF3E0 !important;border:1px solid #FB8C00 !important;border-radius:8px;font-size:12px;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important">⚠ Missing variables: <strong>' + missing.map(esc).join(', ') + '</strong>. The email will still send but with empty values where these placeholders appear.</div>';
   }
+  html += '</div>';
   // Send / Cancel
   html += '<div style="display:flex;gap:10px;justify-content:flex-end">';
   html += '  <button onclick="document.getElementById(\'trackEmailOverlay\').remove()" class="amp-btn" style="padding:10px 18px;font-size:13px">Cancel</button>';
   html += '  <button onclick="_trackingEmailSend_(\'' + esc(ctx.order_number) + '\', ' + JSON.stringify(JSON.stringify(ctx)) + ')" class="amp-btn go" style="padding:10px 18px;font-size:13px;font-weight:900">📨 Send</button>';
   html += '</div>';
   body.innerHTML = html;
+}
+
+// v10.415 — Datalist autofill: when the operator picks a saved agent
+// the option carries data-phone + data-service. Find the matching
+// option, copy those values into the sibling inputs, then re-preview.
+function _trackingComposerOnAgentNameInput_() {
+  const nameEl = document.getElementById('trackEmailFmName');
+  const phoneEl = document.getElementById('trackEmailFmPhone');
+  const svcEl = document.getElementById('trackEmailFmService');
+  const dl = document.getElementById('trackEmailFmAgents');
+  if (!nameEl || !dl) return;
+  const v = String(nameEl.value || '').trim();
+  if (!v) return;
+  const opts = dl.querySelectorAll('option');
+  for (let i = 0; i < opts.length; i++) {
+    if (String(opts[i].value || '').trim() === v) {
+      const ph = opts[i].getAttribute('data-phone') || '';
+      const sv = opts[i].getAttribute('data-service') || '';
+      if (phoneEl && !phoneEl.value.trim()) phoneEl.value = ph;
+      if (svcEl && !svcEl.value) svcEl.value = sv;
+      _trackingComposerRefreshPreview_();
+      return;
+    }
+  }
+}
+
+// v10.415 — Re-fire trackingEmailPreview with the current FM-agent
+// values so a service change (which flips the template) updates the
+// rendered body without making the operator close + reopen the modal.
+async function _trackingComposerRefreshPreview_() {
+  const state = window._trackingComposerState;
+  if (!state || !state.ctx) return;
+  const nameEl = document.getElementById('trackEmailFmName');
+  const phoneEl = document.getElementById('trackEmailFmPhone');
+  const svcEl = document.getElementById('trackEmailFmService');
+  const updatedCtx = Object.assign({}, state.ctx, {
+    fm_agent_name: nameEl ? nameEl.value.trim() : '',
+    fm_agent_phone: phoneEl ? phoneEl.value.trim() : '',
+    fm_service: svcEl ? svcEl.value : '',
+  });
+  state.ctx = updatedCtx;
+  try {
+    const res = await groundApi('trackingEmailPreview', { orderCtx: updatedCtx });
+    if (!res || !res.ok) return;
+    const chip = document.getElementById('trackEmailTemplateChip');
+    if (chip) chip.innerHTML = 'Template: <span style="color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(res.template_key) + '</span>';
+    const subj = document.getElementById('trackEmailSubject');
+    if (subj) subj.value = res.subject || '';
+    const bodyPreview = document.getElementById('trackEmailBodyPreview');
+    if (bodyPreview) bodyPreview.innerHTML = res.html || res.text || '<em>(empty body)</em>';
+    const miss = document.getElementById('trackEmailMissingVars');
+    if (miss) {
+      const missing = Array.isArray(res.missing_vars) ? res.missing_vars : [];
+      miss.innerHTML = missing.length
+        ? '<div style="padding:10px 12px;background:#FFF3E0 !important;border:1px solid #FB8C00 !important;border-radius:8px;font-size:12px;color:#E65100 !important;-webkit-text-fill-color:#E65100 !important">⚠ Missing variables: <strong>' + missing.map(esc).join(', ') + '</strong>. The email will still send but with empty values where these placeholders appear.</div>'
+        : '';
+    }
+  } catch (e) { /* keep last-known preview */ }
 }
 
 async function _trackingEmailSend_(orderNumber, ctxJsonStr) {
@@ -10335,8 +10426,32 @@ async function _trackingEmailSend_(orderNumber, ctxJsonStr) {
   const ccEl = document.getElementById('trackEmailCc');
   if (toEl) ctx.recipient = toEl.value.trim();
   if (ccEl) ctx.installer_email = ccEl.value.trim();
+  // v10.415 — pull the FM agent fields too so the live form values
+  // win over the cached ctx.
+  const fmNameEl = document.getElementById('trackEmailFmName');
+  const fmPhoneEl = document.getElementById('trackEmailFmPhone');
+  const fmSvcEl = document.getElementById('trackEmailFmService');
+  if (fmNameEl) ctx.fm_agent_name = fmNameEl.value.trim();
+  if (fmPhoneEl) ctx.fm_agent_phone = fmPhoneEl.value.trim();
+  if (fmSvcEl) ctx.fm_service = fmSvcEl.value;
   ctx.sent_by = getPackDeviceName_();
   if (!ctx.recipient) { showToast('Recipient required'); return; }
+
+  // v10.415 — persist FM agent BEFORE sending so the next pickup /
+  // re-open of this order sees the updated values + future autocomplete
+  // picks them up. Best-effort; a save failure shouldn't block the send.
+  try {
+    const fmChanged = (ctx.fm_agent_name || ctx.fm_agent_phone || ctx.fm_service);
+    if (fmChanged) {
+      await groundApi('saveFmAgent', {
+        orderNumber: orderNumber,
+        fm_agent_name: ctx.fm_agent_name || '',
+        fm_agent_phone: ctx.fm_agent_phone || '',
+        fm_service: ctx.fm_service || '',
+      });
+    }
+  } catch (eFm) { /* swallow — don't block send */ }
+
   try {
     const res = await groundApi('trackingEmailSend', { orderCtx: ctx });
     if (!res || !res.ok) {
