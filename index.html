@@ -3102,12 +3102,19 @@ function renderOrdersTab() {
       toggleEl.style.cssText = 'display:flex;gap:6px;margin-bottom:10px';
       list.parentNode.insertBefore(toggleEl, list);
     }
+    const _viewBtn = (v, emoji, label) => '<button onclick="setOrdersScheduleView(\'' + v + '\')" style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:' + (view === v ? '#003087' : 'transparent') + ';color:' + (view === v ? '#fff' : 'var(--text)') + ';-webkit-text-fill-color:' + (view === v ? '#fff' : 'var(--text)') + ';border:1px solid rgba(255,255,255,.18);border-radius:6px;cursor:pointer">' + emoji + ' ' + label + '</button>';
+    const viewHint = view === 'week' ? 'Calendar grid (desktop best)'
+      : view === 'carrier' ? 'Grouped by booked carrier'
+      : 'Date-grouped list';
     toggleEl.innerHTML = ''
-      + '<button onclick="setOrdersScheduleView(\'list\')" style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:' + (view === 'list' ? '#003087' : 'transparent') + ';color:' + (view === 'list' ? '#fff' : 'var(--text)') + ';-webkit-text-fill-color:' + (view === 'list' ? '#fff' : 'var(--text)') + ';border:1px solid rgba(255,255,255,.18);border-radius:6px;cursor:pointer">📋 List</button>'
-      + '<button onclick="setOrdersScheduleView(\'week\')" style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:' + (view === 'week' ? '#003087' : 'transparent') + ';color:' + (view === 'week' ? '#fff' : 'var(--text)') + ';-webkit-text-fill-color:' + (view === 'week' ? '#fff' : 'var(--text)') + ';border:1px solid rgba(255,255,255,.18);border-radius:6px;cursor:pointer">📅 Week</button>'
-      + '<span style="font-size:11px;color:var(--text-dim);align-self:center;margin-left:8px">' + (view === 'week' ? 'Calendar grid (desktop best)' : 'Date-grouped list') + '</span>';
+      + _viewBtn('list', '📋', 'List')
+      + _viewBtn('week', '📅', 'Week')
+      + _viewBtn('carrier', '🚚', 'Carrier')
+      + '<span style="font-size:11px;color:var(--text-dim);align-self:center;margin-left:8px">' + viewHint + '</span>';
     if (view === 'week') {
       list.innerHTML = _renderOrdersScheduleWeekGridHtml_(filtered);
+    } else if (view === 'carrier') {
+      list.innerHTML = _renderOrdersScheduleByCarrierHtml_(filtered);
     } else {
       list.innerHTML = _renderOrdersScheduleGroupedHtml_(filtered);
     }
@@ -3427,11 +3434,12 @@ function _renderPackRouteModal_(sortedZones, byZone, orderCount, cabinetCount, o
 function _getOrdersScheduleView_() {
   try {
     const v = localStorage.getItem('mbd_orders_schedule_view');
-    return v === 'week' ? 'week' : 'list';
+    if (v === 'week' || v === 'carrier') return v;
+    return 'list';
   } catch (e) { return 'list'; }
 }
 function setOrdersScheduleView(view) {
-  view = view === 'week' ? 'week' : 'list';
+  view = (view === 'week' || view === 'carrier') ? view : 'list';
   try { localStorage.setItem('mbd_orders_schedule_view', view); } catch (e) {}
   renderOrdersTab();
 }
@@ -3557,6 +3565,74 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
       + '<div style="position:sticky;top:0;z-index:5;padding:10px 14px;background:' + headerBg + ';backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid ' + headerBorder + ';border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + ';text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
       +   '<span style="color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + '">' + esc(dayLabel) + (isToday ? ' · TODAY' : '') + '</span>'
       +   '<span style="font-size:12px;font-weight:700;letter-spacing:.5px;color:' + countColor + ';-webkit-text-fill-color:' + countColor + '">' + days[d].length + ' order' + (days[d].length === 1 ? '' : 's') + '</span>'
+      + '</div>'
+      + cardsHtml
+      + '</div>';
+  }).join('');
+}
+
+// v10.409 — Schedule "carrier" view: group in-flight orders by booked
+// carrier so the operator can see "what's waiting on whom." Priority
+// buckets: UNASSIGNED first, then manual placeholders (KIM/SETH/WG-PAY)
+// per the calendar carrier convention, then real freight/parcel
+// carriers alphabetically. Each group is a collapsible section. Skips
+// rows already shipped — the lens scope is in-flight + dated.
+function _renderOrdersScheduleByCarrierHtml_(orders) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const showPast = _getOrdersScheduleShowPast_();
+  // Exclude shipped + post-pickup rows from the carrier view so it
+  // reads as "what's waiting" not "history". Past-date filter mirrors
+  // the date-grouped view's behavior.
+  const filtered = orders.filter(o => {
+    if (!o) return false;
+    if (o.pipeline_status === 'shipped') return false;
+    const truthy = (v) => v === true || String(v || '').toUpperCase() === 'TRUE';
+    if (truthy(o.cal_shipped)) return false;
+    if (!showPast) {
+      const d = String(o.ship_date || '').trim();
+      if (d && d < todayIso) return false;
+    }
+    return true;
+  });
+  if (!filtered.length) {
+    return '<div style="padding:30px;text-align:center;color:var(--text-dim);font-size:13px;font-style:italic">No in-flight orders to group.</div>';
+  }
+  const buckets = {};
+  const order = [];
+  filtered.forEach(o => {
+    const raw = String(o.carrier || '').trim();
+    const key = raw ? raw.toUpperCase() : 'UNASSIGNED';
+    if (!buckets[key]) { buckets[key] = { label: raw || 'UNASSIGNED', orders: [], color: o.carrier_color || '' }; order.push(key); }
+    buckets[key].orders.push(o);
+    if (!buckets[key].color && o.carrier_color) buckets[key].color = o.carrier_color;
+  });
+  // Order: UNASSIGNED → manual placeholders → real carriers alpha.
+  const PLACEHOLDER = ['KIM', 'SETH', 'WG-PAY', 'NORM'];
+  const priorityKey = (k) => {
+    if (k === 'UNASSIGNED') return 0;
+    if (PLACEHOLDER.indexOf(k) >= 0) return 1;
+    return 2;
+  };
+  order.sort((a, b) => {
+    const pa = priorityKey(a), pb = priorityKey(b);
+    if (pa !== pb) return pa - pb;
+    return a.localeCompare(b);
+  });
+  return order.map(k => {
+    const bucket = buckets[k];
+    const isUnassigned = k === 'UNASSIGNED';
+    const headerBg = isUnassigned ? 'rgba(255,82,82,.14)' : 'rgba(0,48,135,.18)';
+    const headerBorder = isUnassigned ? 'rgba(255,82,82,.55)' : 'rgba(0,48,135,.45)';
+    const headerColor = isUnassigned ? '#ff8a80' : '#fff';
+    const accentColor = bucket.color || (isUnassigned ? '#ff5252' : 'rgba(255,255,255,.40)');
+    // Suppress per-row date marker since the carrier bucket doesn't
+    // imply a date — but keep dates visible inside each card.
+    _renderOrdersCardHtml_._sectionShipDate = '';
+    const cardsHtml = bucket.orders.map(o => _renderOrdersCardHtml_(o, 'schedule')).join('');
+    return '<div style="margin-bottom:14px">'
+      + '<div style="position:sticky;top:0;z-index:5;padding:10px 14px;background:' + headerBg + ';backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid ' + headerBorder + ';border-left:4px solid ' + esc(accentColor) + ';border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + ';text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      +   '<span style="color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + '">' + (isUnassigned ? '⚠ ' : '🚚 ') + esc(bucket.label) + '</span>'
+      +   '<span style="font-size:12px;font-weight:700;letter-spacing:.5px;color:rgba(255,255,255,.75);-webkit-text-fill-color:rgba(255,255,255,.75)">' + bucket.orders.length + ' order' + (bucket.orders.length === 1 ? '' : 's') + '</span>'
       + '</div>'
       + cardsHtml
       + '</div>';
@@ -18182,7 +18258,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.407"></script>
+<script src="./pack.js?v=10.409"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -18193,7 +18269,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.408<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.409<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
