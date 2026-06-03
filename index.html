@@ -3809,6 +3809,23 @@ function _renderOrdersCardHtml_(o, lens) {
   const onHoldBadge = o.on_hold
     ? '<span style="font-size:10px;font-weight:800;background:rgba(122,62,0,.15);color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px" title="' + esc(o.hold_reason || '') + '">🚧 HOLD</span>'
     : '';
+  // v10.418 — missing-installer amber flag (v10.346 reviewer cleanup
+  // item, finally buildable now that v10.415/416 surface fm_service +
+  // fm_agent_name on the order object). Fires when:
+  //   • fm_service === 'white_glove' (the WG template REQUIRES an agent)
+  //   • AND fm_agent_name is blank (no one to call when the tracking
+  //     email goes out)
+  //   • AND the order isn't already shipped (post-ship flag is noise)
+  // Tap-friendly: opens the tracking-email composer where the agent
+  // form lives, so the operator can fill it in immediately.
+  const _missingInstaller = (
+    String(o.fm_service || '').toLowerCase() === 'white_glove'
+    && !String(o.fm_agent_name || '').trim()
+    && !(o.pipeline_status === 'shipped' || o.pipeline_status === 'packed')
+  );
+  const missingInstallerBadge = _missingInstaller
+    ? '<span onclick="event.stopPropagation();openTrackingEmailComposer(\'' + orderNum + '\')" style="cursor:pointer;font-size:10px;font-weight:800;background:rgba(255,179,0,.18);color:#FFB300;-webkit-text-fill-color:#FFB300;padding:2px 7px;border-radius:999px;margin-left:6px;border:1px solid rgba(255,179,0,.40)" title="White-glove order with no final-mile installer set — tap to assign">🛠 NO INSTALLER</span>'
+    : '';
   // v10.339 — Pack Today cards show the cabinet location inline.
   // Resolves with the same logic as the route planner: cabinets_packed_json
   // → task_line D###/STK### → cabinets[] entry where cabinet# === order#
@@ -3896,6 +3913,7 @@ function _renderOrdersCardHtml_(o, lens) {
     +       readyForCheckPill
     +       stalledBadge
     +       onHoldBadge
+    +       missingInstallerBadge
     +       calLettersHtml
     +     '</div>'
     +     (customer ? '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">' + customer + '</div>' : '')
