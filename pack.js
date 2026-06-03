@@ -302,7 +302,9 @@ function _orderDetailHtml_(o) {
     on_hold:           '#7A3E00',
     unknown:           '#555',
   })[pStatus] || '#555';
-  const pillLabel = pStatus.toUpperCase().replace(/_/g, ' ');
+  // v10.423 — rename "arriving" → "SCHEDULED" everywhere (Zac: stock
+  // cabinets already in warehouse shouldn't read as "arriving").
+  const pillLabel = pStatus === 'arriving' ? 'SCHEDULED' : pStatus.toUpperCase().replace(/_/g, ' ');
   // gcal status letters
   const letterChip = (label, active) => '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:900;letter-spacing:.5px;padding:3px 8px;border-radius:4px;margin-left:3px;background:' + (active ? '#00C853' : 'rgba(255,255,255,.10)') + ';color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + ';-webkit-text-fill-color:' + (active ? '#0a0a0a' : 'rgba(255,255,255,.45)') + '">' + label + '</span>';
   const hpl = letterChip('H', !!o.cal_h) + letterChip('B', !!o.cal_b) + letterChip('P', !!o.cal_p) + letterChip('L', !!o.cal_l)
