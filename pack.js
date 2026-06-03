@@ -12447,7 +12447,30 @@ function _lkTimeline_(hit) {
   const _oid = String((hit && (hit.order_number || hit.order_id
     || (hit.record && hit.record.order_number))) || '').trim();
   const _wrap = (inner) => '<div class="lk-tl" data-oid="' + esc(_oid) + '">' + inner + '</div>';
-  if (!events.length) return _oid ? _wrap('') : '';
+  // v10.413 — Activity section always shows the ➕ Note button when an
+  // order id is in scope, so CS can log a call/note from Lookup even
+  // before the spine has any events for the order. The server-side
+  // addCsNote gates on spine_enabled and returns a clean error if the
+  // spine isn't active — _lkAddCsNote_ surfaces that as a toast.
+  const noteBtn = _oid
+    ? '<button onclick="_lkAddCsNote_(\'' + esc(_oid) + '\')" style="background:rgba(61,190,255,.12);color:#3DBEFF;-webkit-text-fill-color:#3DBEFF;border:1px solid rgba(61,190,255,.4);border-radius:6px;font-size:11px;font-weight:800;padding:4px 10px;min-height:34px;cursor:pointer">➕ Note</button>'
+    : '';
+  const sectionHeader = (label) =>
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+    + '<span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;font-weight:700">' + label + '</span>'
+    + noteBtn
+    + '</div>';
+  if (!events.length) {
+    // No scavenged events yet — still expose the Note button so CS
+    // can drop the first note + see it materialize once the spine
+    // upgrade fills in events.
+    return _oid
+      ? _wrap('<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)">'
+        + sectionHeader('Activity')
+        + '<div style="font-size:11px;color:var(--text-dim);font-style:italic;padding:2px 0">No activity logged yet.</div>'
+        + '</div>')
+      : '';
+  }
   events.sort((a, b) => b.ts - a.ts);
   const fmt = (d) => {
     const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -12458,7 +12481,7 @@ function _lkTimeline_(hit) {
   };
   return _wrap(
     '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.10)">'
-    + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700">Activity</div>'
+    + sectionHeader('Activity')
     + events.map(e =>
         '<div style="display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:12px;color:var(--text)">'
         + '<span style="font-size:14px;line-height:1">' + e.icon + '</span>'
@@ -12543,7 +12566,13 @@ async function _lkAddCsNote_(oid) {
   const note = (prompt('Add a CS note to order ' + oid + ' (logged to the order timeline):') || '').trim();
   if (!note) return;
   try {
-    const by = (localStorage.getItem('mbd_ground_packer') || '').trim();
+    // v10.413 — prefer mbd_device_name (Bedrock provisioning identity)
+    // then fall back to mbd_ground_packer. Same pattern as the v10.408
+    // board notes persistence.
+    const by = (function(){
+      try { return (localStorage.getItem('mbd_device_name') || localStorage.getItem('mbd_ground_packer') || '').trim(); }
+      catch (e) { return ''; }
+    })();
     const res = await groundApi('addCsNote', { order_id: oid, note: note, by: by });
     if (!res || !res.ok) { showToast('Note not saved: ' + ((res && res.error) || 'unknown')); return; }
     showToast('✓ Note added');
