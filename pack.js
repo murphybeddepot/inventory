@@ -281,6 +281,7 @@ function _closeOrdersDetail_() {
   if (toggle) toggle.style.display = '';
   _setOrdersListChrome_(true);   // v10.399 — restore list chrome on close
   _packDetailMode = null;         // reset mode for next order open
+  _packDetailViewOverride_ = null; // v10.421 — clear view override too
 }
 
 function _orderDetailHtml_(o) {
@@ -454,7 +455,15 @@ function _setOrdersListChrome_(visible) {
   });
 }
 
+// v10.421 — view-mode override. Default null = let the sticky-active-
+// pack rule + _packDetailMode decide. When set, _packDetailEffectiveMode_
+// returns this verbatim so the operator can VIEW the overview even
+// while the order's underlying state is in_progress. Cleared on order
+// switch + detail close so the override doesn't leak between orders.
+var _packDetailViewOverride_ = null;
+
 function _packDetailEffectiveMode_(o) {
+  if (_packDetailViewOverride_) return _packDetailViewOverride_;
   const status = String((o && o.status) || '').toLowerCase();
   // Active Pack is sticky once the order is in_progress / ready_for_check /
   // checking / packed — the workflow has begun and the operator can't
@@ -468,6 +477,9 @@ function _packDetailEffectiveMode_(o) {
 function _setPackDetailMode_(mode, orderNumber) {
   const toastMsg = { overview: 'Overview', pre_pack: 'Pre-pack mode — only hardware items shown', active_pack: 'Pack mode — scan items as you box them' }[mode] || mode;
   _packDetailMode = mode === 'overview' ? null : mode;
+  // v10.421 — wire the override too so Back from active_pack returns
+  // to Overview even on sticky-active orders.
+  _packDetailViewOverride_ = (mode === 'overview') ? 'overview' : null;
   // Keep the legacy _packDetailPrePackMode boolean in sync — renderPackSkuList_
   // reads it to filter the SKU list to hardware-only.
   if (typeof _packDetailPrePackMode !== 'undefined') {
@@ -655,16 +667,22 @@ function _packerDetailFullHtml_(o, mode) {
   // Read priority + MTO once for the header.
   const isPriority = o.priority === true || String(o.priority || '').toUpperCase() === 'TRUE';
   const mtoBadge = o && /\bMTO\b/i.test(String(o.task_line || o.cal_label || '')) ? ' <span style="font-size:10px;font-weight:900;background:rgba(171,71,188,.20);color:#ce93d8;-webkit-text-fill-color:#ce93d8;padding:2px 6px;border-radius:4px;letter-spacing:1px;margin-left:6px;vertical-align:middle">MTO</span>' : '';
-  const backToOverview = (mode === 'pre_pack')
-    ? '<button onclick="_setPackDetailMode_(\'overview\',\'' + ord + '\')" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">← Overview</button>'
-    : '';
+  // v10.421 — Zac's repro: schedule → click order → click open pack
+  // workflow → Back went to schedule instead of overview. Fix: in
+  // pre_pack OR active_pack mode, the primary Back button returns to
+  // overview (via the new view override), not all the way to the
+  // orders list. Operator can tap Back twice to go all the way back.
+  const _backOnClick = (mode === 'overview')
+    ? '_closeOrdersDetail_()'
+    : '_setPackDetailMode_(\'overview\',\'' + ord + '\')';
+  const backToOverview = '';  // legacy second button — collapsed into the primary Back
 
   return ''
     // Header (sticky) — packer-focused, mode chip on the right
     + (isPriority ? '<div style="height:4px;background:linear-gradient(90deg,#FF6B00,#FF9100);margin:-14px -14px 10px;border-radius:4px 4px 0 0"></div>' : '')
     + '<div style="position:sticky;top:0;background:linear-gradient(180deg,#0E1520 0%,#0E1520 70%,rgba(14,21,32,.0) 100%);padding-bottom:8px;margin-bottom:10px;z-index:5">'
     +   '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-    +     '<button onclick="_closeOrdersDetail_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">← Back</button>'
+    +     '<button onclick="' + _backOnClick + '" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.20);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer" title="' + (mode === 'overview' ? 'Back to orders list' : 'Back to order overview') + '">← Back</button>'
     +     (backToOverview)
     +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:1px">' + (isPriority ? '<span style="color:#FF9100;-webkit-text-fill-color:#FF9100;margin-right:4px">🔥</span>' : '') + 'Order ' + ord + mtoBadge + '</div>'
     +     (mode === 'active_pack' ? '' : prePackBtn)
