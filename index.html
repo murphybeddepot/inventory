@@ -3571,7 +3571,7 @@ function _renderOrdersScheduleGroupedHtml_(orders) {
   }).join('');
 }
 
-// v10.413 — Schedule "carrier" view: group in-flight orders by booked
+// v10.414 — Schedule "carrier" view: group in-flight orders by booked
 // carrier so the operator can see "what's waiting on whom." Priority
 // buckets: UNASSIGNED first, then manual placeholders (KIM/SETH/WG-PAY)
 // per the calendar carrier convention, then real freight/parcel
@@ -3848,7 +3848,7 @@ function _renderOrdersCardHtml_(o, lens) {
   const dismissBtn = (lens === 'pack')
     ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Remove from today\'s pack list (the order isn\'t deleted — it just won\'t show on Pack Today). Operator override; auto-populate stops re-adding it." style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(255,179,0,.10);color:#FFB300;-webkit-text-fill-color:#FFB300;border:1px solid rgba(255,179,0,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">⏭ Not Today</button>'
     : '';
-  // v10.413 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
+  // v10.414 — per-row 🔍 Why button REMOVED (Zac 2026-05-28 reviewer
   // decision). It was a debug aid (v10.338), not a packer affordance —
   // visual noise on every card. The diagnostic stays available from
   // the order-detail header chip (_showWhyStatusModal_ on the READY
@@ -3936,7 +3936,7 @@ async function _dismissFromPackLens_(orderNumber) {
 // URL hash router — runs on boot + on hashchange. Supports:
 //   #/order/31510            → openOrderDetail(31510) (auto-routes to Orders tab)
 //   #/orders/{lens}          → setOrdersLens, switch to Orders tab
-//   #schedule|#pack|#…       → legacy alias, redirects to #/orders/{lens} (v10.413)
+//   #schedule|#pack|#…       → legacy alias, redirects to #/orders/{lens} (v10.414)
 function _handleOrdersHashRoute_() {
   const h = String(location.hash || '');
   let m;
@@ -3956,7 +3956,7 @@ function _handleOrdersHashRoute_() {
     if (typeof switchTab === 'function') switchTab('orders');
     return true;
   }
-  // v10.413 — legacy aliases: #schedule, #prepack, #pack, #attention,
+  // v10.414 — legacy aliases: #schedule, #prepack, #pack, #attention,
   // and the old #pack-today / #pre-pack-today / #needs-attention forms.
   // Rewrite the hash to the canonical #/orders/{lens} so back-button +
   // bookmarks normalize, then re-dispatch.
@@ -7902,6 +7902,7 @@ function _kbFallbackPopupPrint_(itemList, dest) {
 // adds version history + auto-Slack diff to #claude_bedrock.
 
 let _emailTplsCache = null;     // cached list from listShipConfTemplates
+let _currentEmailTplFlow = '';  // v10.414 — active flow ('shipping_confirmation' | 'customer_ready' | 'tracking_email') so preview / test / save route correctly
 let _quillInstance = null;      // singleton Quill editor instance
 let _quillLoadPromise = null;   // dedup CDN load
 
@@ -7979,7 +7980,7 @@ async function openEmailTemplatesEditor() {
 
   const intro = document.createElement('div');
   intro.style.cssText = 'font-size:13px;color:#333;line-height:1.55';
-  intro.innerHTML = 'Edit the email body templates. Saves go live immediately for any send that fires after. Currently wired: <strong>Shipping Confirmation</strong> + <strong>Customer Ready / Pick Lists</strong>. Reorder + Mattress migrate next.';
+  intro.innerHTML = 'Edit the email body templates. Saves go live immediately for any send that fires after. Currently wired: <strong>Shipping Confirmation</strong>, <strong>Customer Ready / Pick Lists</strong>, and <strong>Tracking / Shipped</strong>. Reorder + Mattress migrate next.';
   panel.appendChild(intro);
 
   const listBox = document.createElement('div');
@@ -7992,16 +7993,19 @@ async function openEmailTemplatesEditor() {
   document.body.appendChild(ov);
 
   // v10.142: fetch both ShipConf + Customer Ready templates in parallel.
-  // Group by flow so the editor surface mirrors the Email Types in
-  // docs/EMAIL_TEMPLATES_EDITOR.md §2.
+  // v10.414: also pull the tracking-email templates so the editor
+  // surfaces all three flows. Group by flow so the editor mirrors
+  // the Email Types in docs/EMAIL_TEMPLATES_EDITOR.md §2.
   try {
-    const [shipRes, crRes] = await Promise.all([
+    const [shipRes, crRes, teRes] = await Promise.all([
       groundApi('listShipConfTemplates', {}).catch(err => ({ ok: false, error: err.message })),
       groundApi('listCustomerReadyTemplates', {}).catch(err => ({ ok: false, error: err.message })),
+      groundApi('listTrackingEmailTemplates', {}).catch(err => ({ ok: false, error: err.message })),
     ]);
     _emailTplsCache = {
       shipping_confirmation: (shipRes && shipRes.ok) ? (shipRes.templates || []) : [],
       customer_ready: (crRes && crRes.ok) ? (crRes.templates || []) : [],
+      tracking_email: (teRes && teRes.ok) ? (teRes.templates || []) : [],
     };
     _renderEmailTplsList_(listBox);
   } catch (err) {
@@ -8020,6 +8024,7 @@ function _renderEmailTplsList_(container) {
   const sections = [
     { key: 'shipping_confirmation', title: '📨 Shipping Confirmation', flow: 'shipping_confirmation' },
     { key: 'customer_ready', title: '✅ Customer Ready / Pick Lists', flow: 'customer_ready' },
+    { key: 'tracking_email', title: '🚚 Tracking / Shipped Emails', flow: 'tracking_email' },
   ];
   let any = false;
   sections.forEach(sec => {
@@ -8063,6 +8068,7 @@ function _renderEmailTplsList_(container) {
 async function _openEmailTplEditor_(templateKey, flow) {
   await _ensureQuillLoaded_();
   flow = flow || 'shipping_confirmation';
+  _currentEmailTplFlow = flow;
   const flowCache = (_emailTplsCache && _emailTplsCache[flow]) || [];
   const tpl = flowCache.find(t => t.key === templateKey);
   if (!tpl) { showToast('Template not found in cache for flow ' + flow); return; }
@@ -8269,8 +8275,14 @@ async function _refreshEmailTplPreview_(templateKey) {
   if (!pane || !subjEl || !bodyEl || !_quillInstance) return;
   const subject = (document.getElementById('emailTplSubject') || {}).value || '';
   const bodyHtml = _quillInstance.root.innerHTML || '';
+  // v10.414 — route by active flow. ShipConf endpoint resolves
+  // Customer Ready templates too (server-side fallback), but the
+  // tracking-email templates live in a separate tab + need their
+  // own preview endpoint.
+  const previewEndpoint = _currentEmailTplFlow === 'tracking_email'
+    ? 'previewTrackingEmailTemplate' : 'previewShipConfTemplate';
   try {
-    const res = await groundApi('previewShipConfTemplate', {
+    const res = await groundApi(previewEndpoint, {
       template_key: templateKey,
       subject: subject,
       body_html: bodyHtml,
@@ -8299,8 +8311,11 @@ async function _sendEmailTplTest_(templateKey, selectEl, btn) {
   btn.disabled = true;
   btn.textContent = 'Sending…';
   if (status) { status.textContent = ''; status.style.color = '#666'; }
+  // v10.414 — route by active flow (same pattern as preview).
+  const sendTestEndpoint = _currentEmailTplFlow === 'tracking_email'
+    ? 'sendTrackingEmailTestEmail' : 'sendShipConfTestEmail';
   try {
-    const res = await groundApi('sendShipConfTestEmail', {
+    const res = await groundApi(sendTestEndpoint, {
       template_key: templateKey,
       recipient_label: recipient,
       subject: subject,
@@ -8332,8 +8347,10 @@ async function _saveEmailTpl_(templateKey, flow, ov, status, saveBtn) {
   status.textContent = '';
   let person = '';
   try { person = localStorage.getItem('mbd_ground_packer') || ''; } catch(e) {}
-  // v10.142: route to the right save endpoint by flow.
-  const endpoint = flow === 'customer_ready' ? 'saveCustomerReadyTemplate' : 'saveShipConfTemplate';
+  // v10.414: route to the right save endpoint by flow.
+  const endpoint = flow === 'tracking_email' ? 'saveTrackingEmailTemplate'
+    : flow === 'customer_ready' ? 'saveCustomerReadyTemplate'
+    : 'saveShipConfTemplate';
   try {
     const res = await groundApi(endpoint, {
       template_key: templateKey,
@@ -18290,7 +18307,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.413<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.414<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
