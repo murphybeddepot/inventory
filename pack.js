@@ -4184,9 +4184,11 @@ async function addToTodaysListPrompt() {
     // auto-flagged, added=0 even though the call "succeeded." Make
     // that visible.
     const added = Number(res.added || 0);
+    const bootstrapped = Number(res.gcal_bootstrapped || 0);
     const total = Number(res.totalActive || 0);
     if (added > 0) {
-      showPackBanner_('+ ' + added + ' added · ' + total + ' on today\'s list', '#42a5f5');
+      const extra = bootstrapped > 0 ? ' (' + bootstrapped + ' bootstrapped from gcal)' : '';
+      showPackBanner_('+ ' + added + ' added' + extra + ' · ' + total + ' on today\'s list', '#42a5f5');
     } else {
       showPackBanner_('No new orders to add (all candidates already on list)', '#FFB300');
     }
