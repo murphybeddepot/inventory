@@ -4178,8 +4178,26 @@ async function addToTodaysListPrompt() {
       showToast((res && res.error) || 'Add failed');
       return;
     }
-    showPackBanner_('+ ' + res.added + ' added · ' + res.totalActive + ' on today\'s list', '#42a5f5');
+    // v10.432 — Zac: "acted like it worked but nothing changed on the
+    // list." The server-side endpoint only flips rows not already
+    // explicit-TRUE — so when all in-window candidates are already
+    // auto-flagged, added=0 even though the call "succeeded." Make
+    // that visible.
+    const added = Number(res.added || 0);
+    const total = Number(res.totalActive || 0);
+    if (added > 0) {
+      showPackBanner_('+ ' + added + ' added · ' + total + ' on today\'s list', '#42a5f5');
+    } else {
+      showPackBanner_('No new orders to add (all candidates already on list)', '#FFB300');
+    }
     await refreshPackQueue();
+    // v10.432 — also refresh the Orders-tab pipeline so the Pack Today
+    // lens reflects the change immediately. v10.421's button wrap
+    // delayed this by 1.2s; doing it inline is simpler + faster.
+    if (typeof refreshOrderPipeline === 'function') {
+      try { await refreshOrderPipeline({ force: true }); } catch (e) {}
+      if (typeof renderOrdersTab === 'function') renderOrdersTab();
+    }
   } catch (err) {
     showToast('Add error: ' + err.message);
   }
