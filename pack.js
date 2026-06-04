@@ -3344,8 +3344,16 @@ function processPackScan_(code) {
   // Optimistic local match is applied immediately so the UI feels
   // instant; the actual server roundtrip is queued so it can't race
   // with a follow-up scan's server roundtrip.
+  // v10.443 — match priority:
+  //   1. exact barcode match (when sku_lines has a barcode field
+  //      distinct from sku, written by v10.437 native upgrade)
+  //   2. exact sku match
+  //   3. sku prefix match (≥4 chars)
   const codeNorm = packNorm_(code);
-  let optimisticIdx = state.skus.findIndex(s => packNorm_(s.sku) === codeNorm);
+  let optimisticIdx = state.skus.findIndex(s => s.barcode && packNorm_(s.barcode) === codeNorm);
+  if (optimisticIdx < 0) {
+    optimisticIdx = state.skus.findIndex(s => packNorm_(s.sku) === codeNorm);
+  }
   if (optimisticIdx < 0) {
     optimisticIdx = state.skus.findIndex(s => packNorm_(s.sku).startsWith(codeNorm) && codeNorm.length >= 4);
   }
