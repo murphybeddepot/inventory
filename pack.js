@@ -5462,7 +5462,7 @@ async function _confirmSecondPersonPack_(orderNumber, originalPackerId) {
 // visible.
 function _packDailyCompletedCount_() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _bedrockTodayIso_();
     const myId = (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '';
     const list = _packQueueCache || [];
     let done = 0, eligible = 0;
@@ -6608,7 +6608,7 @@ function _schedNextBusinessDay_(iso) {
   return iso;
 }
 function _schedTodayContext_() {
-  const actualToday = new Date().toISOString().slice(0, 10);
+  const actualToday = _bedrockTodayIso_();
   // v10.281 — picker override. When set, treat that date as 'today'
   // for bucket math. Falls back to actual today (with business-day
   // rollover) when unset.
@@ -6875,7 +6875,7 @@ function _applyScheduleViewFilter_(payload) {
   // produces 3 sections (Ship Today / Pack Today / Pre-Pack Today).
   // Date math + filtering already done in _scheduleTodayBucket_.
   if (_scheduleViewMode === 'today') {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = _bedrockTodayIso_();
     const buckets = { ship_today: [], pack_today: [], prepack_today: [] };
     (payload.days || []).forEach(d => (d.orders || []).forEach(o => {
       if (!_scheduleOrderMatchesFind_(o)) return;
@@ -8976,7 +8976,7 @@ function exportScheduleCsv_() {
     const s = String(cell == null ? '' : cell);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }).join(',')).join('\r\n');
-  const today = (cache.today || new Date().toISOString().slice(0, 10));
+  const today = (cache.today || _bedrockTodayIso_());
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -9651,7 +9651,7 @@ function _mfgJobCardBoard_(j, accentColor) {
 function _renderMfgOfficeBoard_(jobs, byStage) {
   // Office board: high-level metrics — counts per status bucket,
   // today's throughput, blocked jobs needing attention.
-  const today = new Date().toISOString().slice(0, 10);
+  const today = _bedrockTodayIso_();
   const finishedToday = jobs.filter(j => String(j.finished_at || '').slice(0, 10) === today).length;
   const startedToday = jobs.filter(j => String(j.started_at || '').slice(0, 10) === today).length;
   const blocked = jobs.filter(j => {
@@ -11844,7 +11844,7 @@ function openRemakeDamageIntake(prefill) {
   _rmkDamageSubmitting = false;
   const defaultBy = (function(){ try { return localStorage.getItem('mbd_ground_packer') || ''; } catch(e) { return ''; } })();
   const pf = prefill || {};
-  const today = new Date().toISOString().slice(0, 10);
+  const today = _bedrockTodayIso_();
   const ov = document.createElement('div');
   ov.id = 'remakeDamageOverlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
