@@ -17998,12 +17998,21 @@ function renderGroundPackBoxes() {
 
   // v66: printer-selector pill at the top of the box list. Shows current
   // selection (or "default" / "skip" / "—" if not set), tap to change.
+  // v10.467: pill also shows printer name + host computer when known so
+  // operators see "Zebra @ zacpc" instead of an opaque "#75527399". A
+  // stale ID (PrintNode reassigned printer 75527399 to a different host
+  // than the operator thinks) becomes immediately visible.
   const stored = localStorage.getItem('printNodePrinterId');
+  const storedName = localStorage.getItem('printNodePrinterName') || '';
+  const storedHost = localStorage.getItem('printNodePrinterHost') || '';
   let printerLabel;
   if (!stored || stored === '0') {
     printerLabel = 'Default printer';
   } else if (stored === '-1') {
     printerLabel = 'AirPrint (Drive PDF)';
+  } else if (storedName || storedHost) {
+    printerLabel = '#' + stored + ' · ' + (storedName || '?')
+      + (storedHost ? ' @ ' + storedHost : '');
   } else {
     printerLabel = 'Printer #' + stored;
   }
@@ -18387,14 +18396,18 @@ async function openPrinterSelector() {
     + 'font-weight:700">'
     + (defaultSelected ? '✓ ' : '') + escapeHtml(defaultLabel) + '</button>';
 
-  // Per-printer options
+  // Per-printer options. v10.467: also pass name + computer_name to
+  // setPrinter so the pill can render them. JSON-stringify-then-
+  // HTML-escape lets us embed strings inside the inline onclick attr
+  // without breaking HTML quoting (browser decodes &quot; before JS).
+  const jsonArg = (v) => escapeHtml(JSON.stringify(String(v || '')));
   data.printers.forEach(p => {
     const selected = currentId === Number(p.id);
     const stateColor = p.state === 'online' ? '#00E676' : '#9AAAC0';
     const stateBadge = '<span style="font-size:10px;color:' + stateColor + ';'
       + '-webkit-text-fill-color:' + stateColor + ';font-weight:800;letter-spacing:.5px">'
       + escapeHtml(String(p.state).toUpperCase()) + '</span>';
-    body += '<button onclick="setPrinter(' + p.id + ');closePrinterSelector()" class="no-dark keep-dark-text" style="'
+    body += '<button onclick="setPrinter(' + p.id + ',' + jsonArg(p.name) + ',' + jsonArg(p.computer_name) + ');closePrinterSelector()" class="no-dark keep-dark-text" style="'
       + 'padding:12px 14px;text-align:left;border-radius:8px;cursor:pointer;font-size:13px;'
       + 'border:1.5px solid ' + (selected ? '#00E676' : 'var(--border)') + ';'
       + 'background:' + (selected ? 'rgba(0,230,118,.10)' : '#1a1a1a') + ';'
@@ -18434,16 +18447,24 @@ function closePrinterSelector() {
   if (el) el.remove();
 }
 
-function setPrinter(id) {
+function setPrinter(id, name, host) {
   if (id === 0) {
     localStorage.removeItem('printNodePrinterId');
+    localStorage.removeItem('printNodePrinterName');
+    localStorage.removeItem('printNodePrinterHost');
     showToast('Using server default printer');
   } else if (id === -1) {
     localStorage.setItem('printNodePrinterId', '-1');
+    localStorage.removeItem('printNodePrinterName');
+    localStorage.removeItem('printNodePrinterHost');
     showToast('PrintNode disabled — will open Drive PDF instead');
   } else {
     localStorage.setItem('printNodePrinterId', String(id));
-    showToast('Printer set');
+    if (name) localStorage.setItem('printNodePrinterName', String(name));
+    else localStorage.removeItem('printNodePrinterName');
+    if (host) localStorage.setItem('printNodePrinterHost', String(host));
+    else localStorage.removeItem('printNodePrinterHost');
+    showToast('Printer set: ' + (name || ('#' + id)) + (host ? ' @ ' + host : ''));
   }
   // Re-render the box list so the printer pill updates if it's visible.
   if (groundCurrentOrder && groundCurrentOrder.packages) {
@@ -18945,7 +18966,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.466<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.467<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
