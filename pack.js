@@ -9076,11 +9076,20 @@ async function openHoldsPanel(opts) {
     // v10.472 — size-confirm holds get a distinct ✓ Confirm Size & Resume
     // button that ALSO marks size_confirmed_at so the breakdown won't
     // re-hold on the next pack attempt. Detect by the hold_reason text.
-    const isSizeHold = /Single\/Twin\s+sizing\s+confirmation/i.test(String(h.hold_reason || ''));
+    // v10.476 — unknown_sku holds get a ⚙ Configure Box button that opens
+    // the packer-override modal.
+    const hrStr = String(h.hold_reason || '');
+    const isSizeHold = /Single\/Twin\s+sizing\s+confirmation/i.test(hrStr);
+    const unknownSkuMatch = hrStr.match(/No packaging rule for SKU "([^"]+)"|Unknown SKU "([^"]+)"/i);
+    const isUnknownSku = !!unknownSkuMatch;
+    const unknownSku = unknownSkuMatch ? (unknownSkuMatch[1] || unknownSkuMatch[2] || '') : '';
     let resumeBtn = '';
     if (h.kind === 'orderpack_hold' && h.order_id) {
       if (isSizeHold) {
         resumeBtn = '<button onclick="confirmSizeAndResumeFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.14);color:#1A5C1A;border:1.5px solid #00C853;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Mark size as confirmed-with-customer and resume to Ground queue">✓ Size confirmed · Resume</button>';
+      } else if (isUnknownSku) {
+        resumeBtn = '<button onclick="openPackerOverrideModal(\'' + esc(unknownSku) + '\',\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(124,58,237,.16);color:#5B21B6;border:1.5px solid #7C3AED;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Manager: choose a box + carrier for this unknown SKU. Optionally save for future orders of the same SKU.">⚙ Configure Box for \'' + esc(unknownSku) + '\'</button>'
+          + '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Resume to queue without configuring — only do this if you already saved an override for this SKU">↩ Resume</button>';
       } else {
         resumeBtn = '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px">↩ Resume to queue</button>';
       }
@@ -9121,6 +9130,150 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 // size_confirmed_at on OrderPack so the breakdown skips that hold on
 // next pack attempt. Without this, Resume + Start Pack just re-triggers
 // the same hold infinitely.
+// v10.476 — Packer-override modal. Manager picks a box / carrier /
+// service / weight / label for an unknown-SKU hold. Save scope picks
+// between "just this order" (saves with max_qty=current qty, will
+// satisfy this order only) and "save for up to N qty" (becomes a
+// reusable rule via the packer_overrides rulebook tab).
+let _packerOverrideBoxesCache = null;
+async function openPackerOverrideModal(sku, orderId, orderNumber) {
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('configure box for ' + sku) : null;
+  if (!pin) return;
+  const prior = document.getElementById('packerOverrideOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'packerOverrideOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;letter-spacing:.5px">⚙ Configure Box</div>'
+    +   '<button onclick="document.getElementById(\'packerOverrideOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:14px">Order <strong>#' + esc(orderNumber) + '</strong> · SKU <strong style="font-family:\'JetBrains Mono\',monospace;background:#FFF5E6 !important;padding:2px 8px;border-radius:4px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important">' + esc(sku) + '</strong></div>'
+    + '<div id="packerOverrideBody" style="color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"><div style="text-align:center;padding:30px;color:#666 !important">⟳ Loading boxes…</div></div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  // Load boxes if not cached.
+  if (!_packerOverrideBoxesCache) {
+    try {
+      const r = await groundApi('listBoxesForOverride', {});
+      if (r && r.ok) _packerOverrideBoxesCache = r.boxes || [];
+    } catch (e) {
+      document.getElementById('packerOverrideBody').innerHTML = '<div style="color:#c62828 !important;-webkit-text-fill-color:#c62828 !important;padding:20px">Failed to load boxes: ' + esc(String(e.message || e)) + '</div>';
+      return;
+    }
+  }
+  _renderPackerOverrideForm(sku, orderId, orderNumber, pin);
+}
+
+function _renderPackerOverrideForm(sku, orderId, orderNumber, pin) {
+  const body = document.getElementById('packerOverrideBody');
+  if (!body) return;
+  const boxes = _packerOverrideBoxesCache || [];
+  const boxOptions = '<option value="">— pick a box —</option>'
+    + boxes.map(b => '<option value="' + esc(b.box_sku) + '" data-len="' + b.length_in + '" data-wid="' + b.width_in + '" data-hgt="' + b.height_in + '" data-wt="' + b.weight_lb + '" data-svc="' + esc(b.service_hint) + '" data-car="' + esc(b.carrier_hint) + '">'
+        + esc(b.box_sku) + ' · ' + b.length_in + '×' + b.width_in + '×' + b.height_in + '" / ' + b.weight_lb + 'lb' + (b.carrier_hint ? ' / ' + esc(b.carrier_hint) : '') + '</option>').join('');
+  const inputStyle = 'width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box';
+  const labelStyle = 'display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px';
+  body.innerHTML =
+      '<label style="' + labelStyle + '">Box</label>'
+    + '<select id="poBoxSku" style="' + inputStyle + '" onchange="_packerOverrideBoxChanged()">' + boxOptions + '</select>'
+    + '<div id="poDims" style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px"></div>'
+    + '<label style="' + labelStyle + '">Carrier</label>'
+    + '<select id="poCarrier" style="' + inputStyle + '" onchange="_packerOverrideCarrierChanged()">'
+    +   '<option value="">— pick a carrier —</option>'
+    +   '<option value="usps">USPS</option>'
+    +   '<option value="fedex">FedEx</option>'
+    +   '<option value="ups">UPS</option>'
+    + '</select>'
+    + '<label style="' + labelStyle + '">Service</label>'
+    + '<select id="poService" style="' + inputStyle + '">'
+    +   '<option value="">— pick a carrier first —</option>'
+    + '</select>'
+    + '<label style="' + labelStyle + '">Weight override (lb, optional)</label>'
+    + '<input type="number" id="poWeight" step="0.05" placeholder="leave blank to use box default" style="' + inputStyle + '">'
+    + '<label style="' + labelStyle + '">Label text (use {qty} for the quantity)</label>'
+    + '<input type="text" id="poLabel" placeholder="e.g. {qty}x OVERLAY HINGE" style="' + inputStyle + '">'
+    + '<label style="' + labelStyle + '">Save scope</label>'
+    + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
+    +   '<label style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-weight:600;display:flex;align-items:center;gap:4px"><input type="radio" name="poScope" value="oneshot" checked> Just this order</label>'
+    +   '<label style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-weight:600;display:flex;align-items:center;gap:4px"><input type="radio" name="poScope" value="save"> Save for up to</label>'
+    +   '<input type="number" id="poMaxQty" min="1" max="999" value="8" style="width:70px;padding:6px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:13px">'
+    +   '<span style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important">qty</span>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;margin-top:18px">'
+    +   '<button onclick="_savePackerOverride(\'' + esc(sku) + '\',\'' + esc(orderId) + '\',\'' + esc(orderNumber) + '\',\'' + esc(pin) + '\')" style="flex:1;padding:14px 18px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Save & Resume</button>'
+    +   '<button onclick="document.getElementById(\'packerOverrideOverlay\').remove()" style="padding:14px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>';
+}
+
+function _packerOverrideBoxChanged() {
+  const sel = document.getElementById('poBoxSku');
+  const opt = sel.options[sel.selectedIndex];
+  const dims = document.getElementById('poDims');
+  const car = document.getElementById('poCarrier');
+  const svc = document.getElementById('poService');
+  if (!opt || !opt.value) { dims.textContent = ''; return; }
+  dims.textContent = opt.dataset.len + '×' + opt.dataset.wid + '×' + opt.dataset.hgt + '" · ' + opt.dataset.wt + ' lb';
+  if (opt.dataset.car && !car.value) { car.value = opt.dataset.car; _packerOverrideCarrierChanged(); }
+  if (opt.dataset.svc) { setTimeout(() => { if (svc) svc.value = opt.dataset.svc; }, 20); }
+}
+
+function _packerOverrideCarrierChanged() {
+  const car = document.getElementById('poCarrier').value;
+  const svc = document.getElementById('poService');
+  const SERVICES = {
+    usps: ['usps_ground_advantage', 'usps_priority_mail', 'usps_priority_mail_express', 'usps_media_mail', 'usps_parcel_select_ground'],
+    fedex: ['fedex_home_delivery', 'fedex_ground', 'fedex_2day', 'fedex_express_saver', 'fedex_standard_overnight'],
+    ups: ['ups_ground', 'ups_3_day_select', 'ups_2nd_day_air', 'ups_next_day_air_saver', 'ups_next_day_air'],
+  };
+  const opts = SERVICES[car] || [];
+  svc.innerHTML = opts.length
+    ? '<option value="">— pick a service —</option>' + opts.map(s => '<option value="' + s + '">' + s + '</option>').join('')
+    : '<option value="">— pick a carrier first —</option>';
+}
+
+async function _savePackerOverride(sku, orderId, orderNumber, pin) {
+  const boxSku = document.getElementById('poBoxSku').value;
+  const carrier = document.getElementById('poCarrier').value;
+  const service = document.getElementById('poService').value;
+  const weight = Number(document.getElementById('poWeight').value) || 0;
+  const labelText = document.getElementById('poLabel').value.trim();
+  const scope = document.querySelector('input[name="poScope"]:checked').value;
+  const maxQty = scope === 'oneshot' ? 1 : Math.max(1, Number(document.getElementById('poMaxQty').value) || 1);
+  if (!boxSku) { showToast('Pick a box first'); return; }
+  if (!carrier) { showToast('Pick a carrier'); return; }
+  if (!service) { showToast('Pick a service'); return; }
+  let confirmedBy = '';
+  try { confirmedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  try {
+    const res = await groundApi('savePackerOverride', {
+      sku: sku, max_qty: maxQty, box_sku: boxSku, weight_lb: weight,
+      carrier: carrier, service: service, label_text: labelText,
+      manager_pin: pin, created_by: confirmedBy,
+    });
+    if (!res || !res.ok) {
+      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
+      showToast('Save failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    // Also resume the hold so the order goes back to Ground.
+    try {
+      const rr = await groundApi('resumeOrderFromHold', { orderId: Number(orderId) });
+      if (rr && rr.ok) showToast('✓ Override saved + #' + orderNumber + ' resumed (' + (scope === 'oneshot' ? 'one-shot' : 'up to ' + maxQty + 'x') + ')');
+      else showToast('Override saved · resume failed: ' + ((rr && rr.error) || 'unknown'));
+    } catch (rrErr) {
+      showToast('Override saved · resume error: ' + rrErr.message);
+    }
+    document.getElementById('packerOverrideOverlay').remove();
+    if (typeof openHoldsPanel === 'function') openHoldsPanel();
+  } catch (err) {
+    showToast('Save error: ' + err.message);
+  }
+}
+
 async function confirmSizeAndResumeFromPanel_(orderId, orderNumber) {
   const ok = confirm(
     'Confirm size for #' + orderNumber + '?\n\n'
