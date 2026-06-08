@@ -17281,27 +17281,28 @@ function openPrinterDisconnectedHelp() {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
   const storedName = localStorage.getItem('printNodePrinterName') || 'this printer';
   const storedHost = localStorage.getItem('printNodePrinterHost') || 'the host computer';
+  // v10.470 — contrast: !important on bg + color + -webkit-text-fill.
   ov.innerHTML =
-    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto">'
+    '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto">'
     + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#c62828;-webkit-text-fill-color:#c62828;letter-spacing:.5px">⚠ PrintNode Disconnected</div>'
-    +   '<button onclick="document.getElementById(\'printerHelpOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕</button>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#c62828 !important;-webkit-text-fill-color:#c62828 !important;letter-spacing:.5px">⚠ PrintNode Disconnected</div>'
+    +   '<button onclick="document.getElementById(\'printerHelpOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕</button>'
     + '</div>'
-    + '<div style="font-size:13px;color:#444;-webkit-text-fill-color:#444;line-height:1.55;margin-bottom:14px">'
+    + '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;line-height:1.55;margin-bottom:14px">'
     +   '<strong>' + escapeHtml(storedName) + '</strong> on <strong>' + escapeHtml(storedHost) + '</strong> isn\'t reachable. The PrintNode desktop client (the agent that receives print jobs from the cloud) isn\'t running or isn\'t signed in.'
     + '</div>'
-    + '<div style="background:#f5f5f5;border-left:4px solid #FF9100;padding:14px 16px;border-radius:6px;margin-bottom:14px">'
-    +   '<div style="font-size:13px;font-weight:800;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;margin-bottom:8px">Fix on ' + escapeHtml(storedHost) + ':</div>'
-    +   '<ol style="margin:0;padding-left:20px;font-size:12.5px;color:#333;-webkit-text-fill-color:#333;line-height:1.7">'
+    + '<div style="background:#FFF5E6 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-left:4px solid #FF9100;padding:14px 16px;border-radius:6px;margin-bottom:14px">'
+    +   '<div style="font-size:13px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:8px">Fix on ' + escapeHtml(storedHost) + ':</div>'
+    +   '<ol style="margin:0;padding-left:20px;font-size:12.5px;color:#333 !important;-webkit-text-fill-color:#333 !important;line-height:1.7">'
     +     '<li><strong>Open the PrintNode app.</strong> Windows: system tray (near clock). Mac: menu bar (top). If not visible, launch from Start menu / Applications.</li>'
     +     '<li><strong>If it shows "Disconnected":</strong> sign out → sign back in with the MBD PrintNode account.</li>'
-    +     '<li><strong>If the app isn\'t installed:</strong> <a href="https://www.printnode.com/en/download" target="_blank" rel="noopener" style="color:#1565c0;-webkit-text-fill-color:#1565c0">download here</a>, install, sign in.</li>'
+    +     '<li><strong>If the app isn\'t installed:</strong> <a href="https://www.printnode.com/en/download" target="_blank" rel="noopener" style="color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important">download here</a>, install, sign in.</li>'
     +     '<li><strong>Verify:</strong> the app should show "Connected". Back in Bedrock, tap the 🖨 pill → state should flip to ONLINE.</li>'
     +   '</ol>'
     + '</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    +   '<button onclick="document.getElementById(\'printerHelpOverlay\').remove();_lastPrinterStateCheckAt=0;_refreshPrinterStateInBackground_();showToast(\'Re-checking printer state…\')" style="flex:1;min-width:140px;padding:12px 16px;background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">↻ Re-check state</button>'
-    +   '<a href="https://app.printnode.com/app/printers" target="_blank" rel="noopener" style="flex:1;min-width:140px;padding:12px 16px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center">PrintNode dashboard</a>'
+    +   '<button onclick="document.getElementById(\'printerHelpOverlay\').remove();_lastPrinterStateCheckAt=0;_refreshPrinterStateInBackground_();showToast(\'Re-checking printer state…\')" style="flex:1;min-width:140px;padding:12px 16px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">↻ Re-check state</button>'
+    +   '<a href="https://app.printnode.com/app/printers" target="_blank" rel="noopener" style="flex:1;min-width:140px;padding:12px 16px;background:#FF9100 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center">PrintNode dashboard</a>'
     + '</div>'
     + '</div>';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
@@ -17712,37 +17713,42 @@ function _renderGroundBulkResult(res) {
     : (res.succeeded === 0
         ? '⚠ All ' + res.total + ' failed'
         : '⚠ ' + res.succeeded + ' OK · ' + res.failed + ' failed');
+  // v10.470 — contrast fix: dark-theme CSS overrides win on plain inline
+  // styles. Wrap in keep-dark-text + use !important on every bg + color
+  // + -webkit-text-fill-color. Per CLAUDE.md "Check contrast on every
+  // new form" standing rule.
   let body = '';
-  body += '<div style="background:#fff;border-radius:14px;padding:22px;max-width:640px;width:100%;max-height:88vh;overflow-y:auto" onclick="event.stopPropagation()">';
+  body += '<div class="no-dark keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:640px;width:100%;max-height:88vh;overflow-y:auto" onclick="event.stopPropagation()">';
   body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px">';
-  body += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + ';letter-spacing:.5px">' + escapeHtml(headerText) + '</div>';
-  body += '<button onclick="document.getElementById(\'groundBulkResultOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕ Close</button>';
+  body += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:' + headerColor + ' !important;-webkit-text-fill-color:' + headerColor + ' !important;letter-spacing:.5px">' + escapeHtml(headerText) + '</div>';
+  body += '<button onclick="document.getElementById(\'groundBulkResultOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕ Close</button>';
   body += '</div>';
   body += '<div style="display:flex;flex-direction:column;gap:8px">';
   (res.results || []).forEach(r => {
-    const okBg = r.ok ? 'rgba(0,230,118,.10)' : 'rgba(255,82,82,.08)';
-    const okBorder = r.ok ? '#00E676' : '#ff5252';
-    body += '<div style="background:' + okBg + ';border:1.5px solid ' + okBorder + ';border-radius:10px;padding:12px 14px">';
+    // Opaque pastel backgrounds so the dark page can't leak through.
+    const okBg = r.ok ? '#E8F8EE' : '#FBEAEA';
+    const okBorder = r.ok ? '#00C853' : '#C43030';
+    const okText = r.ok ? '#0E4F1F' : '#7A1818';
+    body += '<div style="background:' + okBg + ' !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid ' + okBorder + ';border-radius:10px;padding:12px 14px">';
     body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">';
     body += '<div style="flex:1;min-width:0">';
-    body += '<div style="font-size:15px;font-weight:900;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a">#' + escapeHtml(String(r.order_number || '')) + ' · ' + escapeHtml(r.customer_name || '') + '</div>';
-    if (r.tracking_number) body += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#444;-webkit-text-fill-color:#444;margin-top:2px">' + escapeHtml(r.tracking_number) + (r.carrier_code ? ' · ' + escapeHtml(r.carrier_code) : '') + '</div>';
+    body += '<div style="font-size:15px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">#' + escapeHtml(String(r.order_number || '')) + ' · ' + escapeHtml(r.customer_name || '') + '</div>';
+    if (r.tracking_number) body += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:2px">' + escapeHtml(r.tracking_number) + (r.carrier_code ? ' · ' + escapeHtml(r.carrier_code) : '') + '</div>';
     const flagStr = (r.label_gen_ok ? '✓ label ' : '✗ label ') + (r.print_ok ? '✓ print ' : '✗ print ') + (r.ship_ok ? '✓ ship' : (res.skip_ship ? '— ship' : '✗ ship'));
-    body += '<div style="font-size:11px;color:' + (r.ok ? '#1A7A38' : '#9E2222') + ';-webkit-text-fill-color:' + (r.ok ? '#1A7A38' : '#9E2222') + ';font-weight:700;margin-top:3px">' + escapeHtml(flagStr) + '</div>';
-    if (r.error) body += '<div style="font-size:11px;color:#9E2222;-webkit-text-fill-color:#9E2222;margin-top:2px;font-weight:600">' + escapeHtml(String(r.error)) + '</div>';
+    body += '<div style="font-size:12px;color:' + okText + ' !important;-webkit-text-fill-color:' + okText + ' !important;font-weight:700;margin-top:4px">' + escapeHtml(flagStr) + '</div>';
+    if (r.error) body += '<div style="font-size:11px;color:#7A1818 !important;-webkit-text-fill-color:#7A1818 !important;margin-top:2px;font-weight:600">' + escapeHtml(String(r.error)) + '</div>';
     body += '</div>';
     // Retry actions for failures
     if (!r.ok) {
       body += '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">';
       if (!r.print_ok && r.label_gen_ok) {
-        body += '<button onclick="_groundBulkRetryPrintOne(\'' + escapeHtml(String(r.order_number)) + '\')" style="padding:6px 10px;background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry print</button>';
+        body += '<button onclick="_groundBulkRetryPrintOne(\'' + escapeHtml(String(r.order_number)) + '\')" style="padding:6px 10px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry print</button>';
       }
-      // Always allow a retry-all for this order (re-runs the full bulk for just this one)
-      body += '<button onclick="_groundBulkRetryFullOne(\'' + escapeHtml(String(r.order_number)) + '\')" style="padding:6px 10px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry all</button>';
+      body += '<button onclick="_groundBulkRetryFullOne(\'' + escapeHtml(String(r.order_number)) + '\')" style="padding:6px 10px;background:#FF9100 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry all</button>';
       if (r.packages && r.packages.length) {
         r.packages.forEach(p => {
           if (!p.print_ok && p.fallback_url) {
-            body += '<a href="' + escapeHtml(p.fallback_url) + '" target="_blank" rel="noopener" style="padding:5px 8px;background:rgba(0,0,0,.06);color:#1565c0;-webkit-text-fill-color:#1565c0;border:none;border-radius:6px;font-size:10px;font-weight:700;text-align:center;text-decoration:none">📄 PDF seq ' + p.sequence + '</a>';
+            body += '<a href="' + escapeHtml(p.fallback_url) + '" target="_blank" rel="noopener" style="padding:5px 8px;background:#fff !important;color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important;border:1px solid #1565c0;border-radius:6px;font-size:10px;font-weight:700;text-align:center;text-decoration:none">📄 PDF seq ' + p.sequence + '</a>';
           }
         });
       }
@@ -19356,7 +19362,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.469<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.470<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
