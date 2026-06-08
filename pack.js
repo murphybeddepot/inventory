@@ -9070,11 +9070,20 @@ async function openHoldsPanel(opts) {
     // Beacon-held orders need clearing in ShipStation first (Bedrock can't
     // override Beacon directly). PackingQueue cabinet holds — manager
     // would use the existing cabinet flow.
-    const resumeBtn = (h.kind === 'orderpack_hold' && h.order_id)
-      ? '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px">↩ Resume to queue</button>'
-      : (h.kind === 'beacon_hold'
-          ? '<div style="font-size:10px;color:#9C27B0;margin-top:6px;font-weight:700">↪ Clear in ShipStation (Beacon)</div>'
-          : '');
+    // v10.472 — size-confirm holds get a distinct ✓ Confirm Size & Resume
+    // button that ALSO marks size_confirmed_at so the breakdown won't
+    // re-hold on the next pack attempt. Detect by the hold_reason text.
+    const isSizeHold = /Single\/Twin\s+sizing\s+confirmation/i.test(String(h.hold_reason || ''));
+    let resumeBtn = '';
+    if (h.kind === 'orderpack_hold' && h.order_id) {
+      if (isSizeHold) {
+        resumeBtn = '<button onclick="confirmSizeAndResumeFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.14);color:#1A5C1A;border:1.5px solid #00C853;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Mark size as confirmed-with-customer and resume to Ground queue">✓ Size confirmed · Resume</button>';
+      } else {
+        resumeBtn = '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px">↩ Resume to queue</button>';
+      }
+    } else if (h.kind === 'beacon_hold') {
+      resumeBtn = '<div style="font-size:10px;color:#9C27B0;margin-top:6px;font-weight:700">↪ Clear in ShipStation (Beacon)</div>';
+    }
     // v10.223 — permanent-delete button (manager-PIN gated). Per Zac:
     // stale ShipStation holds had no way to be cleared from Bedrock.
     const deleteBtn = '<button onclick="deleteHoldFromPanel_(\'' + esc(h.order_id || '') + '\',\'' + esc(h.order_number) + '\',\'' + esc(h.kind || '') + '\')" style="padding:10px 14px;background:rgba(139,0,0,.10);color:#8B0000;border:1px solid #8B0000;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center" title="Permanently remove this hold row from the underlying tab (manager PIN required)">🗑 Delete (PIN)</button>';
@@ -9102,6 +9111,38 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
     openHoldsPanel();
   } catch (err) {
     showToast('Resume error: ' + err.message);
+  }
+}
+
+// v10.472 — Confirms a SINGLE/TWIN sizing hold + resumes. Sets
+// size_confirmed_at on OrderPack so the breakdown skips that hold on
+// next pack attempt. Without this, Resume + Start Pack just re-triggers
+// the same hold infinitely.
+async function confirmSizeAndResumeFromPanel_(orderId, orderNumber) {
+  const ok = confirm(
+    'Confirm size for #' + orderNumber + '?\n\n'
+    + 'Use this AFTER you\'ve verified with the customer that the order '
+    + 'is correctly Single (or Twin / SingleXL — whichever matches what '
+    + 'they actually want).\n\n'
+    + 'This clears the hold AND marks the order so it won\'t re-hold on '
+    + 'the next pack attempt.'
+  );
+  if (!ok) return;
+  let confirmedBy = '';
+  try { confirmedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  try {
+    const res = await groundApi('confirmSizeAndResume', {
+      orderId: Number(orderId),
+      confirmedBy: confirmedBy,
+    });
+    if (!res || !res.ok) {
+      showToast('Confirm failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ #' + orderNumber + ' size confirmed + resumed');
+    openHoldsPanel();
+  } catch (err) {
+    showToast('Confirm error: ' + err.message);
   }
 }
 
