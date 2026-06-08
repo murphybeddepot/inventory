@@ -2005,7 +2005,8 @@ input::placeholder, textarea::placeholder {
       <div id="groundStatusLine" style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">Loading queue…</div>
       <div id="groundDeployDebug" style="font-size:10px;font-family:monospace;color:#888;margin-top:3px"></div>
     </div>
-    <button onclick="refreshGroundQueue()" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
+    <button id="groundSyncBtn" onclick="syncShipStationThenRefresh()" title="Force ShipStation to pull new Shopify orders, then reload the queue" style="padding:14px 14px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔄</span><span style="font-size:9px">SYNC SS</span></button>
+    <button onclick="refreshGroundQueue()" title="Reload queue (uses ShipStation's current state)" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
   </div>
 
   <!-- View 1: queue list (default) -->
@@ -17283,6 +17284,38 @@ function paintGroundQueue_(queue, list, empty) {
   return queue;
 }
 
+// v10.466 — Force ShipStation to pull new Shopify orders, then reload
+// the Ground queue. Two-step because ShipStation's refreshstore is
+// async on their side (~30–60s to complete), so we kick it then wait
+// before re-fetching.
+async function syncShipStationThenRefresh() {
+  const btn = document.getElementById('groundSyncBtn');
+  const status = document.getElementById('groundStatusLine');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span style="font-size:18px;animation:mbdSpin 1s linear infinite;display:inline-block">⟳</span><span style="font-size:9px">SYNCING…</span>';
+  }
+  if (status) status.textContent = 'Telling ShipStation to pull new orders…';
+  try {
+    const res = await groundApi('refreshShipStationStores', {});
+    if (!res || !res.ok) {
+      if (status) status.textContent = 'Sync failed: ' + ((res && res.error) || 'unknown');
+      throw new Error((res && res.error) || 'refresh failed');
+    }
+    if (status) status.textContent = 'ShipStation kicked off (' + (res.refreshed || 0) + '/' + (res.total || 0) + ' stores) — waiting 35s for pull…';
+    // ShipStation's refresh is async; wait then re-fetch.
+    await new Promise(r => setTimeout(r, 35000));
+    await refreshGroundQueue();
+  } catch (e) {
+    if (status) status.textContent = 'Sync error: ' + String((e && e.message) || e);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span style="font-size:18px">🔄</span><span style="font-size:9px">SYNC SS</span>';
+    }
+  }
+}
+
 async function refreshGroundQueue() {
   const list = document.getElementById('groundQueueList');
   const empty = document.getElementById('groundQueueEmpty');
@@ -18912,7 +18945,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.464<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.466<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
