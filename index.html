@@ -17259,6 +17259,80 @@ async function groundApi(action, payload) {
 function renderGroundTab() {
   showGroundView('queue');
   refreshGroundQueue();
+  // v10.469 — background-refresh PrintNode printer state so the pill
+  // can show green/red connection dot. Zac 2026-06-08: "all computers
+  // show disconnected on printnode" — surfacing this in the pill means
+  // operators see the disconnection BEFORE attempting to print.
+  _refreshPrinterStateInBackground_();
+}
+
+// v10.469 — Fetches listPrinters silently and updates the cached
+// printer map with current state. Throttled to one call per 30s so
+// repeated tab switches don't hammer the endpoint. Failures are
+// silently swallowed (the indicator falls back to ⚪ unknown).
+let _lastPrinterStateCheckAt = 0;
+// v10.469 — "HOW TO FIX" modal triggered by the offline warning chip.
+// Walks the operator through restarting the PrintNode desktop client.
+function openPrinterDisconnectedHelp() {
+  const prior = document.getElementById('printerHelpOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'printerHelpOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  const storedName = localStorage.getItem('printNodePrinterName') || 'this printer';
+  const storedHost = localStorage.getItem('printNodePrinterHost') || 'the host computer';
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#c62828;-webkit-text-fill-color:#c62828;letter-spacing:.5px">⚠ PrintNode Disconnected</div>'
+    +   '<button onclick="document.getElementById(\'printerHelpOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#444;-webkit-text-fill-color:#444;line-height:1.55;margin-bottom:14px">'
+    +   '<strong>' + escapeHtml(storedName) + '</strong> on <strong>' + escapeHtml(storedHost) + '</strong> isn\'t reachable. The PrintNode desktop client (the agent that receives print jobs from the cloud) isn\'t running or isn\'t signed in.'
+    + '</div>'
+    + '<div style="background:#f5f5f5;border-left:4px solid #FF9100;padding:14px 16px;border-radius:6px;margin-bottom:14px">'
+    +   '<div style="font-size:13px;font-weight:800;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;margin-bottom:8px">Fix on ' + escapeHtml(storedHost) + ':</div>'
+    +   '<ol style="margin:0;padding-left:20px;font-size:12.5px;color:#333;-webkit-text-fill-color:#333;line-height:1.7">'
+    +     '<li><strong>Open the PrintNode app.</strong> Windows: system tray (near clock). Mac: menu bar (top). If not visible, launch from Start menu / Applications.</li>'
+    +     '<li><strong>If it shows "Disconnected":</strong> sign out → sign back in with the MBD PrintNode account.</li>'
+    +     '<li><strong>If the app isn\'t installed:</strong> <a href="https://www.printnode.com/en/download" target="_blank" rel="noopener" style="color:#1565c0;-webkit-text-fill-color:#1565c0">download here</a>, install, sign in.</li>'
+    +     '<li><strong>Verify:</strong> the app should show "Connected". Back in Bedrock, tap the 🖨 pill → state should flip to ONLINE.</li>'
+    +   '</ol>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +   '<button onclick="document.getElementById(\'printerHelpOverlay\').remove();_lastPrinterStateCheckAt=0;_refreshPrinterStateInBackground_();showToast(\'Re-checking printer state…\')" style="flex:1;min-width:140px;padding:12px 16px;background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">↻ Re-check state</button>'
+    +   '<a href="https://app.printnode.com/app/printers" target="_blank" rel="noopener" style="flex:1;min-width:140px;padding:12px 16px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center">PrintNode dashboard</a>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
+async function _refreshPrinterStateInBackground_() {
+  const now = Date.now();
+  if (now - _lastPrinterStateCheckAt < 30000) return;
+  _lastPrinterStateCheckAt = now;
+  try {
+    const data = await groundApi('listPrinters', {});
+    if (!data || !data.ok || !Array.isArray(data.printers)) return;
+    const map = {};
+    data.printers.forEach(p => {
+      map[String(p.id)] = {
+        name: String(p.name || ''),
+        host: String(p.computer_name || ''),
+        state: String(p.state || ''),
+      };
+    });
+    try { localStorage.setItem('printNodePrintersMap', JSON.stringify(map)); } catch (_e) {}
+    // Re-render Ground if it's the active panel so the pill reflects
+    // the fresh state immediately.
+    const groundPanel = document.getElementById('tab-ground');
+    if (groundPanel && groundPanel.classList.contains('active')
+        && groundCurrentOrder && groundCurrentOrder.packages
+        && typeof renderGroundPackBoxes === 'function') {
+      renderGroundPackBoxes();
+    }
+  } catch (_e) { /* swallow */ }
 }
 
 function showGroundView(name) {
@@ -18269,10 +18343,15 @@ function renderGroundPackBoxes() {
   // operators see "Zebra @ zacpc" instead of an opaque "#75527399". A
   // stale ID (PrintNode reassigned printer 75527399 to a different host
   // than the operator thinks) becomes immediately visible.
+  // v10.469: also shows green/red dot for PrintNode connection state
+  // (looked up from the cached printer map), and a disconnected warning
+  // chip with a fix-it link when the printer is offline.
   const stored = localStorage.getItem('printNodePrinterId');
   const storedName = localStorage.getItem('printNodePrinterName') || '';
   const storedHost = localStorage.getItem('printNodePrinterHost') || '';
   let printerLabel;
+  let printerStateDot = '';
+  let printerOfflineWarn = '';
   if (!stored || stored === '0') {
     printerLabel = 'Default printer';
   } else if (stored === '-1') {
@@ -18283,6 +18362,31 @@ function renderGroundPackBoxes() {
   } else {
     printerLabel = 'Printer #' + stored;
   }
+  // Resolve state from the cached printers map (populated when the
+  // selector opens AND on Ground tab activate via the background
+  // refresh).
+  if (stored && stored !== '-1') {
+    try {
+      const raw = localStorage.getItem('printNodePrintersMap');
+      if (raw) {
+        const mapObj = JSON.parse(raw) || {};
+        const lookupKey = (stored === '0')
+          // No specific printer selected — server uses PRINTNODE_DEFAULT_PRINTER_ID
+          // which we don't know client-side; show neutral dot.
+          ? null
+          : String(stored);
+        if (lookupKey && mapObj[lookupKey]) {
+          const st = String(mapObj[lookupKey].state || '').toLowerCase();
+          if (st === 'online') {
+            printerStateDot = '<span title="PrintNode reports this printer online" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#00E676;box-shadow:0 0 6px rgba(0,230,118,.6);margin-right:6px;flex-shrink:0"></span>';
+          } else if (st) {
+            printerStateDot = '<span title="PrintNode reports state: ' + escapeHtml(st) + '" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff5252;box-shadow:0 0 6px rgba(255,82,82,.6);margin-right:6px;flex-shrink:0"></span>';
+            printerOfflineWarn = '<div onclick="event.stopPropagation();openPrinterDisconnectedHelp()" style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:10px;background:rgba(255,82,82,.10);border:1px solid #ff5252;border-radius:8px;font-size:12px;color:#ff5252;-webkit-text-fill-color:#ff5252;font-weight:700;letter-spacing:.3px;cursor:pointer"><span style="font-size:14px">⚠</span><span style="flex:1">PrintNode says this printer is ' + escapeHtml(st) + '. Prints will fail until the host computer reconnects.</span><span style="font-size:11px;opacity:.7">HOW TO FIX ›</span></div>';
+          }
+        }
+      }
+    } catch (_e) {}
+  }
   const printerPill = document.createElement('div');
   printerPill.className = 'no-dark keep-dark-text';
   printerPill.setAttribute('style',
@@ -18292,10 +18396,17 @@ function renderGroundPackBoxes() {
     + 'font-weight:700;cursor:pointer;letter-spacing:.3px'
   );
   printerPill.innerHTML = '<span style="font-size:14px">🖨</span>'
+    + printerStateDot
     + '<span style="flex:1">Printing to: <span style="color:#FFB300;'
     + '-webkit-text-fill-color:#FFB300">' + escapeHtml(printerLabel) + '</span></span>'
     + '<span style="font-size:11px;opacity:.6">CHANGE ›</span>';
   printerPill.onclick = openPrinterSelector;
+  // v10.469 — render disconnect warning ABOVE the pill when applicable.
+  if (printerOfflineWarn) {
+    const warnEl = document.createElement('div');
+    warnEl.innerHTML = printerOfflineWarn;
+    list.appendChild(warnEl.firstChild);
+  }
   list.appendChild(printerPill);
 
   groundCurrentOrder.packages.forEach((p, idx) => {
@@ -19245,7 +19356,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.468<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.469<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
