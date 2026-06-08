@@ -2005,8 +2005,19 @@ input::placeholder, textarea::placeholder {
       <div id="groundStatusLine" style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">Loading queue…</div>
       <div id="groundDeployDebug" style="font-size:10px;font-family:monospace;color:#888;margin-top:3px"></div>
     </div>
+    <button id="groundManagerModeBtn" onclick="toggleGroundManagerMode()" title="Manager bulk-print mode — select multiple orders to print + ship in one action" style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">👤</span><span style="font-size:9px">BULK</span></button>
     <button id="groundSyncBtn" onclick="syncShipStationThenRefresh()" title="Force ShipStation to pull new Shopify orders, then reload the queue" style="padding:14px 14px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔄</span><span style="font-size:9px">SYNC SS</span></button>
     <button onclick="refreshGroundQueue()" title="Reload queue (uses ShipStation's current state)" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
+  </div>
+
+  <!-- v10.468 — Manager bulk-print sticky action bar (hidden until any selected). -->
+  <div id="groundBulkBar" style="display:none;position:sticky;top:60px;z-index:90;margin-bottom:10px;padding:10px 14px;background:linear-gradient(135deg,#FF9100,#FF6B00);border-radius:10px;box-shadow:0 4px 14px rgba(255,107,0,.35);align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a">Manager bulk</div>
+      <div id="groundBulkBarCount" style="font-size:15px;font-weight:900;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;margin-top:1px">0 selected</div>
+    </div>
+    <button onclick="groundBulkClearSelection()" style="padding:10px 14px;background:rgba(0,0,0,.18);color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">Clear</button>
+    <button id="groundBulkPrintBtn" onclick="groundBulkPrintConfirm()" style="padding:10px 16px;background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.4px">🖨 PRINT + SHIP</button>
   </div>
 
   <!-- View 1: queue list (default) -->
@@ -17402,24 +17413,34 @@ async function refreshGroundQueue() {
   }
 }
 
+// v10.468 — Manager bulk-print state.
+let groundManagerMode = false;
+const groundBulkSelection = new Map(); // order_number -> { order_id, order_number, customer_name }
+
 function buildGroundQueueRow(order) {
   // v64: build as a button but use setAttribute('style',...) so raw text is preserved
   // for the dark-mode CSS rules. ALSO use the dark-theme color vars directly so we
   // never fight the override layer.
   const row = document.createElement('button');
   row.className = 'no-dark keep-dark-text'; // opt out of generic light-card overrides
+  const orderNumKey = String(order.order_number || '');
+  const isSelectedForBulk = groundManagerMode && groundBulkSelection.has(orderNumKey);
   // Dark card matching the rest of the app
   row.setAttribute('style',
     'display:flex;align-items:center;gap:14px;padding:16px 14px;'
-    + 'background:var(--surface-2);'
+    + 'background:' + (isSelectedForBulk ? 'rgba(255,145,0,.15)' : 'var(--surface-2)') + ';'
     + 'color:var(--text);'
     + '-webkit-text-fill-color:var(--text);'
-    + 'border:1.5px solid var(--border);border-radius:10px;'
+    + 'border:1.5px solid ' + (isSelectedForBulk ? '#FF9100' : 'var(--border)') + ';'
+    + 'border-radius:10px;'
     + 'cursor:pointer;text-align:left;width:100%;'
     + 'box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 4px 12px rgba(0,0,0,.35);'
     + 'font-family:inherit'
   );
-  row.onclick = () => startGroundPack(order);
+  row.onclick = () => {
+    if (groundManagerMode) groundBulkToggleSelection(order);
+    else startGroundPack(order);
+  };
   const lockedBy = order.locked_by ? String(order.locked_by) : '';
   const isLocked = lockedBy && lockedBy !== groundPackerName;
   if (isLocked) {
@@ -17472,6 +17493,252 @@ function buildGroundQueueRow(order) {
     +   '<button type="button" aria-label="Hide this order from the queue (manager PIN)" onclick="event.stopPropagation();openHideFromQueuePrompt(\'' + escapeHtml(String(order.order_id || '')) + '\',\'' + escapeHtml(String(order.order_number || '')) + '\')" title="Hide from queue (manager PIN)" style="background:none;border:none;color:#5C6B7E;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:underline;line-height:1;white-space:nowrap;min-height:34px">hide</button>'
     + '</div>';
   return row;
+}
+
+// v10.468 — Manager bulk-print handlers. PIN-gated (reuses the same
+// 10-min in-memory PIN cache as the Pack tab via promptManagerPin_).
+function toggleGroundManagerMode() {
+  if (!groundManagerMode) {
+    // Entering manager mode requires a PIN.
+    const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('enter bulk-print mode') : null;
+    if (!pin) return;
+  }
+  groundManagerMode = !groundManagerMode;
+  groundBulkSelection.clear();
+  const btn = document.getElementById('groundManagerModeBtn');
+  if (btn) {
+    if (groundManagerMode) {
+      btn.style.background = 'linear-gradient(135deg,#FF9100,#FF6B00)';
+      btn.style.color = '#1a1a1a';
+      btn.style.webkitTextFillColor = '#1a1a1a';
+      btn.style.borderColor = '#FF9100';
+    } else {
+      btn.style.background = '#1a1a1a';
+      btn.style.color = '#9AAAC0';
+      btn.style.webkitTextFillColor = '#9AAAC0';
+      btn.style.borderColor = 'var(--border)';
+    }
+  }
+  _updateGroundBulkBar();
+  // Re-render the queue so checkbox indicators / highlights apply.
+  const list = document.getElementById('groundQueueList');
+  const empty = document.getElementById('groundQueueEmpty');
+  if (list && Array.isArray(groundQueue)) paintGroundQueue_(groundQueue.slice(), list, empty);
+}
+
+function groundBulkToggleSelection(order) {
+  const k = String(order.order_number || '');
+  if (!k) return;
+  if (groundBulkSelection.has(k)) {
+    groundBulkSelection.delete(k);
+  } else {
+    groundBulkSelection.set(k, {
+      order_number: k,
+      order_id: order.order_id,
+      customer_name: order.customer_name || '',
+    });
+  }
+  _updateGroundBulkBar();
+  // Repaint just this row's selection styling — simplest: full repaint.
+  const list = document.getElementById('groundQueueList');
+  const empty = document.getElementById('groundQueueEmpty');
+  if (list && Array.isArray(groundQueue)) paintGroundQueue_(groundQueue.slice(), list, empty);
+}
+
+function groundBulkClearSelection() {
+  groundBulkSelection.clear();
+  _updateGroundBulkBar();
+  const list = document.getElementById('groundQueueList');
+  const empty = document.getElementById('groundQueueEmpty');
+  if (list && Array.isArray(groundQueue)) paintGroundQueue_(groundQueue.slice(), list, empty);
+}
+
+function _updateGroundBulkBar() {
+  const bar = document.getElementById('groundBulkBar');
+  const cnt = document.getElementById('groundBulkBarCount');
+  if (!bar || !cnt) return;
+  const n = groundBulkSelection.size;
+  if (groundManagerMode && n > 0) {
+    bar.style.display = 'flex';
+    cnt.textContent = n + ' selected';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+async function groundBulkPrintConfirm() {
+  const n = groundBulkSelection.size;
+  if (n === 0) { showToast('Select at least one order first'); return; }
+  const ok = confirm(
+    'BULK PRINT + SHIP — ' + n + ' order' + (n === 1 ? '' : 's') + '\n\n'
+    + 'This will:\n'
+    + '  1. Generate ShipStation V2 labels ($ charges per order)\n'
+    + '  2. Send each label to the default PrintNode printer\n'
+    + '  3. Mark each order shipped in ShipStation\n'
+    + '  4. Trigger Shopify customer-notify emails\n\n'
+    + 'Orders already with labels skip step 1 (idempotent, no double-charge).\n\n'
+    + 'Continue?'
+  );
+  if (!ok) return;
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('bulk-print ' + n + ' orders') : null;
+  if (!pin) return;
+  await groundBulkPrintExecute(pin);
+}
+
+async function groundBulkPrintExecute(pin) {
+  const btn = document.getElementById('groundBulkPrintBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Printing…'; }
+  const orderNumbers = Array.from(groundBulkSelection.keys());
+  const printerId = (function () {
+    const stored = localStorage.getItem('printNodePrinterId');
+    if (!stored || stored === '0' || stored === '-1') return undefined;
+    return Number(stored);
+  })();
+  const loader = (typeof showGlobalLoader === 'function')
+    ? showGlobalLoader('Printing ' + orderNumbers.length + ' label' + (orderNumbers.length === 1 ? '' : 's') + '…')
+    : null;
+  try {
+    const res = await groundApi('groundBulkPrint', {
+      orderNumbers: orderNumbers,
+      manager_pin: pin,
+      printer_id: printerId,
+    });
+    if (loader && loader.stop) loader.stop();
+    if (btn) { btn.disabled = false; btn.textContent = '🖨 PRINT + SHIP'; }
+    if (!res || typeof res !== 'object') {
+      showToast('Bulk print failed: no response');
+      return;
+    }
+    if (!res.ok && res.error) {
+      if (/pin/i.test(res.error || '') && typeof clearManagerPin_ === 'function') clearManagerPin_();
+      showToast('Bulk print failed: ' + res.error);
+      return;
+    }
+    _renderGroundBulkResult(res);
+    // Clear selection + refresh queue (shipped orders will drop off).
+    groundBulkSelection.clear();
+    _updateGroundBulkBar();
+    setTimeout(() => { if (typeof refreshGroundQueue === 'function') refreshGroundQueue(); }, 1500);
+  } catch (err) {
+    if (loader && loader.stop) loader.stop();
+    if (btn) { btn.disabled = false; btn.textContent = '🖨 PRINT + SHIP'; }
+    showToast('Bulk print error: ' + ((err && err.message) || err));
+  }
+}
+
+function _renderGroundBulkResult(res) {
+  const prior = document.getElementById('groundBulkResultOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'groundBulkResultOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  const headerColor = res.failed === 0 ? '#00E676' : (res.succeeded === 0 ? '#ff5252' : '#FFB300');
+  const headerText = res.failed === 0
+    ? '✓ All ' + res.total + ' printed + shipped'
+    : (res.succeeded === 0
+        ? '⚠ All ' + res.total + ' failed'
+        : '⚠ ' + res.succeeded + ' OK · ' + res.failed + ' failed');
+  let body = '';
+  body += '<div style="background:#fff;border-radius:14px;padding:22px;max-width:640px;width:100%;max-height:88vh;overflow-y:auto" onclick="event.stopPropagation()">';
+  body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px">';
+  body += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:' + headerColor + ';-webkit-text-fill-color:' + headerColor + ';letter-spacing:.5px">' + escapeHtml(headerText) + '</div>';
+  body += '<button onclick="document.getElementById(\'groundBulkResultOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕ Close</button>';
+  body += '</div>';
+  body += '<div style="display:flex;flex-direction:column;gap:8px">';
+  (res.results || []).forEach(r => {
+    const okBg = r.ok ? 'rgba(0,230,118,.10)' : 'rgba(255,82,82,.08)';
+    const okBorder = r.ok ? '#00E676' : '#ff5252';
+    body += '<div style="background:' + okBg + ';border:1.5px solid ' + okBorder + ';border-radius:10px;padding:12px 14px">';
+    body += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">';
+    body += '<div style="flex:1;min-width:0">';
+    body += '<div style="font-size:15px;font-weight:900;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a">#' + escapeHtml(String(r.order_number || '')) + ' · ' + escapeHtml(r.customer_name || '') + '</div>';
+    if (r.tracking_number) body += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#444;-webkit-text-fill-color:#444;margin-top:2px">' + escapeHtml(r.tracking_number) + (r.carrier_code ? ' · ' + escapeHtml(r.carrier_code) : '') + '</div>';
+    const flagStr = (r.label_gen_ok ? '✓ label ' : '✗ label ') + (r.print_ok ? '✓ print ' : '✗ print ') + (r.ship_ok ? '✓ ship' : (res.skip_ship ? '— ship' : '✗ ship'));
+    body += '<div style="font-size:11px;color:' + (r.ok ? '#1A7A38' : '#9E2222') + ';-webkit-text-fill-color:' + (r.ok ? '#1A7A38' : '#9E2222') + ';font-weight:700;margin-top:3px">' + escapeHtml(flagStr) + '</div>';
+    if (r.error) body += '<div style="font-size:11px;color:#9E2222;-webkit-text-fill-color:#9E2222;margin-top:2px;font-weight:600">' + escapeHtml(String(r.error)) + '</div>';
+    body += '</div>';
+    // Retry actions for failures
+    if (!r.ok) {
+      body += '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">';
+      if (!r.print_ok && r.label_gen_ok) {
+        body += '<button onclick="_groundBulkRetryPrintOne(\'' + escapeHtml(String(r.order_number)) + '\')" style="padding:6px 10px;background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry print</button>';
+      }
+      // Always allow a retry-all for this order (re-runs the full bulk for just this one)
+      body += '<button onclick="_groundBulkRetryFullOne(\'' + escapeHtml(String(r.order_number)) + '\')" style="padding:6px 10px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry all</button>';
+      if (r.packages && r.packages.length) {
+        r.packages.forEach(p => {
+          if (!p.print_ok && p.fallback_url) {
+            body += '<a href="' + escapeHtml(p.fallback_url) + '" target="_blank" rel="noopener" style="padding:5px 8px;background:rgba(0,0,0,.06);color:#1565c0;-webkit-text-fill-color:#1565c0;border:none;border-radius:6px;font-size:10px;font-weight:700;text-align:center;text-decoration:none">📄 PDF seq ' + p.sequence + '</a>';
+          }
+        });
+      }
+      body += '</div>';
+    }
+    body += '</div>';
+    body += '</div>';
+  });
+  body += '</div>';
+  body += '</div>';
+  ov.innerHTML = body;
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
+async function _groundBulkRetryPrintOne(orderNumber) {
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('retry print ' + orderNumber) : null;
+  if (!pin) return;
+  const printerId = (function () {
+    const stored = localStorage.getItem('printNodePrinterId');
+    if (!stored || stored === '0' || stored === '-1') return undefined;
+    return Number(stored);
+  })();
+  try {
+    // Re-run bulk print for just this order with skip_ship — labels exist, just need to reprint.
+    const res = await groundApi('groundBulkPrint', {
+      orderNumbers: [String(orderNumber)],
+      manager_pin: pin,
+      printer_id: printerId,
+      skip_ship: true,
+    });
+    if (res && res.ok) {
+      showToast('Reprint OK — ' + orderNumber);
+      const ov = document.getElementById('groundBulkResultOverlay');
+      if (ov) ov.remove();
+      _renderGroundBulkResult(res);
+    } else {
+      showToast('Reprint failed: ' + ((res && res.error) || 'unknown'));
+    }
+  } catch (e) {
+    showToast('Reprint error: ' + e.message);
+  }
+}
+
+async function _groundBulkRetryFullOne(orderNumber) {
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('retry full ' + orderNumber) : null;
+  if (!pin) return;
+  const printerId = (function () {
+    const stored = localStorage.getItem('printNodePrinterId');
+    if (!stored || stored === '0' || stored === '-1') return undefined;
+    return Number(stored);
+  })();
+  try {
+    const res = await groundApi('groundBulkPrint', {
+      orderNumbers: [String(orderNumber)],
+      manager_pin: pin,
+      printer_id: printerId,
+    });
+    if (res && res.ok) {
+      showToast('Retry OK — ' + orderNumber);
+      const ov = document.getElementById('groundBulkResultOverlay');
+      if (ov) ov.remove();
+      _renderGroundBulkResult(res);
+    } else {
+      showToast('Retry failed: ' + ((res && res.error) || 'unknown'));
+      _renderGroundBulkResult(res);
+    }
+  } catch (e) {
+    showToast('Retry error: ' + e.message);
+  }
 }
 
 // v9.79: hide-from-queue UI for ghost orders / one-offs. PIN-gated
@@ -18271,7 +18538,7 @@ async function printGroundLabel(idx) {
         printer_id: overrideId || undefined,
       });
       if (data.ok) {
-        showToast('🖨 Sent to printer (job ' + data.job_id + ')');
+        showToast('🖨 Sent to ' + ((typeof _printerLabelById_ === 'function' ? _printerLabelById_(data.printer_id) : ('printer #' + data.printer_id))) + ' (job ' + data.job_id + ')');
         p.printed = true;
         renderGroundPackBoxes();
         return;
@@ -18352,6 +18619,18 @@ async function openPrinterSelector() {
   let data;
   try {
     data = await groundApi('listPrinters', {});
+    // v10.468 — cache the printer name+host map so success toasts
+    // can resolve a printer_id back to "Zebra @ zacpc" without an
+    // extra server round-trip on every print.
+    if (data && data.ok && Array.isArray(data.printers)) {
+      try {
+        const map = {};
+        data.printers.forEach(p => {
+          map[String(p.id)] = { name: String(p.name || ''), host: String(p.computer_name || '') };
+        });
+        localStorage.setItem('printNodePrintersMap', JSON.stringify(map));
+      } catch (_e) { /* localStorage may be full; ignore */ }
+    }
   } catch (e) {
     document.getElementById('printerSelectorBody').innerHTML =
         '<div style="font-size:13px;color:#FF5252;-webkit-text-fill-color:#FF5252;'
@@ -18955,7 +19234,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.466"></script>
+<script src="./pack.js?v=10.468"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -18966,7 +19245,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.467<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.468<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

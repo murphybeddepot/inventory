@@ -3558,6 +3558,22 @@ function cacheManagerPin_(pin) {
   _packManagerPinExpiresAt = Date.now() + 10 * 60 * 1000;
 }
 
+// v10.468 — Resolve a PrintNode printer_id to "Name @ Host" using the
+// cached selector map (populated when the printer selector is opened).
+// Falls back to "#id" when the map is empty or misses the id.
+function _printerLabelById_(id) {
+  const n = Number(id) || 0;
+  if (!n) return '';
+  try {
+    const raw = localStorage.getItem('printNodePrintersMap');
+    if (!raw) return '#' + n;
+    const map = JSON.parse(raw) || {};
+    const p = map[String(n)];
+    if (!p) return '#' + n + ' (unknown — refresh printer list)';
+    return '#' + n + ' · ' + (p.name || '?') + (p.host ? ' @ ' + p.host : '');
+  } catch (_e) { return '#' + n; }
+}
+
 function clearManagerPin_() {
   _packManagerPin = null;
   _packManagerPinExpiresAt = 0;
@@ -4993,7 +5009,7 @@ async function confirmMarkHardwareReadyFromPackDetail_(orderNumber) {
     setBanner('✓ HW marked ready — printing OPEN-ME-FIRST label…', 'linear-gradient(135deg,#00C853,#1A5C1A)');
     const labelRes = await groundApi('printHwBoxLabel', { orderNumber: orderNumber });
     if (labelRes && labelRes.ok) {
-      setBanner('✓ HW ready + label sent to printer #' + labelRes.printer_id + ' (job ' + labelRes.job_id + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
+      setBanner('✓ HW ready + label sent to printer ' + _printerLabelById_(labelRes.printer_id) + ' (job ' + labelRes.job_id + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
       setTimeout(() => { if (banner) banner.style.display = 'none'; }, 5000);
     } else {
       setBanner('⚠ HW marked ready but the box label did NOT print: ' + ((labelRes && labelRes.error) || 'unknown') + ' — tap Reprint Box Label', 'linear-gradient(135deg,#ff9800,#e65100)');
@@ -5020,7 +5036,7 @@ async function printPrePackLabelFromPackDetail_(orderNumber) {
       setBanner('⚠ Label print failed: ' + ((res && res.error) || 'unknown'), 'linear-gradient(135deg,#c62828,#8d1e1e)');
       return;
     }
-    setBanner('✓ Label sent to printer #' + res.printer_id + ' (job ' + res.job_id + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
+    setBanner('✓ Label sent to printer ' + _printerLabelById_(res.printer_id) + ' (job ' + res.job_id + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
     setTimeout(() => { if (banner) banner.style.display = 'none'; }, 5000);
   } catch (err) {
     setBanner('⚠ Print error: ' + err.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
@@ -6248,7 +6264,7 @@ async function printPrePackLabel(orderNumber) {
       showPrePackBanner_('Label print failed: ' + ((res && res.error) || 'unknown'), '#ff5252');
       return false;
     }
-    showPrePackBanner_('✓ Label sent to printer #' + res.printer_id + ' (job ' + res.job_id + ')', '#00e676');
+    showPrePackBanner_('✓ Label sent to printer ' + _printerLabelById_(res.printer_id) + ' (job ' + res.job_id + ')', '#00e676');
     return true;
   } catch (err) {
     showPrePackBanner_('Label print error: ' + err.message, '#ff5252');
