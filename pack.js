@@ -3553,9 +3553,12 @@ function getCachedManagerPin_() {
   return null;
 }
 
+// v10.475 — TTL bumped 10 → 30 min per Zac: "i shouldn't have to put
+// in the pin again for like 30 minutes". Same cache now serves Pack
+// AND Ground manager actions (e.g. managerCheckOff on Ground boxes).
 function cacheManagerPin_(pin) {
   _packManagerPin = pin;
-  _packManagerPinExpiresAt = Date.now() + 10 * 60 * 1000;
+  _packManagerPinExpiresAt = Date.now() + 30 * 60 * 1000;
 }
 
 // v10.468 — Resolve a PrintNode printer_id to "Name @ Host" using the
