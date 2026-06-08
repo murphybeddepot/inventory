@@ -5335,15 +5335,6 @@ function _startPackIdleCheck_() {
 function _stopPackIdleCheck_() {
   if (_packDetailIdleCheckTimer) { clearInterval(_packDetailIdleCheckTimer); _packDetailIdleCheckTimer = null; }
 }
-function _packShowWelcomeBackIfPaused_() {
-  const chip = document.getElementById('packModeChip');
-  if (chip && chip.dataset && chip.dataset.paused === 'true') {
-    showToast('👋 Welcome back — tap anywhere to resume');
-    _packMarkScanActivity_();
-    chip.dataset.paused = '';
-  }
-}
-
 // — § 12 INTERLEAVING GUARD ────────────────────────────────────────
 // Returns the OTHER active pack's order_number if one's already in
 // progress on this device (and it's not the order the packer is about
