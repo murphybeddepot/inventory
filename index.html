@@ -80,12 +80,13 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .tabs{display:flex;background:#000;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.5)}
 /* v10.345 — tab bar: icon + label per tab, thicker active underline (4px). */
 /* v10.484 — Zac: dusty-finger tap targets. Bigger touch area + bolder
-   font + larger icon + clear :active feedback so warehouse staff can
-   hit tabs reliably without precise tapping. */
-.tab-btn{flex:1;padding:14px 4px 18px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;color:var(--text-dim);background:none;border:none;border-bottom:4px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:background .08s ease, color .08s ease;display:flex;flex-direction:column;align-items:center;gap:5px;line-height:1.2;min-height:72px;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+   font + larger icon for warehouse use. v10.485 — reverted the
+   :active pseudo + touch-action + tap-highlight properties because
+   they were causing a tap-routing bug (tap Orders → Cabinets opens).
+   Keeping just the geometry/typography bumps. */
+.tab-btn{flex:1;padding:14px 4px 18px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;color:var(--text-dim);background:none;border:none;border-bottom:4px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .15s ease;display:flex;flex-direction:column;align-items:center;gap:5px;line-height:1.2;min-height:72px}
 .tab-btn .tab-icon{font-size:26px;line-height:1;display:block}
 .tab-btn:hover{color:var(--green-bright)}
-.tab-btn:active{background:rgba(0,230,118,.18);color:var(--green-bright)}
 .tab-btn.active{color:var(--green-bright);border-bottom-color:var(--green-bright);text-shadow:0 0 10px rgba(0,230,118,.45);background:linear-gradient(180deg,rgba(0,230,118,.08),transparent)}
 .panel{display:none;padding:14px}
 /* v10.159 Mira M4 — keyboard a11y focus rings.
@@ -19468,7 +19469,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.484<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.485<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
