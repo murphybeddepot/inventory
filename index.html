@@ -17555,11 +17555,26 @@ function buildGroundQueueRow(order) {
   const _ctaBg = isLocked ? '#3a2330' : 'linear-gradient(135deg,#00C853,#1A7A38)';
   const _ctaColor = isLocked ? '#FF8A8A' : '#fff';
   const _custState = [order.customer_name, order.state].map(s => String(s || '').trim()).filter(Boolean).join(' · ');
+  // v10.477 — Zac: "ground tab should show shipping method just in case".
+  // Surface the customer-selected shipping service so packers can spot
+  // mismatches early (e.g. priority service on an order that'd normally
+  // go ground). Color-code by carrier: USPS=blue, FedEx=purple, UPS=brown.
+  const _svcRaw = String(order.requested_shipping_service || order.service_code || '').trim();
+  const _carrRaw = String(order.carrier_code || '').toLowerCase();
+  let _shipChip = '';
+  if (_svcRaw) {
+    const _carrColor = /usps|stamps/i.test(_carrRaw + ' ' + _svcRaw) ? '#42a5f5'
+                     : /fedex/i.test(_carrRaw + ' ' + _svcRaw) ? '#9C27B0'
+                     : /ups/i.test(_carrRaw + ' ' + _svcRaw) ? '#8D6E63'
+                     : '#9AAAC0';
+    _shipChip = '<div style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 9px;background:rgba(255,255,255,.04);border:1px solid ' + _carrColor + ';border-radius:999px;font-size:11px;font-weight:800;color:' + _carrColor + ';-webkit-text-fill-color:' + _carrColor + ';letter-spacing:.3px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="font-size:12px">🚚</span><span style="overflow:hidden;text-overflow:ellipsis">' + escapeHtml(_svcRaw) + '</span></div>';
+  }
   row.innerHTML =
     '<div style="flex:1;min-width:0">'
     + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#9AAAC0">' + priority + 'Order</div>'
     + '<div style="font-size:30px;font-weight:900;font-family:\'Barlow Condensed\',Arial,sans-serif;line-height:1.05;margin-top:3px;color:#E8EDF4;letter-spacing:1px">' + escapeHtml(order.order_number || '?') + '</div>'
     + skuLines
+    + _shipChip
     + (_custState ? '<div style="font-size:11px;color:#6E7E92;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(_custState) + '</div>' : '')
     + lockBadge
     + '</div>'
@@ -19376,7 +19391,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.476<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.477<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
