@@ -13226,6 +13226,42 @@ function renderLookupGround_(h) {
     + _lkFld('Pack complete', h.pack_completed_at ? String(h.pack_completed_at).slice(0, 16) : '—')
     + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—')
     + (pkgRows ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10)"><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Packages</div>' + pkgRows + '</div>' : '')
+    // v10.486 — ShipStation V1 shipments panel. Shows real cost +
+    // tracking + voided status + direct V1 deep-link. Pulled from V1
+    // API at lookupOrder time. Saves operators from hunting in SS's
+    // own UI which doesn't render markasshipped costs reliably.
+    + ((h.v1_shipments && h.v1_shipments.length) ? (function () {
+        const ships = h.v1_shipments;
+        let totalCost = 0;
+        ships.forEach(s => { if (!s.voided) totalCost += Number(s.shipment_cost) || 0; });
+        const rows = ships.map(s => {
+          const voidedTag = s.voided
+            ? '<span style="background:#8B0000;color:#fff;-webkit-text-fill-color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;margin-left:6px;letter-spacing:.5px">VOIDED</span>'
+            : '';
+          const cost = Number(s.shipment_cost) || 0;
+          const costStr = cost > 0 ? ('$' + cost.toFixed(2)) : '<span style="color:#FFB300">$0.00</span>';
+          const v1Link = 'https://ship.shipstation.com/shipments/' + encodeURIComponent(s.shipment_id);
+          return '<div style="padding:6px 8px;background:rgba(0,0,0,.25);border:1px solid rgba(154,170,192,.18);border-radius:6px;margin-bottom:4px;font-size:12px">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
+            +   '<a href="' + esc(v1Link) + '" target="_blank" rel="noopener" style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#42a5f5;-webkit-text-fill-color:#42a5f5;text-decoration:none">#' + esc(String(s.shipment_id || '')) + '</a>'
+            +   '<span style="font-weight:800">' + costStr + voidedTag + '</span>'
+            + '</div>'
+            + '<div style="font-size:11px;color:var(--text-dim);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">'
+            +   '<span>' + esc(s.carrier_code || '?') + (s.service_code ? ' · ' + esc(s.service_code) : '') + '</span>'
+            +   (s.tracking_number ? '<span style="font-family:\'JetBrains Mono\',monospace">' + esc(s.tracking_number) + '</span>' : '')
+            +   (s.ship_date ? '<span>' + esc(String(s.ship_date).slice(0, 10)) + '</span>' : '')
+            +   (s.tracking_status ? '<span style="color:#00E676">' + esc(s.tracking_status) + '</span>' : '')
+            + '</div>'
+            + '</div>';
+        }).join('');
+        return '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10)">'
+          + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">'
+          +   '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;font-weight:700">ShipStation Shipments</div>'
+          +   (totalCost > 0 ? '<div style="font-size:13px;font-weight:900;color:#00E676;-webkit-text-fill-color:#00E676">Total: $' + totalCost.toFixed(2) + '</div>' : '')
+          + '</div>'
+          + rows
+          + '</div>';
+      })() : '')
     // v10.177 — Reprint All Labels: only shows for orders with packages
     //   (need a PDF to reprint).
     // v10.482 — Void & Re-pack: shows whenever we have an order_id.
