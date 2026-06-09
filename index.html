@@ -4104,6 +4104,54 @@ function _orderNumberLooksReal_(o) {
   return raw.length <= 7;
 }
 
+// v10.494 — Assign-cabinet prompt. Operator types the cabinet ID
+// (bare digits → auto-prefixed STK###, or any of STK/D/C/E + digits)
+// and Bedrock writes it to the gcal event title via the existing
+// GcalWriteback path. Next CalendarBridge sync (15-min trigger) picks
+// it up, the order's task_line gets the new token, and the
+// cab-availability chip flips to ✓ READY / ✓ PULLED / etc.
+async function _openSetCabPrompt_(orderNumber) {
+  if (!orderNumber) return;
+  const raw = window.prompt(
+    'Cabinet ID for #' + orderNumber + '?\n\n'
+    + 'Examples:\n'
+    + '  314          → STK314 (stock)\n'
+    + '  STK314       → STK314\n'
+    + '  D200         → D200 (delivery batch)\n'
+    + '  C45-X        → C45-X (custom)\n'
+    + '  E72          → E72 (early)\n\n'
+    + 'This writes to the gcal event title. The chip updates on the next sync (~15 min) or you can hit refresh.'
+  );
+  if (raw == null) return;
+  const cleaned = String(raw).trim().toUpperCase().replace(/\s+/g, '');
+  if (!cleaned) return;
+  try {
+    const res = await groundApi('gcalWbSetCabinetId', {
+      orderNumber: orderNumber,
+      cabinetId: cleaned,
+    });
+    if (!res || !res.ok) {
+      showToast('Set Cab failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    if (res.no_change) {
+      showToast('No change — already ' + (res.cabinet_token || cleaned));
+    } else if (res.replaced) {
+      showToast('✓ Replaced cabinet → ' + (res.cabinet_token || cleaned));
+    } else {
+      showToast('✓ Set cabinet → ' + (res.cabinet_token || cleaned));
+    }
+    // Force-refresh the pipeline so the chip updates immediately.
+    if (typeof refreshOrderPipeline === 'function') {
+      refreshOrderPipeline({ force: true }).then(() => {
+        if (typeof renderOrdersTab === 'function') renderOrdersTab();
+      });
+    }
+  } catch (e) {
+    showToast('Set Cab error: ' + ((e && e.message) || e));
+  }
+}
+
 function _filterOrdersForLens_(orders, lens) {
   if (!Array.isArray(orders)) return [];
   orders = orders.filter(_orderNumberLooksReal_);
@@ -4418,21 +4466,18 @@ function _renderOrdersCardHtml_(o, lens) {
     const _taskLineUpper = String(o.task_line || o.cal_label || '').toUpperCase();
     const isRMK = /\bRMK\b/.test(_taskLineUpper);
     const isMTO = /\bMTO\b/.test(_taskLineUpper);
-    // v10.493 — REVERTED v10.492. Zac 2026-06-09: "just because it's
-    // stock doesn't necessarily mean the cabinet is here." Showing
-    // ✓ IN STOCK on every INSTOCK SKU was false-confident. Stock
-    // orders still need verification that an actual cabinet of the
-    // right model is physically in the warehouse. Proper fix needs
-    // model resolution + stock-pool availability check — tracked as
-    // task #40 (Stock auto-assign migration). Until then, AWAITING
-    // CAB remains the honest answer for unresolved stock orders.
+    // v10.494 — when no cab ID is found, AWAITING CAB chip pairs with
+    // a ✎ Set Cab button so operator can write the assignment into
+    // the gcal event title. Next CalendarBridge sync picks it up;
+    // the chip flips to ✓ READY / ✓ PULLED automatically.
     if (cabNums.size === 0 && looksLikeRealOrder) {
+      const _setCabBtn = '<button onclick="event.stopPropagation();_openSetCabPrompt_(\'' + esc(o.order_number || '') + '\')" title="Assign a cabinet to this order. Writes the cabinet ID to the gcal event so it shows on next refresh." style="margin-left:6px;padding:3px 8px;background:rgba(66,165,245,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid #42a5f5;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.4px;cursor:pointer">✎ Set Cab</button>';
       if (isRMK) {
-        cabAvailabilityHtml = '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:rgba(171,71,188,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;padding:3px 8px;border-radius:999px" title="Remake — being built">🔨 RMK</span>';
+        cabAvailabilityHtml = '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:rgba(171,71,188,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;padding:3px 8px;border-radius:999px" title="Remake — being built">🔨 RMK</span>' + _setCabBtn;
       } else if (isMTO) {
-        cabAvailabilityHtml = '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:rgba(171,71,188,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;padding:3px 8px;border-radius:999px" title="Made-to-order — no stock cabinet">🛠 MTO</span>';
+        cabAvailabilityHtml = '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:rgba(171,71,188,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;padding:3px 8px;border-radius:999px" title="Made-to-order — no stock cabinet">🛠 MTO</span>' + _setCabBtn;
       } else {
-        cabAvailabilityHtml = '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:rgba(255,179,0,.18);color:#FFB300;-webkit-text-fill-color:#FFB300;padding:3px 8px;border-radius:999px">⏳ AWAITING CAB</span>';
+        cabAvailabilityHtml = '<span style="font-size:10px;font-weight:900;letter-spacing:1px;background:rgba(255,179,0,.18);color:#FFB300;-webkit-text-fill-color:#FFB300;padding:3px 8px;border-radius:999px">⏳ AWAITING CAB</span>' + _setCabBtn;
       }
     } else if (cabNums.size > 0) {
       let ready = 0, pulled = 0, damaged = 0, missing = 0;
@@ -19473,7 +19518,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.493<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.494<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
