@@ -4449,6 +4449,21 @@ function _renderOrdersCardHtml_(o, lens) {
     if (orderNumStr) {
       const mtoCab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(orderNumStr));
       if (mtoCab) cabNums.add(String(mtoCab.cabinet || orderNumStr).trim().toUpperCase());
+      // v10.495 — primary linkage: cabinets[] entries are already
+      // tagged with the order they belong to via c.orderNumber. The
+      // existing task_line regex was only catching the D###/STK###
+      // SHORTHAND; the real linkage was c.orderNumber === order#.
+      // This works for all cabinet ID formats (any prefix/none),
+      // doesn't depend on task_line carrying a specific token, and
+      // covers the "cabinet is here but task_line doesn't mention
+      // it" case Zac flagged 2026-06-09.
+      cabinets.forEach(c => {
+        if (!c || c.deleted) return;
+        const cabOn = String(c.orderNumber || '').trim();
+        if (cabOn && normCab(cabOn) === normCab(orderNumStr)) {
+          cabNums.add(String(c.cabinet || '').trim().toUpperCase());
+        }
+      });
     }
     // v10.455 — Zac: orders with no D###/STK###/C###/E### code AND no
     // MTO match weren't getting a chip at all (e.g. 31429 FedEx SHA
@@ -19518,7 +19533,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.494<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.495<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
