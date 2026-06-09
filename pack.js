@@ -13229,9 +13229,77 @@ function renderLookupGround_(h) {
     // v10.177 — Reprint All Labels button. Use case: MGR-bypass orders
     // that shipped but labels never made it to PrintNode (Seth queen
     // slat 2 bug 2026-05-21). Only shows for orders with packages.
-    + ((h.packages && h.packages.length) ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10);display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button onclick="reprintAllLabelsFromLookup_(\'' + esc(h.order_number) + '\', this)" style="padding:8px 14px;background:linear-gradient(135deg,#003087,#005bb5);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35)">🖨 Reprint All Labels</button><span style="font-size:10px;color:var(--text-dim)">Re-submits each label PDF to PrintNode. Safe to retry — no ShipStation calls.</span></div>' : '')
+    + ((h.packages && h.packages.length) ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10);display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button onclick="reprintAllLabelsFromLookup_(\'' + esc(h.order_number) + '\', this)" style="padding:8px 14px;background:linear-gradient(135deg,#003087,#005bb5);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35)">🖨 Reprint All Labels</button>'
+        + '<button onclick="voidAndRepackFromLookup_(\'' + esc(String(h.order_id || '')) + '\',\'' + esc(h.order_number) + '\', this)" style="padding:8px 14px;background:linear-gradient(135deg,#8B0000,#C43030);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35)" title="Void labels (refund) + restore order to awaiting in ShipStation + clear packages so you can re-pack. MANAGER PIN REQUIRED.">⚠ Void & Re-pack</button>'
+        + '<span style="font-size:10px;color:var(--text-dim)">Reprint: safe re-submit · Void: real money refund + repack</span></div>' : '')
     + _lkTimeline_(h);
   return _lkCard('Ground', '#663399', h.pack_status, body);
+}
+
+// v10.479 — Void & re-pack handler. Voids every V1 shipment for the
+// order (refund), restores V1 to awaiting, clears OrderPackages so
+// startPack runs fresh. Manager PIN gated + explicit money confirm.
+async function voidAndRepackFromLookup_(orderId, orderNumber, btn) {
+  if (!orderId) { showToast('Order ID missing — can\'t void'); return; }
+  const ok = confirm(
+    'VOID LABELS + RE-PACK — #' + orderNumber + '\n\n'
+    + '⚠ REAL MONEY. This will:\n'
+    + '  1. Void every shipping label on this order (REFUND)\n'
+    + '  2. Restore the order to awaiting_shipment in ShipStation\n'
+    + '  3. Delete the local OrderPackages rows so you can re-pack\n\n'
+    + 'Use this when the wrong box/label was generated and you need\n'
+    + 'to start over. NOT for re-printing — that\'s the 🖨 Reprint\n'
+    + 'button (no money involved).\n\n'
+    + 'Continue?'
+  );
+  if (!ok) return;
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('void labels for ' + orderNumber) : null;
+  if (!pin) return;
+  let voidedBy = '';
+  try { voidedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Voiding…'; }
+  const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('Voiding labels for #' + orderNumber + '…') : null;
+  try {
+    const res = await groundApi('voidOrderForRepack', {
+      orderId: Number(orderId),
+      orderNumber: String(orderNumber),
+      manager_pin: pin,
+      voidedBy: voidedBy,
+    });
+    if (loader && loader.stop) loader.stop();
+    if (btn) { btn.disabled = false; btn.textContent = '⚠ Void & Re-pack'; }
+    if (!res || typeof res !== 'object') {
+      showToast('Void failed: no response');
+      return;
+    }
+    if (!res.ok && res.error) {
+      if (/pin/i.test(String(res.error || '')) && typeof clearManagerPin_ === 'function') clearManagerPin_();
+      const fail = (res.results && res.results.failed) || [];
+      let msg = res.error;
+      if (fail.length) msg += '\n\nShipment failures:\n' + fail.map(f => '  #' + f.shipmentId + ': ' + (f.error || '?')).join('\n');
+      alert('Void failed for #' + orderNumber + '\n\n' + msg);
+      return;
+    }
+    const r = res.results || {};
+    const voided = (r.voided || []).length;
+    const failed = (r.failed || []).length;
+    let summary = '✓ #' + orderNumber + ' voided + reset\n\n'
+      + '  Shipments voided: ' + voided + '\n'
+      + '  Shipments failed: ' + failed + '\n'
+      + '  OrderPackages rows deleted: ' + (r.packages_deleted || 0) + '\n'
+      + '  OrderPack status reset: ' + (r.pack_status_reset ? 'yes' : 'no') + '\n\n'
+      + (res.note || '');
+    if (failed > 0) {
+      summary += '\n\nFailed shipments — void manually in ShipStation:\n'
+        + r.failed.map(f => '  #' + f.shipmentId + ': ' + (f.error || '?')).join('\n');
+    }
+    alert(summary);
+    showToast('✓ #' + orderNumber + ' ready to re-pack');
+  } catch (err) {
+    if (loader && loader.stop) loader.stop();
+    if (btn) { btn.disabled = false; btn.textContent = '⚠ Void & Re-pack'; }
+    alert('Void error: ' + ((err && err.message) || err));
+  }
 }
 
 // v10.177 — Reprint button click handler. Calls reprintAllLabelsForOrder
