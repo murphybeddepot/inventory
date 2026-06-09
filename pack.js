@@ -392,7 +392,7 @@ function _resolveOrderCabinets_(o) {
     const captured = JSON.parse(o.cabinets_packed_json || '[]');
     if (Array.isArray(captured)) captured.forEach(c => { if (c && c.num) addCab(c.num, 'captured'); });
   } catch (e) {}
-  const tline = String(o.task_line || o.cal_label || '');
+  const tline = String(o.task_line || '') + ' ' + String(o.cal_label || '');
   const matches = tline.match(/\b(?:D|STK|C|E)\d{2,4}(?:-[A-Z0-9]+)?\b/gi);
   if (matches) matches.forEach(m => addCab(m, 'task_line'));
   // MTO match
