@@ -2950,15 +2950,11 @@ function switchTab(name) {
   // v10.143: persist active tab so refresh / re-open stays on the
   // same screen instead of bouncing back to the default (Zac ask).
   try { localStorage.setItem('mbd_active_tab', name); } catch (e) {}
-  // v10.481 — Zac 2026-06-09: navigating away from Orders left the
-  // #/orders/{lens} hash in the URL, which the boot hash-router would
-  // then RE-fire on refresh and bounce the user back to Orders even
-  // though localStorage said they were on Ground. Clear the orders
-  // hash when leaving Orders so the localStorage restore wins.
-  if (name !== 'orders' && /^#\/orders?\//.test(String(location.hash || ''))) {
-    try { history.replaceState(null, '', location.pathname + location.search); }
-    catch (_e) { location.hash = ''; }
-  }
+  // v10.491 — temporarily logging the switchTab call chain to diagnose
+  // the persistent "tap Orders → opens Cabinets" bug. Remove once root
+  // cause identified. Also reverted v10.481's hash-clearing in case it
+  // was the cause.
+  try { console.log('[switchTab]', name, 'hash=' + location.hash, 'caller=' + (new Error()).stack.split('\n')[2]); } catch (_e) {}
   // Browser tab title reflects the active panel so multiple Safari
   // tabs are distinguishable: "Pack — Bedrock", "Ground — Bedrock",
   // etc. Label map matches the tab-button text the user sees.
@@ -19458,7 +19454,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.490"></script>
+<script src="./pack.js?v=10.491"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -19469,7 +19465,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.490<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.491<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

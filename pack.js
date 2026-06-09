@@ -9086,7 +9086,7 @@ async function openHoldsPanel(opts) {
     let resumeBtn = '';
     if (h.kind === 'orderpack_hold' && h.order_id) {
       if (isSizeHold) {
-        resumeBtn = '<button onclick="confirmSizeAndResumeFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.14);color:#1A5C1A;border:1.5px solid #00C853;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Mark size as confirmed-with-customer and resume to Ground queue">✓ Size confirmed · Resume</button>';
+        resumeBtn = '<button onclick="confirmSizeAndResumeFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.14) !important;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;border:1.5px solid #00C853;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Mark size as confirmed-with-customer and resume to Ground queue">✓ Size confirmed · Resume</button>';
       } else if (isUnknownSku) {
         resumeBtn = '<button onclick="openPackerOverrideModal(\'' + esc(unknownSku) + '\',\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(124,58,237,.16);color:#5B21B6;border:1.5px solid #7C3AED;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Manager: choose a box + carrier for this unknown SKU. Optionally save for future orders of the same SKU.">⚙ Configure Box for \'' + esc(unknownSku) + '\'</button>'
           + '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px" title="Resume to queue without configuring — only do this if you already saved an override for this SKU">↩ Resume</button>';
@@ -9108,16 +9108,20 @@ async function openHoldsPanel(opts) {
     // v10.223 — permanent-delete button (manager-PIN gated). Per Zac:
     // stale ShipStation holds had no way to be cleared from Bedrock.
     const deleteBtn = '<button onclick="deleteHoldFromPanel_(\'' + esc(h.order_id || '') + '\',\'' + esc(h.order_number) + '\',\'' + esc(h.kind || '') + '\')" style="padding:10px 14px;background:rgba(139,0,0,.10);color:#8B0000;border:1px solid #8B0000;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center" title="Permanently remove this hold row from the underlying tab (manager PIN required)">🗑 Delete (PIN)</button>';
-    return '<div style="padding:12px;background:#fafafa;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
+    // v10.491 — contrast fix: dark-theme CSS has !important on text
+    // colors; bare inline `color:#1a1a1a` loses. Per the standing
+    // rule, every white-bg card needs !important on backgrounds AND
+    // -webkit-text-fill-color on text.
+    return '<div class="no-dark keep-dark-text" style="padding:12px;background:#fafafa !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-left:3px solid ' + color + ';border-radius:8px;margin-bottom:8px;font-size:13px">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
-      +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a">#' + esc(h.order_number) + '</span> ' + total + '</div>'
-      +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + color + '">' + KIND_LABELS[h.kind] + '</span>'
+      +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">#' + esc(h.order_number) + '</span> ' + total + '</div>'
+      +   '<span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important">' + KIND_LABELS[h.kind] + '</span>'
       + '</div>'
-      + '<div style="font-weight:700;color:#1a1a1a">' + esc(h.customer_name || '—') + (h.state ? ' · ' + esc(h.state) : '') + '</div>'
-      + (h.customer_email ? '<div style="font-size:12px;color:#666">' + esc(h.customer_email) + '</div>' : '')
-      + (itemsList ? '<div style="font-size:12px;color:#666;margin-top:4px">' + itemsList + '</div>' : '')
-      + '<div style="font-size:11px;color:#888;font-style:italic;margin-top:6px">' + esc(h.hold_reason || '(no reason)') + '</div>'
-      + (dateStr ? '<div style="font-size:10px;color:#aaa;margin-top:3px;font-family:monospace">' + dateStr + '</div>' : '')
+      + '<div style="font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(h.customer_name || '—') + (h.state ? ' · ' + esc(h.state) : '') + '</div>'
+      + (h.customer_email ? '<div style="font-size:12px;color:#555 !important;-webkit-text-fill-color:#555 !important">' + esc(h.customer_email) + '</div>' : '')
+      + (itemsList ? '<div style="font-size:12px;color:#555 !important;-webkit-text-fill-color:#555 !important;margin-top:4px">' + itemsList + '</div>' : '')
+      + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic;margin-top:6px">' + esc(h.hold_reason || '(no reason)') + '</div>'
+      + (dateStr ? '<div style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-top:3px;font-family:monospace">' + dateStr + '</div>' : '')
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + resumeBtn + deleteBtn + '</div>'
       + '</div>';
   }).join(''));
