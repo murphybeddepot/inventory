@@ -9094,7 +9094,16 @@ async function openHoldsPanel(opts) {
         resumeBtn = '<button onclick="resumeHoldFromPanel_(\'' + esc(h.order_id) + '\',\'' + esc(h.order_number) + '\')" style="padding:10px 16px;background:rgba(0,200,83,.12);color:#1A5C1A;border:1px solid #00C853;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;margin-top:8px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px">↩ Resume to queue</button>';
       }
     } else if (h.kind === 'beacon_hold') {
-      resumeBtn = '<div style="font-size:10px;color:#9C27B0;margin-top:6px;font-weight:700">↪ Clear in ShipStation (Beacon)</div>';
+      // v10.490 — manager can Bedrock-release a Beacon-held order so
+      // it appears in Ground without needing to clear customField1
+      // in ShipStation (Beacon keeps the "Beacon-Hold" string even
+      // after release, so SS-side release alone isn't enough).
+      const oid = String(h.order_id || '');
+      const on = String(h.order_number || '');
+      resumeBtn = '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">'
+        + '<button onclick="beaconReleaseFromPanel_(\'' + esc(oid) + '\',\'' + esc(on) + '\')" style="padding:10px 16px;background:rgba(156,39,176,.14);color:#7B1FA2;border:1.5px solid #9C27B0;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;min-height:40px;display:inline-flex;align-items:center;justify-content:center" title="Override Beacon-Hold in Bedrock so the order flows into Ground without editing ShipStation Custom Field 1. Use ONLY after CS has reviewed + cleared the Beacon flag.">✓ Bedrock-release</button>'
+        + '<span style="font-size:10px;color:#9C27B0;font-weight:700">↪ or Clear CF1 in ShipStation</span>'
+        + '</div>';
     }
     // v10.223 — permanent-delete button (manager-PIN gated). Per Zac:
     // stale ShipStation holds had no way to be cleared from Bedrock.
@@ -9271,6 +9280,41 @@ async function _savePackerOverride(sku, orderId, orderNumber, pin) {
     if (typeof openHoldsPanel === 'function') openHoldsPanel();
   } catch (err) {
     showToast('Save error: ' + err.message);
+  }
+}
+
+// v10.490 — Beacon-release handler. Manager confirms the Beacon-Hold
+// is OK to pack; Bedrock stores an override that bypasses the cf1
+// substring filter on the Ground queue. No ShipStation API calls.
+async function beaconReleaseFromPanel_(orderId, orderNumber) {
+  const ok = confirm(
+    'Bedrock-release Beacon-Hold for #' + orderNumber + '?\n\n'
+    + 'Use this AFTER CS has reviewed + cleared the Beacon flag in your normal CS workflow.\n\n'
+    + 'Bedrock will add this order to a release-override list so the Ground queue stops blocking it,\n'
+    + 'WITHOUT requiring you to clear Custom Field 1 in ShipStation (Beacon leaves "Beacon-Hold" in CF1 even after release).\n\n'
+    + 'Continue?'
+  );
+  if (!ok) return;
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('Bedrock-release #' + orderNumber) : null;
+  if (!pin) return;
+  let releasedBy = '';
+  try { releasedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  try {
+    const res = await groundApi('markBeaconReleased', {
+      orderId: orderId,
+      orderNumber: orderNumber,
+      releasedBy: releasedBy,
+      manager_pin: pin,
+    });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(String(res.error || '')) && typeof clearManagerPin_ === 'function') clearManagerPin_();
+      showToast('Release failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast(res.already_released ? '✓ #' + orderNumber + ' was already Bedrock-released' : '✓ #' + orderNumber + ' Bedrock-released');
+    if (typeof openHoldsPanel === 'function') openHoldsPanel();
+  } catch (err) {
+    showToast('Release error: ' + err.message);
   }
 }
 
