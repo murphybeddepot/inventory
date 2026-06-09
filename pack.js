@@ -13226,10 +13226,14 @@ function renderLookupGround_(h) {
     + _lkFld('Pack complete', h.pack_completed_at ? String(h.pack_completed_at).slice(0, 16) : '—')
     + _lkFld('Last updated', h.last_updated_at ? String(h.last_updated_at).slice(0, 16) : '—')
     + (pkgRows ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10)"><div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px;font-weight:700">Packages</div>' + pkgRows + '</div>' : '')
-    // v10.177 — Reprint All Labels button. Use case: MGR-bypass orders
-    // that shipped but labels never made it to PrintNode (Seth queen
-    // slat 2 bug 2026-05-21). Only shows for orders with packages.
-    + ((h.packages && h.packages.length) ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10);display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button onclick="reprintAllLabelsFromLookup_(\'' + esc(h.order_number) + '\', this)" style="padding:8px 14px;background:linear-gradient(135deg,#003087,#005bb5);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35)">🖨 Reprint All Labels</button>'
+    // v10.177 — Reprint All Labels: only shows for orders with packages
+    //   (need a PDF to reprint).
+    // v10.482 — Void & Re-pack: shows whenever we have an order_id.
+    //   Doesn't need local packages — server looks up V1 shipments
+    //   directly. 32152 didn't show the button under the old "packages
+    //   required" gate even though V1 had a shippable shipment.
+    + (h.order_id ? '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.10);display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        + ((h.packages && h.packages.length) ? '<button onclick="reprintAllLabelsFromLookup_(\'' + esc(h.order_number) + '\', this)" style="padding:8px 14px;background:linear-gradient(135deg,#003087,#005bb5);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35)">🖨 Reprint All Labels</button>' : '')
         + '<button onclick="voidAndRepackFromLookup_(\'' + esc(String(h.order_id || '')) + '\',\'' + esc(h.order_number) + '\', this)" style="padding:8px 14px;background:linear-gradient(135deg,#8B0000,#C43030);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 2px 6px rgba(0,0,0,.35)" title="Void labels (refund) + restore order to awaiting in ShipStation + clear packages so you can re-pack. MANAGER PIN REQUIRED.">⚠ Void & Re-pack</button>'
         + '<span style="font-size:10px;color:var(--text-dim)">Reprint: safe re-submit · Void: real money refund + repack</span></div>' : '')
     + _lkTimeline_(h);

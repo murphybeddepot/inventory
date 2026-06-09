@@ -2005,6 +2005,7 @@ input::placeholder, textarea::placeholder {
       <div id="groundStatusLine" style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">Loading queue…</div>
       <div id="groundDeployDebug" style="font-size:10px;font-family:monospace;color:#888;margin-top:3px"></div>
     </div>
+    <button onclick="openVoidOrderPrompt_()" title="Find a shipped order by number and void its labels for re-pack (manager PIN required)" style="padding:14px 14px;background:#1a1a1a;color:#FF5252;-webkit-text-fill-color:#FF5252;border:1.5px solid #8B0000;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔍</span><span style="font-size:9px">VOID #</span></button>
     <button id="groundManagerModeBtn" onclick="toggleGroundManagerMode()" title="Manager bulk-print mode — select multiple orders to print + ship in one action" style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">👤</span><span style="font-size:9px">BULK</span></button>
     <button id="groundSyncBtn" onclick="syncShipStationThenRefresh()" title="Force ShipStation to pull new Shopify orders, then reload the queue" style="padding:14px 14px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔄</span><span style="font-size:9px">SYNC SS</span></button>
     <button onclick="refreshGroundQueue()" title="Reload queue (uses ShipStation's current state)" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
@@ -17411,6 +17412,69 @@ async function syncShipStationThenRefresh() {
   }
 }
 
+// v10.482 — Find-order-to-void prompt accessible from the Ground tab
+// header. Takes a raw order#, looks it up server-side (V1 awaiting
+// OR V1 shipments), runs the same void+repack flow as the Lookup-tab
+// button. Lets a manager void without leaving Ground.
+async function openVoidOrderPrompt_() {
+  const raw = window.prompt(
+    'Order number to VOID + RE-PACK?\n\n'
+    + '⚠ REAL MONEY. This will:\n'
+    + '  • Void every shipping label on the order (REFUND)\n'
+    + '  • Restore the order to awaiting_shipment in ShipStation\n'
+    + '  • Clear local OrderPackages so you can re-pack fresh\n\n'
+    + 'For 32152: enter 32152 below.\n\n'
+    + 'Use the Lookup tab for orders you want to view first; this is\n'
+    + 'the direct-action shortcut.'
+  );
+  if (raw == null) return;
+  const orderNumber = String(raw).trim().replace(/^#/, '');
+  if (!orderNumber || !/^\d+$/.test(orderNumber)) {
+    showToast('Enter a numeric order number');
+    return;
+  }
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('void ' + orderNumber) : null;
+  if (!pin) return;
+  let voidedBy = '';
+  try { voidedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('Voiding labels for #' + orderNumber + '…') : null;
+  try {
+    const res = await groundApi('voidOrderForRepack', {
+      orderNumber: orderNumber,
+      manager_pin: pin,
+      voidedBy: voidedBy,
+    });
+    if (loader && loader.stop) loader.stop();
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(String(res.error || '')) && typeof clearManagerPin_ === 'function') clearManagerPin_();
+      const fail = (res && res.results && res.results.failed) || [];
+      let msg = (res && res.error) || 'unknown error';
+      if (fail.length) msg += '\n\nShipment failures:\n' + fail.map(f => '  #' + f.shipmentId + ': ' + (f.error || '?')).join('\n');
+      alert('Void failed for #' + orderNumber + '\n\n' + msg);
+      return;
+    }
+    const r = res.results || {};
+    const voided = (r.voided || []).length;
+    const failed = (r.failed || []).length;
+    let summary = '✓ #' + orderNumber + ' voided + reset\n\n'
+      + '  Shipments voided: ' + voided + '\n'
+      + '  Shipments failed: ' + failed + '\n'
+      + '  OrderPackages rows deleted: ' + (r.packages_deleted || 0) + '\n'
+      + '  OrderPack status reset: ' + (r.pack_status_reset ? 'yes' : 'no') + '\n\n'
+      + (res.note || '');
+    if (failed > 0) {
+      summary += '\n\nFailed shipments — void manually in ShipStation:\n'
+        + r.failed.map(f => '  #' + f.shipmentId + ': ' + (f.error || '?')).join('\n');
+    }
+    alert(summary);
+    showToast('✓ #' + orderNumber + ' ready to re-pack');
+    if (typeof refreshGroundQueue === 'function') setTimeout(refreshGroundQueue, 500);
+  } catch (err) {
+    if (loader && loader.stop) loader.stop();
+    alert('Void error: ' + ((err && err.message) || err));
+  }
+}
+
 async function refreshGroundQueue() {
   const list = document.getElementById('groundQueueList');
   const empty = document.getElementById('groundQueueEmpty');
@@ -19389,7 +19453,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.479"></script>
+<script src="./pack.js?v=10.482"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -19400,7 +19464,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.481<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.482<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
