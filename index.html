@@ -18463,6 +18463,26 @@ async function callStartPackAndRender(orderRow) {
 async function managerCheckOff(idx, insideIdx) {
   const p = (groundCurrentOrder && groundCurrentOrder.packages || [])[idx];
   if (!p) { showToast('Box not found'); return; }
+  // v10.510 — Zac 2026-06-10: Jonah tapped MGR 3x because the UI didn't
+  // register that the first tap was processing → 3 labels printed
+  // (real money). Guard with an in-flight flag on the package so
+  // subsequent taps are no-ops while the first tap's network call is
+  // pending. Also disable the tapped button visually via the event.
+  const inFlightKey = (insideIdx == null) ? '_mgrInFlight' : ('_mgrInFlight_' + insideIdx);
+  if (p[inFlightKey]) {
+    showToast('Already processing — wait for the first tap to finish');
+    return;
+  }
+  p[inFlightKey] = true;
+  // Best-effort: disable the actual button + change its label so the
+  // operator can SEE that the tap was caught. Looks ugly to grab by
+  // selector but it's the simplest way without restructuring the
+  // render path.
+  try {
+    const btnSel = 'button[onclick="managerCheckOff(' + idx + ',' + (insideIdx == null ? 'null' : insideIdx) + ')"]';
+    const btn = document.querySelector(btnSel);
+    if (btn) { btn.disabled = true; btn.style.opacity = '.55'; btn.innerHTML = '⏳ Processing…'; }
+  } catch (_e) {}
   const what = (insideIdx == null)
     ? ('Box ' + p.sequence + ' (' + (p.box_sku || '') + ')')
     : ('item ' + (((p.inside_items || [])[insideIdx] || {}).sku || ('#' + insideIdx)) + ' in Box ' + p.sequence);
@@ -18474,10 +18494,10 @@ async function managerCheckOff(idx, insideIdx) {
     cleanPin = promptManagerPin_('check off ' + what) || '';
   } else {
     const pin = window.prompt('Manager PIN to check off ' + what + ' without scanning:\n\n(Use only when scanning genuinely can\'t be done — no barcode, or this order ships fewer boxes than listed.)');
-    if (pin == null) return;
+    if (pin == null) { p[inFlightKey] = false; renderGroundPackBoxes(); return; }
     cleanPin = String(pin).trim();
   }
-  if (!cleanPin) { showToast('PIN required'); return; }
+  if (!cleanPin) { showToast('PIN required'); p[inFlightKey] = false; renderGroundPackBoxes(); return; }
   try {
     const payload = {
       orderId: groundCurrentOrder.orderId,
@@ -18492,6 +18512,8 @@ async function managerCheckOff(idx, insideIdx) {
       // re-prompts. Without this, a stale wrong PIN re-fires forever.
       if (res && /pin/i.test(String(res.error || '')) && typeof clearManagerPin_ === 'function') clearManagerPin_();
       showToast(res && res.error === 'Invalid manager PIN' ? '✗ Invalid manager PIN' : ('Check-off failed: ' + ((res && res.error) || 'unknown')));
+      p[inFlightKey] = false;
+      renderGroundPackBoxes();
       return;
     }
     // Mirror server truth into local state, then re-render.
@@ -18501,6 +18523,7 @@ async function managerCheckOff(idx, insideIdx) {
       p.inside_items[insideIdx].scanned = true;
     }
     showToast('✓ ' + what + ' checked off by manager');
+    p[inFlightKey] = false;
     renderGroundPackBoxes();
     // v10.172 — Seth bug 2026-05-21 15:14 EDT: "did an order for queen
     // slat 2 using MGR and it did everything except print the labels".
@@ -18514,6 +18537,8 @@ async function managerCheckOff(idx, insideIdx) {
     }
   } catch (e) {
     showToast('Check-off error: ' + e.message);
+    p[inFlightKey] = false;
+    renderGroundPackBoxes();
   }
 }
 
@@ -18808,6 +18833,18 @@ async function printGroundLabel(idx) {
   if (!groundCurrentOrder || !Array.isArray(groundCurrentOrder.packages)) return;
   const p = groundCurrentOrder.packages[idx];
   if (!p) return;
+  // v10.510 — multi-tap guard. Jonah 2026-06-10 tapped MGR 3x and got
+  // 3 labels because there was no visible "sending" state on the
+  // print button. Same fix: in-flight flag + immediate visual change.
+  if (p._printInFlight) {
+    showToast('Already printing — wait for the first tap to finish');
+    return;
+  }
+  p._printInFlight = true;
+  try {
+    const btn = document.querySelector('button[onclick="printGroundLabel(' + idx + ')"]');
+    if (btn) { btn.disabled = true; btn.style.opacity = '.55'; btn.innerHTML = '⏳ Sending…'; }
+  } catch (_e) {}
   // v66: Prefer PrintNode if a printer is selected (in localStorage) or
   // a server-side default exists. PrintNode prints directly to the
   // configured printer with no AirPrint dialog. Fall back to opening the
@@ -18840,6 +18877,7 @@ async function printGroundLabel(idx) {
       if (data.ok) {
         showToast('🖨 Sent to ' + ((typeof _printerLabelById_ === 'function' ? _printerLabelById_(data.printer_id) : ('printer #' + data.printer_id))) + ' (job ' + data.job_id + ')');
         p.printed = true;
+        p._printInFlight = false;
         renderGroundPackBoxes();
         return;
       }
@@ -18855,6 +18893,7 @@ async function printGroundLabel(idx) {
 
   // Fallback path: open Drive PDF in new tab for AirPrint.
   if (!fallbackUrl) {
+    p._printInFlight = false;
     // v10.93 (evidence: 9× "No Drive PDF" retries on one order in the
     // issue log). startPack didn't persist a label PDF for this box —
     // the old code just flashed a 1s toast and returned, so the packer
@@ -18886,6 +18925,7 @@ async function printGroundLabel(idx) {
   }
   window.open(fallbackUrl, '_blank');
   p.printed = true;
+  p._printInFlight = false;
   renderGroundPackBoxes();
 }
 
@@ -19545,7 +19585,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.496<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.510<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
