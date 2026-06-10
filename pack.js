@@ -15,6 +15,62 @@
 // listPackingQueue, renders 10–12 cards, supports server-side claim.
 // ────────────────────────────────────────────────────────────
 
+// v10.512 — Reusable multi-tap guard for money/state-changing buttons.
+// Pattern from v10.510 (managerCheckOff / printGroundLabel): on tap,
+// check an in-flight flag, disable the actual button + change its
+// innerHTML to a "Processing…" state, run the action, and unconditionally
+// release the flag + restore the button via try/finally.
+//
+// Usage:
+//   await _guardedAction_({
+//     key: 'markShipped:' + orderNumber,
+//     btnSelector: 'button[onclick="confirmMarkPackJobShipped(\'' + orderNumber + '\')"]',
+//     busyText: '⏳ Marking shipped…',
+//     action: async () => { ... await groundApi(...) ... }
+//   });
+//
+// If the same key is already in-flight, the new tap is a no-op with a
+// toast. The action's return value bubbles through.
+const _GUARDED_ACTIONS_INFLIGHT_ = new Set();
+async function _guardedAction_(opts) {
+  const key = opts && opts.key;
+  if (!key) { console.warn('_guardedAction_ called without key'); return (opts.action ? opts.action() : undefined); }
+  if (_GUARDED_ACTIONS_INFLIGHT_.has(key)) {
+    if (typeof showToast === 'function') showToast('Already processing — wait for the first tap to finish');
+    return;
+  }
+  _GUARDED_ACTIONS_INFLIGHT_.add(key);
+  let btn = null;
+  let prevHtml = '';
+  let prevDisabled = false;
+  let prevOpacity = '';
+  try {
+    if (opts.btnSelector) {
+      try {
+        btn = document.querySelector(opts.btnSelector);
+        if (btn) {
+          prevHtml = btn.innerHTML;
+          prevDisabled = btn.disabled;
+          prevOpacity = btn.style.opacity;
+          btn.disabled = true;
+          btn.style.opacity = '.55';
+          if (opts.busyText) btn.innerHTML = opts.busyText;
+        }
+      } catch (_eSel) { /* selector failed; proceed without visual feedback */ }
+    }
+    return await opts.action();
+  } finally {
+    _GUARDED_ACTIONS_INFLIGHT_.delete(key);
+    if (btn) {
+      try {
+        btn.disabled = prevDisabled;
+        btn.style.opacity = prevOpacity;
+        btn.innerHTML = prevHtml;
+      } catch (_eR) {}
+    }
+  }
+}
+
 const PACK_QUEUE_CACHE_KEY = 'mbd_pack_queue_cache_v1';
 const PACK_DEVICE_ID_KEY = 'mbd_pack_device_id';
 // v10.270 — Zac 2026-05-24 19:29 EDT: "every device is iPad something
@@ -3476,34 +3532,37 @@ async function confirmReadyForCheck(orderNumber) {
     const proceed = confirm(unscanned + ' SKU unit' + (unscanned === 1 ? '' : 's') + ' still unscanned.\n\nHand off anyway? (the second person can still spot-check.)');
     if (!proceed) return;
   }
-  try {
-    const res = await groundApi('markPackJobReadyForCheck', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
-    if (!res || !res.ok) {
-      let msg = (res && res.error) || 'unknown';
-      if (res && res.pending && res.pending.length) {
-        msg += '\nUnscanned: ' + res.pending.map(p => p.sku + ' (' + p.scanned + '/' + p.qty + ')').join(', ');
+  return _guardedAction_({
+    key: 'readyForCheck:' + orderNumber,
+    btnSelector: 'button[onclick="confirmReadyForCheck(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Handing off…',
+    action: async () => {
+      try {
+        const res = await groundApi('markPackJobReadyForCheck', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
+        if (!res || !res.ok) {
+          let msg = (res && res.error) || 'unknown';
+          if (res && res.pending && res.pending.length) {
+            msg += '\nUnscanned: ' + res.pending.map(p => p.sku + ' (' + p.scanned + '/' + p.qty + ')').join(', ');
+          }
+          showToast('Ready-for-check failed: ' + msg);
+          return;
+        }
+        // Patch local cache so handoff overlay reads the latest status without
+        // an extra refresh roundtrip.
+        const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+        if (cached) cached.status = 'ready_for_check';
+        if (typeof _showSecondPersonHandoff_ === 'function') {
+          _showSecondPersonHandoff_(orderNumber);
+        } else {
+          showToast('Handed off to checker ✓');
+          closePackDetail();
+          await refreshPackQueue();
+        }
+      } catch (err) {
+        showToast('Ready-for-check error: ' + err.message);
       }
-      showToast('Ready-for-check failed: ' + msg);
-      return;
-    }
-    // Patch local cache so handoff overlay reads the latest status without
-    // an extra refresh roundtrip.
-    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
-    if (cached) cached.status = 'ready_for_check';
-    // Show the handoff hero (spec §9B). The packer's deviceId is the
-    // "original packer" identity used by _confirmSecondPersonPack_ to block
-    // same-identity self-confirm.
-    if (typeof _showSecondPersonHandoff_ === 'function') {
-      _showSecondPersonHandoff_(orderNumber);
-    } else {
-      // Defensive fallback — older client without the helper.
-      showToast('Handed off to checker ✓');
-      closePackDetail();
-      await refreshPackQueue();
-    }
-  } catch (err) {
-    showToast('Ready-for-check error: ' + err.message);
-  }
+    },
+  });
 }
 
 async function claimPackCheck(orderNumber) {
@@ -4324,60 +4383,76 @@ async function bulkPackAction(target) {
   const pin = promptManagerPin_(targetLabel + ' ' + orderNumbers.length
     + ' order' + (orderNumbers.length === 1 ? '' : 's'));
   if (!pin) return;
-
-  const action = target === 'packed' ? 'markPackJobComplete' : 'markPackJobShipped';
-  let ok = 0, failed = [];
-  let pinInvalid = false;
-  for (const orderNumber of orderNumbers) {
-    try {
-      const res = await groundApi(action, {
-        orderNumber: orderNumber,
-        manager_pin: pin,
-        deviceId: getPackDeviceId_(),
-        packerName: localStorage.getItem('mbd_ground_packer') || '',
-      });
-      if (res && res.ok) ok++;
-      else {
-        if (res && /pin/i.test(res.error || '')) pinInvalid = true;
-        failed.push(orderNumber + ': ' + ((res && res.error) || 'unknown'));
+  // v10.512 — bulk action loops groundApi N times; double-tap during
+  // the loop would queue 2N parallel calls and possibly double-flip
+  // status / re-email Seth. Guard at the outer level.
+  return _guardedAction_({
+    key: 'bulkPack:' + target,
+    btnSelector: 'button[onclick="bulkPackAction(\'' + target + '\')"]',
+    busyText: '⏳ Processing ' + orderNumbers.length + '…',
+    action: async () => {
+      const action = target === 'packed' ? 'markPackJobComplete' : 'markPackJobShipped';
+      let ok = 0, failed = [];
+      let pinInvalid = false;
+      for (const orderNumber of orderNumbers) {
+        try {
+          const res = await groundApi(action, {
+            orderNumber: orderNumber,
+            manager_pin: pin,
+            deviceId: getPackDeviceId_(),
+            packerName: localStorage.getItem('mbd_ground_packer') || '',
+          });
+          if (res && res.ok) ok++;
+          else {
+            if (res && /pin/i.test(res.error || '')) pinInvalid = true;
+            failed.push(orderNumber + ': ' + ((res && res.error) || 'unknown'));
+          }
+        } catch (err) {
+          failed.push(orderNumber + ': ' + err.message);
+        }
       }
-    } catch (err) {
-      failed.push(orderNumber + ': ' + err.message);
-    }
-  }
-  if (pinInvalid) clearManagerPin_();
-  _packBulkSelection.clear();
-  await refreshPackQueue();
+      if (pinInvalid) clearManagerPin_();
+      _packBulkSelection.clear();
+      await refreshPackQueue();
 
-  // Highly visible feedback so the manager can see the result without
-  // staring at the toast — banner persists for 6 seconds.
-  if (ok > 0 && failed.length === 0) {
-    const verb = target === 'packed' ? '✓ packed' : '📦 shipped';
-    showPackBanner_(ok + ' order' + (ok === 1 ? '' : 's') + ' ' + verb, '#00e676');
-  } else if (ok > 0 && failed.length > 0) {
-    showPackBanner_(ok + ' ok · ' + failed.length + ' failed — see alert', '#ff9800');
-    alert('Bulk ' + targetLabel + ':\n' + ok + ' succeeded, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
-  } else {
-    showPackBanner_('Bulk ' + targetLabel + ' failed', '#ff5252');
-    alert('Bulk ' + targetLabel + ' failed:\n\n' + failed.join('\n'));
-  }
+      // Highly visible feedback so the manager can see the result without
+      // staring at the toast — banner persists for 6 seconds.
+      if (ok > 0 && failed.length === 0) {
+        const verb = target === 'packed' ? '✓ packed' : '📦 shipped';
+        showPackBanner_(ok + ' order' + (ok === 1 ? '' : 's') + ' ' + verb, '#00e676');
+      } else if (ok > 0 && failed.length > 0) {
+        showPackBanner_(ok + ' ok · ' + failed.length + ' failed — see alert', '#ff9800');
+        alert('Bulk ' + targetLabel + ':\n' + ok + ' succeeded, ' + failed.length + ' failed.\n\n' + failed.join('\n'));
+      } else {
+        showPackBanner_('Bulk ' + targetLabel + ' failed', '#ff5252');
+        alert('Bulk ' + targetLabel + ' failed:\n\n' + failed.join('\n'));
+      }
+    },
+  });
 }
 
 async function confirmMarkPackJobShipped(orderNumber) {
-  const pin = promptManagerPin_('mark ' + orderNumber + ' shipped');
-  if (!pin) return;
-  try {
-    const res = await groundApi('markPackJobShipped', { orderNumber: orderNumber, manager_pin: pin });
-    if (!res || !res.ok) {
-      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
-      showToast(((res && res.error) || 'Mark shipped failed'));
-      return;
-    }
-    showPackBanner_('Order ' + orderNumber + ' shipped 📦', '#00e676');
-    await refreshPackQueue();
-  } catch (err) {
-    showToast('Mark shipped error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'markPackJobShipped:' + orderNumber,
+    btnSelector: 'button[onclick="confirmMarkPackJobShipped(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Marking shipped…',
+    action: async () => {
+      const pin = promptManagerPin_('mark ' + orderNumber + ' shipped');
+      if (!pin) return;
+      try {
+        const res = await groundApi('markPackJobShipped', { orderNumber: orderNumber, manager_pin: pin });
+        if (!res || !res.ok) {
+          if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+          showToast(((res && res.error) || 'Mark shipped failed'));
+          return;
+        }
+        showPackBanner_('Order ' + orderNumber + ' shipped 📦', '#00e676');
+        await refreshPackQueue();
+      } catch (err) {
+        showToast('Mark shipped error: ' + err.message);
+      }
+    },
+  });
 }
 
 // v10.271 Phase 3 — warehouse marks pickup → Slack DM Seth with
@@ -4386,26 +4461,33 @@ async function confirmMarkPackJobShipped(orderNumber) {
 // pickedUpBy.
 async function confirmMarkPickedUp(orderNumber) {
   if (!confirm('Mark order ' + orderNumber + ' as picked up by carrier?\n\nSeth will get a Slack notification with a Shopify link to send the tracking email.')) return;
-  try {
-    const res = await groundApi('markOrderPickedUp', {
-      orderNumber: orderNumber,
-      pickedUpBy: getPackDeviceName_(),
-    });
-    if (!res || !res.ok) {
-      showToast('Mark picked-up failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    if (res.noChange) {
-      showPackBanner_('Order ' + orderNumber + ' was already marked picked up · 🚛', '#42a5f5');
-      return;
-    }
-    const notified = res.notified || {};
-    const slackLine = notified.ok ? ' · Slack ✓' : (notified.error ? ' · Slack ⚠ ' + String(notified.error).slice(0, 30) : '');
-    showPackBanner_('🚛 Order ' + orderNumber + ' picked up' + slackLine, '#00e676');
-    await refreshPackQueue();
-  } catch (err) {
-    showToast('Mark picked-up error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'markOrderPickedUp:' + orderNumber,
+    btnSelector: 'button[onclick="confirmMarkPickedUp(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Marking picked up…',
+    action: async () => {
+      try {
+        const res = await groundApi('markOrderPickedUp', {
+          orderNumber: orderNumber,
+          pickedUpBy: getPackDeviceName_(),
+        });
+        if (!res || !res.ok) {
+          showToast('Mark picked-up failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        if (res.noChange) {
+          showPackBanner_('Order ' + orderNumber + ' was already marked picked up · 🚛', '#42a5f5');
+          return;
+        }
+        const notified = res.notified || {};
+        const slackLine = notified.ok ? ' · Slack ✓' : (notified.error ? ' · Slack ⚠ ' + String(notified.error).slice(0, 30) : '');
+        showPackBanner_('🚛 Order ' + orderNumber + ' picked up' + slackLine, '#00e676');
+        await refreshPackQueue();
+      } catch (err) {
+        showToast('Mark picked-up error: ' + err.message);
+      }
+    },
+  });
 }
 
 async function resetPackScansForOrder(orderNumber) {
@@ -4862,7 +4944,12 @@ async function confirmMarkPackJobComplete(orderNumber) {
   } else {
     if (!confirm('Mark order ' + orderNumber + ' as packed?\n\n' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + ' attached. The pack will be marked PACKED · waiting for carrier pickup (SHIPPED is a separate state, flipped when the carrier actually picks up).')) return;
   }
-  await _runMarkPackComplete_(orderNumber, /*managerPin*/'');
+  return _guardedAction_({
+    key: 'markPackJobComplete:' + orderNumber,
+    btnSelector: 'button[onclick="confirmMarkPackJobComplete(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Marking packed…',
+    action: async () => { await _runMarkPackComplete_(orderNumber, /*managerPin*/''); },
+  });
 }
 
 // v10.402b — shared complete-pack server call with proper error handling
@@ -5056,56 +5143,66 @@ async function claimPackOrder(orderNumber) {
     if (goBack && typeof openOrderDetail === 'function') openOrderDetail(block);
     return;
   }
-  try {
-    const data = await groundApi('claimPackJob', {
-      orderNumber: orderNumber,
-      deviceId: getPackDeviceId_(),
-      packerName: localStorage.getItem('mbd_ground_packer') || '',
-    });
-    if (!data || !data.ok) {
-      showToast('Could not claim: ' + ((data && data.error) || 'unknown'));
-      return;
-    }
-    showToast('Claimed order ' + orderNumber);
-    _packDetailMode = 'active_pack';
-    _packMarkScanActivity_();
-    _startPackIdleCheck_();
-    // v10.406 — spec §6: tapping START PACKING auto-prints the cabinet
-    // instructions via PrintNode silently (parallels the hardware-label
-    // auto-print in Pre-Pack mode). Fire-and-forget — failures don't block
-    // the claim and surface as a toast for the packer to retry manually.
-    try {
-      if (typeof printInstructionsLink_ === 'function') {
-        // printInstructionsLink_(orderNumber, presetSkus?) — presetSkus must
-        // be an array if supplied; null/undefined is fine for the default
-        // INST-* resolution path. Banner+toast feedback is wanted on auto-
-        // print so the packer knows the print fired.
-        printInstructionsLink_(orderNumber, null);
+  return _guardedAction_({
+    key: 'claimPackOrder:' + orderNumber,
+    btnSelector: 'button[onclick="claimPackOrder(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Claiming…',
+    action: async () => {
+      try {
+        const data = await groundApi('claimPackJob', {
+          orderNumber: orderNumber,
+          deviceId: getPackDeviceId_(),
+          packerName: localStorage.getItem('mbd_ground_packer') || '',
+        });
+        if (!data || !data.ok) {
+          showToast('Could not claim: ' + ((data && data.error) || 'unknown'));
+          return;
+        }
+        showToast('Claimed order ' + orderNumber);
+        _packDetailMode = 'active_pack';
+        _packMarkScanActivity_();
+        _startPackIdleCheck_();
+        // v10.406 — spec §6: tapping START PACKING auto-prints the cabinet
+        // instructions via PrintNode silently (parallels the hardware-label
+        // auto-print in Pre-Pack mode). Fire-and-forget — failures don't block
+        // the claim and surface as a toast for the packer to retry manually.
+        try {
+          if (typeof printInstructionsLink_ === 'function') {
+            printInstructionsLink_(orderNumber, null);
+          }
+        } catch (eAutoPrint) { /* swallow — don't block claim on print failure */ }
+        await refreshPackQueue();
+        openPackDetail(orderNumber);
+      } catch (err) {
+        showToast('Claim error: ' + err.message);
       }
-    } catch (eAutoPrint) { /* swallow — don't block claim on print failure */ }
-    await refreshPackQueue();
-    openPackDetail(orderNumber);
-  } catch (err) {
-    showToast('Claim error: ' + err.message);
-  }
+    },
+  });
 }
 
 async function releasePackOrder(orderNumber) {
-  try {
-    const data = await groundApi('releasePackJob', {
-      orderNumber: orderNumber,
-      deviceId: getPackDeviceId_(),
-    });
-    if (!data || !data.ok) {
-      showToast('Could not release: ' + ((data && data.error) || 'unknown'));
-      return;
-    }
-    showToast('Released order ' + orderNumber);
-    await refreshPackQueue();
-    openPackDetail(orderNumber);
-  } catch (err) {
-    showToast('Release error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'releasePack:' + orderNumber,
+    btnSelector: 'button[onclick="releasePackOrder(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Releasing…',
+    action: async () => {
+      try {
+        const data = await groundApi('releasePackJob', {
+          orderNumber: orderNumber,
+          deviceId: getPackDeviceId_(),
+        });
+        if (!data || !data.ok) {
+          showToast('Could not release: ' + ((data && data.error) || 'unknown'));
+          return;
+        }
+        showToast('Released order ' + orderNumber);
+        await refreshPackQueue();
+        openPackDetail(orderNumber);
+      } catch (err) {
+        showToast('Release error: ' + err.message);
+      }
+    },
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -5426,43 +5523,50 @@ async function _confirmSecondPersonPack_(orderNumber, originalPackerId) {
   if (photoCount === 0) {
     if (!confirm('No photos yet — confirm pack anyway?\n\nIt will be marked PACKED · waiting for carrier pickup.')) return;
   }
-  // Close the handoff overlay; we'll show the celebration overlay on success.
-  const ov = document.getElementById('packHandoffOverlay');
-  if (ov) ov.remove();
-  // Server: claim the check phase, then mark packed, in sequence. The spec
-  // §9B describes this as one tap — the two underlying endpoints stay
-  // intact (spine wiring untouched), we just chain them client-side.
-  try {
-    const claim = await groundApi('claimPackCheckJob', {
-      orderNumber: orderNumber,
-      deviceId: myId,
-      checkerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '',
-    });
-    if (!claim || !claim.ok) {
-      // Specific server messages are already plain-English; surface them.
-      showToast('Confirm failed: ' + ((claim && claim.error) || 'unknown'));
-      return;
-    }
-    const complete = await groundApi('markPackJobComplete', {
-      orderNumber: orderNumber,
-      deviceId: myId,
-      packerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '',
-    });
-    if (!complete || !complete.ok) {
-      showToast('Pack-complete failed: ' + ((complete && complete.error) || 'unknown'));
-      return;
-    }
-    // Patch local cache so the celebration's daily-count read is fresh.
-    if (row) { row.status = 'packed'; row.packed_at = new Date().toISOString(); row.packed_by = myId; }
-    if (typeof _showPackCompleteCelebration_ === 'function') _showPackCompleteCelebration_(orderNumber);
-    setTimeout(function () {
-      if (typeof closePackDetail === 'function') closePackDetail();
-      if (typeof refreshPackQueue === 'function') refreshPackQueue();
-      if (typeof _closeOrdersDetail_ === 'function') _closeOrdersDetail_();
-    }, 2200);
-  } catch (err) {
-    showToast('Handoff confirm error: ' + err.message);
-  }
+  // v10.512 — Guard against double-tap. This handler fires TWO groundApi
+  // calls in sequence (claimPackCheckJob → markPackJobComplete); a
+  // double-tap would queue 4 parallel requests and likely corrupt the
+  // checker/packed state machine.
+  return _guardedAction_({
+    key: 'secondPersonPack:' + orderNumber,
+    btnSelector: '#packHandoffOverlay button.handoff-confirm-btn',
+    busyText: '⏳ Confirming…',
+    action: async () => {
+      // Close the handoff overlay; we'll show the celebration overlay on success.
+      const ov = document.getElementById('packHandoffOverlay');
+      if (ov) ov.remove();
+      try {
+        const claim = await groundApi('claimPackCheckJob', {
+          orderNumber: orderNumber,
+          deviceId: myId,
+          checkerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '',
+        });
+        if (!claim || !claim.ok) {
+          showToast('Confirm failed: ' + ((claim && claim.error) || 'unknown'));
+          return;
+        }
+        const complete = await groundApi('markPackJobComplete', {
+          orderNumber: orderNumber,
+          deviceId: myId,
+          packerName: (typeof getPackDeviceName_ === 'function') ? getPackDeviceName_() : '',
+        });
+        if (!complete || !complete.ok) {
+          showToast('Pack-complete failed: ' + ((complete && complete.error) || 'unknown'));
+          return;
+        }
+        // Patch local cache so the celebration's daily-count read is fresh.
+        if (row) { row.status = 'packed'; row.packed_at = new Date().toISOString(); row.packed_by = myId; }
+        if (typeof _showPackCompleteCelebration_ === 'function') _showPackCompleteCelebration_(orderNumber);
+        setTimeout(function () {
+          if (typeof closePackDetail === 'function') closePackDetail();
+          if (typeof refreshPackQueue === 'function') refreshPackQueue();
+          if (typeof _closeOrdersDetail_ === 'function') _closeOrdersDetail_();
+        }, 2200);
+      } catch (err) {
+        showToast('Handoff confirm error: ' + err.message);
+      }
+    },
+  });
 }
 
 // — § 15 / §10 CELEBRATION + PACKED ≠ SHIPPED ───────────────────────
@@ -9359,19 +9463,28 @@ async function deleteHoldFromPanel_(orderId, orderNumber, holdKind) {
   if (!confirm('Permanently DELETE the hold record for #' + orderNumber + '?\n\nThis removes the row from the underlying tab. The order itself in ShipStation/PackingQueue is NOT touched. Use this when a hold is stale + you want it out of the list.')) return;
   const pin = prompt('Manager PIN (delete is irreversible):');
   if (!pin) return;
-  try {
-    const res = await groundApi('deleteHold', {
-      orderId: Number(orderId) || 0,
-      orderNumber: String(orderNumber),
-      holdKind: String(holdKind || ''),
-      managerPin: pin,
-    });
-    if (!res || !res.ok) { showToast('Delete failed: ' + ((res && res.error) || 'unknown')); return; }
-    showToast('🗑 #' + orderNumber + ' removed from holds');
-    openHoldsPanel();
-  } catch (err) {
-    showToast('Delete error: ' + err.message);
-  }
+  // v10.512 — irreversible delete; multi-tap could race-delete sibling
+  // holds if the panel re-renders mid-call. Guard hard.
+  return _guardedAction_({
+    key: 'deleteHold:' + orderNumber + ':' + (holdKind || ''),
+    btnSelector: null,
+    busyText: '',
+    action: async () => {
+      try {
+        const res = await groundApi('deleteHold', {
+          orderId: Number(orderId) || 0,
+          orderNumber: String(orderNumber),
+          holdKind: String(holdKind || ''),
+          managerPin: pin,
+        });
+        if (!res || !res.ok) { showToast('Delete failed: ' + ((res && res.error) || 'unknown')); return; }
+        showToast('🗑 #' + orderNumber + ' removed from holds');
+        openHoldsPanel();
+      } catch (err) {
+        showToast('Delete error: ' + err.message);
+      }
+    },
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -12021,6 +12134,17 @@ async function submitRemakeCreate() {
   if (!skus.length) { showToast('Add at least one SKU'); return; }
 
   _remakeSubmitting = true;
+  // v10.512 — visual feedback so operator sees the tap registered.
+  // Existing _remakeSubmitting flag already prevented duplicate sends,
+  // but the button didn't change state so operators sometimes tapped
+  // again "just to be sure". The async createRemake fires an email +
+  // creates a sheet row + spine event — duplicates pollute everything.
+  let submitBtn = null;
+  let prevSubmitHtml = '';
+  try {
+    submitBtn = document.querySelector('#remakeCreateOverlay button.remake-submit-btn');
+    if (submitBtn) { prevSubmitHtml = submitBtn.innerHTML; submitBtn.disabled = true; submitBtn.style.opacity = '.55'; submitBtn.innerHTML = '⏳ Creating…'; }
+  } catch (_e) {}
   try {
     const res = await groundApi('createRemake', {
       created_by: by.trim(),
@@ -12042,6 +12166,9 @@ async function submitRemakeCreate() {
     showToast('Create error: ' + err.message);
   } finally {
     _remakeSubmitting = false;
+    if (submitBtn) {
+      try { submitBtn.disabled = false; submitBtn.style.opacity = '1'; submitBtn.innerHTML = prevSubmitHtml; } catch (_e) {}
+    }
   }
 }
 
@@ -12075,13 +12202,20 @@ async function pollRemakeShipments_() {
 }
 
 async function reprintRemakeSlip_(remakeId) {
-  try {
-    const res = await groundApi('printRemakePickSlip', { remake_id: remakeId });
-    if (!res || !res.ok) { showToast('Print failed: ' + ((res && res.error) || 'unknown')); return; }
-    showToast('🖨 Pick slip queued for ' + remakeId);
-  } catch (err) {
-    showToast('Print error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'reprintRemakeSlip:' + remakeId,
+    btnSelector: 'button[onclick="reprintRemakeSlip_(\'' + remakeId + '\')"]',
+    busyText: '⏳ Printing…',
+    action: async () => {
+      try {
+        const res = await groundApi('printRemakePickSlip', { remake_id: remakeId });
+        if (!res || !res.ok) { showToast('Print failed: ' + ((res && res.error) || 'unknown')); return; }
+        showToast('🖨 Pick slip queued for ' + remakeId);
+      } catch (err) {
+        showToast('Print error: ' + err.message);
+      }
+    },
+  });
 }
 
 // v10.126: Customer-damage intake. CS associate (Jessica usually) taps
