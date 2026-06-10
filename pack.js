@@ -1251,33 +1251,39 @@ function snoozePackEosReminder_(minutes) {
 async function eosReleaseClaim_(orderNumber) {
   if (!orderNumber) return;
   if (!confirm('Release claim on #' + orderNumber + '?\n\nThis returns the order to "pending" so anyone can pick it up tomorrow. Scan progress is preserved (next packer can resume).')) return;
-  try {
-    const res = await groundApi('releasePackJob', {
-      orderNumber: orderNumber,
-      deviceId: getPackDeviceId_(),
-    });
-    if (!res || !res.ok) {
-      if (typeof showToast === 'function') showToast('⚠ Release failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    if (typeof showToast === 'function') showToast('↻ Released #' + orderNumber);
-    // Refresh queue + rebuild banner with the remaining claims.
-    if (typeof refreshPackQueue === 'function') {
-      await refreshPackQueue();
-      const myDevice = getPackDeviceId_();
-      const remaining = (_packQueueCache || []).filter(r => {
-        if (r.status === 'in_progress' && r.started_by === myDevice) return true;
-        if (r.status === 'checking' && r.checker_started_by === myDevice) return true;
-        return false;
-      });
-      if (remaining.length) showPackEosBanner_(remaining);
-      else dismissPackEosReminder_();
-    } else {
-      dismissPackEosReminder_();
-    }
-  } catch (e) {
-    if (typeof showToast === 'function') showToast('⚠ Release error: ' + (e.message || String(e)));
-  }
+  return _guardedAction_({
+    key: 'eosRelease:' + orderNumber,
+    btnSelector: 'button[onclick="eosReleaseClaim_(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Releasing…',
+    action: async () => {
+      try {
+        const res = await groundApi('releasePackJob', {
+          orderNumber: orderNumber,
+          deviceId: getPackDeviceId_(),
+        });
+        if (!res || !res.ok) {
+          if (typeof showToast === 'function') showToast('⚠ Release failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        if (typeof showToast === 'function') showToast('↻ Released #' + orderNumber);
+        if (typeof refreshPackQueue === 'function') {
+          await refreshPackQueue();
+          const myDevice = getPackDeviceId_();
+          const remaining = (_packQueueCache || []).filter(r => {
+            if (r.status === 'in_progress' && r.started_by === myDevice) return true;
+            if (r.status === 'checking' && r.checker_started_by === myDevice) return true;
+            return false;
+          });
+          if (remaining.length) showPackEosBanner_(remaining);
+          else dismissPackEosReminder_();
+        } else {
+          dismissPackEosReminder_();
+        }
+      } catch (e) {
+        if (typeof showToast === 'function') showToast('⚠ Release error: ' + (e.message || String(e)));
+      }
+    },
+  });
 }
 
 function dismissPackEosReminder_() {
@@ -2079,22 +2085,28 @@ function setPackScanState_(orderNumber, skuArr) {
 async function togglePackOrderPriority_(orderNumber, currentlyPriority) {
   const pin = prompt('Manager PIN to ' + (currentlyPriority ? 'CLEAR' : 'SET') + ' 1st-priority for order ' + orderNumber + ':');
   if (!pin) return;
-  try {
-    const res = await groundApi('setOrderPriority', {
-      orderNumber: orderNumber,
-      priority: !currentlyPriority,
-      manager_pin: pin,
-      deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '',
-    });
-    if (!res || !res.ok) { showToast('Priority: ' + ((res && res.error) || 'failed')); return; }
-    showToast(currentlyPriority ? '🔥 Cleared 1st-priority' : '🔥 Marked 1st-priority');
-    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
-    if (cached) cached.priority = !currentlyPriority;
-    // Re-open the detail to refresh the toggle state.
-    if (typeof openPackDetail === 'function' && String(_packDetailOrderNumber) === String(orderNumber)) {
-      openPackDetail(orderNumber);
-    }
-  } catch (e) { showToast('Priority error: ' + e.message); }
+  return _guardedAction_({
+    key: 'togglePriority:' + orderNumber,
+    btnSelector: 'button[onclick="togglePackOrderPriority_(\'' + orderNumber + '\',' + (currentlyPriority ? 'true' : 'false') + ')"]',
+    busyText: '⏳ Updating…',
+    action: async () => {
+      try {
+        const res = await groundApi('setOrderPriority', {
+          orderNumber: orderNumber,
+          priority: !currentlyPriority,
+          manager_pin: pin,
+          deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : '',
+        });
+        if (!res || !res.ok) { showToast('Priority: ' + ((res && res.error) || 'failed')); return; }
+        showToast(currentlyPriority ? '🔥 Cleared 1st-priority' : '🔥 Marked 1st-priority');
+        const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
+        if (cached) cached.priority = !currentlyPriority;
+        if (typeof openPackDetail === 'function' && String(_packDetailOrderNumber) === String(orderNumber)) {
+          openPackDetail(orderNumber);
+        }
+      } catch (e) { showToast('Priority error: ' + e.message); }
+    },
+  });
 }
 
 // v10.392 — pre-fetch the categorize map the moment SKUs are known, so by
@@ -2997,25 +3009,31 @@ function closePrePackCameraScan_() {
 // user explicitly taps the button — most-of-the-time the background
 // sweep heals these silently. Reopens Pack detail to repaint.
 async function refreshShopifyCustomerForOrder_(orderNumber) {
-  showToast('⏳ Pulling customer details from Shopify…');
-  try {
-    const res = await groundApi('runShopifyCustomerBackfillSweep', { limit: 1, only_order: String(orderNumber) });
-    if (!res || !res.ok) {
-      showToast('⚠ Refresh failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    // Re-fetch the row so the rendered customer fields update.
-    const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
-    if (boot && boot.ok && boot.row) {
-      const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
-      const idx = cache.findIndex(r => String(r.order_number) === String(orderNumber));
-      if (idx >= 0) cache[idx] = boot.row; else cache.unshift(boot.row);
-      if (typeof openPackDetail === 'function') openPackDetail(orderNumber);
-    }
-    showToast('✓ Customer pulled from Shopify');
-  } catch (e) {
-    showToast('Refresh error: ' + e.message);
-  }
+  return _guardedAction_({
+    key: 'shopifyRefresh:' + orderNumber,
+    btnSelector: 'button[onclick="refreshShopifyCustomerForOrder_(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Pulling…',
+    action: async () => {
+      showToast('⏳ Pulling customer details from Shopify…');
+      try {
+        const res = await groundApi('runShopifyCustomerBackfillSweep', { limit: 1, only_order: String(orderNumber) });
+        if (!res || !res.ok) {
+          showToast('⚠ Refresh failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        const boot = await groundApi('ensurePackQueueRowExists', { orderNumber: String(orderNumber) });
+        if (boot && boot.ok && boot.row) {
+          const cache = (typeof _packQueueCache !== 'undefined' && _packQueueCache) || [];
+          const idx = cache.findIndex(r => String(r.order_number) === String(orderNumber));
+          if (idx >= 0) cache[idx] = boot.row; else cache.unshift(boot.row);
+          if (typeof openPackDetail === 'function') openPackDetail(orderNumber);
+        }
+        showToast('✓ Customer pulled from Shopify');
+      } catch (e) {
+        showToast('Refresh error: ' + e.message);
+      }
+    },
+  });
 }
 
 // v10.314 — Zac: "aren't you supposed to be mapping to instructions
@@ -3566,38 +3584,52 @@ async function confirmReadyForCheck(orderNumber) {
 }
 
 async function claimPackCheck(orderNumber) {
-  try {
-    const res = await groundApi('claimPackCheckJob', {
-      orderNumber: orderNumber,
-      deviceId: getPackDeviceId_(),
-      checkerName: localStorage.getItem('mbd_ground_packer') || '',
-    });
-    if (!res || !res.ok) {
-      showToast('Could not start check: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    showToast('Checking order ' + orderNumber);
-    await refreshPackQueue();
-    openPackDetail(orderNumber);
-  } catch (err) {
-    showToast('Check claim error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'claimPackCheck:' + orderNumber,
+    btnSelector: 'button[onclick="claimPackCheck(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Claiming check…',
+    action: async () => {
+      try {
+        const res = await groundApi('claimPackCheckJob', {
+          orderNumber: orderNumber,
+          deviceId: getPackDeviceId_(),
+          checkerName: localStorage.getItem('mbd_ground_packer') || '',
+        });
+        if (!res || !res.ok) {
+          showToast('Could not start check: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        showToast('Checking order ' + orderNumber);
+        await refreshPackQueue();
+        openPackDetail(orderNumber);
+      } catch (err) {
+        showToast('Check claim error: ' + err.message);
+      }
+    },
+  });
 }
 
 async function releasePackCheck(orderNumber) {
   if (!confirm('Release the check on order ' + orderNumber + '? Status goes back to "ready for check" so another checker can pick it up.')) return;
-  try {
-    const res = await groundApi('releasePackCheckJob', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
-    if (!res || !res.ok) {
-      showToast('Release failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    showToast('Released — order ' + orderNumber + ' is back to "ready for check"');
-    if (typeof closePackDetail === 'function') closePackDetail();
-    await refreshPackQueue();
-  } catch (err) {
-    showToast('Release error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'releasePackCheck:' + orderNumber,
+    btnSelector: 'button[onclick="releasePackCheck(\'' + orderNumber + '\')"]',
+    busyText: '⏳ Releasing…',
+    action: async () => {
+      try {
+        const res = await groundApi('releasePackCheckJob', { orderNumber: orderNumber, deviceId: getPackDeviceId_() });
+        if (!res || !res.ok) {
+          showToast('Release failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        showToast('Released — order ' + orderNumber + ' is back to "ready for check"');
+        if (typeof closePackDetail === 'function') closePackDetail();
+        await refreshPackQueue();
+      } catch (err) {
+        showToast('Release error: ' + err.message);
+      }
+    },
+  });
 }
 
 // In-memory cache of the manager PIN — saved after one successful
@@ -9233,14 +9265,21 @@ async function openHoldsPanel(opts) {
 
 async function resumeHoldFromPanel_(orderId, orderNumber) {
   if (!confirm('Resume #' + orderNumber + ' to the Ground queue?')) return;
-  try {
-    const res = await groundApi('resumeOrderFromHold', { orderId: Number(orderId) });
-    if (!res || !res.ok) { showToast('Resume failed: ' + ((res && res.error) || 'unknown')); return; }
-    showToast('✓ #' + orderNumber + ' resumed');
-    openHoldsPanel();
-  } catch (err) {
-    showToast('Resume error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'resumeHold:' + orderNumber,
+    btnSelector: null,
+    busyText: '',
+    action: async () => {
+      try {
+        const res = await groundApi('resumeOrderFromHold', { orderId: Number(orderId) });
+        if (!res || !res.ok) { showToast('Resume failed: ' + ((res && res.error) || 'unknown')); return; }
+        showToast('✓ #' + orderNumber + ' resumed');
+        openHoldsPanel();
+      } catch (err) {
+        showToast('Resume error: ' + err.message);
+      }
+    },
+  });
 }
 
 // v10.472 — Confirms a SINGLE/TWIN sizing hold + resumes. Sets
@@ -9365,30 +9404,39 @@ async function _savePackerOverride(sku, orderId, orderNumber, pin) {
   if (!service) { showToast('Pick a service'); return; }
   let confirmedBy = '';
   try { confirmedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
-  try {
-    const res = await groundApi('savePackerOverride', {
-      sku: sku, max_qty: maxQty, box_sku: boxSku, weight_lb: weight,
-      carrier: carrier, service: service, label_text: labelText,
-      manager_pin: pin, created_by: confirmedBy,
-    });
-    if (!res || !res.ok) {
-      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
-      showToast('Save failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    // Also resume the hold so the order goes back to Ground.
-    try {
-      const rr = await groundApi('resumeOrderFromHold', { orderId: Number(orderId) });
-      if (rr && rr.ok) showToast('✓ Override saved + #' + orderNumber + ' resumed (' + (scope === 'oneshot' ? 'one-shot' : 'up to ' + maxQty + 'x') + ')');
-      else showToast('Override saved · resume failed: ' + ((rr && rr.error) || 'unknown'));
-    } catch (rrErr) {
-      showToast('Override saved · resume error: ' + rrErr.message);
-    }
-    document.getElementById('packerOverrideOverlay').remove();
-    if (typeof openHoldsPanel === 'function') openHoldsPanel();
-  } catch (err) {
-    showToast('Save error: ' + err.message);
-  }
+  // v10.513 — fires TWO chained calls (savePackerOverride + resumeOrderFromHold).
+  // Double-tap = 4 parallel requests + duplicate override rows.
+  return _guardedAction_({
+    key: 'savePackerOverride:' + (orderNumber || sku),
+    btnSelector: '#packerOverrideOverlay button.po-save-btn',
+    busyText: '⏳ Saving…',
+    action: async () => {
+      try {
+        const res = await groundApi('savePackerOverride', {
+          sku: sku, max_qty: maxQty, box_sku: boxSku, weight_lb: weight,
+          carrier: carrier, service: service, label_text: labelText,
+          manager_pin: pin, created_by: confirmedBy,
+        });
+        if (!res || !res.ok) {
+          if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
+          showToast('Save failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        try {
+          const rr = await groundApi('resumeOrderFromHold', { orderId: Number(orderId) });
+          if (rr && rr.ok) showToast('✓ Override saved + #' + orderNumber + ' resumed (' + (scope === 'oneshot' ? 'one-shot' : 'up to ' + maxQty + 'x') + ')');
+          else showToast('Override saved · resume failed: ' + ((rr && rr.error) || 'unknown'));
+        } catch (rrErr) {
+          showToast('Override saved · resume error: ' + rrErr.message);
+        }
+        const ov = document.getElementById('packerOverrideOverlay');
+        if (ov) ov.remove();
+        if (typeof openHoldsPanel === 'function') openHoldsPanel();
+      } catch (err) {
+        showToast('Save error: ' + err.message);
+      }
+    },
+  });
 }
 
 // v10.490 — Beacon-release handler. Manager confirms the Beacon-Hold
@@ -9407,23 +9455,30 @@ async function beaconReleaseFromPanel_(orderId, orderNumber) {
   if (!pin) return;
   let releasedBy = '';
   try { releasedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
-  try {
-    const res = await groundApi('markBeaconReleased', {
-      orderId: orderId,
-      orderNumber: orderNumber,
-      releasedBy: releasedBy,
-      manager_pin: pin,
-    });
-    if (!res || !res.ok) {
-      if (res && /pin/i.test(String(res.error || '')) && typeof clearManagerPin_ === 'function') clearManagerPin_();
-      showToast('Release failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    showToast(res.already_released ? '✓ #' + orderNumber + ' was already Bedrock-released' : '✓ #' + orderNumber + ' Bedrock-released');
-    if (typeof openHoldsPanel === 'function') openHoldsPanel();
-  } catch (err) {
-    showToast('Release error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'beaconRelease:' + orderNumber,
+    btnSelector: null,
+    busyText: '',
+    action: async () => {
+      try {
+        const res = await groundApi('markBeaconReleased', {
+          orderId: orderId,
+          orderNumber: orderNumber,
+          releasedBy: releasedBy,
+          manager_pin: pin,
+        });
+        if (!res || !res.ok) {
+          if (res && /pin/i.test(String(res.error || '')) && typeof clearManagerPin_ === 'function') clearManagerPin_();
+          showToast('Release failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        showToast(res.already_released ? '✓ #' + orderNumber + ' was already Bedrock-released' : '✓ #' + orderNumber + ' Bedrock-released');
+        if (typeof openHoldsPanel === 'function') openHoldsPanel();
+      } catch (err) {
+        showToast('Release error: ' + err.message);
+      }
+    },
+  });
 }
 
 async function confirmSizeAndResumeFromPanel_(orderId, orderNumber) {
@@ -9438,20 +9493,27 @@ async function confirmSizeAndResumeFromPanel_(orderId, orderNumber) {
   if (!ok) return;
   let confirmedBy = '';
   try { confirmedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
-  try {
-    const res = await groundApi('confirmSizeAndResume', {
-      orderId: Number(orderId),
-      confirmedBy: confirmedBy,
-    });
-    if (!res || !res.ok) {
-      showToast('Confirm failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    showToast('✓ #' + orderNumber + ' size confirmed + resumed');
-    openHoldsPanel();
-  } catch (err) {
-    showToast('Confirm error: ' + err.message);
-  }
+  return _guardedAction_({
+    key: 'confirmSize:' + orderNumber,
+    btnSelector: null,
+    busyText: '',
+    action: async () => {
+      try {
+        const res = await groundApi('confirmSizeAndResume', {
+          orderId: Number(orderId),
+          confirmedBy: confirmedBy,
+        });
+        if (!res || !res.ok) {
+          showToast('Confirm failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        showToast('✓ #' + orderNumber + ' size confirmed + resumed');
+        openHoldsPanel();
+      } catch (err) {
+        showToast('Confirm error: ' + err.message);
+      }
+    },
+  });
 }
 
 // v10.223 — permanent-delete a hold record. Per Zac 2026-05-22 20:00
@@ -10863,13 +10925,10 @@ async function _trackingComposerRefreshPreview_() {
 async function _trackingEmailSend_(orderNumber, ctxJsonStr) {
   let ctx = {};
   try { ctx = JSON.parse(ctxJsonStr); } catch (e) {}
-  // Pull any edited values out of the form.
   const toEl = document.getElementById('trackEmailTo');
   const ccEl = document.getElementById('trackEmailCc');
   if (toEl) ctx.recipient = toEl.value.trim();
   if (ccEl) ctx.installer_email = ccEl.value.trim();
-  // v10.415 — pull the FM agent fields too so the live form values
-  // win over the cached ctx.
   const fmNameEl = document.getElementById('trackEmailFmName');
   const fmPhoneEl = document.getElementById('trackEmailFmPhone');
   const fmSvcEl = document.getElementById('trackEmailFmService');
@@ -10878,35 +10937,39 @@ async function _trackingEmailSend_(orderNumber, ctxJsonStr) {
   if (fmSvcEl) ctx.fm_service = fmSvcEl.value;
   ctx.sent_by = getPackDeviceName_();
   if (!ctx.recipient) { showToast('Recipient required'); return; }
-
-  // v10.415 — persist FM agent BEFORE sending so the next pickup /
-  // re-open of this order sees the updated values + future autocomplete
-  // picks them up. Best-effort; a save failure shouldn't block the send.
-  try {
-    const fmChanged = (ctx.fm_agent_name || ctx.fm_agent_phone || ctx.fm_service);
-    if (fmChanged) {
-      await groundApi('saveFmAgent', {
-        orderNumber: orderNumber,
-        fm_agent_name: ctx.fm_agent_name || '',
-        fm_agent_phone: ctx.fm_agent_phone || '',
-        fm_service: ctx.fm_service || '',
-      });
-    }
-  } catch (eFm) { /* swallow — don't block send */ }
-
-  try {
-    const res = await groundApi('trackingEmailSend', { orderCtx: ctx });
-    if (!res || !res.ok) {
-      showToast('Send failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    const note = res.simulated ? ' (TRACKING_EMAIL_LIVE=false — logged but NOT sent)' : ' (sent)';
-    showToast('✓ Tracking email queued for ' + orderNumber + note);
-    const ov = document.getElementById('trackEmailOverlay');
-    if (ov) ov.remove();
-  } catch (err) {
-    showToast('Send error: ' + err.message);
-  }
+  // v10.513 — DOUBLE-TAP RISK: fires saveFmAgent + trackingEmailSend
+  // in sequence. Double-tap = duplicate customer email. Hard guard.
+  return _guardedAction_({
+    key: 'trackingEmailSend:' + orderNumber,
+    btnSelector: '#trackEmailOverlay button.amp-btn.go',
+    busyText: '📨 Sending…',
+    action: async () => {
+      try {
+        const fmChanged = (ctx.fm_agent_name || ctx.fm_agent_phone || ctx.fm_service);
+        if (fmChanged) {
+          await groundApi('saveFmAgent', {
+            orderNumber: orderNumber,
+            fm_agent_name: ctx.fm_agent_name || '',
+            fm_agent_phone: ctx.fm_agent_phone || '',
+            fm_service: ctx.fm_service || '',
+          });
+        }
+      } catch (eFm) { /* swallow — don't block send */ }
+      try {
+        const res = await groundApi('trackingEmailSend', { orderCtx: ctx });
+        if (!res || !res.ok) {
+          showToast('Send failed: ' + ((res && res.error) || 'unknown'));
+          return;
+        }
+        const note = res.simulated ? ' (TRACKING_EMAIL_LIVE=false — logged but NOT sent)' : ' (sent)';
+        showToast('✓ Tracking email queued for ' + orderNumber + note);
+        const ov = document.getElementById('trackEmailOverlay');
+        if (ov) ov.remove();
+      } catch (err) {
+        showToast('Send error: ' + err.message);
+      }
+    },
+  });
 }
 
 // Boot handler — if URL has ?openTracking=<order>, open the composer
