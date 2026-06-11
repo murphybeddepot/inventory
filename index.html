@@ -18229,10 +18229,10 @@ function openTagSizeChooser_(callback) {
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
   const opts = [
-    { mode: 'paper', insertW: 3, insertH: 1,    label: '3 × 1″ inserts',     sub: 'Letter paper, N-up grid' },
-    { mode: 'label', insertW: 3, insertH: 1,    label: '3 × 1″ inserts',     sub: '4×6 label, 8 per page → default printer' },
-    { mode: 'paper', insertW: 4, insertH: 1.75, label: '4 × 1¾″ inserts',    sub: 'Letter paper, N-up grid' },
-    { mode: 'label', insertW: 4, insertH: 1.75, label: '4 × 1¾″ inserts',    sub: '4×6 label, 3 per page → default printer' },
+    { mode: 'paper', insertW: 3, insertH: 1,    label: '3 × 1″ inserts',     sub: 'Uline S-12552 sheet (10 per page, fold-over)' },
+    { mode: 'label', insertW: 3, insertH: 1,    label: '3 × 1″ inserts',     sub: '4×6 label → default printer' },
+    { mode: 'paper', insertW: 4, insertH: 1.75, label: '4 × 1¾″ inserts',    sub: 'Uline S-15578 sheet (6 per page, fold-over)' },
+    { mode: 'label', insertW: 4, insertH: 1.75, label: '4 × 1¾″ inserts',    sub: '4×6 label → default printer' },
   ];
 
   let html = ''
@@ -18491,20 +18491,24 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
     return { code: String(it.code || ''), label: String(it.label || '') };
   }).filter(it => it.code);
 
-  // v10.530 — Letter-paper layout. The 3×1 option uses the Uline
-  // S-12552 sheet (3.5×1, 2 cols × 10 rows = 20 cells per sheet).
-  // Per Zac: print on every other row + leave the next row blank so
-  // each tag can be cut+folded for a 2-ply double-thickness insert.
-  // → 10 tags per sheet, each printed front + blank back.
-  // The 4×1¾ option uses a simple 2-up grid (no fold-over).
+  // v10.530/531 — Letter-paper layouts mirror Uline insert sheets:
+  //   3×1 option → S-12552 (3.5×1, 2 cols × 10 rows = 20 cells)
+  //   4×1¾ option → S-15578 (4×1.75, 2 cols × 6 rows = 12 cells)
+  // Both print on every other row, leaving the next row blank so
+  // each cut piece can be folded for a 2-ply double-thickness insert.
+  // → 10 tags/sheet (S-12552) or 6 tags/sheet (S-15578).
   const insertH = (layout && layout.insertH) || 1;
   const isS12552 = insertH < 1.5;
   const cellW = isS12552 ? 3.5 : 4;
   const cellH = isS12552 ? 1 : 1.75;
   const cols = 2;
   const rowsPerSheet = isS12552 ? 10 : 6;
-  const tagRowsPerSheet = isS12552 ? Math.floor(rowsPerSheet / 2) : rowsPerSheet;
+  const tagRowsPerSheet = Math.floor(rowsPerSheet / 2);
   const tagsPerSheet = tagRowsPerSheet * cols;
+  // S-12552: 0.5in side + 0.5in col gap. S-15578: 0.25in side + 0in gap (edge-to-edge).
+  const sheetPadX = isS12552 ? 0.5 : 0.25;
+  const sheetPadY = isS12552 ? 0.5 : 0.25;
+  const colGap = isS12552 ? 0.5 : 0;
   const qrPx = isS12552 ? 60 : 110;
   const descSize = isS12552 ? 9 : 12;
   const nameSize = isS12552 ? 11 : 18;
@@ -18515,10 +18519,10 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
     const sheetTags = tagItems.slice(s * tagsPerSheet, (s + 1) * tagsPerSheet);
     const cells = [];
     for (let r = 0; r < rowsPerSheet; r++) {
-      const isPrintRow = !isS12552 || (r % 2 === 0);
+      const isPrintRow = (r % 2 === 0);
       for (let c = 0; c < cols; c++) {
         if (isPrintRow) {
-          const tagIdx = isS12552 ? (r / 2) * cols + c : r * cols + c;
+          const tagIdx = (r / 2) * cols + c;
           const it = sheetTags[tagIdx];
           if (it) {
             cells.push('<div class="label">'
@@ -18544,9 +18548,9 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
     'body{margin:0;font-family:Helvetica,Arial,sans-serif;background:#fff;color:#000}',
     'h1{font-size:14px;margin:6px 12px}',
     '.hint{font-size:11px;color:#666;margin:0 12px 8px;text-align:center}',
-    '.sheet{page-break-after:always;padding:0.5in 0.5in;box-sizing:border-box;width:8.5in;height:11in}',
+    '.sheet{page-break-after:always;padding:' + sheetPadY + 'in ' + sheetPadX + 'in;box-sizing:border-box;width:8.5in;height:11in}',
     '.sheet:last-child{page-break-after:auto}',
-    '.grid{display:grid;grid-template-columns:repeat(' + cols + ',' + cellW + 'in);grid-template-rows:repeat(' + rowsPerSheet + ',' + cellH + 'in);column-gap:0.5in;row-gap:0;justify-content:center}',
+    '.grid{display:grid;grid-template-columns:repeat(' + cols + ',' + cellW + 'in);grid-template-rows:repeat(' + rowsPerSheet + ',' + cellH + 'in);column-gap:' + colGap + 'in;row-gap:0;justify-content:center}',
     '.label{width:' + cellW + 'in;height:' + cellH + 'in;box-sizing:border-box;padding:4px;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;overflow:hidden;border:1px dashed #ccc}',
     '.label.blank{border:1px dashed #eee}',
     '.label.blank.fold{border-top:1px dashed #999;border-bottom:1px dashed #999}',
@@ -18554,7 +18558,7 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
     '.txt{flex:1;min-width:0;text-align:center;line-height:1.15}',
     '.desc{font-size:' + descSize + 'px;font-weight:700;color:#1a1a1a;font-family:Helvetica,Arial,sans-serif;word-break:break-word}',
     '.name{font-size:' + nameSize + 'px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;font-family:Helvetica,Arial,sans-serif;word-break:break-all;margin-top:2px}',
-    '@media print{.hint,h1{display:none}.label{border:none}.label.blank{border:none}.sheet{padding:0.5in 0.5in}}',
+    '@media print{.hint,h1{display:none}.label{border:none}.label.blank{border:none}}',
     '@page{size:letter;margin:0}',
     '</style></head><body>',
     '<h1>' + heading + '</h1>',
@@ -19861,7 +19865,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.530"></script>
+<script src="./pack.js?v=10.531"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -19872,7 +19876,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.530<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.531<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
