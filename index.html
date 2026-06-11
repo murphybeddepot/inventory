@@ -18332,6 +18332,7 @@ async function openSkuTagPicker_() {
     + '<div style="font-size:18px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">SKU Barcode Tags</div>'
     + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666;margin-top:2px">Tap to select. Print → cut → hang on bins/shelves.</div>'
     + '</div>'
+    + '<button id="skuTagSelectAllBtn" style="background:#fff !important;-webkit-text-fill-color:#1a1a1a;border:1.5px solid #1a1a1a;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;color:#1a1a1a !important">Select all</button>'
     + '<button id="skuTagCloseBtn" style="background:#eee !important;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:6px;width:38px;height:38px;font-size:20px;cursor:pointer;color:#1a1a1a !important">✕</button>'
     + '</div>'
     + '<div style="padding:10px 14px;border-bottom:1px solid #e0e0e0;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">'
@@ -18384,8 +18385,14 @@ async function openSkuTagPicker_() {
     btn.style.opacity = selected.size === 0 ? '0.5' : '1';
   }
 
-  function sectionHtml_(label, items) {
-    let h = '<div style="font-family:Barlow Condensed,Arial,sans-serif;font-size:13px;font-weight:900;color:#888 !important;-webkit-text-fill-color:#888;margin:10px 0 4px;text-transform:uppercase;letter-spacing:1.5px">' + esc(label) + '</div>';
+  function sectionHtml_(label, items, sectionKey) {
+    let h = '<div style="display:flex;align-items:center;gap:8px;margin:12px 0 4px">';
+    h += '<div style="flex:1;font-family:Barlow Condensed,Arial,sans-serif;font-size:13px;font-weight:900;color:#888 !important;-webkit-text-fill-color:#888;text-transform:uppercase;letter-spacing:1.5px">' + esc(label) + '</div>';
+    if (sectionKey === 'recent') {
+      h += '<button data-clear-recents style="padding:5px 10px;background:#fff !important;color:#d32f2f !important;-webkit-text-fill-color:#d32f2f;border:1.5px solid #f5b5b5;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">× Clear</button>';
+    }
+    h += '<button data-section-all="' + esc(sectionKey || '') + '" style="padding:5px 10px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">+ All</button>';
+    h += '</div>';
     items.forEach(it => {
       h += '<div data-code="' + esc(it.code) + '" style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:6px;cursor:pointer;border:1px solid #e8e8e8;margin-bottom:4px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">';
       h += '<div data-check style="width:22px;height:22px;border:2px solid #1a1a1a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;flex-shrink:0;background:#fff !important"></div>';
@@ -18400,14 +18407,24 @@ async function openSkuTagPicker_() {
     return h;
   }
 
+  let currentFilter = '';
+  let visibleCodes = []; // codes shown across all sections after filter
+  const sectionCodes = {}; // sectionKey → [codes]
+
   function render(filter) {
+    currentFilter = filter || '';
     const body = document.getElementById('skuTagBody');
     if (!body) return;
-    const q = (filter || '').trim().toLowerCase();
+    const q = currentFilter.trim().toLowerCase();
     let html = '';
+    visibleCodes = [];
+    Object.keys(sectionCodes).forEach(k => delete sectionCodes[k]);
 
     if (recents.length && !q) {
-      html += sectionHtml_('Recently Printed', recents.map(c => ({ code: c, name: '', description: '' })));
+      const recentItems = recents.map(c => ({ code: c, name: '', description: '' }));
+      sectionCodes['recent'] = recents.slice();
+      visibleCodes.push.apply(visibleCodes, recents);
+      html += sectionHtml_('Recently Printed', recentItems, 'recent');
     }
 
     (catalog.groups || []).forEach(group => {
@@ -18419,10 +18436,36 @@ async function openSkuTagPicker_() {
           (it.description || '').toLowerCase().includes(q)
         );
       }
-      if (items.length) html += sectionHtml_(group.label, items);
+      if (items.length) {
+        const codes = items.map(it => it.code);
+        sectionCodes[group.key] = codes;
+        visibleCodes.push.apply(visibleCodes, codes);
+        html += sectionHtml_(group.label, items, group.key);
+      }
     });
 
     body.innerHTML = html || '<div style="padding:30px 10px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666">No matches</div>';
+
+    body.querySelectorAll('[data-section-all]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const key = btn.dataset.sectionAll;
+        const codes = sectionCodes[key] || [];
+        codes.forEach(c => selected.add(c));
+        render(currentFilter);
+        updatePrintBtn();
+      });
+    });
+    body.querySelectorAll('[data-clear-recents]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        recents = [];
+        localStorage.setItem('mbd_sku_tag_recents', '[]');
+        // De-select any codes that were ONLY in the recent section.
+        render(currentFilter);
+        updatePrintBtn();
+      });
+    });
 
     body.querySelectorAll('[data-code]').forEach(el => {
       const code = el.dataset.code;
@@ -18446,6 +18489,17 @@ async function openSkuTagPicker_() {
   }
 
   document.getElementById('skuTagSearch').addEventListener('input', e => render(e.target.value));
+
+  document.getElementById('skuTagSelectAllBtn').onclick = () => {
+    const allSelected = visibleCodes.length > 0 && visibleCodes.every(c => selected.has(c));
+    if (allSelected) {
+      visibleCodes.forEach(c => selected.delete(c));
+    } else {
+      visibleCodes.forEach(c => selected.add(c));
+    }
+    render(currentFilter);
+    updatePrintBtn();
+  };
 
   function addCustom() {
     const inp = document.getElementById('skuTagCustom');
@@ -19865,7 +19919,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.531"></script>
+<script src="./pack.js?v=10.532"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -19876,7 +19930,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.531<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.532<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
