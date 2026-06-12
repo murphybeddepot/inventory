@@ -3168,7 +3168,21 @@ function renderOrdersTab() {
     // Other lenses — clean up the schedule-toggle if it's stale
     const toggleEl = document.getElementById('ordersScheduleViewToggle');
     if (toggleEl) toggleEl.remove();
-    list.innerHTML = filtered.map(o => _renderOrdersCardHtml_(o, lens)).join('');
+    let bodyHtml = filtered.map(o => _renderOrdersCardHtml_(o, lens)).join('');
+    // v10.534 — Pack lens: append an "Upcoming" panel listing in-flight
+    // orders NOT currently on today's active list, with a one-tap
+    // "+ Today" button per row. Auto-roll (server-side) handles the
+    // next-day case; this is the manual override surface.
+    if (lens === 'pack') {
+      const inflightStatuses = { pack_today: 1, pack_in_progress: 1 };
+      const upcomingRows = orders.filter(o => o
+        && !o.is_on_active_list
+        && inflightStatuses[String(o.pipeline_status || '')]);
+      if (upcomingRows.length) {
+        bodyHtml += _renderOrdersUpcomingHtml_(upcomingRows);
+      }
+    }
+    list.innerHTML = bodyHtml;
   }
   // (v10.336 below — bump pack.js cache-bust after the syntax-fix.)
   // v10.335 — Pack Today lens gets a "Plan Today's Route" button.
@@ -4151,6 +4165,52 @@ async function _openSetCabPrompt_(orderNumber) {
   } catch (e) {
     showToast('Set Cab error: ' + ((e && e.message) || e));
   }
+}
+
+// v10.534 — render the "Upcoming" panel inside the Orders-tab Pack
+// lens. Rows are in-flight pipeline orders not on today's active
+// list. Each gets a "+ Today" button that flips on_active_list via
+// the same addOrderByNumber path as the legacy Pack tab. Persists
+// open/closed in localStorage so the manager doesn't have to keep
+// re-expanding it.
+function _renderOrdersUpcomingHtml_(rows) {
+  if (!rows || !rows.length) return '';
+  const openKey = 'mbd_orders_pack_upcoming_open';
+  const isOpen = localStorage.getItem(openKey) === '1';
+  let h = '';
+  h += '<div style="margin:18px 0 0;border:1.5px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.03);overflow:hidden">';
+  h += '<button onclick="_toggleOrdersUpcoming_(this)" style="width:100%;background:transparent;color:var(--text);-webkit-text-fill-color:var(--text);border:none;padding:12px 14px;font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:10px;text-align:left;letter-spacing:.4px;text-transform:uppercase">';
+  h += '<span style="font-size:14px;color:var(--text-dim)">' + (isOpen ? '▾' : '▸') + '</span>';
+  h += '<span style="flex:1">Upcoming · ' + rows.length + '</span>';
+  h += '<span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:none;letter-spacing:.2px">not on today’s list</span>';
+  h += '</button>';
+  h += '<div data-upcoming-body style="display:' + (isOpen ? 'block' : 'none') + ';padding:6px 12px 12px;border-top:1px solid rgba(255,255,255,.08)">';
+  rows.forEach(o => {
+    const on = String(o.order_number || '');
+    const ship = String(o.ship_date || '');
+    const cust = String(o.customer_name || o.cal_label || '').slice(0, 60);
+    const pStat = String(o.pipeline_status || '');
+    h += '<div style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid rgba(255,255,255,.06)">';
+    h += '<div style="flex:1;min-width:0">';
+    h += '<div style="font-weight:800;font-size:14px;color:var(--text);-webkit-text-fill-color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + esc(on) + (cust ? ' · ' + esc(cust) : '') + '</div>';
+    h += '<div style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (ship ? 'ship ' + esc(ship) : 'no ship date') + (pStat ? ' · ' + esc(pStat) : '') + '</div>';
+    h += '</div>';
+    h += '<button onclick="addUpcomingToToday_(\'' + esc(on) + '\')" style="background:var(--green-bright);color:#000;-webkit-text-fill-color:#000;border:none;border-radius:6px;padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0">+ Today</button>';
+    h += '</div>';
+  });
+  h += '</div></div>';
+  return h;
+}
+
+function _toggleOrdersUpcoming_(btn) {
+  const panel = btn.parentElement;
+  const body = panel.querySelector('[data-upcoming-body]');
+  if (!body) return;
+  const nowOpen = body.style.display === 'none';
+  body.style.display = nowOpen ? 'block' : 'none';
+  const chev = btn.querySelector('span');
+  if (chev) chev.textContent = nowOpen ? '▾' : '▸';
+  localStorage.setItem('mbd_orders_pack_upcoming_open', nowOpen ? '1' : '0');
 }
 
 function _filterOrdersForLens_(orders, lens) {
@@ -19920,7 +19980,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.533"></script>
+<script src="./pack.js?v=10.535"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -19931,7 +19991,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.533<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.535<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
