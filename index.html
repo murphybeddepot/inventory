@@ -4389,6 +4389,19 @@ function _filterOrdersForLens_(orders, lens) {
 
 function _renderOrdersCardHtml_(o, lens) {
   const orderNum = esc(String(o.order_number || '?'));
+  // v10.540 — Zac: stock orders should show the cabinet ID right
+  // next to the order number on every lens (e.g. "32141 / D271").
+  // Mirrors the regex used by _resolveOrderCabinets_ / cover-page
+  // builder. First match wins; MTO orders (no stock token) get no
+  // suffix here since the order# IS the cabinet identifier.
+  let stockCabSuffix = '';
+  try {
+    const _tline = String(o.task_line || '') + ' ' + String(o.cal_label || '');
+    const _stockMatches = _tline.match(/\b(?:D|STK|C|E)\d{2,4}(?:-[A-Z0-9]+)?\b/gi);
+    if (_stockMatches && _stockMatches.length) {
+      stockCabSuffix = ' <span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:700;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);letter-spacing:.3px">/ ' + esc(_stockMatches[0].toUpperCase()) + '</span>';
+    }
+  } catch (e) {}
   const ship = esc(o.ship_date || '—');
   // v10.340 — Zac: "on schedule you again (like the old version) have
   // a mix of customer names and gcal descriptive event titles below
@@ -4759,7 +4772,7 @@ function _renderOrdersCardHtml_(o, lens) {
     + ' style="cursor:pointer;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;transition:background .12s,border-color .12s" onmouseover="this.style.background=\'rgba(255,255,255,.06)\';this.style.borderColor=\'rgba(0,230,118,.35)\'" onmouseout="this.style.background=\'rgba(255,255,255,.03)\';this.style.borderColor=\'rgba(255,255,255,.10)\'">'
     +   '<div style="min-width:0;flex:1">'
     +     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-    +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);letter-spacing:.5px">' + orderNum + '</span>'
+    +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:var(--text);letter-spacing:.5px">' + orderNum + stockCabSuffix + '</span>'
     +       spineStatusChip
     +       statusPillHtml
     +       cabAvailabilityHtml
@@ -20109,7 +20122,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.539"></script>
+<script src="./pack.js?v=10.540"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20120,7 +20133,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.539<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.540<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
