@@ -3369,19 +3369,39 @@ async function _runBulkPrintInstructions_(mode) {
     + (picks.length === 1 ? '' : 's') + '…');
   let instOk = 0, instFail = 0, pickOk = 0;
   const pickFailDetail = [];
+  // v10.559 — when both instructions AND pick list are requested,
+  // route through the combined-PDF path (one PrintNode job per order)
+  // so the Brother's auto-stapler can't group pick list with the next
+  // order's instructions. When only one of the two is requested,
+  // keep the existing single-source path.
+  const useCombined = doInstructions && doPickList;
   for (const ord of picks) {
-    if (doInstructions) {
+    if (useCombined) {
       try {
-        await printInstructionsLink_(ord);
-        instOk++;
-      } catch (e) { instFail++; }
-    }
-    if (doPickList) {
-      try {
-        const pr = await printPickListOnly_(ord);
-        if (pr && pr.ok) pickOk++;
-        else pickFailDetail.push('#' + ord + ': ' + ((pr && pr.error) || 'unknown'));
-      } catch (e) { pickFailDetail.push('#' + ord + ': ' + (e.message || e)); }
+        const res = (typeof printInstructionsAndPickListCombined_ === 'function')
+          ? await printInstructionsAndPickListCombined_(ord)
+          : null;
+        if (res && res.ok) { instOk++; pickOk++; }
+        else {
+          instFail++;
+          pickFailDetail.push('#' + ord + ': ' + ((res && res.error) || 'combined helper missing'));
+        }
+      } catch (e) {
+        instFail++;
+        pickFailDetail.push('#' + ord + ': ' + (e.message || e));
+      }
+    } else {
+      if (doInstructions) {
+        try { await printInstructionsLink_(ord); instOk++; }
+        catch (e) { instFail++; }
+      }
+      if (doPickList) {
+        try {
+          const pr = await printPickListOnly_(ord);
+          if (pr && pr.ok) pickOk++;
+          else pickFailDetail.push('#' + ord + ': ' + ((pr && pr.error) || 'unknown'));
+        } catch (e) { pickFailDetail.push('#' + ord + ': ' + (e.message || e)); }
+      }
     }
     // Small pause between print jobs so the user can see banner updates.
     await new Promise(r => setTimeout(r, 600));
@@ -20304,7 +20324,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.558"></script>
+<script src="./pack.js?v=10.559"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20315,7 +20335,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.558<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.559<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

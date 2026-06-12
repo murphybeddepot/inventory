@@ -3389,22 +3389,114 @@ async function printPickListOnlyForOrder_(orderNumber) {
   }
 }
 
-// v10.543 — convenience wrapper: run printInstructionsLink_ AND
-// printPickListOnly_ in parallel. The instructions print uses the
-// existing cover-stamp + PrintNode flow; the pick list is a separate
-// raw PDF submission. Toast announces each result.
+// v10.559 — Zac flagged the Brother's auto-stapler grouping each
+// order's pick list with the NEXT order's instructions during bulk
+// print. Root cause: pick list and instructions were submitted as
+// two separate PrintNode jobs ~milliseconds apart; the printer's
+// time-window stapler treated the gap between A_pick and B_inst as
+// shorter than the gap between A_inst and A_pick + A_pick alone (a
+// single-page job didn't trigger a clean staple boundary).
+//
+// Fix: merge cover + instructions + pick list into ONE PDF per
+// order, submit as a single PrintNode job. One job = one staple
+// packet. No timing fragility.
+async function printInstructionsAndPickListCombined_(orderNumber) {
+  const orderStr = String(orderNumber || '').trim();
+  if (!orderStr) return { ok: false, error: 'orderNumber required' };
+  // Source the row from either cache (pipeline preferred — Orders tab).
+  const cached = (typeof getCachedPipelineOrder === 'function')
+    ? getCachedPipelineOrder(orderStr)
+    : ((typeof _packQueueCache !== 'undefined' && Array.isArray(_packQueueCache))
+        ? _packQueueCache.find(r => String(r.order_number) === orderStr) : null);
+  if (!cached) return { ok: false, error: '#' + orderStr + ' not in cache — refresh first' };
+
+  // Need both the instructions URL and pick list URL. Resolve the
+  // instructions URL the same way printInstructionsLink_ does (INST-*
+  // SKUs → InstructionsMap), but inline so we don't double-prompt the
+  // UI banner.
+  let instructionsUrl = '';
+  try {
+    const arr = JSON.parse(String(cached.sku_lines_json || '[]'));
+    const instSkus = Array.isArray(arr)
+      ? Array.from(new Set(arr.map(it => String((it && it.sku) || '').trim().toUpperCase()).filter(s => /^INST-/.test(s))))
+      : [];
+    if (instSkus.length) {
+      const resolveRes = await groundApi('resolveInstructionsForSkus', { skus: instSkus });
+      if (resolveRes && resolveRes.ok && Array.isArray(resolveRes.hits) && resolveRes.hits.length) {
+        instructionsUrl = resolveRes.hits[0].pdf_url;
+      }
+    }
+  } catch (e) { /* swallow — fall back to pick_list_pdf_url below */ }
+  if (!instructionsUrl) instructionsUrl = String(cached.instructions_pdf_url || '').trim();
+
+  const pickListUrl = String(cached.pick_list_pdf_url || '').trim();
+  if (!instructionsUrl && !pickListUrl) {
+    return { ok: false, error: 'no instructions or pick list URL for #' + orderStr };
+  }
+
+  try {
+    showToast('🛠 Building combined packet for #' + orderStr + '…');
+    const coverBytes = await buildPackCoverPagePdf_(cached);
+    let instructionsBytes = null;
+    let pickListBytes = null;
+    if (instructionsUrl) {
+      try { instructionsBytes = await packFetchPdfBytes_(instructionsUrl); }
+      catch (e) { console.warn('combined: instructions fetch failed', e); }
+    }
+    if (pickListUrl) {
+      try { pickListBytes = await packFetchPdfBytes_(pickListUrl); }
+      catch (e) { console.warn('combined: pick list fetch failed', e); }
+    }
+    const merged = await mergeCoverInstructionsPickList_(coverBytes, instructionsBytes, pickListBytes);
+    const base64 = uint8ToBase64_(merged);
+    return await groundApi('printRawPackPdf', {
+      orderNumber: orderStr,
+      base64: base64,
+      jobTitle: 'MBD Pack ' + orderStr + ' — combined (inst + pick list)',
+    });
+  } catch (e) {
+    return { ok: false, error: 'combined print error: ' + (e.message || e) };
+  }
+}
+
+// v10.559 — merge cover + instructions + pick list into one PDF.
+// Blank duplex spacers between each so duplex output starts each
+// document on a clean sheet. Pick list flows last so the operator
+// can tear off the cover/instructions packet and keep the pick list
+// for grab-and-pack reference if the workflow prefers.
+async function mergeCoverInstructionsPickList_(coverBytes, instructionsBytes, pickListBytes) {
+  const PDFLib = await loadPdfLib_();
+  const out = await PDFLib.PDFDocument.create();
+  if (coverBytes) {
+    const cover = await PDFLib.PDFDocument.load(coverBytes);
+    const pages = await out.copyPages(cover, cover.getPageIndices());
+    pages.forEach(p => out.addPage(p));
+    out.addPage([612, 792]);
+  }
+  if (instructionsBytes) {
+    const inst = await PDFLib.PDFDocument.load(instructionsBytes, { ignoreEncryption: true });
+    const pages = await out.copyPages(inst, inst.getPageIndices());
+    pages.forEach(p => out.addPage(p));
+    if (pickListBytes) out.addPage([612, 792]);
+  }
+  if (pickListBytes) {
+    const pick = await PDFLib.PDFDocument.load(pickListBytes, { ignoreEncryption: true });
+    const pages = await out.copyPages(pick, pick.getPageIndices());
+    pages.forEach(p => out.addPage(p));
+  }
+  return await out.save();
+}
+
+// v10.543 — convenience wrapper: now routes through the v10.559
+// combined-packet path so the staple boundary is unambiguous.
 async function printInstructionsAndPickList_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return;
-  showToast('📥 Sending instructions + pick list for #' + orderStr + '…');
-  const [_, pickRes] = await Promise.all([
-    printInstructionsLink_(orderStr),
-    printPickListOnly_(orderStr),
-  ]);
-  if (pickRes && pickRes.ok) {
-    showToast('✓ Pick list sent (#' + orderStr + ')');
+  const res = await printInstructionsAndPickListCombined_(orderStr);
+  if (res && res.ok) {
+    showToast('✓ Instructions + pick list sent (#' + orderStr + ', job ' + (res.job_id || '?') + ')');
   } else {
-    showToast('⚠ Pick list: ' + ((pickRes && pickRes.error) || 'unknown'));
+    showToast('⚠ Combined print: ' + ((res && res.error) || 'unknown'));
   }
 }
 
