@@ -3238,23 +3238,47 @@ function renderOrdersTab() {
     const printBtn = (filtered.length > 0)
       ? '<button onclick="_openBulkPrintInstructionsPicker_(\'' + lens + '\')" style="padding:10px 18px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px">🖨 Print Instructions…</button>'
       : '';
-    // v10.455 — Update List: manager PIN gated; loads next N orders by
-    // ship_date that aren't yet flagged on_active_list. Re-renders on
-    // success so the new orders surface immediately.
-    const updateBtn = (lens === 'pack')
+    // v10.541 / v10.557 — Update List + Add Orders + Clear List now
+    // render on BOTH Pack and Pre-Pack lenses (was Pack-only). Zac
+    // flagged adding from Pre-Pack put orders on Pack Today; that's
+    // actually correct behavior (lens membership is computed from
+    // order state — HW-needs-kitting = Pre-Pack; no kit = Pack) but
+    // hiding the buttons from Pre-Pack forced people to switch lenses.
+    // All three actions flip on_active_list=TRUE; the order lands on
+    // whichever lens its data matches.
+    const showActiveListActions = (lens === 'pack' || lens === 'prepack');
+    const updateBtn = showActiveListActions
       ? '<button onclick="addToTodaysListPrompt(); setTimeout(()=>refreshOrderPipeline({force:true}).then(()=>renderOrdersTab()), 1200)" style="padding:10px 18px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Manager: load the next N pack-eligible orders onto today\'s list">↻ Update List</button>'
       : '';
-    // v10.541 — Orders-tab Pack lens parity with the legacy Pack tab:
-    // "+ Add Order #" and "↺ Clear List". Both already wired in pack.js
-    // (addOrderByNumberPrompt / resetTodaysPackList) and reuse the
-    // existing PIN-cache + server endpoints.
-    const addOrderBtn = (lens === 'pack')
-      ? '<button onclick="batchAddOrdersPrompt(); setTimeout(()=>refreshOrderPipeline({force:true}).then(()=>renderOrdersTab()), 1200)" style="padding:10px 18px;background:#42a5f5;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Add one or more orders to today\'s list (paste numbers separated by commas / spaces / newlines)">+ Add Orders</button>'
+    const addOrderBtn = showActiveListActions
+      ? '<button onclick="batchAddOrdersPrompt(); setTimeout(()=>refreshOrderPipeline({force:true}).then(()=>renderOrdersTab()), 1200)" style="padding:10px 18px;background:#42a5f5;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Add one or more orders to today\'s active list (paste numbers separated by commas / spaces / newlines). They\'ll land on Pre-Pack OR Pack depending on whether they have a hardware kit needing pre-pack.">+ Add Orders</button>'
       : '';
-    const clearListBtn = (lens === 'pack')
-      ? '<button onclick="resetTodaysPackList(); setTimeout(()=>refreshOrderPipeline({force:true}).then(()=>renderOrdersTab()), 1200)" style="padding:10px 18px;background:#8B0000;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Remove every in-flight order from today\'s list (reversible — orders move to Upcoming)">↺ Clear List</button>'
+    const clearListBtn = showActiveListActions
+      ? '<button onclick="resetTodaysPackList(); setTimeout(()=>refreshOrderPipeline({force:true}).then(()=>renderOrdersTab()), 1200)" style="padding:10px 18px;background:#8B0000;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Remove every in-flight order from today\'s active list (reversible — orders move to Upcoming)">↺ Clear List</button>'
       : '';
     topActionsEl.innerHTML = updateBtn + addOrderBtn + printBtn + routeBtn + clearListBtn;
+
+    // v10.557 — one-time info banner on Pre-Pack lens explaining that
+    // some Add-Orders results land on Pack Today instead. Dismissed
+    // forever once acked via localStorage.
+    if (lens === 'prepack') {
+      const ackKey = 'mbd_prepack_lens_info_acked';
+      try {
+        if (!localStorage.getItem(ackKey)) {
+          const info = document.createElement('div');
+          info.id = 'ordersPrepackInfoBanner';
+          info.style.cssText = 'margin-bottom:10px;padding:10px 14px;background:rgba(66,165,245,.10);border:1px solid rgba(66,165,245,.40);border-radius:8px;color:#cfe8ff;-webkit-text-fill-color:#cfe8ff;font-size:12px;line-height:1.45;display:flex;align-items:start;gap:10px';
+          info.innerHTML = '<span style="font-size:18px;flex-shrink:0;line-height:1">ℹ</span>'
+            + '<div style="flex:1"><strong>Pre-Pack vs Pack Today is data-driven, not a separate flag.</strong> '
+            + 'When you Add Orders here, each one lands on Pre-Pack Today only if it has a hardware kit to pre-pack '
+            + '(<code style="background:rgba(0,0,0,.30);padding:1px 4px;border-radius:3px;font-size:11px">hw_needs_count &gt; 0</code> + '
+            + '<code style="background:rgba(0,0,0,.30);padding:1px 4px;border-radius:3px;font-size:11px">hardware_packed_at</code> empty + ship date in window). '
+            + 'Otherwise it lands on Pack Today directly. Both come from the same Add Orders action.</div>'
+            + '<button onclick="localStorage.setItem(\'' + ackKey + '\',\'1\');this.parentElement.remove()" style="background:transparent;color:#cfe8ff;-webkit-text-fill-color:#cfe8ff;border:1px solid rgba(255,255,255,.30);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">Got it</button>';
+          topActionsEl.parentNode.insertBefore(info, topActionsEl.nextSibling);
+        }
+      } catch (e) {}
+    }
   } else if (topActionsEl) {
     topActionsEl.remove();
   }
@@ -3296,8 +3320,8 @@ function _openBulkPrintInstructionsPicker_(lens) {
     return '<label style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px;margin-bottom:5px;cursor:pointer">'
       + '<input type="checkbox" class="bulkPrintCheck" data-order="' + ord + '" data-has-pick-list="' + (String(o.pick_list_pdf_url || '').trim() ? '1' : '0') + '" style="width:20px;height:20px;flex-shrink:0;accent-color:#00C853">'
       + '<div style="flex:1;min-width:0">'
-      +   '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900">' + ord + '</span>' + printed + noPickListBadge + '</div>'
-      +   '<div style="font-size:12px;color:rgba(255,255,255,.65);margin-top:2px">' + sub + ' · 📅 ' + ship + '</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff;letter-spacing:.5px">' + ord + '</span>' + printed + noPickListBadge + '</div>'
+      +   '<div style="font-size:12px;color:#cfd8dc;-webkit-text-fill-color:#cfd8dc;margin-top:2px">' + sub + ' · 📅 ' + ship + '</div>'
       + '</div>'
       + '</label>';
   }).join('');
@@ -20258,7 +20282,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.556"></script>
+<script src="./pack.js?v=10.557"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20269,7 +20293,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.556<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.557<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
