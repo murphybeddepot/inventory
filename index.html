@@ -3288,10 +3288,15 @@ function _openBulkPrintInstructionsPicker_(lens) {
     const printed = o.instructions_printed_at
       ? '<span style="font-size:10px;color:#00e676;-webkit-text-fill-color:#00e676;margin-left:6px">✓ printed ' + esc(String(o.instructions_printed_at).slice(0, 10)) + '</span>'
       : '<span style="font-size:10px;color:#FFB300;-webkit-text-fill-color:#FFB300;margin-left:6px">not yet printed</span>';
+    // v10.549 — surface upfront which rows are missing pick_list_pdf_url
+    // so the operator doesn't tap "Print pick list" expecting success.
+    const noPickListBadge = !String(o.pick_list_pdf_url || '').trim()
+      ? '<span style="font-size:10px;color:#ff5252;-webkit-text-fill-color:#ff5252;margin-left:6px;padding:1px 6px;background:rgba(255,82,82,.10);border:1px solid rgba(255,82,82,.45);border-radius:999px" title="No pick_list_pdf_url on this row — the pick-list-only path will fail for it. Set the URL via the order detail to enable.">⚠ no pick list URL</span>'
+      : '';
     return '<label style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px;margin-bottom:5px;cursor:pointer">'
-      + '<input type="checkbox" class="bulkPrintCheck" data-order="' + ord + '" style="width:20px;height:20px;flex-shrink:0;accent-color:#00C853">'
+      + '<input type="checkbox" class="bulkPrintCheck" data-order="' + ord + '" data-has-pick-list="' + (String(o.pick_list_pdf_url || '').trim() ? '1' : '0') + '" style="width:20px;height:20px;flex-shrink:0;accent-color:#00C853">'
       + '<div style="flex:1;min-width:0">'
-      +   '<div style="display:flex;align-items:center;gap:8px"><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900">' + ord + '</span>' + printed + '</div>'
+      +   '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900">' + ord + '</span>' + printed + noPickListBadge + '</div>'
       +   '<div style="font-size:12px;color:rgba(255,255,255,.65);margin-top:2px">' + sub + ' · 📅 ' + ship + '</div>'
       + '</div>'
       + '</label>';
@@ -3361,12 +3366,79 @@ async function _runBulkPrintInstructions_(mode) {
   if (doInstructions) summary += '✓ ' + instOk + ' inst sent' + (instFail ? ' · ' + instFail + ' failed' : '');
   if (doPickList) summary += (summary ? ' · ' : '✓ ') + 'pick list ' + pickOk + (pickFailDetail.length ? '/' + pickFailDetail.length + ' failed' : '');
   showToast(summary);
-  // If any pick list failed, log a per-order breakdown so the operator
-  // (and the console) can see WHY — empty pick_list_pdf_url is the most
-  // common cause for gcal-bootstrapped rows.
+  // v10.549 — replace the easy-to-miss delayed-toast failure summary
+  // with a sticky in-page banner. Stays until the operator dismisses
+  // (8s auto-fade if untouched), lists every per-order error reason,
+  // and offers a "Set pick list URL" link for the common "no
+  // pick_list_pdf_url" case.
   if (pickFailDetail.length) {
     console.warn('Pick list print failures:\n' + pickFailDetail.join('\n'));
-    setTimeout(() => showToast('Pick list failures: ' + pickFailDetail.slice(0, 3).join(' · ') + (pickFailDetail.length > 3 ? ' …' : '')), 2500);
+    _showBulkPickListFailureBanner_(pickFailDetail);
+  }
+}
+
+function _showBulkPickListFailureBanner_(failures) {
+  const prior = document.getElementById('bulkPickListFailBanner');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'bulkPickListFailBanner';
+  ov.style.cssText = 'position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:10030;max-width:560px;width:90%;background:rgba(139,0,0,.96);color:#fff;-webkit-text-fill-color:#fff;border:1px solid #ff5252;border-radius:10px;padding:14px 16px;box-shadow:0 10px 32px rgba(0,0,0,.6);font-family:inherit';
+  const rows = failures.map(f => {
+    const isMissingUrl = /no pick_list_pdf_url/i.test(f);
+    const ordMatch = f.match(/#(\d+)/);
+    const ord = ordMatch ? ordMatch[1] : '';
+    const setUrlBtn = isMissingUrl && ord
+      ? ' <button onclick="promptForPickListUrl_(\'' + ord + '\')" style="margin-left:6px;padding:3px 8px;font-size:10px;font-weight:800;background:#FFB300;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:4px;cursor:pointer">＋ Set URL</button>'
+      : '';
+    return '<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;line-height:1.5;color:#fff !important;-webkit-text-fill-color:#fff">' + esc(f) + setUrlBtn + '</div>';
+  }).join('');
+  ov.innerHTML = ''
+    + '<div style="display:flex;align-items:start;gap:10px;margin-bottom:8px">'
+    + '<div style="font-size:22px;line-height:1;flex-shrink:0">⚠</div>'
+    + '<div style="flex:1;font-weight:800;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff">' + failures.length + ' pick list failure' + (failures.length === 1 ? '' : 's')
+    + ' — usually means the gcal event description didn\'t have a Drive URL we could parse</div>'
+    + '<button onclick="document.getElementById(\'bulkPickListFailBanner\').remove()" style="background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;font-size:18px;cursor:pointer;line-height:1">✕</button>'
+    + '</div>'
+    + '<div style="border-top:1px solid rgba(255,255,255,.30);padding-top:8px">' + rows + '</div>';
+  document.body.appendChild(ov);
+  // Auto-fade after 18s only if the operator hasn't touched it.
+  setTimeout(() => {
+    const el = document.getElementById('bulkPickListFailBanner');
+    if (el && !el.dataset.touched) { el.style.transition = 'opacity .5s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 500); }
+  }, 18000);
+  ov.addEventListener('click', () => { ov.dataset.touched = '1'; });
+}
+
+// v10.549 — manager prompt to set / fix pick_list_pdf_url on a row.
+// Used by the failure banner's "+ Set URL" button. Calls a new
+// orchestrator action; doesn't auto-retry the print (operator can
+// re-run the bulk picker once URLs are filled in).
+async function promptForPickListUrl_(orderNumber) {
+  const ord = String(orderNumber || '').trim();
+  if (!ord) return;
+  const url = window.prompt(
+    'Paste the Drive pick-list PDF URL for #' + ord + ':\n\n'
+    + '(e.g. https://drive.google.com/file/d/.../view) — typically found in the gcal event description or the original *PICK LIST* email.',
+    '');
+  if (url == null) return;
+  const trimmed = String(url || '').trim();
+  if (!trimmed) return;
+  if (!/drive\.google\.com/.test(trimmed)) {
+    if (!confirm('That doesn\'t look like a drive.google.com URL. Save it anyway?')) return;
+  }
+  showToast('Saving pick list URL for #' + ord + '…');
+  try {
+    const res = await groundApi('setPackPickListUrl', { orderNumber: ord, url: trimmed });
+    if (res && res.ok) {
+      showToast('✓ Pick list URL saved for #' + ord);
+      if (typeof refreshOrderPipeline === 'function') {
+        refreshOrderPipeline({ force: true }).then(() => { if (typeof renderOrdersTab === 'function') renderOrdersTab(); });
+      }
+    } else {
+      showToast('⚠ Save failed: ' + ((res && res.error) || 'unknown'));
+    }
+  } catch (e) {
+    showToast('⚠ Save error: ' + (e.message || e));
   }
 }
 
@@ -20186,7 +20258,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.548"></script>
+<script src="./pack.js?v=10.549"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20197,7 +20269,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.548<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.549<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
