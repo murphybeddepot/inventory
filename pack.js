@@ -955,7 +955,8 @@ function _packerDetailOverviewHtml_(o) {
     +   (o.instructions_pdf_url ? '<a href="' + esc(o.instructions_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Cabinet Instructions PDF</a>' : '')
     +   (isJurgen
         ? '<button onclick="printJurgenCoverOnly_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(206,147,216,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;border:1px solid rgba(206,147,216,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Jurgen install — print just the order# cover page, skip the instructions PDF">🖨 Print Cover Only (Jurgen)</button>'
-        : '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>')
+        : ('<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
+        + (o.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : '')))
     + '</div>';
 
   // Muted read-only SKU preview (full list for context — no scan UI).
@@ -3157,6 +3158,53 @@ async function refreshShopifyCustomerForOrder_(orderNumber) {
 //   4. 2+ hits: open picker modal (Print All combined / Print Selected)
 //   5. 0 hits: show clear "no map entry — open Instructions Map" banner
 //   6. NEVER fall back to the pick list PDF
+// v10.543 — print just the pick-list PDF (no cover prepend, no
+// instructions append). Used by the "Inst + Pick List" combined
+// option and by the bulk picker's "Also print pick list" checkbox.
+// Pick list goes to PrintNode as a separate job so the operator
+// can grab it from the office tray as a quick reference sheet.
+async function printPickListOnly_(orderNumber) {
+  const orderStr = String(orderNumber || '').trim();
+  if (!orderStr) return { ok: false, error: 'orderNumber required' };
+  const row = (typeof getCachedPipelineOrder === 'function')
+    ? getCachedPipelineOrder(orderStr)
+    : ((typeof _packQueueCache !== 'undefined' && Array.isArray(_packQueueCache))
+        ? _packQueueCache.find(r => String(r.order_number) === orderStr) : null);
+  if (!row) return { ok: false, error: 'order not loaded — refresh first' };
+  const url = String(row.pick_list_pdf_url || '').trim();
+  if (!url) return { ok: false, error: 'no pick_list_pdf_url for #' + orderStr };
+  try {
+    const bytes = await packFetchPdfBytes_(url);
+    const base64 = uint8ToBase64_(bytes);
+    return await groundApi('printRawPackPdf', {
+      orderNumber: orderStr,
+      base64: base64,
+      jobTitle: 'MBD Pack ' + orderStr + ' — pick list',
+    });
+  } catch (e) {
+    return { ok: false, error: 'pick list print error: ' + (e.message || e) };
+  }
+}
+
+// v10.543 — convenience wrapper: run printInstructionsLink_ AND
+// printPickListOnly_ in parallel. The instructions print uses the
+// existing cover-stamp + PrintNode flow; the pick list is a separate
+// raw PDF submission. Toast announces each result.
+async function printInstructionsAndPickList_(orderNumber) {
+  const orderStr = String(orderNumber || '').trim();
+  if (!orderStr) return;
+  showToast('📥 Sending instructions + pick list for #' + orderStr + '…');
+  const [_, pickRes] = await Promise.all([
+    printInstructionsLink_(orderStr),
+    printPickListOnly_(orderStr),
+  ]);
+  if (pickRes && pickRes.ok) {
+    showToast('✓ Pick list sent (#' + orderStr + ')');
+  } else {
+    showToast('⚠ Pick list: ' + ((pickRes && pickRes.error) || 'unknown'));
+  }
+}
+
 async function printInstructionsLink_(orderNumber, presetSkus) {
   const orderStr = String(orderNumber);
   const banner = document.getElementById('packActionBanner');
@@ -4385,7 +4433,20 @@ async function resetTodaysPackList() {
     }
     _packBulkSelection.clear();
     await refreshPackQueue();
-    showPackBanner_('List reset — ' + res.cleared + ' order' + (res.cleared === 1 ? '' : 's') + ' cleared ↺', '#42a5f5');
+    // v10.543 — when reset is invoked from the Orders tab, also force
+    // a pipeline refresh so the Pack lens reflects the cleared state.
+    // The old code only refreshed _packQueueCache (the Pack tab's
+    // cache); _orderPipelineCache was stale → the Orders tab kept
+    // showing the same orders even after a successful server-side clear.
+    try {
+      if (typeof refreshOrderPipeline === 'function') {
+        await refreshOrderPipeline({ force: true });
+        if (typeof renderOrdersTab === 'function') renderOrdersTab();
+      }
+    } catch (e) { /* swallow */ }
+    const msg = 'List reset — ' + res.cleared + ' order' + (res.cleared === 1 ? '' : 's') + ' cleared ↺';
+    if (typeof showPackBanner_ === 'function') showPackBanner_(msg, '#42a5f5');
+    else showToast(msg);
   } catch (err) {
     showToast('Reset error: ' + err.message);
   }

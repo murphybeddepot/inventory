@@ -3305,6 +3305,10 @@ function _openBulkPrintInstructionsPicker_(lens) {
     +   '<button onclick="document.querySelectorAll(\'#bulkPrintPickerOverlay .bulkPrintCheck\').forEach(c=>c.checked=true)" style="padding:7px 14px;background:rgba(0,230,118,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,230,118,.45);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">✓ Select All</button>'
     +   '<button onclick="document.querySelectorAll(\'#bulkPrintPickerOverlay .bulkPrintCheck\').forEach(c=>c.checked=false)" style="padding:7px 14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Clear</button>'
     + '</div>'
+    + '<label style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(0,135,254,.08);border:1px solid rgba(0,135,254,.45);border-radius:8px;margin-bottom:10px;cursor:pointer">'
+    +   '<input type="checkbox" id="bulkPrintAlsoPickList" style="width:18px;height:18px;flex-shrink:0;accent-color:#42a5f5">'
+    +   '<div style="flex:1;font-size:13px;font-weight:700;color:#42a5f5;-webkit-text-fill-color:#42a5f5">Also print pick list <span style="font-size:11px;font-weight:600;opacity:.8">(separate job — not stapled to instructions)</span></div>'
+    + '</label>'
     + rowsHtml
     + '<div style="display:flex;gap:10px;margin-top:14px">'
     +   '<button onclick="document.getElementById(\'bulkPrintPickerOverlay\').remove()" style="flex:1;padding:14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
@@ -3319,18 +3323,28 @@ async function _runBulkPrintInstructions_() {
     .filter(c => c.checked)
     .map(c => c.dataset.order);
   if (!picks.length) { showToast('Pick at least one order'); return; }
+  const alsoPickListEl = document.getElementById('bulkPrintAlsoPickList');
+  const alsoPickList = !!(alsoPickListEl && alsoPickListEl.checked);
   document.getElementById('bulkPrintPickerOverlay').remove();
-  showToast('Printing ' + picks.length + ' order' + (picks.length === 1 ? '' : 's') + '…');
-  let ok = 0, failed = 0;
+  showToast('Printing ' + picks.length + ' order' + (picks.length === 1 ? '' : 's')
+    + (alsoPickList ? ' + pick lists' : '') + '…');
+  let ok = 0, failed = 0, pickOk = 0, pickFail = 0;
   for (const ord of picks) {
     try {
       await printInstructionsLink_(ord);
       ok++;
     } catch (e) { failed++; }
+    if (alsoPickList) {
+      try {
+        const pr = await printPickListOnly_(ord);
+        if (pr && pr.ok) pickOk++; else pickFail++;
+      } catch (e) { pickFail++; }
+    }
     // Small pause between print jobs so the user can see banner updates.
     await new Promise(r => setTimeout(r, 600));
   }
-  showToast('✓ ' + ok + ' sent' + (failed ? ' · ' + failed + ' failed' : ''));
+  const pickPart = alsoPickList ? ' · pick list ' + pickOk + (pickFail ? '/' + pickFail + ' failed' : '') : '';
+  showToast('✓ ' + ok + ' inst sent' + (failed ? ' · ' + failed + ' failed' : '') + pickPart);
 }
 
 // v10.335 — Zac's B1 ask: "a button that planned the most efficient
@@ -20149,7 +20163,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.542"></script>
+<script src="./pack.js?v=10.543"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20160,7 +20174,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.542<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.543<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
