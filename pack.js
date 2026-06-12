@@ -1872,6 +1872,7 @@ function openPackDetail(orderNumber) {
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       ${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">📄 Open Pick List PDF</a>' : ''}
       ${row.pick_list_pdf_url ? '<button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px">🖨 Print Instructions</button>' : ''}
+      ${row.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : ''}
       <button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px" title="${row.instructions_pdf_url ? 'Instructions link is set — tap to view/replace' : 'No instructions link found — paste it; it will be remembered'}">${row.instructions_pdf_url ? '🔗 Instructions Link ✓' : '✏️ Set Instructions Link'}</button>
       ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
     </div>
@@ -4500,23 +4501,63 @@ async function batchAddOrdersPrompt() {
   if (!confirm('Add ' + deduped.length + ' order' + (deduped.length === 1 ? '' : 's') + ' to today\'s list?\n\n' + deduped.join(', '))) return;
   const pin = promptManagerPin_('batch add ' + deduped.length + ' orders');
   if (!pin) return;
+  // v10.547 — Zac (post v10.546): "added 8 orders, looked like it
+  // failed, then several minutes later they appeared, no loading
+  // indication, wow slow." Cause: addOrdersByNumber loops per-order
+  // and each gcal-bootstrap is a separate listScheduleByDateRange
+  // round-trip; 8 orders × few seconds = 30-120s. The Orders-tab
+  // onclick fired a 1.2s-setTimeout refreshOrderPipeline that ran
+  // BEFORE the server returned. Fixes:
+  //   1. Persistent global loader during the await (doesn't auto-
+  //      hide on 6s like showPackBanner_) so the user knows it's
+  //      still working.
+  //   2. Trigger the Orders pipeline refresh AFTER server returns,
+  //      not on a hardcoded timeout from the click handler.
+  const elapsedTick = (() => {
+    const start = Date.now();
+    const loader = (typeof showGlobalLoader === 'function')
+      ? showGlobalLoader('Adding ' + deduped.length + ' order' + (deduped.length === 1 ? '' : 's') + '… (gcal lookups can take 5–15s each)')
+      : null;
+    let tickId = null;
+    if (loader && loader.setText) {
+      tickId = setInterval(() => {
+        const s = Math.round((Date.now() - start) / 1000);
+        loader.setText('Adding ' + deduped.length + ' order' + (deduped.length === 1 ? '' : 's')
+          + '… ' + s + 's elapsed (gcal bootstrap, hang on)');
+      }, 1000);
+    }
+    return { stop: () => { if (tickId) clearInterval(tickId); if (loader && loader.stop) loader.stop(); } };
+  })();
   showPackBanner_('Adding ' + deduped.length + ' order' + (deduped.length === 1 ? '' : 's') + '…', '#42a5f5');
   try {
     const res = await groundApi('addOrdersByNumber', { orderNumbers: deduped, manager_pin: pin });
     if (!res || !res.ok) {
+      elapsedTick.stop();
       if (res && /pin/i.test(res.error || '')) clearManagerPin_();
       showPackBanner_((res && res.error) || 'Batch add failed', '#ff5252');
+      showToast((res && res.error) || 'Batch add failed');
       return;
     }
+    // Refresh both caches so whichever tab Zac is on reflects the new
+    // list state immediately.
     await refreshPackQueue();
+    if (typeof refreshOrderPipeline === 'function') {
+      try { await refreshOrderPipeline({ force: true }); } catch (e) {}
+      if (typeof renderOrdersTab === 'function') { try { renderOrdersTab(); } catch (e) {} }
+    }
+    elapsedTick.stop();
     if (res.failed === 0) {
       showPackBanner_('+ ' + res.added + ' added to list ✓', '#00e676');
+      showToast('+ ' + res.added + ' added to today’s list');
     } else {
       const fails = (res.results || []).filter(r => !r.ok).map(r => r.orderNumber + ' (' + r.error + ')').join('; ');
       showPackBanner_(res.added + ' added · ' + res.failed + ' failed: ' + fails, '#ff9800');
+      showToast(res.added + ' added · ' + res.failed + ' failed');
     }
   } catch (err) {
+    elapsedTick.stop();
     showPackBanner_('Batch add error: ' + err.message, '#ff5252');
+    showToast('Batch add error: ' + err.message);
   }
 }
 
