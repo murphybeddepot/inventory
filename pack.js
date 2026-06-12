@@ -3373,13 +3373,30 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
   };
   const flipPrinted = () => {
     printBtns.forEach(b => {
+      // v10.552 — Zac flagged a white-on-white "Print Instructions"
+      // button after a successful print. Cause: the 3s "✓ Printed"
+      // flash overwrote the inline background with '#00C853', then
+      // restoring with `style.background = ''` cleared the inline
+      // background ENTIRELY (including the original rgba(255,255,255,
+      // .04)), letting the button fall back to the user-agent default
+      // which is white-ish on Safari. The original color stayed light
+      // → invisible text. Fix: snapshot the original inline values to
+      // a dataset attribute on first flip and restore from there.
+      if (!b.dataset._origBg) {
+        b.dataset._origBg = b.style.background || '';
+        b.dataset._origColor = b.style.color || '';
+      }
       b.disabled = false;
       b.style.opacity = '1';
       b.innerHTML = '✓ Printed';
       b.style.background = '#00C853';
+      b.style.color = '#0a0a0a';
+      b.style.webkitTextFillColor = '#0a0a0a';
       setTimeout(() => {
         b.innerHTML = b.dataset._origPrintText || '🖨 Print';
-        b.style.background = '';
+        b.style.background = b.dataset._origBg || '';
+        b.style.color = b.dataset._origColor || '';
+        b.style.webkitTextFillColor = b.dataset._origColor || '';
       }, 3000);
     });
   };
