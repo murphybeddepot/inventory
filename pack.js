@@ -960,7 +960,9 @@ function _packerDetailOverviewHtml_(o) {
         ? '<button onclick="printJurgenCoverOnly_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(206,147,216,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;border:1px solid rgba(206,147,216,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Jurgen install — print just the order# cover page, skip the instructions PDF">🖨 Print Cover Only (Jurgen)</button>'
         : ('<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
         + (o.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : '')
-        + (o.pick_list_pdf_url ? '<button onclick="printPickListOnlyForOrder_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Print the pick list only — useful when instructions are already printed">🖨 Pick List Only</button>' : '')))
+        + (o.pick_list_pdf_url ? '<button onclick="printPickListOnlyForOrder_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Print the pick list only — useful when instructions are already printed">🖨 Pick List Only</button>' : '')
+        + '<button onclick="printNativePickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,200,83,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,200,83,.55);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Build + print the Bedrock-native pick list (no gcal PDF required)">🛠 Native Pick List</button>'
+        + '<button onclick="openNativePickListValidationModal_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Compare native expansion vs gcal pick list line items">🔍 Validate vs gcal</button>'))
     + '</div>';
 
   // Muted read-only SKU preview (full list for context — no scan UI).
@@ -1875,6 +1877,8 @@ function openPackDetail(orderNumber) {
       ${row.pick_list_pdf_url ? '<button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px">🖨 Print Instructions</button>' : ''}
       ${row.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : ''}
       ${row.pick_list_pdf_url ? '<button onclick="printPickListOnlyForOrder_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print the pick list only — useful when instructions are already printed">🖨 Pick List Only</button>' : ''}
+      <button onclick="printNativePickList_('${esc(row.order_number)}')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,200,83,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,200,83,.55)" title="Build + print the Bedrock-native pick list">🛠 Native Pick List</button>
+      <button onclick="openNativePickListValidationModal_('${esc(row.order_number)}')" class="amp-btn" style="padding:12px 18px;font-size:14px" title="Compare native expansion vs gcal pick list line items">🔍 Validate vs gcal</button>
       <button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px" title="${row.instructions_pdf_url ? 'Instructions link is set — tap to view/replace' : 'No instructions link found — paste it; it will be remembered'}">${row.instructions_pdf_url ? '🔗 Instructions Link ✓' : '✏️ Set Instructions Link'}</button>
       ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
     </div>
@@ -3190,6 +3194,116 @@ async function printPickListOnly_(orderNumber) {
 // printPickListOnly_ returns a result object silently (used by the
 // bulk runner). This wrapper gives single-button taps a user-visible
 // result so Zac sees what happened.
+// v10.551 — Bedrock-native pick list print + gcal validation diff.
+// Per Zac 2026-06-12: "make your own pick lists ... and double-check
+// contents against pick list pdf in gcal if one exists." Side-by-side
+// rollout — native generator + validation visible on the detail
+// screen; once trust is established the gcal-linked PDFs can retire.
+async function printNativePickList_(orderNumber) {
+  const ord = String(orderNumber || '').trim();
+  if (!ord) return;
+  showToast('🛠 Building Bedrock pick list for #' + ord + '…');
+  try {
+    const res = await groundApi('printNativePickListForOrder', { orderNumber: ord });
+    if (res && res.ok) {
+      showToast('✓ Native pick list sent (#' + ord + ', job ' + (res.job_id || '?') + ')');
+    } else {
+      showToast('⚠ Native pick list: ' + ((res && res.error) || 'unknown'));
+    }
+  } catch (e) {
+    showToast('⚠ Native pick list error: ' + (e.message || e));
+  }
+}
+
+async function openNativePickListValidationModal_(orderNumber) {
+  const ord = String(orderNumber || '').trim();
+  if (!ord) return;
+  const prior = document.getElementById('nativePickListValidationOv');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'nativePickListValidationOv';
+  ov.className = 'keep-dark-text';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10031;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = '<div style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(0,135,254,.45);border-radius:14px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;align-items:center;gap:10px">'
+    + '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px">Pick list validation · #' + esc(ord) + '</div>'
+    + '<button onclick="document.getElementById(\'nativePickListValidationOv\').remove()" style="background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;font-size:22px;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div id="nativePickListValidationBody" style="flex:1;overflow-y:auto;padding:18px 20px">'
+    + '<div style="display:flex;align-items:center;gap:12px;color:#42a5f5"><div style="width:24px;height:24px;border:3px solid rgba(66,165,245,.30);border-top-color:#42a5f5;border-radius:50%;animation:mbdSpin 1s linear infinite"></div><div>Comparing Bedrock native vs gcal pick list… (OCR may take 5–15s)</div></div>'
+    + '</div>'
+    + '<div style="padding:12px 20px;border-top:1px solid rgba(255,255,255,.10);display:flex;gap:10px;justify-content:flex-end">'
+    + '<button onclick="printNativePickList_(\'' + esc(ord) + '\')" style="padding:10px 16px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">🖨 Print Native Pick List</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  let res;
+  try {
+    res = await groundApi('compareNativePickListWithGcal', { orderNumber: ord });
+  } catch (e) {
+    res = { ok: false, error: e.message || e };
+  }
+  const body = document.getElementById('nativePickListValidationBody');
+  if (!body) return;
+  if (!res || !res.ok) {
+    body.innerHTML = '<div style="padding:20px;text-align:center;color:#ff5252">⚠ Validation failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+    return;
+  }
+  body.innerHTML = _renderNativePickListDiff_(res, ord);
+}
+
+function _renderNativePickListDiff_(res, ord) {
+  const s = res.summary || {};
+  let h = '';
+  h += '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
+  h += _diffChip_('✓ matched', s.matched || 0, '#00C853');
+  h += _diffChip_('⚠ qty diff', s.qty_diffs || 0, '#FFB300');
+  h += _diffChip_('+ Bedrock only', s.only_native || 0, '#42a5f5');
+  h += _diffChip_('+ gcal only', s.only_gcal || 0, '#ce93d8');
+  h += '</div>';
+  if (s.gcal_available === false || res.gcal_error) {
+    h += '<div style="padding:10px 14px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.45);color:#FFB300;-webkit-text-fill-color:#FFB300;border-radius:8px;margin-bottom:14px;font-size:13px">⚠ No gcal pick list to compare against' + (res.gcal_error ? (' — ' + esc(res.gcal_error)) : '') + '. Showing native expansion only.</div>';
+  } else if (res.gcal_url) {
+    h += '<div style="font-size:11px;color:rgba(255,255,255,.65);margin-bottom:14px">Comparing against: <a href="' + esc(res.gcal_url) + '" target="_blank" rel="noopener" style="color:#42a5f5">' + esc(res.gcal_url) + '</a> (source: ' + esc(res.gcal_url_source || '?') + ')</div>';
+  }
+  if ((res.both_have_qty_diff || []).length) {
+    h += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px">⚠ Qty differences</div>';
+    h += _diffTable_(res.both_have_qty_diff.map(d => ({ sku: d.sku, native: d.native_qty, gcal: d.gcal_qty })), ['SKU', 'Bedrock qty', 'gcal qty']);
+  }
+  if ((res.onlyInBedrock || []).length) {
+    h += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#42a5f5;text-transform:uppercase;letter-spacing:1.5px;margin:14px 0 6px">Only in Bedrock (' + res.onlyInBedrock.length + ')</div>';
+    h += _diffTable_(res.onlyInBedrock.map(d => ({ sku: d.sku, qty: d.qty })), ['SKU', 'Qty']);
+  }
+  if ((res.onlyInGcal || []).length) {
+    h += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#ce93d8;text-transform:uppercase;letter-spacing:1.5px;margin:14px 0 6px">Only in gcal (' + res.onlyInGcal.length + ')</div>';
+    h += _diffTable_(res.onlyInGcal.map(d => ({ sku: d.sku, qty: d.qty })), ['SKU', 'Qty']);
+  }
+  if ((res.matches || []).length) {
+    h += '<details style="margin-top:14px"><summary style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#00C853;text-transform:uppercase;letter-spacing:1.5px;cursor:pointer">✓ Matched (' + res.matches.length + ')</summary>';
+    h += '<div style="margin-top:6px">' + _diffTable_(res.matches.map(d => ({ sku: d.sku, qty: d.qty })), ['SKU', 'Qty']) + '</div>';
+    h += '</details>';
+  }
+  return h;
+}
+
+function _diffChip_(label, count, color) {
+  return '<div style="padding:8px 14px;background:rgba(255,255,255,.04);border:1px solid ' + color + '55;border-radius:999px;font-size:13px;font-weight:800;color:' + color + ';-webkit-text-fill-color:' + color + ';display:inline-flex;align-items:center;gap:6px"><span style="font-size:16px;font-weight:900">' + count + '</span>' + label + '</div>';
+}
+
+function _diffTable_(rows, headers) {
+  let h = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>';
+  headers.forEach(hd => { h += '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.20);color:rgba(255,255,255,.70);font-weight:700">' + esc(hd) + '</th>'; });
+  h += '</tr></thead><tbody>';
+  rows.forEach(row => {
+    h += '<tr>';
+    Object.values(row).forEach(v => {
+      h += '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.06);font-family:\'JetBrains Mono\',monospace">' + esc(v == null ? '' : v) + '</td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
 async function printPickListOnlyForOrder_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return;
