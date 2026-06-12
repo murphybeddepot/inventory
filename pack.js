@@ -4358,15 +4358,22 @@ async function bulkRemoveFromList() {
 }
 
 async function resetTodaysPackList() {
-  const inflight = _packQueueCache.filter(r => {
-    const s = String(r.status || '');
-    return s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking';
-  }).length;
-  if (inflight === 0) {
-    showToast('List is already empty');
-    return;
+  // v10.542 — Zac: clicked Clear List from Orders tab, got "list is
+  // already empty" while 4 orders were visibly on Pack Today. Root
+  // cause: _packQueueCache (legacy Pack tab cache) was empty because
+  // Zac hadn't opened that tab; the Orders tab uses _orderPipelineCache.
+  // Fall back to the pipeline cache, then trust the server count.
+  let inflight = 0;
+  if (Array.isArray(_packQueueCache) && _packQueueCache.length) {
+    inflight = _packQueueCache.filter(r => {
+      const s = String(r.status || '');
+      return s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking';
+    }).length;
   }
-  if (!confirm('Reset the entire pack list?\n\nAll ' + inflight + ' in-flight order' + (inflight === 1 ? '' : 's') + ' will be removed from the list. Status is unchanged — they can be re-added.\n\nPacked orders awaiting ship are NOT affected.')) return;
+  if (!inflight && Array.isArray(_orderPipelineCache)) {
+    inflight = _orderPipelineCache.filter(o => o && o.is_on_active_list).length;
+  }
+  if (!confirm('Reset the entire pack list?\n\n' + (inflight ? ('All ' + inflight + ' in-flight order' + (inflight === 1 ? '' : 's') + ' will be removed from the list.') : 'Every order with on_active_list=TRUE will be flipped to FALSE (the client cache may be stale — let the server tell us the true count).') + ' Status is unchanged — they can be re-added.\n\nPacked orders awaiting ship are NOT affected.')) return;
   const pin = promptManagerPin_('reset entire list');
   if (!pin) return;
   try {
