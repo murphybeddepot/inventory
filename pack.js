@@ -959,7 +959,8 @@ function _packerDetailOverviewHtml_(o) {
     +   (isJurgen
         ? '<button onclick="printJurgenCoverOnly_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(206,147,216,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;border:1px solid rgba(206,147,216,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Jurgen install — print just the order# cover page, skip the instructions PDF">🖨 Print Cover Only (Jurgen)</button>'
         : ('<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
-        + (o.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : '')))
+        + (o.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : '')
+        + (o.pick_list_pdf_url ? '<button onclick="printPickListOnlyForOrder_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Print the pick list only — useful when instructions are already printed">🖨 Pick List Only</button>' : '')))
     + '</div>';
 
   // Muted read-only SKU preview (full list for context — no scan UI).
@@ -1873,6 +1874,7 @@ function openPackDetail(orderNumber) {
       ${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">📄 Open Pick List PDF</a>' : ''}
       ${row.pick_list_pdf_url ? '<button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px">🖨 Print Instructions</button>' : ''}
       ${row.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : ''}
+      ${row.pick_list_pdf_url ? '<button onclick="printPickListOnlyForOrder_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print the pick list only — useful when instructions are already printed">🖨 Pick List Only</button>' : ''}
       <button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px" title="${row.instructions_pdf_url ? 'Instructions link is set — tap to view/replace' : 'No instructions link found — paste it; it will be remembered'}">${row.instructions_pdf_url ? '🔗 Instructions Link ✓' : '✏️ Set Instructions Link'}</button>
       ${row.shopify_admin_url ? '<a href="'+esc(row.shopify_admin_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">🛒 Shopify Order</a>' : ''}
     </div>
@@ -3187,6 +3189,26 @@ async function printPickListOnly_(orderNumber) {
     });
   } catch (e) {
     return { ok: false, error: 'pick list print error: ' + (e.message || e) };
+  }
+}
+
+// v10.548 — toast-wrapped pick-list-only entry point. The raw
+// printPickListOnly_ returns a result object silently (used by the
+// bulk runner). This wrapper gives single-button taps a user-visible
+// result so Zac sees what happened.
+async function printPickListOnlyForOrder_(orderNumber) {
+  const orderStr = String(orderNumber || '').trim();
+  if (!orderStr) return;
+  showToast('📥 Sending pick list for #' + orderStr + '…');
+  try {
+    const res = await printPickListOnly_(orderStr);
+    if (res && res.ok) {
+      showToast('✓ Pick list sent (#' + orderStr + ')');
+    } else {
+      showToast('⚠ Pick list: ' + ((res && res.error) || 'unknown'));
+    }
+  } catch (e) {
+    showToast('⚠ Pick list error: ' + (e.message || e));
   }
 }
 

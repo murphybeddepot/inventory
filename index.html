@@ -3310,41 +3310,64 @@ function _openBulkPrintInstructionsPicker_(lens) {
     +   '<div style="flex:1;font-size:13px;font-weight:700;color:#42a5f5;-webkit-text-fill-color:#42a5f5">Also print pick list <span style="font-size:11px;font-weight:600;opacity:.8">(separate job — not stapled to instructions)</span></div>'
     + '</label>'
     + rowsHtml
-    + '<div style="display:flex;gap:10px;margin-top:14px">'
-    +   '<button onclick="document.getElementById(\'bulkPrintPickerOverlay\').remove()" style="flex:1;padding:14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
-    +   '<button onclick="_runBulkPrintInstructions_()" style="flex:2;padding:14px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:900;letter-spacing:.5px;cursor:pointer">🖨 Print Selected</button>'
+    + '<div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">'
+    +   '<button onclick="document.getElementById(\'bulkPrintPickerOverlay\').remove()" style="flex:1;min-width:80px;padding:14px;background:rgba(255,255,255,.06);color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="_runBulkPrintInstructions_(\'pick_list_only\')" style="flex:1;min-width:140px;padding:14px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55);border-radius:8px;font-size:14px;font-weight:800;cursor:pointer" title="Print pick lists ONLY (skip instructions) for the selected orders">🖨 Pick List Only</button>'
+    +   '<button onclick="_runBulkPrintInstructions_(\'instructions\')" style="flex:2;min-width:160px;padding:14px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:900;letter-spacing:.5px;cursor:pointer">🖨 Print Selected</button>'
     + '</div>';
   ov.appendChild(body);
   document.body.appendChild(ov);
 }
 
-async function _runBulkPrintInstructions_() {
+// v10.548 — bulk-print runner: accepts a mode so the caller picks
+// what to send. 'instructions' (default), 'pick_list_only', or 'both'.
+// Surfaces per-order failure detail so the operator can see which
+// orders fell over and why instead of a blind "0/2 failed" toast.
+async function _runBulkPrintInstructions_(mode) {
+  mode = mode || 'instructions';
   const picks = Array.from(document.querySelectorAll('#bulkPrintPickerOverlay .bulkPrintCheck'))
     .filter(c => c.checked)
     .map(c => c.dataset.order);
   if (!picks.length) { showToast('Pick at least one order'); return; }
+  // 'both' from the checkbox OR an explicit Pick-List-Only call below.
   const alsoPickListEl = document.getElementById('bulkPrintAlsoPickList');
-  const alsoPickList = !!(alsoPickListEl && alsoPickListEl.checked);
+  const alsoPickList = mode === 'both' || (mode === 'instructions' && !!(alsoPickListEl && alsoPickListEl.checked));
+  const doInstructions = (mode === 'instructions' || mode === 'both');
+  const doPickList = (mode === 'pick_list_only' || alsoPickList);
   document.getElementById('bulkPrintPickerOverlay').remove();
-  showToast('Printing ' + picks.length + ' order' + (picks.length === 1 ? '' : 's')
-    + (alsoPickList ? ' + pick lists' : '') + '…');
-  let ok = 0, failed = 0, pickOk = 0, pickFail = 0;
+  showToast('Printing ' + picks.length + ' '
+    + (doInstructions && doPickList ? 'order' : doPickList ? 'pick list' : 'order')
+    + (picks.length === 1 ? '' : 's') + '…');
+  let instOk = 0, instFail = 0, pickOk = 0;
+  const pickFailDetail = [];
   for (const ord of picks) {
-    try {
-      await printInstructionsLink_(ord);
-      ok++;
-    } catch (e) { failed++; }
-    if (alsoPickList) {
+    if (doInstructions) {
+      try {
+        await printInstructionsLink_(ord);
+        instOk++;
+      } catch (e) { instFail++; }
+    }
+    if (doPickList) {
       try {
         const pr = await printPickListOnly_(ord);
-        if (pr && pr.ok) pickOk++; else pickFail++;
-      } catch (e) { pickFail++; }
+        if (pr && pr.ok) pickOk++;
+        else pickFailDetail.push('#' + ord + ': ' + ((pr && pr.error) || 'unknown'));
+      } catch (e) { pickFailDetail.push('#' + ord + ': ' + (e.message || e)); }
     }
     // Small pause between print jobs so the user can see banner updates.
     await new Promise(r => setTimeout(r, 600));
   }
-  const pickPart = alsoPickList ? ' · pick list ' + pickOk + (pickFail ? '/' + pickFail + ' failed' : '') : '';
-  showToast('✓ ' + ok + ' inst sent' + (failed ? ' · ' + failed + ' failed' : '') + pickPart);
+  let summary = '';
+  if (doInstructions) summary += '✓ ' + instOk + ' inst sent' + (instFail ? ' · ' + instFail + ' failed' : '');
+  if (doPickList) summary += (summary ? ' · ' : '✓ ') + 'pick list ' + pickOk + (pickFailDetail.length ? '/' + pickFailDetail.length + ' failed' : '');
+  showToast(summary);
+  // If any pick list failed, log a per-order breakdown so the operator
+  // (and the console) can see WHY — empty pick_list_pdf_url is the most
+  // common cause for gcal-bootstrapped rows.
+  if (pickFailDetail.length) {
+    console.warn('Pick list print failures:\n' + pickFailDetail.join('\n'));
+    setTimeout(() => showToast('Pick list failures: ' + pickFailDetail.slice(0, 3).join(' · ') + (pickFailDetail.length > 3 ? ' …' : '')), 2500);
+  }
 }
 
 // v10.335 — Zac's B1 ask: "a button that planned the most efficient
@@ -20163,7 +20186,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.547"></script>
+<script src="./pack.js?v=10.548"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20174,7 +20197,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.547<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.548<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
