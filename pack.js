@@ -3592,9 +3592,13 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
     return { ok: false, error: '#' + orderStr + ' not in cache — refresh first' };
   }
 
-  // Phase 1: identify the INST-* SKUs on this order. Caller can pass
-  // a preset list (used by the picker modal's "Print Selected" path);
-  // otherwise we read from the parsed pick list.
+  // Phase 1: gather every SKU on this order. v10.561 — we pass the
+  // whole sku_lines_json (not just INST-*) so the server-side
+  // InstructionsMap can resolve via its `trigger_skus` reverse index
+  // (e.g. 450.81.593 / QBZW00 / BOAZ-V2-INSTOCK → INST-QBZ-V2). Zac
+  // 2026-06-12: pick list parsing missed INST-QBZ-V2 on #32192 even
+  // though it was clearly on the PDF; the order's hardware-pack/bundle
+  // SKU is the canonical mapping signal, not the INST line.
   let instSkus = [];
   if (Array.isArray(presetSkus) && presetSkus.length) {
     instSkus = presetSkus.map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
@@ -3604,10 +3608,7 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
       if (Array.isArray(arr)) {
         instSkus = arr
           .map(it => String((it && it.sku) || '').trim().toUpperCase())
-          .filter(s => /^INST-/.test(s));
-        // De-dupe — an order with two beds will normally have distinct
-        // INST-* SKUs, but be defensive against duplicates from
-        // multi-line PDFs.
+          .filter(Boolean);
         instSkus = Array.from(new Set(instSkus));
       }
     } catch (e) { /* sku_lines_json parse error → instSkus stays [] */ }
@@ -3615,11 +3616,11 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
 
   if (!instSkus.length) {
     setBanner(
-      '⚠ No INST-* SKUs found on #' + orderStr + '. Open the pick list to verify, '
-      + 'or tap "＋ Add Link" to print a manual PDF.',
+      '⚠ No SKUs found in sku_lines_json for #' + orderStr + '. '
+      + 'Refresh the pipeline or check that the pick list was parsed.',
       'linear-gradient(135deg,#ff9800,#e65100)');
     hideBannerAfter(10000);
-    return { ok: false, error: 'no INST-* SKUs in sku_lines_json for #' + orderStr, reason: 'no_inst_skus' };
+    return { ok: false, error: 'sku_lines_json empty for #' + orderStr, reason: 'no_skus' };
   }
 
   // Phase 2: resolve each INST-* SKU against the InstructionsMap tab.
@@ -3645,39 +3646,41 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
 
   if (hits.length === 0) {
     flipReset();
+    // v10.561 — misses now include every non-mapping SKU (BC1, slats,
+    // hardware that isn't a bed identifier, etc.) so don't list them
+    // all. Instead point Zac at the InstructionsMap with the order's
+    // bed/bundle SKU front and center.
+    const candidate = instSkus.find(s => /^(450\.|QBZ|SBLM|BOAZ|HLR|BC\d|MBD)/i.test(s)) || instSkus[0];
     setBanner(
-      '⚠ No InstructionsMap entry for ' + misses.join(', ') + '. '
-      + 'Open <b>More → 📑 Instructions Map</b> to add the PDF link, then retry.',
+      '⚠ No InstructionsMap entry triggers for #' + orderStr + ' (tried ' + instSkus.length + ' SKUs). '
+      + 'Add a trigger_sku like <b>' + esc(candidate) + '</b> to the right INST row. '
+      + 'Open <b>More → 📑 Instructions Map</b>.',
       'linear-gradient(135deg,#c62828,#8d1e1e)');
-    hideBannerAfter(12000);
-    return { ok: false, error: 'no InstructionsMap entry for ' + misses.join(', '), reason: 'no_map_entry' };
+    hideBannerAfter(14000);
+    return { ok: false, error: 'no InstructionsMap entry for any of: ' + instSkus.join(', '), reason: 'no_map_entry' };
   }
 
   // Phase 3a: 2+ hits → ask the packer (Zac: "if you find multiple
   // inst skus ask user what they want to do (print all or select one)").
+  // Note: server dedupes by INST sku, so 2+ here means the order
+  // genuinely has 2 distinct beds with distinct instructions.
   if (hits.length > 1) {
     flipReset();
     if (banner) banner.style.display = 'none';
     openInstructionsPrintPicker_(orderStr, hits, misses);
     // Picker is interactive; bulk caller can't wait for it, so
     // report this as a soft skip with a clear reason.
-    return { ok: false, error: 'multiple INST-* hits — picker opened, not auto-printed', reason: 'multi_hit_picker' };
+    return { ok: false, error: 'multiple INST hits (' + hits.map(h => h.sku).join(', ') + ') — picker opened', reason: 'multi_hit_picker' };
   }
 
   // Phase 3b: single hit → stamp + send straight to PrintNode.
   const hit = hits[0];
   const printOneRes = await _printOneResolvedInstruction_(orderStr, row, hit, { setBanner, hideBannerAfter, flipFlight, flipPrinted, flipReset });
-  if (misses.length) {
-    // Best-effort secondary notice — printing succeeded for the hit
-    // but the miss never got covered.
-    setTimeout(() => {
-      setBanner(
-        '⚠ Also: no map entry for ' + misses.join(', ') + '. '
-        + 'Open <b>More → 📑 Instructions Map</b> to add it.',
-        'linear-gradient(135deg,#ff9800,#e65100)');
-      hideBannerAfter(12000);
-    }, 4500);
-  }
+  // v10.561 — `misses` now contains every order SKU that wasn't a
+  // trigger (BC1, slats, finish, etc.); listing them as missing
+  // map entries would be misleading noise. Suppress the secondary
+  // banner. The misses array still travels in the return value.
+  void misses;
   // _printOneResolvedInstruction_ doesn't return a result today; treat
   // reaching here as success for the single-hit happy path. (Real
   // PrintNode submission failures inside _printOneResolvedInstruction_
@@ -11140,13 +11143,14 @@ function _instructionsMapRowHtml_(r) {
   const isInactive = String(r.active || '').toUpperCase() === 'FALSE';
   const pdfHref = String(r.pdf_url || '').trim();
   const sku = String(r.sku || '').trim();
-  return '<div data-inst-row="' + esc(sku.toLowerCase()) + ' ' + esc(String(r.description || '').toLowerCase()) + '" style="padding:10px 12px;background:' + (isInactive ? '#f5f5f5' : '#fff') + ' !important;border:1px solid #ddd !important;border-left:3px solid #1A4FB0 !important;border-radius:8px;margin-bottom:6px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;opacity:' + (isInactive ? '.55' : '1') + '">'
+  return '<div data-inst-row="' + esc(sku.toLowerCase()) + ' ' + esc(String(r.description || '').toLowerCase()) + ' ' + esc(String(r.trigger_skus || '').toLowerCase()) + '" style="padding:10px 12px;background:' + (isInactive ? '#f5f5f5' : '#fff') + ' !important;border:1px solid #ddd !important;border-left:3px solid #1A4FB0 !important;border-radius:8px;margin-bottom:6px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;opacity:' + (isInactive ? '.55' : '1') + '">'
     + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">'
     +   '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:900;font-size:13px;color:#003087 !important;-webkit-text-fill-color:#003087 !important">' + esc(sku) + '</span>'
     +   '<span style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:700">' + esc(r.source || '') + (isInactive ? ' · <span style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">INACTIVE</span>' : '') + '</span>'
     + '</div>'
     + (r.description ? '<div style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:3px">' + esc(r.description) + '</div>' : '')
     + (pdfHref ? '<div style="font-size:11px;margin-top:4px;word-break:break-all"><a href="' + esc(pdfHref) + '" target="_blank" rel="noopener" style="color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;text-decoration:underline">' + esc(pdfHref) + '</a></div>' : '<div style="font-size:11px;color:#c33 !important;-webkit-text-fill-color:#c33 !important;margin-top:4px">⚠ no pdf_url set</div>')
+    + (r.trigger_skus ? '<div style="font-size:11px;color:#1B5E20 !important;-webkit-text-fill-color:#1B5E20 !important;margin-top:4px;font-family:\'JetBrains Mono\',monospace !important">⟲ triggers: ' + esc(String(r.trigger_skus)) + '</div>' : '')
     + (r.notes ? '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px;font-style:italic">' + esc(r.notes) + '</div>' : '')
     + '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
     +   '<button onclick="_openInstructionsMapForm_(\'' + esc(sku) + '\')" style="display:inline-flex;align-items:center;flex-shrink:0;padding:6px 12px;background:#fff !important;color:#1A4FB0 !important;-webkit-text-fill-color:#1A4FB0 !important;border:1px solid #1A4FB0 !important;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✎ Edit</button>'
@@ -11193,6 +11197,13 @@ function _openInstructionsMapForm_(existingSku) {
     + '<input id="instMapFormUrl" type="text" placeholder="https://drive.google.com/file/d/…" style="width:100% !important;padding:11px 14px !important;font-size:13px !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box !important">'
     + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Description</label>'
     + '<input id="instMapFormDesc" type="text" placeholder="e.g. Queen Library 4-door Melamine assembly" style="width:100% !important;padding:11px 14px !important;font-size:13px !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box !important">'
+    + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Trigger SKUs</label>'
+    + '<div style="font-size:11px !important;color:#666 !important;-webkit-text-fill-color:#666 !important;margin:0 0 4px !important;line-height:1.4">'
+    +   'Non-INST SKUs on the order that should resolve to this PDF. '
+    +   'Hardware pack / bundle / model — e.g. <code style="background:#f5f5f5;padding:1px 4px;border-radius:3px">450.81.593, QBZW00, BOAZ-V2</code>. '
+    +   'Comma- or newline-separated.'
+    + '</div>'
+    + '<textarea id="instMapFormTriggers" rows="2" placeholder="450.81.593, QBZW00, BOAZ-V2" style="width:100% !important;padding:11px 14px !important;font-family:\'JetBrains Mono\',monospace !important;font-size:13px !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;resize:vertical !important;box-sizing:border-box !important;text-transform:uppercase"></textarea>'
     + '<label style="display:block !important;font-size:11px !important;font-weight:800 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase !important;letter-spacing:1px !important;margin:10px 0 4px !important">Notes</label>'
     + '<textarea id="instMapFormNotes" rows="2" placeholder="anything the next person should know" style="width:100% !important;padding:11px 14px !important;font-size:13px !important;font-family:inherit !important;border:1.5px solid #ccc !important;border-radius:8px !important;outline:none !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;resize:vertical !important;box-sizing:border-box !important"></textarea>'
     + '<div style="display:flex;gap:8px;margin-top:16px">'
@@ -11211,6 +11222,7 @@ function _openInstructionsMapForm_(existingSku) {
       setVal('instMapFormUrl', row.pdf_url);
       setVal('instMapFormDesc', row.description);
       setVal('instMapFormNotes', row.notes);
+      setVal('instMapFormTriggers', row.trigger_skus);
     });
   }
   setTimeout(() => { const f = document.getElementById(isEdit ? 'instMapFormUrl' : 'instMapFormSku'); if (f) f.focus(); }, 50);
@@ -11221,6 +11233,7 @@ async function _instructionsMapFormSubmit_() {
   const url = ((document.getElementById('instMapFormUrl') || {}).value || '').trim();
   const desc = ((document.getElementById('instMapFormDesc') || {}).value || '').trim();
   const notes = ((document.getElementById('instMapFormNotes') || {}).value || '').trim();
+  const triggers = ((document.getElementById('instMapFormTriggers') || {}).value || '').trim();
   if (!sku) { showToast('SKU required'); return; }
   if (!/^INST-/i.test(sku)) { showToast('SKU must start with INST-'); return; }
   if (!url) { showToast('PDF URL required'); return; }
@@ -11228,6 +11241,7 @@ async function _instructionsMapFormSubmit_() {
   try {
     const res = await groundApi('saveInstructionsMapRow', {
       sku: sku, pdf_url: url, description: desc, notes: notes, source: 'manual',
+      trigger_skus: triggers,
     });
     if (!res || !res.ok) { showToast('Save failed: ' + ((res && res.error) || 'unknown')); return; }
     showToast('✓ ' + res.action + ' ' + sku);
