@@ -890,9 +890,12 @@ function _packerDetailOverviewHtml_(o) {
     + '</div>';
 
   // Cabinets section — collapsed one-liner if all pulled; full card otherwise.
+  // v10.546 — variable was renamed allCabsPulled→allRealCabsPulled in
+  // v10.539; this section was missed → ReferenceError on render → empty
+  // detail screen when tapping any pack-workflow order. Fixed.
   let cabSection = '';
   if (cabRows.length) {
-    if (allCabsPulled) {
+    if (allRealCabsPulled) {
       const c = cabRows[0];
       cabSection = '<div style="margin-top:14px;padding:10px 14px;background:rgba(0,200,83,.06);border:1px solid rgba(0,200,83,.30);border-radius:8px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px">'
         + '<span style="color:#00C853;font-weight:800">✓</span>'
