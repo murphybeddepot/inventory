@@ -460,6 +460,18 @@ function _resolveOrderCabinets_(o) {
     const mtoCab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(o.order_number));
     if (mtoCab) addCab(mtoCab.cabinet || o.order_number, 'mto_inventory');
   }
+  // v10.539 — Zac flagged 31545: an MTO order whose cabinet isn't in
+  // inventory yet (not received) shows zero cabinets. The order IS
+  // expected to ship with an MTO cabinet (cabinet# = order#). Add a
+  // phantom MTO entry when nothing else resolved AND the order is on
+  // the cabinet/freight Pack track (has a PackingQueue row, i.e. a
+  // pick_list_pdf_url, OR is on the active Pack list). The phantom
+  // is purely informational — no location, no pull action — so it
+  // doesn't conflict with the real cabinet once it's received.
+  if (cabNumSet.size === 0 && o.order_number) {
+    const looksLikePackOrder = !!(o.pick_list_pdf_url || o.is_on_active_list || o.pipeline_status === 'pack_today' || o.pipeline_status === 'pack_in_progress');
+    if (looksLikePackOrder) addCab(o.order_number, 'mto_phantom');
+  }
   return Array.from(cabNumSet).map(num => {
     const cab = (typeof cabinets !== 'undefined' && Array.isArray(cabinets))
       ? cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(num)) : null;
@@ -471,6 +483,15 @@ function _resolveOrderCabinets_(o) {
       damaged: cab ? !!cab.damaged : false,
     };
   });
+}
+
+// v10.539 — Jurgen install orders (calendar event "JURGEN INS" or
+// "JURG INSTALL") only need the cover page printed; Jurgen has his
+// own assembly process and doesn't use the MBD instructions PDF.
+function _isJurgenInstallOrder_(o) {
+  if (!o) return false;
+  const blob = ((o.cal_label || '') + ' ' + (o.task_line || '') + ' ' + (o.cal_event_title || '')).toUpperCase();
+  return /\bJURG(?:EN)?\b.*\bINS(?:TALL)?\b/.test(blob) || /\bJURG(?:EN)?\s*\*+\s*INS/.test(blob);
 }
 
 // v10.399 — Three-mode order detail (Overview / Pre-Pack / Active Pack).
@@ -845,19 +866,26 @@ function _packerDetailOverviewHtml_(o) {
   // Readiness — three chips. Truthy → ✓ green; falsy → "needs X" amber.
   const hwReady = !!String(o.hardware_packed_at || '').trim();
   const cabRows = (typeof _resolveOrderCabinets_ === 'function') ? _resolveOrderCabinets_(o) : [];
-  const allCabsPulled = cabRows.length > 0 && cabRows.every(c => c.pulled || !c.location);
+  // v10.539 — distinguish phantom MTO (cabinet expected, not yet
+  // received) from real cabinets so the chip says the right thing.
+  const realCabs = cabRows.filter(c => c.source !== 'mto_phantom');
+  const phantomOnly = cabRows.length > 0 && realCabs.length === 0;
+  const allRealCabsPulled = realCabs.length > 0 && realCabs.every(c => c.pulled || !c.location);
   const noCabsNeeded = cabRows.length === 0;
-  const cabReady = noCabsNeeded || allCabsPulled;
+  const cabReady = noCabsNeeded || (!phantomOnly && allRealCabsPulled);
   const instrPrinted = !!String(o.instructions_printed_at || '').trim();
+  const isJurgen = (typeof _isJurgenInstallOrder_ === 'function') && _isJurgenInstallOrder_(o);
   function readyChip(ok, okLabel, needLabel) {
     return ok
       ? '<div style="flex:1;min-width:140px;padding:10px 12px;background:rgba(0,200,83,.10);border:1px solid rgba(0,200,83,.45);border-radius:10px;font-size:13px;color:#00C853;-webkit-text-fill-color:#00C853;font-weight:700;display:flex;align-items:center;gap:8px"><span style="font-size:18px">✓</span><span>' + esc(okLabel) + '</span></div>'
       : '<div style="flex:1;min-width:140px;padding:10px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.45);border-radius:10px;font-size:13px;color:#FFB300;-webkit-text-fill-color:#FFB300;font-weight:700;display:flex;align-items:center;gap:8px"><span style="font-size:18px">○</span><span>' + esc(needLabel) + '</span></div>';
   }
+  const cabReadyLabel = noCabsNeeded ? 'No cabinets needed' : 'Cabinet pulled';
+  const cabNeedLabel = phantomOnly ? 'MTO cabinet · not yet received' : 'Cabinet needs pulling';
   const readinessRow = ''
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
     +   readyChip(hwReady, 'Hardware pre-packed', 'Hardware needs pre-pack')
-    +   readyChip(cabReady, noCabsNeeded ? 'No cabinets needed' : 'Cabinet pulled', 'Cabinet needs pulling')
+    +   readyChip(cabReady, cabReadyLabel, cabNeedLabel)
     +   readyChip(instrPrinted, 'Instructions printed', 'Instructions not yet printed')
     + '</div>';
 
@@ -925,7 +953,9 @@ function _packerDetailOverviewHtml_(o) {
     + '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">'
     +   (o.pick_list_pdf_url ? '<a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Pick List PDF</a>' : '')
     +   (o.instructions_pdf_url ? '<a href="' + esc(o.instructions_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Cabinet Instructions PDF</a>' : '')
-    +   '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
+    +   (isJurgen
+        ? '<button onclick="printJurgenCoverOnly_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(206,147,216,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;border:1px solid rgba(206,147,216,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Jurgen install — print just the order# cover page, skip the instructions PDF">🖨 Print Cover Only (Jurgen)</button>'
+        : '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>')
     + '</div>';
 
   // Muted read-only SKU preview (full list for context — no scan UI).
@@ -3964,6 +3994,37 @@ async function buildPackCoverPagePdf_(row) {
   page.drawText('Scan barcode at packing station to open order', { x: 320, y: 40, size: 9, font: reg, color: dim });
 
   return await cover.save();
+}
+
+// v10.539 — Jurgen install orders: print just the order#/cabinet
+// cover page, no instructions PDF appended. The cover carries
+// everything Jurgen needs (order#, Cabinet line, ship date, customer
+// block, scannable barcode); Jurgen has his own assembly process and
+// doesn't read MBD's instructions sheets.
+async function printJurgenCoverOnly_(orderNumber) {
+  const key = String(orderNumber || '').trim();
+  if (!key) return;
+  const cached = (typeof getCachedPipelineOrder === 'function')
+    ? getCachedPipelineOrder(key)
+    : (Array.isArray(_packQueueCache) ? _packQueueCache.find(r => String(r.order_number) === key) : null);
+  if (!cached) { showToast('#' + key + ' not loaded — refresh first'); return; }
+  try {
+    showToast('Building cover for #' + key + '…');
+    const coverBytes = await buildPackCoverPagePdf_(cached);
+    const base64 = uint8ToBase64_(coverBytes);
+    const res = await groundApi('printRawPackPdf', {
+      orderNumber: key,
+      base64: base64,
+      jobTitle: 'MBD Pack ' + key + ' — Jurgen cover only',
+    });
+    if (res && res.ok) {
+      showToast('Cover sent to printer (#' + key + ')');
+    } else {
+      showToast('Cover print failed: ' + ((res && res.error) || 'unknown'));
+    }
+  } catch (e) {
+    showToast('Cover print error: ' + (e.message || e));
+  }
 }
 
 // Take instructions PDF bytes, prepend the generated cover + a blank
