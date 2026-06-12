@@ -4746,17 +4746,39 @@ function _renderOrdersCardHtml_(o, lens) {
     if (cabNums.size > 0) {
       const locs = new Set();
       let pulledAny = false;
+      let upcomingArrivals = []; // [{num, arriving}] when cab not in inventory yet
       cabNums.forEach(n => {
         const cab = (typeof cabinets !== 'undefined' && Array.isArray(cabinets))
           ? cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(n)) : null;
-        if (cab && cab.location) locs.add(cab.location);
+        if (cab && cab.location) {
+          locs.add(cab.location);
+        } else {
+          // v10.557 — fall back to upcomingCabinets so ARCH-arriving
+          // (not yet received) cabinets get "📅 arriving 6/11" instead
+          // of "? not in inventory" red.
+          const upc = (typeof upcomingCabinets !== 'undefined' && Array.isArray(upcomingCabinets))
+            ? upcomingCabinets.find(c => c && normCab(c.cabinet || c.cabinet_num || '') === normCab(n)) : null;
+          if (upc) {
+            const session = String(upc.session_id || upc.delivery_date || '').slice(0, 10);
+            upcomingArrivals.push({ num: n, arriving: session });
+          }
+        }
         if (cab && cab.pulledAt) pulledAny = true;
       });
-      let label;
-      if (locs.size === 0) label = '? not in inventory';
-      else if (locs.size === 1) label = '📍 ' + Array.from(locs)[0];
-      else label = '📍 ' + locs.size + ' locations';
-      packLocationHtml = '<div style="margin-top:5px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:800;letter-spacing:.4px;color:' + (locs.size === 0 ? '#ff5252' : pulledAny ? '#FFB300' : '#00e676') + ';-webkit-text-fill-color:' + (locs.size === 0 ? '#ff5252' : pulledAny ? '#FFB300' : '#00e676') + '">' + esc(label) + (pulledAny ? ' · ⚠ some pulled' : '') + ' · ' + cabNums.size + ' cab' + (cabNums.size === 1 ? '' : 's') + '</div>';
+      let label, color;
+      if (locs.size === 0 && upcomingArrivals.length > 0) {
+        // All cabinets are upcoming — show arrival week.
+        const wk = (typeof _fmtArrivalWeek_ === 'function') ? _fmtArrivalWeek_(upcomingArrivals[0].arriving) : upcomingArrivals[0].arriving;
+        label = '📅 arriving ' + wk;
+        color = '#42a5f5';
+      } else if (locs.size === 0) {
+        label = '? not in inventory';
+        color = '#ff5252';
+      } else {
+        label = locs.size === 1 ? '📍 ' + Array.from(locs)[0] : '📍 ' + locs.size + ' locations';
+        color = pulledAny ? '#FFB300' : '#00e676';
+      }
+      packLocationHtml = '<div style="margin-top:5px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:800;letter-spacing:.4px;color:' + color + ';-webkit-text-fill-color:' + color + '">' + esc(label) + (pulledAny ? ' · ⚠ some pulled' : '') + ' · ' + cabNums.size + ' cab' + (cabNums.size === 1 ? '' : 's') + '</div>';
     }
   }
   // v10.331/333 — Pack lens: "Not Today" button. Removes the order
@@ -20282,7 +20304,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.557"></script>
+<script src="./pack.js?v=10.558"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20293,7 +20315,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.557<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.558<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

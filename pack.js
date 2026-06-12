@@ -178,6 +178,21 @@ async function refreshOrderPipeline(opts) {
     return _orderPipelineCache;
   }
   if (typeof groundApi !== 'function' || !GROUND_ORCH_URL) return _orderPipelineCache;
+  // v10.557 — Zac flagged 31700/31710/31724/31730/31740 (all received
+  // via the receiving modal earlier today) showing "not in inventory"
+  // on Pack Today cards. Root cause: the client-side `cabinets` array
+  // is loaded from localStorage + refreshed by syncCabinetsNow only
+  // when the user visits the Cabinets tab. The order cards
+  // (renderOrdersTab) never trigger that sync, so the cabinet master
+  // can be hours stale while the order pipeline is current. Fire a
+  // silent sync alongside the order pipeline refresh so the two
+  // caches advance together.
+  try {
+    if (typeof syncCabinetsNow === 'function') syncCabinetsNow(true);
+  } catch (e) {}
+  try {
+    if (typeof fetchUpcomingCabinets_ === 'function') fetchUpcomingCabinets_(opts.force);
+  } catch (e) {}
   try {
     const res = await groundApi('getOrderPipeline', {
       window_back_days: opts.windowBackDays || 21,
@@ -475,12 +490,41 @@ function _resolveOrderCabinets_(o) {
   return Array.from(cabNumSet).map(num => {
     const cab = (typeof cabinets !== 'undefined' && Array.isArray(cabinets))
       ? cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(num)) : null;
+    if (cab) {
+      return {
+        num: num,
+        location: cab.location || '',
+        source: sourceMap[num] || 'unknown',
+        pulled: !!cab.pulledAt,
+        damaged: !!cab.damaged,
+      };
+    }
+    // v10.557 — Zac flagged cabinet locations missing on newly-added
+    // jobs even though the ARCH ingest knows those cabinets are
+    // arriving this week. Falls through here when the cabinet isn't
+    // in the inventory master yet. Check upcomingCabinets
+    // (loaded by index.html from listUpcomingCabinets) and surface
+    // the arrival week so the card reads "📅 arriving 6/11" instead
+    // of "❌ not in inventory."
+    const upc = (typeof upcomingCabinets !== 'undefined' && Array.isArray(upcomingCabinets))
+      ? upcomingCabinets.find(c => c && normCab(c.cabinet || c.cabinet_num || '') === normCab(num)) : null;
+    if (upc) {
+      const session = String(upc.session_id || upc.delivery_date || '').slice(0, 10);
+      return {
+        num: num,
+        location: '',
+        arriving: session,
+        source: sourceMap[num] || 'unknown',
+        pulled: false,
+        damaged: false,
+      };
+    }
     return {
       num: num,
-      location: cab ? (cab.location || '') : '',
+      location: '',
       source: sourceMap[num] || 'unknown',
-      pulled: cab ? !!cab.pulledAt : false,
-      damaged: cab ? !!cab.damaged : false,
+      pulled: false,
+      damaged: false,
     };
   });
 }
