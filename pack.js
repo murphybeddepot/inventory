@@ -3823,6 +3823,23 @@ function makeOrderBarcodePng_(orderNumber) {
 // top, customer abbrev + state, ship date, customer name + address,
 // and a Code 128 barcode at the bottom. Prepends to the instructions
 // PDF before sending to PrintNode. Page is Letter (612×792 pt).
+// v10.536 — Cover-page "Cabinet: …" line resolver. Stock orders match
+// a D###/STK###/C###/E### token in task_line or cal_label; MTO orders
+// (no stock token) get a literal "{orderNumber}: MTO" label. Mirrors
+// the regex used by _resolveOrderCabinets_ for Pack-Today cards so a
+// packer sees the same identifier on the printed cover as on screen.
+function _resolvePackCoverCabinetLine_(row) {
+  if (!row) return '';
+  const orderNum = String(row.order_number || '').trim();
+  const tline = String(row.task_line || '') + ' ' + String(row.cal_label || '');
+  const matches = tline.match(/\b(?:D|STK|C|E)\d{2,4}(?:-[A-Z0-9]+)?\b/gi);
+  if (matches && matches.length) {
+    const uniq = [...new Set(matches.map(s => s.toUpperCase()))];
+    return 'Cabinet: ' + uniq.join(', ');
+  }
+  return orderNum ? 'Cabinet: ' + orderNum + ': MTO' : '';
+}
+
 async function buildPackCoverPagePdf_(row) {
   const PDFLib = await loadPdfLib_();
   await loadJsBarcode_();
@@ -3845,6 +3862,23 @@ async function buildPackCoverPagePdf_(row) {
     color: black,
   });
 
+  // v10.536 — Cabinet line directly below the order#. For stock orders
+  // it's the cabinet ID parsed from task_line/cal_label (D###/C###/etc).
+  // For MTO orders (no stock-ID match), it's "{orderNumber}: MTO".
+  const cabLine = _resolvePackCoverCabinetLine_(row);
+  if (cabLine) {
+    const cabSize = 24;
+    const cabWidth = bold.widthOfTextAtSize(cabLine, cabSize);
+    page.drawText(cabLine, {
+      x: Math.max(40, (612 - cabWidth) / 2),
+      y: 555,
+      size: Math.min(cabSize, (612 - 80) * cabSize / Math.max(cabWidth, cabSize)),
+      font: bold,
+      color: black,
+      maxWidth: 612 - 80,
+    });
+  }
+
   // Second line: the task line (e.g. "31875 OSB (D123 QLHW81) -BKS MN CC")
   // gives us customer abbrev, lot, SKU, state, carrier at a glance.
   const taskLine = String(row.task_line || '').trim();
@@ -3853,7 +3887,7 @@ async function buildPackCoverPagePdf_(row) {
     const taskWidth = bold.widthOfTextAtSize(taskLine, taskSize);
     page.drawText(taskLine, {
       x: Math.max(40, (612 - taskWidth) / 2),
-      y: 540,
+      y: 510,
       size: Math.min(taskSize, (612 - 80) * taskSize / Math.max(taskWidth, taskSize)),
       font: bold,
       color: black,
@@ -3868,7 +3902,7 @@ async function buildPackCoverPagePdf_(row) {
     const sdWidth = bold.widthOfTextAtSize(sd, sdSize);
     page.drawText(sd, {
       x: (612 - sdWidth) / 2,
-      y: 490,
+      y: 470,
       size: sdSize,
       font: bold,
       color: black,
