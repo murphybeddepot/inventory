@@ -131,6 +131,10 @@ function promptRenameDevice_() {
 }
 
 let _packQueueCache = [];
+// v10.533 — in-flight orders that aren't on today's active list.
+// Returned by listPackingQueue under the `upcoming` key. Rendered as
+// a collapsible panel below the main list with a per-row "+ Today" tap.
+let _packUpcomingCache = [];
 let _packDetailOrderNumber = null;
 
 // ══════════════════════════════════════════════════════════════════
@@ -1352,11 +1356,14 @@ async function refreshPackQueue() {
     const inflightRows = inflight.rows || [];
     const packedRows = (packed && packed.ok && packed.rows) ? packed.rows : [];
     _packQueueCache = inflightRows.concat(packedRows);
+    _packUpcomingCache = inflight.upcoming || [];
     localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
     paintPackQueue_(_packQueueCache, false);
+    paintPackUpcoming_(_packUpcomingCache);
     const ipPart = inflightRows.length + ' to pack';
     const pkPart = packedRows.length ? (', ' + packedRows.length + ' awaiting ship') : '';
-    statusEl.textContent = ipPart + pkPart;
+    const upPart = _packUpcomingCache.length ? (' · ' + _packUpcomingCache.length + ' upcoming') : '';
+    statusEl.textContent = ipPart + pkPart + upPart;
     if (loader) loader.stop();
   } catch (err) {
     if (loader) loader.stop();
@@ -1372,6 +1379,78 @@ function _packStatusError_(statusEl, message) {
   if (!statusEl) return;
   statusEl.innerHTML = '<span style="color:#ff5252">Error: ' + esc(String(message || '')) + '</span>'
     + ' <button onclick="refreshPackQueue()" style="margin-left:8px;padding:3px 10px;background:var(--green-bright);color:#000;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry</button>';
+}
+
+/**
+ * v10.533 — render the "Upcoming" panel below today's pack list.
+ * Rows here are in-flight orders the manager has NOT put on today's
+ * active list (or that were on a previous day's list and rolled off).
+ * Each row gets a one-tap "+ Today" button that flips on_active_list
+ * back to TRUE — same effect as Batch Add but per row.
+ */
+function paintPackUpcoming_(rows) {
+  const container = document.getElementById('packUpcomingPanel');
+  if (!container) return;
+  if (!rows || !rows.length) { container.innerHTML = ''; container.style.display = 'none'; return; }
+
+  // Collapsed by default — Zac's emphasis was "visible AND auto-roll".
+  // Visible-but-not-distracting fits Pack tab's clean look.
+  const openKey = 'mbd_pack_upcoming_open';
+  const isOpen = localStorage.getItem(openKey) === '1';
+
+  let html = '';
+  html += '<div style="margin:18px 0 0;border:1.5px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.03);overflow:hidden">';
+  html += '<button id="packUpcomingToggle" style="width:100%;background:transparent;color:var(--text);-webkit-text-fill-color:var(--text);border:none;padding:12px 14px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:10px;text-align:left;letter-spacing:.4px;text-transform:uppercase">';
+  html += '<span style="font-size:14px;color:var(--text-dim);transition:transform 200ms" id="packUpcomingChev">' + (isOpen ? '▾' : '▸') + '</span>';
+  html += '<span style="flex:1">Upcoming · ' + rows.length + '</span>';
+  html += '<span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:none;letter-spacing:.2px">not on today’s list</span>';
+  html += '</button>';
+  html += '<div id="packUpcomingBody" style="display:' + (isOpen ? 'block' : 'none') + ';padding:6px 12px 12px;border-top:1px solid rgba(255,255,255,.08)">';
+
+  rows.forEach(r => {
+    const on = String(r.order_number || '');
+    const ship = String(r.ship_date || '');
+    const cust = String(r.customer_name || '');
+    const skus = (r.sku_lines_json && Array.isArray(r.sku_lines_json) ? r.sku_lines_json : []).map(s => s.sku || s.item_sku).filter(Boolean).slice(0, 3).join(', ');
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid rgba(255,255,255,.06)">';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-weight:800;font-size:14px;color:var(--text);-webkit-text-fill-color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + esc(on) + (cust ? ' · ' + esc(cust) : '') + '</div>';
+    html += '<div style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (ship ? 'ship ' + esc(ship) : 'no ship date') + (skus ? ' · ' + esc(skus) : '') + '</div>';
+    html += '</div>';
+    html += '<button onclick="addUpcomingToToday_(\'' + esc(on) + '\')" style="background:var(--green-bright);color:#000;-webkit-text-fill-color:#000;border:none;border-radius:6px;padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0">+ Today</button>';
+    html += '</div>';
+  });
+
+  html += '</div></div>';
+  container.innerHTML = html;
+  container.style.display = '';
+
+  document.getElementById('packUpcomingToggle').onclick = () => {
+    const body = document.getElementById('packUpcomingBody');
+    const chev = document.getElementById('packUpcomingChev');
+    const nowOpen = body.style.display === 'none';
+    body.style.display = nowOpen ? 'block' : 'none';
+    if (chev) chev.textContent = nowOpen ? '▾' : '▸';
+    localStorage.setItem(openKey, nowOpen ? '1' : '0');
+  };
+}
+
+async function addUpcomingToToday_(orderNumber) {
+  if (!orderNumber) return;
+  const pin = promptManagerPin_('add to today');
+  if (!pin) return;
+  try {
+    const res = await groundApi('addOrderByNumber', { orderNumber: orderNumber, manager_pin: pin });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      showToast((res && res.error) || 'Add failed');
+      return;
+    }
+    await refreshPackQueue();
+    showPackBanner_('Order ' + orderNumber + ' on today’s list ✓', '#00e676');
+  } catch (err) {
+    showToast('Add error: ' + err.message);
+  }
 }
 
 function paintPackQueue_(rows, fromCache) {
