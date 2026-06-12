@@ -3172,33 +3172,15 @@ async function refreshShopifyCustomerForOrder_(orderNumber) {
 async function printPickListOnly_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return { ok: false, error: 'orderNumber required' };
-  // v10.549 — try the pipeline cache first, then the pack queue cache.
-  // Zac flagged 32191/32193 as "on gcal with pick list links" yet
-  // printPickListOnly_ failed. If they're not in EITHER cache, the
-  // client genuinely doesn't have the URL — surface that distinctly
-  // from "row found but pick_list_pdf_url is empty" so we can tell
-  // which kind of failure it is.
-  let row = null;
-  let cacheSource = 'none';
-  if (typeof getCachedPipelineOrder === 'function') {
-    row = getCachedPipelineOrder(orderStr);
-    if (row) cacheSource = 'pipeline';
-  }
-  if (!row && typeof _packQueueCache !== 'undefined' && Array.isArray(_packQueueCache)) {
-    row = _packQueueCache.find(r => String(r.order_number) === orderStr);
-    if (row) cacheSource = 'pack-queue';
-  }
-  if (!row) return { ok: false, error: '#' + orderStr + ' not in any client cache — refresh Orders + Pack tabs' };
-  const url = String(row.pick_list_pdf_url || '').trim();
-  if (!url) return { ok: false, error: 'no pick_list_pdf_url for #' + orderStr + ' (cache=' + cacheSource + ', instructions_pdf_url=' + (row.instructions_pdf_url ? 'present' : 'empty') + ')' };
+  // v10.550 — delegate URL resolution + Drive fetch + PrintNode submit
+  // to the server. The DIAG on 32191 showed the gcal event HAD the
+  // Drive URL but the PackingQueue row's pick_list_pdf_url column was
+  // empty (sku_source='shopify+native' — row predates the pick-list
+  // email). The server now falls back to gcal when the column is
+  // blank and auto-backfills the column. Client no longer needs to
+  // know the URL — just the order#.
   try {
-    const bytes = await packFetchPdfBytes_(url);
-    const base64 = uint8ToBase64_(bytes);
-    return await groundApi('printRawPackPdf', {
-      orderNumber: orderStr,
-      base64: base64,
-      jobTitle: 'MBD Pack ' + orderStr + ' — pick list',
-    });
+    return await groundApi('printPickListPdfForOrder', { orderNumber: orderStr });
   } catch (e) {
     return { ok: false, error: 'pick list print error: ' + (e.message || e) };
   }
