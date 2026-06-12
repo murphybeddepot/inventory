@@ -1584,6 +1584,16 @@ input::placeholder, textarea::placeholder {
       <span class="ordersLensCount" data-count-lens="attention" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
     </button>
   </div>
+  <!-- v10.538 Orders search — overrides the current lens. Searches
+       order#, customer name, cal_label, task_line. Camera button
+       scans the order# barcode from the instructions cover page and
+       opens the Pack workflow for that order. -->
+  <div id="ordersSearchRow" style="margin-bottom:10px;display:flex;gap:8px;align-items:center">
+    <span style="font-size:16px;color:var(--text-dim)">🔍</span>
+    <input id="ordersSearchInput" placeholder="Search order #, customer, or label…" oninput="_onOrdersSearchInput_(this.value)" style="flex:1;padding:9px 12px;border:1.5px solid rgba(255,255,255,.18);border-radius:8px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);font-size:14px;font-family:inherit;box-sizing:border-box">
+    <button onclick="_openOrdersOrderScan_()" title="Scan the order# barcode on the instructions cover page" style="padding:9px 12px;background:rgba(0,135,254,.18);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(0,135,254,.55);border-radius:8px;font-size:18px;font-weight:700;cursor:pointer;flex-shrink:0;line-height:1">📷</button>
+    <button id="ordersSearchClear" onclick="_clearOrdersSearch_()" style="display:none;padding:8px 12px;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">× Clear</button>
+  </div>
   <!-- v10.345 H/B/P/L legend — dismissible on first load. -->
   <div id="ordersLetterLegend" style="display:none;margin-bottom:10px;padding:7px 12px;background:rgba(0,48,135,.10);border:1px solid rgba(0,48,135,.40);border-radius:6px;font-size:11px;color:var(--text);display:flex;align-items:center;gap:10px;flex-wrap:wrap;line-height:1.4">
     <span style="font-weight:800;letter-spacing:.5px">GCal status:</span>
@@ -3118,10 +3128,16 @@ function renderOrdersTab() {
     const legend = document.getElementById('ordersLetterLegend');
     if (legend) legend.style.display = dismissed ? 'none' : 'flex';
   } catch (e) {}
-  const filtered = _filterOrdersForLens_(orders, lens);
+  // v10.538 — when the search field has text, it overrides the lens
+  // filter (cross-cuts every order in the cache). Clears with × Clear.
+  const searchActive = !!_ordersSearchQuery;
+  const filtered = searchActive
+    ? _filterOrdersBySearch_(orders, _ordersSearchQuery)
+    : _filterOrdersForLens_(orders, lens);
   const status = document.getElementById('ordersStatus');
   if (status) {
     const totalLabel = filtered.length + ' order' + (filtered.length === 1 ? '' : 's')
+      + (searchActive ? ' matching "' + _ordersSearchQuery + '"' : '')
       + (orders.length !== filtered.length ? ' (of ' + orders.length + ' in window)' : '');
     const ageMin = _orderPipelineFetchedAt ? Math.floor((Date.now() - _orderPipelineFetchedAt) / 60000) : null;
     const ageLabel = ageMin == null ? '' : (' · refreshed ' + (ageMin === 0 ? 'just now' : (ageMin + ' min ago')));
@@ -4211,6 +4227,119 @@ function _toggleOrdersUpcoming_(btn) {
   const chev = btn.querySelector('span');
   if (chev) chev.textContent = nowOpen ? '▾' : '▸';
   localStorage.setItem('mbd_orders_pack_upcoming_open', nowOpen ? '1' : '0');
+}
+
+// v10.538 — Orders search state + handlers. When the search input
+// has text, renderOrdersTab uses _filterOrdersBySearch_ INSTEAD of
+// _filterOrdersForLens_ so the result is a cross-cutting match across
+// every order in the cache (not just the current lens).
+let _ordersSearchQuery = '';
+
+function _onOrdersSearchInput_(value) {
+  _ordersSearchQuery = String(value || '').trim();
+  const clr = document.getElementById('ordersSearchClear');
+  if (clr) clr.style.display = _ordersSearchQuery ? '' : 'none';
+  if (typeof renderOrdersTab === 'function') renderOrdersTab();
+}
+
+function _clearOrdersSearch_() {
+  _ordersSearchQuery = '';
+  const inp = document.getElementById('ordersSearchInput');
+  if (inp) inp.value = '';
+  const clr = document.getElementById('ordersSearchClear');
+  if (clr) clr.style.display = 'none';
+  if (typeof renderOrdersTab === 'function') renderOrdersTab();
+}
+
+function _filterOrdersBySearch_(orders, q) {
+  if (!Array.isArray(orders)) return [];
+  const ql = q.toLowerCase();
+  return orders.filter(o => {
+    if (!o) return false;
+    return (String(o.order_number || '')).toLowerCase().includes(ql)
+      || (String(o.customer_name || '')).toLowerCase().includes(ql)
+      || (String(o.cal_label || '')).toLowerCase().includes(ql)
+      || (String(o.task_line || '')).toLowerCase().includes(ql);
+  });
+}
+
+// v10.538 — camera scan of the order# barcode on the instructions
+// cover page. The cover page builder encodes row.order_number as a
+// Code 128 barcode (pack.js buildPackCoverPagePdf_). On detect,
+// strip a leading '#' and route to the Pack workflow.
+let _ordersScanStream = null;
+let _ordersScanDetector = null;
+
+async function _openOrdersOrderScan_() {
+  if (typeof window.BarcodeDetector === 'undefined') {
+    if (typeof showToast === 'function') showToast('Barcode API not supported — use the search field');
+    return;
+  }
+  const ov = document.createElement('div');
+  ov.id = 'ordersScanOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10025;background:#000;display:flex;flex-direction:column';
+  ov.innerHTML = ''
+    + '<div style="padding:14px;color:#fff;display:flex;align-items:center;gap:12px;background:rgba(0,0,0,.7)">'
+    + '<div style="flex:1;font-size:14px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">Aim at the order# barcode on the instructions cover page</div>'
+    + '<button onclick="_closeOrdersOrderScan_()" style="padding:8px 14px;background:#fff;color:#000;-webkit-text-fill-color:#000;border:none;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer">Cancel</button>'
+    + '</div>'
+    + '<video id="ordersScanVideo" autoplay playsinline muted style="flex:1;width:100%;object-fit:cover"></video>'
+    + '<div id="ordersScanStatus" style="padding:12px;color:#fff !important;-webkit-text-fill-color:#fff;text-align:center;background:rgba(0,0,0,.7);font-size:13px">Starting camera…</div>';
+  document.body.appendChild(ov);
+
+  try {
+    _ordersScanDetector = new window.BarcodeDetector({ formats: ['code_128', 'code_39', 'qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Scanner init failed: ' + e.message);
+    _closeOrdersOrderScan_();
+    return;
+  }
+
+  try {
+    _ordersScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+    const video = document.getElementById('ordersScanVideo');
+    if (!video) return;
+    video.srcObject = _ordersScanStream;
+    const status = document.getElementById('ordersScanStatus');
+    if (status) status.textContent = 'Scanning…';
+    const tick = async () => {
+      if (!_ordersScanStream || !_ordersScanDetector) return;
+      try {
+        const codes = await _ordersScanDetector.detect(video);
+        if (codes && codes.length) {
+          const raw = String(codes[0].rawValue || '').trim();
+          const num = raw.replace(/^#/, '').trim();
+          if (num && /^\d{4,7}$/.test(num)) {
+            _closeOrdersOrderScan_();
+            if (typeof showToast === 'function') showToast('Scanned #' + num + ' — opening pack workflow');
+            if (typeof _openPackWorkflowFromOrders_ === 'function') {
+              _openPackWorkflowFromOrders_(num);
+            } else {
+              // Fallback: fill into search so the operator sees something.
+              const inp = document.getElementById('ordersSearchInput');
+              if (inp) { inp.value = num; _onOrdersSearchInput_(num); }
+            }
+            return;
+          }
+        }
+      } catch (e) { /* swallow per-frame errors */ }
+      setTimeout(tick, 400);
+    };
+    setTimeout(tick, 600);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Camera permission denied');
+    _closeOrdersOrderScan_();
+  }
+}
+
+function _closeOrdersOrderScan_() {
+  if (_ordersScanStream) {
+    _ordersScanStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+    _ordersScanStream = null;
+  }
+  _ordersScanDetector = null;
+  const ov = document.getElementById('ordersScanOverlay');
+  if (ov) ov.remove();
 }
 
 function _filterOrdersForLens_(orders, lens) {
@@ -19980,7 +20109,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.537"></script>
+<script src="./pack.js?v=10.538"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -19991,7 +20120,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.537<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.538<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
