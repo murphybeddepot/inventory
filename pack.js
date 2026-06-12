@@ -3261,14 +3261,31 @@ function _renderNativePickListDiff_(res, ord) {
   h += _diffChip_('+ gcal only', s.only_gcal || 0, '#ce93d8');
   h += '</div>';
   if (s.gcal_available === false || res.gcal_error) {
-    // v10.553 — Zac flagged "acts like it cannot compare to gcal".
-    // Surface the actual gcal_error verbatim + the resolved URL +
-    // a "try OCR again" hint so we can see why compare bailed.
+    // v10.554 — targeted runbook when the error is specifically
+    // "Drive is not defined" (= Advanced Drive Service not added to
+    // the script project). Zac flagged that even after enabling the
+    // Drive API in the Cloud Console, the OCR path still fails — the
+    // Cloud Console enablement is necessary BUT NOT sufficient; the
+    // Apps Script project ALSO needs the service added under
+    // Services so the `Drive` global gets imported.
+    const errStr = String(res.gcal_error || '');
+    const isDriveNotDefined = /Drive is not defined/i.test(errStr) || /Advanced Drive Service may not be enabled/i.test(errStr);
     h += '<div style="padding:12px 14px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.55);border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.5">'
       + '<div style="font-weight:800;color:#FFB300;-webkit-text-fill-color:#FFB300;margin-bottom:4px">⚠ Couldn\'t compare against gcal pick list — showing Bedrock expansion only.</div>'
-      + (res.gcal_error ? '<div style="color:#fff;-webkit-text-fill-color:#fff;font-family:\'JetBrains Mono\',monospace;font-size:11px">' + esc(res.gcal_error) + '</div>' : '')
+      + (errStr ? '<div style="color:#fff;-webkit-text-fill-color:#fff;font-family:\'JetBrains Mono\',monospace;font-size:11px;background:rgba(0,0,0,.30);padding:6px 8px;border-radius:4px;margin-top:6px">' + esc(errStr) + '</div>' : '')
       + (res.gcal_url ? '<div style="margin-top:6px"><a href="' + esc(res.gcal_url) + '" target="_blank" rel="noopener" style="color:#42a5f5;font-size:11px;word-break:break-all">' + esc(res.gcal_url) + '</a> (source: ' + esc(res.gcal_url_source || '?') + ')</div>' : '')
-      + '<div style="margin-top:6px;color:rgba(255,255,255,.65);font-size:11px">Most common: Drive Advanced Service not enabled (editor → Services → Drive API → Add). Also possible: the PDF is too image-only for OCR, or upstream PDF format changed.</div>'
+      + (isDriveNotDefined
+          ? '<div style="margin-top:8px;padding:8px 10px;background:rgba(0,135,254,.10);border:1px solid rgba(0,135,254,.45);border-radius:6px;color:#42a5f5;-webkit-text-fill-color:#42a5f5;font-size:12px;line-height:1.6">'
+            + '<div style="font-weight:800;margin-bottom:4px">Fix — Drive global needs to be added in the Apps Script project (not just enabled in GCP):</div>'
+            + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#fff;-webkit-text-fill-color:#fff">'
+            + '1. Open <a href="https://script.google.com/d/1CV_W1X1ueXFboZuqjv5pgyPp8d-3nCk4HCzu_djQz--utPbrulwT7bvG/edit" target="_blank" style="color:#42a5f5">the editor</a><br>'
+            + '2. Left sidebar → <strong>Services</strong> → click the <strong>+</strong> icon<br>'
+            + '3. Scroll to <strong>Drive API</strong> (NOT "Drive" or "DriveActivity")<br>'
+            + '4. Keep identifier as <strong>Drive</strong>, version <strong>v3</strong><br>'
+            + '5. Click <strong>Add</strong>. Then retry validation.'
+            + '</div>'
+            + '</div>'
+          : '<div style="margin-top:6px;color:rgba(255,255,255,.65);font-size:11px">Also possible: the PDF is image-only (OCR returns empty text), or the upstream PDF format changed enough that the SKU-line extractor regex misses everything.</div>')
       + '</div>';
   } else if (res.gcal_url) {
     h += '<div style="font-size:11px;color:rgba(255,255,255,.65);margin-bottom:14px">Comparing against: <a href="' + esc(res.gcal_url) + '" target="_blank" rel="noopener" style="color:#42a5f5">' + esc(res.gcal_url) + '</a> (source: ' + esc(res.gcal_url_source || '?') + ')</div>';
