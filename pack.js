@@ -3487,16 +3487,26 @@ async function mergeCoverInstructionsPickList_(coverBytes, instructionsBytes, pi
   return await out.save();
 }
 
-// v10.543 — convenience wrapper: now routes through the v10.559
-// combined-packet path so the staple boundary is unambiguous.
+// v10.543 / v10.560 — submit instructions (stapled) and pick list
+// (NOT stapled) as two separate PrintNode jobs. v10.559 merged them
+// into one stapled packet which Zac rejected: pick lists shouldn't
+// be stapled to anything, including the instructions of their own
+// order. v10.560 server-side printPickListPdfForOrder routes the
+// pick list through PRINTNODE_PICK_LIST_PRINTER_ID (when set) so a
+// separate non-stapling queue can handle it, and explicitly omits
+// the duplex/staple options the instructions queue carries.
 async function printInstructionsAndPickList_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return;
-  const res = await printInstructionsAndPickListCombined_(orderStr);
-  if (res && res.ok) {
-    showToast('✓ Instructions + pick list sent (#' + orderStr + ', job ' + (res.job_id || '?') + ')');
+  showToast('📥 Sending instructions + pick list for #' + orderStr + '…');
+  const [_, pickRes] = await Promise.all([
+    printInstructionsLink_(orderStr),
+    printPickListOnly_(orderStr),
+  ]);
+  if (pickRes && pickRes.ok) {
+    showToast('✓ Pick list sent (#' + orderStr + ')');
   } else {
-    showToast('⚠ Combined print: ' + ((res && res.error) || 'unknown'));
+    showToast('⚠ Pick list: ' + ((pickRes && pickRes.error) || 'unknown'));
   }
 }
 
@@ -3562,13 +3572,24 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
     });
   };
 
-  const row = (typeof _packQueueCache !== 'undefined')
+  // v10.560 — Zac: bulk batch printed only pick lists for half the
+  // orders (no instructions) because every early-return path here
+  // was a bare `return` — the bulk caller's try/await + instOk++
+  // succeeded because no exception fired. Now every exit path returns
+  // an explicit { ok, error?, reason? } so bulk callers can detect
+  // silent skips and report them.
+  let row = (typeof _packQueueCache !== 'undefined')
     ? (_packQueueCache || []).find(r => String(r.order_number) === orderStr)
     : null;
+  // Also try the pipeline cache so Orders-tab callers (where
+  // _packQueueCache may be empty) don't hit a false "not in list".
+  if (!row && typeof getCachedPipelineOrder === 'function') {
+    row = getCachedPipelineOrder(orderStr);
+  }
   if (!row) {
     setBanner('⚠ Order #' + orderStr + ' not in current Pack list — refresh first', 'linear-gradient(135deg,#c62828,#8d1e1e)');
     hideBannerAfter(5000);
-    return;
+    return { ok: false, error: '#' + orderStr + ' not in cache — refresh first' };
   }
 
   // Phase 1: identify the INST-* SKUs on this order. Caller can pass
@@ -3598,7 +3619,7 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
       + 'or tap "＋ Add Link" to print a manual PDF.',
       'linear-gradient(135deg,#ff9800,#e65100)');
     hideBannerAfter(10000);
-    return;
+    return { ok: false, error: 'no INST-* SKUs in sku_lines_json for #' + orderStr, reason: 'no_inst_skus' };
   }
 
   // Phase 2: resolve each INST-* SKU against the InstructionsMap tab.
@@ -3611,13 +3632,13 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
     setBanner('⚠ Lookup failed: ' + e.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
     hideBannerAfter(6000);
     flipReset();
-    return;
+    return { ok: false, error: 'InstructionsMap lookup threw: ' + (e.message || e), reason: 'lookup_threw' };
   }
   if (!resolveRes || !resolveRes.ok) {
     setBanner('⚠ Lookup failed: ' + ((resolveRes && resolveRes.error) || 'unknown'), 'linear-gradient(135deg,#c62828,#8d1e1e)');
     hideBannerAfter(6000);
     flipReset();
-    return;
+    return { ok: false, error: 'InstructionsMap lookup failed: ' + ((resolveRes && resolveRes.error) || 'unknown'), reason: 'lookup_failed' };
   }
   const hits = Array.isArray(resolveRes.hits) ? resolveRes.hits : [];
   const misses = Array.isArray(resolveRes.misses) ? resolveRes.misses : [];
@@ -3629,7 +3650,7 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
       + 'Open <b>More → 📑 Instructions Map</b> to add the PDF link, then retry.',
       'linear-gradient(135deg,#c62828,#8d1e1e)');
     hideBannerAfter(12000);
-    return;
+    return { ok: false, error: 'no InstructionsMap entry for ' + misses.join(', '), reason: 'no_map_entry' };
   }
 
   // Phase 3a: 2+ hits → ask the packer (Zac: "if you find multiple
@@ -3638,12 +3659,14 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
     flipReset();
     if (banner) banner.style.display = 'none';
     openInstructionsPrintPicker_(orderStr, hits, misses);
-    return;
+    // Picker is interactive; bulk caller can't wait for it, so
+    // report this as a soft skip with a clear reason.
+    return { ok: false, error: 'multiple INST-* hits — picker opened, not auto-printed', reason: 'multi_hit_picker' };
   }
 
   // Phase 3b: single hit → stamp + send straight to PrintNode.
   const hit = hits[0];
-  await _printOneResolvedInstruction_(orderStr, row, hit, { setBanner, hideBannerAfter, flipFlight, flipPrinted, flipReset });
+  const printOneRes = await _printOneResolvedInstruction_(orderStr, row, hit, { setBanner, hideBannerAfter, flipFlight, flipPrinted, flipReset });
   if (misses.length) {
     // Best-effort secondary notice — printing succeeded for the hit
     // but the miss never got covered.
@@ -3655,6 +3678,13 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
       hideBannerAfter(12000);
     }, 4500);
   }
+  // _printOneResolvedInstruction_ doesn't return a result today; treat
+  // reaching here as success for the single-hit happy path. (Real
+  // PrintNode submission failures inside _printOneResolvedInstruction_
+  // surface as their own banner.)
+  return printOneRes && printOneRes.ok === false
+    ? printOneRes
+    : { ok: true, job_id: printOneRes && printOneRes.job_id };
 }
 
 // v10.314 — shared single-print path used by the single-hit branch
@@ -3670,7 +3700,7 @@ async function _printOneResolvedInstruction_(orderStr, row, hit, ui) {
       ui.hideBannerAfter(6000);
       ui.flipReset();
       try { await airPrintDrivePdf_(hit.pdf_url, orderStr + '-' + hit.sku + '.pdf'); } catch (e) {}
-      return;
+      return { ok: false, error: 'PrintNode submission failed: ' + why, reason: 'printnode_failed' };
     }
     ui.setBanner('✓ ' + hit.sku + ' for #' + orderStr + ' sent to PrintNode (job ' + (res.job_id || '?') + ')', 'linear-gradient(135deg,#00C853,#1A5C1A)');
     ui.hideBannerAfter(4000);
@@ -3680,10 +3710,12 @@ async function _printOneResolvedInstruction_(orderStr, row, hit, ui) {
     } catch (e) { /* swallow */ }
     ui.flipPrinted();
     if (typeof refreshPackQueue === 'function') refreshPackQueue();
+    return { ok: true, job_id: res.job_id };
   } catch (e) {
     ui.setBanner('⚠ Print error: ' + e.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
     ui.hideBannerAfter(6000);
     ui.flipReset();
+    return { ok: false, error: 'stamp/print threw: ' + (e.message || e), reason: 'stamp_threw' };
   }
 }
 
