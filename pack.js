@@ -3560,8 +3560,23 @@ async function printCorrectedPickList_(orderNumber) {
   if (typeof showToast === 'function') {
     showToast('🖨 Sending corrected pick list for #' + orderStr + '…');
   }
+  // v10.567 — resolve the MTO/stock cabinet's warehouse location from
+  // the local cabinets[] master so the printed CABINETS section
+  // shows "31600:MTO  📍 LOC" not just "31600:MTO". Falls back to
+  // empty string if the cabinet isn't in master yet (server prints
+  // without a location).
+  let bedLocation = '';
   try {
-    const res = await groundApi('printCorrectedPickList', { orderNumber: orderStr });
+    if (typeof cabinets !== 'undefined' && Array.isArray(cabinets) && typeof normCab === 'function') {
+      const cab = cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(orderStr));
+      if (cab && cab.location) bedLocation = String(cab.location);
+    }
+  } catch (e) { /* leave blank */ }
+  try {
+    const res = await groundApi('printCorrectedPickList', {
+      orderNumber: orderStr,
+      bed_location: bedLocation,
+    });
     if (res && res.ok) {
       if (typeof showToast === 'function') showToast('✓ Corrected pick list printed (#' + orderStr + ', job ' + (res.job_id || '?') + ')');
     } else {
