@@ -387,7 +387,12 @@ function _orderDetailHtml_(o) {
   // Resolve cabinet#s + locations (same logic as Pack Today card)
   const cabRows = _resolveOrderCabinets_(o);
   const cabSection = cabRows.length
-    ? '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🗄 Cabinets (' + cabRows.length + ')</div>' + cabRows.map(c => '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? '#00e676' : '#ff5252') + ';border-radius:6px;margin-bottom:4px"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</span><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + '">📍 ' + esc(c.location || '? not in inventory') + (c.pulled ? ' · pulled' : '') + '</span></div>').join('') + '</div>'
+    ? '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🗄 Cabinets (' + cabRows.length + ')</div>' + cabRows.map(c => {
+        // v10.564 — use _cabinetLocationStatusBadge_ to distinguish
+        // "received, no location" from "not in inventory at all."
+        const badge = _cabinetLocationStatusBadge_(c);
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + badge.color + ';border-radius:6px;margin-bottom:4px"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</span><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:' + badge.color + ';-webkit-text-fill-color:' + badge.color + '">' + esc(badge.text) + (c.pulled ? ' · pulled' : '') + '</span></div>';
+      }).join('') + '</div>'
     : '';
   // HW SKUs (Pre-Pack)
   let hwSection = '';
@@ -491,9 +496,16 @@ function _resolveOrderCabinets_(o) {
     const cab = (typeof cabinets !== 'undefined' && Array.isArray(cabinets))
       ? cabinets.find(c => c && !c.deleted && normCab(c.cabinet) === normCab(num)) : null;
     if (cab) {
+      // v10.564 — Zac flagged #32192's D213 (stock bed) showing "not in
+      // inventory" though it's been on hand for some time. Root cause:
+      // when cab is in the master array but cab.location is empty
+      // (received without a location set, or location got cleared on a
+      // move), the render conflated "no location" with "not received."
+      // Add in_master:true so the renderer can distinguish.
       return {
         num: num,
         location: cab.location || '',
+        in_master: true,
         source: sourceMap[num] || 'unknown',
         pulled: !!cab.pulledAt,
         damaged: !!cab.damaged,
@@ -513,6 +525,7 @@ function _resolveOrderCabinets_(o) {
       return {
         num: num,
         location: '',
+        in_master: false,
         arriving: session,
         source: sourceMap[num] || 'unknown',
         pulled: false,
@@ -522,11 +535,23 @@ function _resolveOrderCabinets_(o) {
     return {
       num: num,
       location: '',
+      in_master: false,
       source: sourceMap[num] || 'unknown',
       pulled: false,
       damaged: false,
     };
   });
+}
+
+// v10.564 — render the cabinet status badge text + color based on the
+// resolver's in_master flag so "received, no location" doesn't show as
+// "not in inventory." Returns { text, color }.
+function _cabinetLocationStatusBadge_(c) {
+  if (!c) return { text: '? not in inventory', color: '#ff5252' };
+  if (c.location) return { text: '📍 ' + String(c.location), color: '#00e676' };
+  if (c.arriving) return { text: '📅 arriving ' + String(c.arriving).slice(5), color: '#42a5f5' };
+  if (c.in_master) return { text: '📍 received — no location set', color: '#FFB300' };
+  return { text: '? not in inventory', color: '#ff5252' };
 }
 
 // v10.539 — Jurgen install orders (calendar event "JURGEN INS" or
@@ -757,10 +782,14 @@ function _packerDetailFullHtml_(o, mode) {
               : c.damaged
                 ? '<span style="padding:6px 12px;background:rgba(139,0,0,.20);color:#ff5252;-webkit-text-fill-color:#ff5252;border:1px solid rgba(139,0,0,.55);border-radius:6px;font-size:11px;font-weight:700;flex-shrink:0">🚫 Damaged</span>'
                 : '';
-          return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? (c.pulled ? '#666' : '#00e676') : '#ff5252') + ';border-radius:6px;margin-bottom:4px;'+(c.pulled?'opacity:.6':'')+'">'
+          // v10.564 — use the shared badge helper so "received,
+          // no location" doesn't look identical to "not in inventory."
+          const badge = _cabinetLocationStatusBadge_(c);
+          const borderColor = c.pulled ? '#666' : badge.color;
+          return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + borderColor + ';border-radius:6px;margin-bottom:4px;'+(c.pulled?'opacity:.6':'')+'">'
             + '<div style="min-width:0;flex:1">'
             +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + '</span>' + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</div>'
-            +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + ';margin-top:2px">📍 ' + esc(c.location || '? not in inventory') + '</div>'
+            +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + badge.color + ';-webkit-text-fill-color:' + badge.color + ';margin-top:2px">' + esc(badge.text) + '</div>'
             + '</div>'
             + pullBtn
             + '</div>';
@@ -955,10 +984,12 @@ function _packerDetailOverviewHtml_(o) {
               : c.pulled ? '<span style="padding:6px 12px;background:rgba(0,200,83,.10);color:#00C853;-webkit-text-fill-color:#00C853;border:1px solid rgba(0,200,83,.45);border-radius:6px;font-size:11px;font-weight:700;flex-shrink:0">✓ Pulled</span>'
               : c.damaged ? '<span style="padding:6px 12px;background:rgba(139,0,0,.20);color:#ff5252;-webkit-text-fill-color:#ff5252;border:1px solid rgba(139,0,0,.55);border-radius:6px;font-size:11px;font-weight:700;flex-shrink:0">🚫 Damaged</span>'
               : '';
-            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + (c.location ? '#00e676' : '#ff5252') + ';border-radius:6px;margin-bottom:4px">'
+            // v10.564 — shared badge helper.
+            const badge = _cabinetLocationStatusBadge_(c);
+            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + badge.color + ';border-radius:6px;margin-bottom:4px">'
               + '<div style="min-width:0;flex:1">'
               +   '<div><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + '</span></div>'
-              +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + (c.location ? '#00e676' : '#ff5252') + ';-webkit-text-fill-color:' + (c.location ? '#00e676' : '#ff5252') + ';margin-top:2px">📍 ' + esc(c.location || '? not in inventory') + '</div>'
+              +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:' + badge.color + ';-webkit-text-fill-color:' + badge.color + ';margin-top:2px">' + esc(badge.text) + '</div>'
               + '</div>' + pullBtn + '</div>';
           }).join('')
         + '</div>';

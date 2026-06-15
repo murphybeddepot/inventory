@@ -4446,17 +4446,23 @@ function _onOrdersSearchInput_(value) {
   _ordersSearchQuery = String(value || '').trim();
   const clr = document.getElementById('ordersSearchClear');
   if (clr) clr.style.display = _ordersSearchQuery ? '' : 'none';
-  // v10.562 — Zac 2026-06-15: typing in the search bar while on a pack
-  // workflow detail did nothing visible (renderOrdersTab repainted the
-  // hidden list underneath but the detail kept covering it). When the
-  // user starts a new search, drop the detail so the filtered list is
-  // visible and another order can be tapped. Empty query → user
-  // probably just opened the bar; don't auto-close.
+  // v10.562 / v10.564 — Zac 2026-06-15: typing in the search bar while on a
+  // pack workflow detail did nothing visible because the v10.562 fix called
+  // closePackDetail() which only hides the Pack tab's packQueueDetail, not
+  // the Orders tab's ordersDetail. Now we close ordersDetail directly and
+  // restore the orders list chrome so the filtered list is visible.
   if (_ordersSearchQuery) {
     const detail = document.getElementById('ordersDetail');
     if (detail && detail.style.display !== 'none') {
-      if (typeof closePackDetail === 'function') closePackDetail();
-      else detail.style.display = 'none';
+      detail.style.display = 'none';
+      detail.innerHTML = '';
+      const list = document.getElementById('ordersList');
+      if (list) list.style.display = '';
+      const toggle = document.getElementById('ordersScheduleViewToggle');
+      if (toggle) toggle.style.display = '';
+      if (typeof _setOrdersListChrome_ === 'function') {
+        try { _setOrdersListChrome_(true); } catch (e) {}
+      }
     }
   }
   if (typeof renderOrdersTab === 'function') renderOrdersTab();
@@ -20364,7 +20370,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.564"></script>
+<script src="./pack.js?v=10.565"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20375,7 +20381,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.564<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.565<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
