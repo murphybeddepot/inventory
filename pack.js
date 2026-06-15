@@ -2055,6 +2055,21 @@ function openPackDetail(orderNumber) {
     // Fire and forget — loadPackPdfFromUrl updates the UI as it goes.
     loadPackPdfFromUrl(row.pick_list_pdf_url);
   }
+
+  // v10.579 — Jonah persona: auto-focus packScanInput so a Bluetooth
+  // scanner's first scan lands without a tap. 200ms delay lets the
+  // detail HTML settle. iPad suppresses the soft keyboard when an
+  // external Bluetooth keyboard (scanner) is paired, which is the
+  // warehouse setup. On a phone without a paired scanner the
+  // keyboard will pop — operator can dismiss.
+  try {
+    setTimeout(function () {
+      var scan = document.getElementById('packScanInput');
+      if (scan && document.body.contains(scan)) {
+        try { scan.focus({ preventScroll: true }); } catch (e) { try { scan.focus(); } catch (e2) {} }
+      }
+    }, 200);
+  } catch (e) { /* never throw from focus retry */ }
 }
 
 function renderPackPhotoGallery_(jsonStr) {
