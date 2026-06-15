@@ -3668,43 +3668,26 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
     return { ok: false, error: '#' + orderStr + ' not in cache — refresh first' };
   }
 
-  // Phase 1: gather every SKU on this order. v10.561 — we pass the
-  // whole sku_lines_json (not just INST-*) so the server-side
-  // InstructionsMap can resolve via its `trigger_skus` reverse index
-  // (e.g. 450.81.593 / QBZW00 / BOAZ-V2-INSTOCK → INST-QBZ-V2). Zac
-  // 2026-06-12: pick list parsing missed INST-QBZ-V2 on #32192 even
-  // though it was clearly on the PDF; the order's hardware-pack/bundle
-  // SKU is the canonical mapping signal, not the INST line.
-  let instSkus = [];
-  if (Array.isArray(presetSkus) && presetSkus.length) {
-    instSkus = presetSkus.map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
-  } else {
-    try {
-      const arr = JSON.parse(String(row.sku_lines_json || '[]'));
-      if (Array.isArray(arr)) {
-        instSkus = arr
-          .map(it => String((it && it.sku) || '').trim().toUpperCase())
-          .filter(Boolean);
-        instSkus = Array.from(new Set(instSkus));
-      }
-    } catch (e) { /* sku_lines_json parse error → instSkus stays [] */ }
-  }
-
-  if (!instSkus.length) {
-    setBanner(
-      '⚠ No SKUs found in sku_lines_json for #' + orderStr + '. '
-      + 'Refresh the pipeline or check that the pick list was parsed.',
-      'linear-gradient(135deg,#ff9800,#e65100)');
-    hideBannerAfter(10000);
-    return { ok: false, error: 'sku_lines_json empty for #' + orderStr, reason: 'no_skus' };
-  }
-
-  // Phase 2: resolve each INST-* SKU against the InstructionsMap tab.
-  setBanner('🔎 Looking up instructions PDF for ' + instSkus.length + ' SKU' + (instSkus.length === 1 ? '' : 's') + ' on #' + orderStr + '…', 'linear-gradient(135deg,#1565c0,#0d47a1)');
+  // Phase 1+2: resolve INST PDFs for this order. v10.564 — single
+  // server call (`resolveInstructionsForOrder`) handles SKU gathering
+  // AND map lookup. Server reads PackingQueue.sku_lines_json first,
+  // falls back to Shopify line items if empty (synthetic gcal-only
+  // orders), then runs the v10.561 trigger_skus reverse-map +
+  // dedupe. Eliminates the "no SKUs found in sku_lines_json" silent
+  // bail Zac hit on #32217.
+  setBanner('🔎 Resolving instructions for #' + orderStr + '…', 'linear-gradient(135deg,#1565c0,#0d47a1)');
   flipFlight();
   let resolveRes;
+  let instSkus = []; // populated below from server response, used by no-hits banner
   try {
-    resolveRes = await groundApi('resolveInstructionsForSkus', { skus: instSkus });
+    if (Array.isArray(presetSkus) && presetSkus.length) {
+      // Picker-modal path: caller has already chosen the INST SKUs.
+      instSkus = presetSkus.map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
+      resolveRes = await groundApi('resolveInstructionsForSkus', { skus: instSkus });
+    } else {
+      resolveRes = await groundApi('resolveInstructionsForOrder', { orderNumber: orderStr });
+      instSkus = Array.isArray(resolveRes && resolveRes.skus_tried) ? resolveRes.skus_tried : [];
+    }
   } catch (e) {
     setBanner('⚠ Lookup failed: ' + e.message, 'linear-gradient(135deg,#c62828,#8d1e1e)');
     hideBannerAfter(6000);
@@ -3712,10 +3695,21 @@ async function printInstructionsLink_(orderNumber, presetSkus) {
     return { ok: false, error: 'InstructionsMap lookup threw: ' + (e.message || e), reason: 'lookup_threw' };
   }
   if (!resolveRes || !resolveRes.ok) {
-    setBanner('⚠ Lookup failed: ' + ((resolveRes && resolveRes.error) || 'unknown'), 'linear-gradient(135deg,#c62828,#8d1e1e)');
-    hideBannerAfter(6000);
     flipReset();
-    return { ok: false, error: 'InstructionsMap lookup failed: ' + ((resolveRes && resolveRes.error) || 'unknown'), reason: 'lookup_failed' };
+    // v10.564 — distinguish the no_skus_anywhere case (sku_lines_json
+    // empty AND Shopify lookup also missing) from generic lookup
+    // failures so the failure banner can point Zac at the right fix.
+    const reason = (resolveRes && resolveRes.reason) || 'lookup_failed';
+    const errMsg = (resolveRes && resolveRes.error) || 'unknown';
+    if (reason === 'no_skus_anywhere') {
+      setBanner('⚠ No SKUs found for #' + orderStr + ' — order has no PackingQueue row and Shopify returned no line items. Check the order exists in Shopify (<60 days old) or refresh the pipeline.',
+        'linear-gradient(135deg,#c62828,#8d1e1e)');
+      hideBannerAfter(12000);
+    } else {
+      setBanner('⚠ Lookup failed: ' + errMsg, 'linear-gradient(135deg,#c62828,#8d1e1e)');
+      hideBannerAfter(6000);
+    }
+    return { ok: false, error: 'Instructions resolve failed (' + reason + '): ' + errMsg, reason: reason };
   }
   const hits = Array.isArray(resolveRes.hits) ? resolveRes.hits : [];
   const misses = Array.isArray(resolveRes.misses) ? resolveRes.misses : [];
