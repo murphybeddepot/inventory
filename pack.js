@@ -472,6 +472,15 @@ function _resolveOrderCabinets_(o) {
     const captured = JSON.parse(o.cabinets_packed_json || '[]');
     if (Array.isArray(captured)) captured.forEach(c => { if (c && c.num) addCab(c.num, 'captured'); });
   } catch (e) {}
+  // v10.566 — pull from the Orders Upcoming MAIN tab via the server
+  // overlay (StockAssignments.js). This is the canonical source for
+  // stock-cabinet-to-order assignments — Kristine's sheet mirrored
+  // to Shopify tag + calendar title + JS2. Adding it BEFORE the
+  // task_line regex means the assigned SERIAL always wins over
+  // phantom MTO fallback, even before the calendar event exists.
+  if (Array.isArray(o.stock_serials)) {
+    o.stock_serials.forEach(s => { if (s) addCab(s, 'stock_assignment'); });
+  }
   const tline = String(o.task_line || '') + ' ' + String(o.cal_label || '');
   const matches = tline.match(/\b(?:D|STK|C|E)\d{2,4}(?:-[A-Z0-9]+)?\b/gi);
   if (matches) matches.forEach(m => addCab(m, 'task_line'));
