@@ -400,8 +400,11 @@ function _orderDetailHtml_(o) {
     hwSection = '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#1A4FB0;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🔧 Pre-Pack HW (' + o.hardware_sku_lines.length + ')'
       + (o.hardware_packed_at ? '<span style="font-size:11px;font-weight:700;color:#00e676;-webkit-text-fill-color:#00e676;margin-left:10px">✓ HW packed ' + esc(String(o.hardware_packed_at).slice(0, 10)) + '</span>' : '')
       + '</div>'
-      + o.hardware_sku_lines.slice(0, 20).map(l => '<div style="font-size:12px;color:var(--text);padding:4px 10px;background:rgba(26,79,176,.06);border-radius:4px;margin-bottom:3px;display:flex;justify-content:space-between"><span><span style="color:#1A4FB0;font-weight:800;font-family:\'JetBrains Mono\',monospace">' + esc(l.hafele_part || l.sku || '') + '</span><span style="color:var(--text-dim);margin-left:8px">' + esc(l.name || '') + '</span></span><span style="color:var(--text-dim);font-family:\'JetBrains Mono\',monospace">×' + Number(l.qty || 0) + '</span></div>').join('')
-      + (o.hardware_sku_lines.length > 20 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (o.hardware_sku_lines.length - 20) + ' more</div>' : '')
+      // v10.573 — Mira: same 20 → 100 bump for Pre-Pack HW list.
+      // Hardware lists frequently exceed 20 entries on multi-cab
+      // orders (e.g. side cabs add 10+ Hafele lines each side).
+      + o.hardware_sku_lines.slice(0, 100).map(l => '<div style="font-size:12px;color:var(--text);padding:4px 10px;background:rgba(26,79,176,.06);border-radius:4px;margin-bottom:3px;display:flex;justify-content:space-between"><span><span style="color:#1A4FB0;font-weight:800;font-family:\'JetBrains Mono\',monospace">' + esc(l.hafele_part || l.sku || '') + '</span><span style="color:var(--text-dim);margin-left:8px">' + esc(l.name || '') + '</span></span><span style="color:var(--text-dim);font-family:\'JetBrains Mono\',monospace">×' + Number(l.qty || 0) + '</span></div>').join('')
+      + (o.hardware_sku_lines.length > 100 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (o.hardware_sku_lines.length - 100) + ' more</div>' : '')
       + '</div>';
   }
   // Booker section
@@ -1068,10 +1071,15 @@ function _packerDetailOverviewHtml_(o) {
   try {
     const arr = JSON.parse(String(o.sku_lines_json || '[]'));
     if (Array.isArray(arr) && arr.length) {
+      // v10.573 — Mira persona (Bedrock UX): bump SKU preview cap
+      // 20 → 100. Multi-cabinet + fluting orders routinely have
+      // 25-50 lines; the "preview" label + small "+ N more"
+      // tail hid the SKUs the operator actually needs to see.
+      // Detail page scrolls — no perf issue from rendering more.
       skuPreview = '<div style="margin-top:14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:10px 14px">'
-        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">📋 SKUs (' + arr.length + ') — preview</div>'
-        + arr.slice(0, 20).map(l => '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:12px;color:rgba(255,255,255,.65);-webkit-text-fill-color:rgba(255,255,255,.65)"><span>' + esc(l.name || l.sku || '') + '</span><span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);font-size:11px">' + (l.sku && l.sku !== l.name ? esc(l.sku) + ' · ' : '') + '×' + Number(l.qty || 1) + '</span></div>').join('')
-        + (arr.length > 20 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (arr.length - 20) + ' more</div>' : '')
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">📋 SKUs (' + arr.length + ')' + (arr.length > 100 ? ' — first 100' : '') + '</div>'
+        + arr.slice(0, 100).map(l => '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:12px;color:rgba(255,255,255,.65);-webkit-text-fill-color:rgba(255,255,255,.65)"><span>' + esc(l.name || l.sku || '') + '</span><span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);font-size:11px">' + (l.sku && l.sku !== l.name ? esc(l.sku) + ' · ' : '') + '×' + Number(l.qty || 1) + '</span></div>').join('')
+        + (arr.length > 100 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (arr.length - 100) + ' more (open native pick list for full list)</div>' : '')
         + '</div>';
     }
   } catch (e) {}
