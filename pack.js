@@ -3578,11 +3578,26 @@ async function printCorrectedPickList_(orderNumber) {
       bed_location: bedLocation,
     });
     if (res && res.ok) {
-      if (typeof showToast === 'function') showToast('✓ Corrected pick list printed (#' + orderStr + ', job ' + (res.job_id || '?') + ')');
+      if (typeof showToast === 'function') showToast('✓ Corrected pick list sent (#' + orderStr + ', job ' + (res.job_id || '?') + ') — opening backup tab in case PrintNode silently drops');
+      // v10.569 — Zac 2026-06-15: PrintNode has been silently
+      // canceling jobs on the stapler queue (or printing blank).
+      // The server now always returns pdf_url too; open it in a
+      // new tab so the operator can Ctrl-P from the browser as a
+      // bulletproof fallback. Modal blockers are off on the iPad
+      // PWA; window.open succeeds.
+      if (res.pdf_url) {
+        try { window.open(res.pdf_url, '_blank', 'noopener'); } catch (_) {}
+      }
     } else {
       const err = (res && res.error) || 'unknown';
       if (typeof showToast === 'function') showToast('⚠ Corrected pick list failed: ' + err);
       console.warn('printCorrectedPickList_ failed:', res);
+      // If server got far enough to build the PDF but PrintNode
+      // submission failed, still open the PDF so the operator
+      // can manually print.
+      if (res && res.pdf_url) {
+        try { window.open(res.pdf_url, '_blank', 'noopener'); } catch (_) {}
+      }
     }
   } catch (e) {
     if (typeof showToast === 'function') showToast('⚠ Corrected pick list error: ' + (e.message || e));
