@@ -862,14 +862,15 @@ function _packerDetailFullHtml_(o, mode) {
     +   '<div id="packPhotoGallery" style="display:flex;flex-wrap:wrap;gap:6px">' + (typeof renderPackPhotoGallery_ === 'function' ? renderPackPhotoGallery_(o.photo_urls_json) : '') + '</div>'
     +   '<div id="packPhotoStatus" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>'
     + '</div>'
-    // Instructions + pick list (low priority — bordered chips)
-    + (o.pick_list_pdf_url || o.instructions_pdf_url
-        ? '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">'
-            + (o.pick_list_pdf_url ? '<a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Open Pick List</a>' : '')
-            + (o.pick_list_pdf_url ? '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>' : '')
-            + (o.instructions_pdf_url ? '<a href="' + esc(o.instructions_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Open Instructions</a>' : '')
-          + '</div>'
-        : '')
+    // Instructions + pick list (low priority — bordered chips).
+    // v10.562 — Print Instructions always available even when
+    // pick_list_pdf_url is blank; the server resolves the pick list
+    // from gcal when needed.
+    + '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">'
+        + (o.pick_list_pdf_url ? '<a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Open Pick List</a>' : '')
+        + '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
+        + (o.instructions_pdf_url ? '<a href="' + esc(o.instructions_pdf_url) + '" target="_blank" rel="noopener" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">📄 Open Instructions</a>' : '')
+      + '</div>'
     // Action buttons (primary CTA — Ready for Checker / Mark Packed / etc.)
     + '<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">' + actionRow + '</div>'
     // Secondary info (collapsed)
@@ -1003,8 +1004,15 @@ function _packerDetailOverviewHtml_(o) {
     +   (isJurgen
         ? '<button onclick="printJurgenCoverOnly_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(206,147,216,.18);color:#ce93d8;-webkit-text-fill-color:#ce93d8;border:1px solid rgba(206,147,216,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Jurgen install — print just the order# cover page, skip the instructions PDF">🖨 Print Cover Only (Jurgen)</button>'
         : ('<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
-        + (o.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : '')
-        + (o.pick_list_pdf_url ? '<button onclick="printPickListOnlyForOrder_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Print the pick list only — useful when instructions are already printed">🖨 Pick List Only</button>' : '')
+        // v10.562 — always render Inst+Pick List + Pick List Only,
+        // even when row.pick_list_pdf_url is blank. The server-side
+        // printPickListPdfForOrder already falls back to the gcal
+        // event description via _resolvePickListUrlForOrder_ and
+        // auto-backfills the row on success; gating on the empty
+        // cached URL just hid the buttons from #31740-style orders
+        // and forced manual workarounds.
+        + '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs (server resolves pick list URL via gcal if missing)">🖨 Inst + Pick List</button>'
+        + '<button onclick="printPickListOnlyForOrder_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Print the pick list only — useful when instructions are already printed (server resolves URL via gcal if missing)">🖨 Pick List Only</button>'
         + '<button onclick="printNativePickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,200,83,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,200,83,.55);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Build + print the Bedrock-native pick list (no gcal PDF required)">🛠 Native Pick List</button>'
         + '<button onclick="openNativePickListValidationModal_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Compare native expansion vs gcal pick list line items">🔍 Validate vs gcal</button>'))
     + '</div>';
@@ -1918,9 +1926,9 @@ function openPackDetail(orderNumber) {
 
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       ${row.pick_list_pdf_url ? '<a href="'+esc(row.pick_list_pdf_url)+'" target="_blank" rel="noopener" class="amp-btn" style="text-decoration:none;padding:12px 18px;font-size:14px">📄 Open Pick List PDF</a>' : ''}
-      ${row.pick_list_pdf_url ? '<button onclick="printOneInstruction(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px">🖨 Print Instructions</button>' : ''}
-      ${row.pick_list_pdf_url ? '<button onclick="printInstructionsAndPickList_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>' : ''}
-      ${row.pick_list_pdf_url ? '<button onclick="printPickListOnlyForOrder_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print the pick list only — useful when instructions are already printed">🖨 Pick List Only</button>' : ''}
+      <button onclick="printOneInstruction('${esc(row.order_number)}')" class="amp-btn" style="padding:12px 18px;font-size:14px">🖨 Print Instructions</button>
+      <button onclick="printInstructionsAndPickList_('${esc(row.order_number)}')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print instructions AND the pick list as separate jobs (server resolves URL via gcal if missing)">🖨 Inst + Pick List</button>
+      <button onclick="printPickListOnlyForOrder_('${esc(row.order_number)}')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55)" title="Print the pick list only (server resolves URL via gcal if missing)">🖨 Pick List Only</button>
       <button onclick="printNativePickList_('${esc(row.order_number)}')" class="amp-btn" style="padding:12px 18px;font-size:14px;background:rgba(0,200,83,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,200,83,.55)" title="Build + print the Bedrock-native pick list">🛠 Native Pick List</button>
       <button onclick="openNativePickListValidationModal_('${esc(row.order_number)}')" class="amp-btn" style="padding:12px 18px;font-size:14px" title="Compare native expansion vs gcal pick list line items">🔍 Validate vs gcal</button>
       <button onclick="promptForInstructionsUrl_(\''+esc(row.order_number)+'\')" class="amp-btn" style="padding:12px 18px;font-size:14px" title="${row.instructions_pdf_url ? 'Instructions link is set — tap to view/replace' : 'No instructions link found — paste it; it will be remembered'}">${row.instructions_pdf_url ? '🔗 Instructions Link ✓' : '✏️ Set Instructions Link'}</button>
@@ -3499,14 +3507,35 @@ async function printInstructionsAndPickList_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return;
   showToast('📥 Sending instructions + pick list for #' + orderStr + '…');
-  const [_, pickRes] = await Promise.all([
+  // v10.562 — Zac 2026-06-15: tapped this button for 32192/32217, got
+  // pick lists only because the instructions path silently failed and
+  // the toast only reported pick list status. Now we surface BOTH
+  // outcomes and stack a banner for the failure cause.
+  const [instRes, pickRes] = await Promise.all([
     printInstructionsLink_(orderStr),
     printPickListOnly_(orderStr),
   ]);
-  if (pickRes && pickRes.ok) {
-    showToast('✓ Pick list sent (#' + orderStr + ')');
+  const instOk = !!(instRes && instRes.ok);
+  const pickOk = !!(pickRes && pickRes.ok);
+  if (instOk && pickOk) {
+    showToast('✓ Inst + Pick List sent (#' + orderStr + ')');
+  } else if (!instOk && !pickOk) {
+    showToast('⚠ Both failed (#' + orderStr + ') — see banner');
+  } else if (!instOk) {
+    showToast('⚠ Instructions FAILED, pick list sent (#' + orderStr + '): '
+      + ((instRes && instRes.error) || 'unknown'));
   } else {
-    showToast('⚠ Pick list: ' + ((pickRes && pickRes.error) || 'unknown'));
+    showToast('⚠ Pick list FAILED, instructions sent (#' + orderStr + '): '
+      + ((pickRes && pickRes.error) || 'unknown'));
+  }
+  // Surface a sticky banner for either failure so the operator can't
+  // miss the silent half — same shape as the bulk-print failure banner.
+  if (!instOk || !pickOk) {
+    const instFails = !instOk ? ['#' + orderStr + ': ' + ((instRes && instRes.error) || 'unknown')] : [];
+    const pickFails = !pickOk ? ['#' + orderStr + ': ' + ((pickRes && pickRes.error) || 'unknown')] : [];
+    if (typeof _showBulkPrintFailureBanner_ === 'function') {
+      _showBulkPrintFailureBanner_(instFails, pickFails);
+    }
   }
 }
 
