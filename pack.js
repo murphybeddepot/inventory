@@ -1014,7 +1014,13 @@ function _packerDetailOverviewHtml_(o) {
         + '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs (server resolves pick list URL via gcal if missing)">🖨 Inst + Pick List</button>'
         + '<button onclick="printPickListOnlyForOrder_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.60);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Print the pick list only — useful when instructions are already printed (server resolves URL via gcal if missing)">🖨 Pick List Only</button>'
         + '<button onclick="printNativePickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(0,200,83,.10);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,200,83,.55);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Build + print the Bedrock-native pick list (no gcal PDF required)">🛠 Native Pick List</button>'
-        + '<button onclick="openNativePickListValidationModal_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Compare native expansion vs gcal pick list line items">🔍 Validate vs gcal</button>'))
+        + '<button onclick="openNativePickListValidationModal_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Compare native expansion vs gcal pick list line items">🔍 Validate vs gcal</button>'
+        // v10.563 — corrected pick list button. ONLY shown when the
+        // order has a PickListCorrections row (Zac 2026-06-15:
+        // "only have this button if the order needs/has a corrected
+        // pick list"). #31600 was the first; others can be added
+        // server-side via setCorrectedPickList.
+        + (o.has_corrected_pick_list ? '<button onclick="printCorrectedPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,143,0,.15);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px solid rgba(255,143,0,.65);border-radius:6px;font-size:12px;font-weight:900;cursor:pointer" title="Print the hand-curated corrected pick list for this order (overrides the original picker list).">🖨 Print Corrected Pick List</button>' : '')))
     + '</div>';
 
   // Muted read-only SKU preview (full list for context — no scan UI).
@@ -3503,6 +3509,31 @@ async function mergeCoverInstructionsPickList_(coverBytes, instructionsBytes, pi
 // pick list through PRINTNODE_PICK_LIST_PRINTER_ID (when set) so a
 // separate non-stapling queue can handle it, and explicitly omits
 // the duplex/staple options the instructions queue carries.
+// v10.563 — print a hand-curated corrected pick list. Server-side
+// printCorrectedPickList reads PickListCorrections + builds the PDF
+// + submits to PrintNode. Button only renders when
+// o.has_corrected_pick_list is true (driven by listPackingQueue /
+// getOrderPipeline annotation).
+async function printCorrectedPickList_(orderNumber) {
+  const orderStr = String(orderNumber || '').trim();
+  if (!orderStr) return;
+  if (typeof showToast === 'function') {
+    showToast('🖨 Sending corrected pick list for #' + orderStr + '…');
+  }
+  try {
+    const res = await groundApi('printCorrectedPickList', { orderNumber: orderStr });
+    if (res && res.ok) {
+      if (typeof showToast === 'function') showToast('✓ Corrected pick list printed (#' + orderStr + ', job ' + (res.job_id || '?') + ')');
+    } else {
+      const err = (res && res.error) || 'unknown';
+      if (typeof showToast === 'function') showToast('⚠ Corrected pick list failed: ' + err);
+      console.warn('printCorrectedPickList_ failed:', res);
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('⚠ Corrected pick list error: ' + (e.message || e));
+  }
+}
+
 async function printInstructionsAndPickList_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return;
@@ -3541,11 +3572,27 @@ async function printInstructionsAndPickList_(orderNumber) {
 
 async function printInstructionsLink_(orderNumber, presetSkus) {
   const orderStr = String(orderNumber);
+  // v10.563 — packActionBanner lives inside the Pack tab DOM. When the
+  // user taps Print Instructions from the Orders tab card, the Pack
+  // tab is hidden and the banner is invisible — Zac saw no progress
+  // feedback for 32217 today. Always announce via showToast (tab-
+  // independent) at the start so the user knows the request fired.
+  if (typeof showToast === 'function') {
+    showToast('🔎 Looking up instructions for #' + orderStr + '…');
+  }
   const banner = document.getElementById('packActionBanner');
+  const bannerVisible = banner && banner.offsetParent !== null;
   const setBanner = (html, bg) => {
     if (!banner) return;
     banner.style.cssText = 'display:block;background:' + bg + ';color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:10px;font-weight:700;letter-spacing:.3px;box-shadow:0 2px 8px rgba(0,0,0,.3)';
     banner.innerHTML = html;
+    // v10.563 — also surface as a toast when the banner's host tab is
+    // hidden (Orders tab → Pack tab DOM offscreen). Strip HTML so the
+    // toast renders cleanly.
+    if (!bannerVisible && typeof showToast === 'function') {
+      const text = String(html).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+      if (text) showToast(text);
+    }
   };
   const hideBannerAfter = (ms) => {
     if (!banner) return;
