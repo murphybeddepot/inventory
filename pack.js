@@ -10334,12 +10334,41 @@ function _renderPackPlanner_(data) {
       + '</div>'
       + rows;
   }).join('');
+  // v10.616 — past-due disclosure. Hidden by default; click to
+  // expand. These are cabinet orders whose ship_date was before
+  // today but never got walked to a terminal state (almost
+  // certainly already shipped — bad data — but possible CS
+  // attention needed).
+  const pastDue = Array.isArray(data.past_due) ? data.past_due : [];
+  const pastDueGroups = {};
+  const pastDueOrder = [];
+  pastDue.forEach(o => {
+    const key = (o.ship_date || '').slice(0, 10) || 'no-date';
+    if (!pastDueGroups[key]) { pastDueGroups[key] = []; pastDueOrder.push(key); }
+    pastDueGroups[key].push(o);
+  });
+  const pastDueBody = pastDueOrder.map(k => {
+    const rows = pastDueGroups[k].map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('');
+    return ''
+      + '<div style="position:sticky;top:0;background:#181818;padding:6px 6px;margin:8px -8px 4px;border-bottom:1px solid rgba(255,82,82,.35);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;color:#FF8A65 !important;-webkit-text-fill-color:#FF8A65 !important;text-transform:uppercase">'
+      +   _fmtGroupHdr_(k) + ' · ' + pastDueGroups[k].length
+      + '</div>'
+      + rows;
+  }).join('');
+  const pastDueDisclosure = pastDue.length === 0 ? '' : ''
+    + '<details style="margin-top:14px;padding:8px;border:1px dashed rgba(255,82,82,.45);border-radius:6px;background:rgba(255,82,82,.06)">'
+    +   '<summary style="cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;letter-spacing:1px;color:#FF8A65 !important;-webkit-text-fill-color:#FF8A65 !important;text-transform:uppercase;list-style:none">⚠ ' + pastDue.length + ' Past-Due (hidden) ›</summary>'
+    +   '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;font-style:italic;margin:6px 0 8px;line-height:1.4">Ship date was before today + never walked to shipped. Most are stale data (already gone). Click to review.</div>'
+    +   pastDueBody
+    + '</details>';
+
   // Left sidebar: unscheduled orders, grouped by ship_date.
   const sidebar = ''
     + '<div id="packPlannerSidebar" style="flex:0 0 240px;background:#111;border-right:1px solid rgba(255,255,255,.12);overflow-y:auto;padding:10px 8px">'
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;padding:4px 6px;margin-bottom:8px;border-bottom:1.5px solid rgba(255,179,0,.45)">📥 Unscheduled · ' + (data.unscheduled || []).length + '</div>'
     +   sidebarBody
     +   ((data.unscheduled || []).length === 0 ? '<div style="padding:14px 8px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:11px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
+    +   pastDueDisclosure
     + '</div>';
   // Day columns.
   const today = new Date();
