@@ -2024,6 +2024,8 @@ input::placeholder, textarea::placeholder {
     <button onclick="openVoidOrderPrompt_()" title="Find a shipped order by number and void its labels for re-pack (manager PIN required)" style="padding:14px 14px;background:#1a1a1a;color:#FF5252;-webkit-text-fill-color:#FF5252;border:1.5px solid #8B0000;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔍</span><span style="font-size:9px">VOID #</span></button>
     <button id="groundManagerModeBtn" onclick="toggleGroundManagerMode()" title="Manager bulk-print mode — select multiple orders to print + ship in one action" style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">👤</span><span style="font-size:9px">BULK</span></button>
     <button id="groundSyncBtn" onclick="syncShipStationThenRefresh()" title="Force ShipStation to pull new Shopify orders, then reload the queue" style="padding:14px 14px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔄</span><span style="font-size:9px">SYNC SS</span></button>
+    <!-- v10.601 — SS ↔ FedEx booking-mode toggle. localStorage-persisted -->
+    <button id="groundCarrierToggleBtn" onclick="toggleGroundCarrierMode()" title="Switch booking between ShipStation and FedEx-direct. Default SS." style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span id="groundCarrierToggleIcon" style="font-size:18px">📦</span><span id="groundCarrierToggleLbl" style="font-size:9px">SS</span></button>
     <button onclick="refreshGroundQueue()" title="Reload queue (uses ShipStation's current state)" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
   </div>
 
@@ -18278,6 +18280,54 @@ function buildGroundQueueRow(order) {
 
 // v10.468 — Manager bulk-print handlers. PIN-gated (reuses the same
 // 10-min in-memory PIN cache as the Pack tab via promptManagerPin_).
+// v10.601 — SS ↔ FedEx booking-mode toggle. localStorage-persisted
+// so packers don't lose mode on PWA reload. Default 'ss' (safe).
+const GROUND_CARRIER_MODE_KEY = 'mbd_ground_carrier_mode';
+function getGroundCarrierMode() {
+  try { return localStorage.getItem(GROUND_CARRIER_MODE_KEY) === 'fedex' ? 'fedex' : 'ss'; }
+  catch (e) { return 'ss'; }
+}
+function toggleGroundCarrierMode() {
+  const current = getGroundCarrierMode();
+  const next = current === 'ss' ? 'fedex' : 'ss';
+  try { localStorage.setItem(GROUND_CARRIER_MODE_KEY, next); } catch (e) {}
+  _paintGroundCarrierToggle();
+  if (typeof showToast === 'function') {
+    showToast(next === 'fedex'
+      ? '⚡ FedEx-direct booking mode — labels will route through FedEx'
+      : '📦 ShipStation booking mode (default)');
+  }
+  // Re-render any open pack view so the Create Labels button label
+  // reflects the new mode.
+  if (typeof renderGroundPackBoxes === 'function' && groundCurrentOrder) {
+    renderGroundPackBoxes();
+  }
+}
+function _paintGroundCarrierToggle() {
+  const btn = document.getElementById('groundCarrierToggleBtn');
+  const icon = document.getElementById('groundCarrierToggleIcon');
+  const lbl = document.getElementById('groundCarrierToggleLbl');
+  if (!btn) return;
+  const mode = getGroundCarrierMode();
+  if (mode === 'fedex') {
+    btn.style.background = 'linear-gradient(135deg,#7C3AED,#4A148C)';
+    btn.style.color = '#fff';
+    btn.style.webkitTextFillColor = '#fff';
+    btn.style.borderColor = '#7C3AED';
+    if (icon) icon.textContent = '⚡';
+    if (lbl) lbl.textContent = 'FEDEX';
+  } else {
+    btn.style.background = '#1a1a1a';
+    btn.style.color = '#9AAAC0';
+    btn.style.webkitTextFillColor = '#9AAAC0';
+    btn.style.borderColor = 'var(--border)';
+    if (icon) icon.textContent = '📦';
+    if (lbl) lbl.textContent = 'SS';
+  }
+}
+// Paint the toggle on tab activation (called from renderGroundTab).
+document.addEventListener('DOMContentLoaded', () => { _paintGroundCarrierToggle(); });
+
 function toggleGroundManagerMode() {
   if (!groundManagerMode) {
     // Entering manager mode requires a PIN.
@@ -19300,6 +19350,10 @@ async function callStartPackAndRender(orderRow) {
       shipmentId: data.shipmentId,
       masterTracking: data.masterTracking,
       shadowMode: data.shadowMode,
+      // v10.601 — stash V1 line items so renderGroundPackBoxes can
+      // render the "what to put in this box" checklist (especially
+      // for CUSTOM-* boxes with no inside_items_json).
+      items: Array.isArray(orderRow.items) ? orderRow.items.slice() : [],
       packages: data.packages.map(p => Object.assign({}, p, { scanned: p.scan_status === 'Scanned' || p.scan_status === 'Labeled' || p.scan_status === 'Printed' })),
     };
     // v10.89 (Zac): when the server reused already-bought labels
@@ -19594,12 +19648,27 @@ function renderGroundPackBoxes() {
     // cover (no barcode, or breakdown made N boxes but the order
     // ships fewer — e.g. 31204). PIN-gated so it's not a packer
     // bypass. Only shown while the box is still unscanned.
+    //
+    // v10.601 (Zac 2026-06-16): CUSTOM-* boxes (auto-created by the
+    // packer-override Custom Size flow) have no physical barcode, so
+    // requiring MGR PIN to advance them was friction. Replace MGR with
+    // a green "✓ Packed it" packer-tap button on CUSTOM boxes — fires
+    // recordPackageScanned with the box's own SKU (outer_exact match)
+    // so the box marks Scanned + auto-prints. No PIN.
+    const isCustomBox = String(p.box_sku || '').indexOf('CUSTOM-') === 0;
     const boxMgrBtn = !isScanned
-      ? '<button onclick="managerCheckOff(' + idx + ',null)" class="no-dark keep-dark-text" '
-        + 'style="padding:10px 12px;background:rgba(124,58,237,.18);color:#C4B5FD;'
-        + '-webkit-text-fill-color:#C4B5FD;border:1.5px solid #7C3AED;border-radius:8px;'
-        + 'font-size:11px;font-weight:900;cursor:pointer;flex-shrink:0;letter-spacing:.3px" '
-        + 'title="Manager: mark this box packed without scanning (PIN required)">✓ MGR</button>'
+      ? (isCustomBox
+          ? '<button onclick="confirmCustomBoxPacked(' + idx + ')" class="no-dark keep-dark-text" '
+            + 'style="padding:10px 14px;background:linear-gradient(180deg,#00C853 0%,#1A5C1A 100%);'
+            + 'color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid #00E676;border-radius:8px;'
+            + 'font-size:12px;font-weight:900;cursor:pointer;flex-shrink:0;letter-spacing:.3px;'
+            + 'box-shadow:0 0 14px rgba(0,230,118,.35)" '
+            + 'title="Confirm you packed this custom box. No barcode to scan — tap to advance.">✓ PACKED IT</button>'
+          : '<button onclick="managerCheckOff(' + idx + ',null)" class="no-dark keep-dark-text" '
+            + 'style="padding:10px 12px;background:rgba(124,58,237,.18);color:#C4B5FD;'
+            + '-webkit-text-fill-color:#C4B5FD;border:1.5px solid #7C3AED;border-radius:8px;'
+            + 'font-size:11px;font-weight:900;cursor:pointer;flex-shrink:0;letter-spacing:.3px" '
+            + 'title="Manager: mark this box packed without scanning (PIN required)">✓ MGR</button>')
       : '';
     // Top row: outer info + print button
     const topRow = '<div style="display:flex;align-items:center;gap:14px">'
@@ -19665,7 +19734,40 @@ function renderGroundPackBoxes() {
         + 'font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.5px;min-height:44px;'
         + 'box-shadow:0 0 14px rgba(124,58,237,.35)">🎨 Print Colors to Pack (' + insideItems.length + ')</button>'
       : '';
-    row.innerHTML = topRow + packNotesHtml + insideHtml + colorsBtnHtml;
+    // v10.601 (Zac 2026-06-16): CUSTOM-* boxes have no inside_items
+    // — operator can't see what should go in. Render the V1 line
+    // items as a checklist (local-state only; no server roundtrip
+    // — the box's PACKED IT tap is the only thing the server cares
+    // about). Items come from groundCurrentOrder.items (stashed
+    // when we built groundCurrentOrder above).
+    var customItemsHtml = '';
+    if (isCustomBox && Array.isArray(groundCurrentOrder.items) && groundCurrentOrder.items.length) {
+      var orderItems = groundCurrentOrder.items.filter(function (it) { return !it.adjustment; });
+      if (orderItems.length) {
+        var itemChecklistRows = orderItems.map(function (it, iidx) {
+          var qty = Number(it.qty || it.quantity) || 1;
+          var checkKey = 'ci_' + idx + '_' + iidx;
+          var checked = !!p._customItemsChecked && !!p._customItemsChecked[checkKey];
+          var dot = checked
+            ? '<div style="width:22px;height:22px;background:#00E676;color:#000;-webkit-text-fill-color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0">✓</div>'
+            : '<div style="width:22px;height:22px;background:transparent;border:2px solid #5C7390;border-radius:50%;flex-shrink:0"></div>';
+          var rowOpacity = checked ? ';opacity:.6' : '';
+          return '<div onclick="toggleCustomItemCheck(' + idx + ',' + iidx + ')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(0,0,0,.25);border:1px solid rgba(255,179,0,.25);border-radius:6px;cursor:pointer' + rowOpacity + '">'
+            +   dot
+            +   '<div style="min-width:42px;text-align:center"><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#FFB300;-webkit-text-fill-color:#FFB300">' + qty + '×</span></div>'
+            +   '<div style="flex:1;min-width:0">'
+            +     '<div style="font-size:16px;font-weight:900;color:#FFD54F;-webkit-text-fill-color:#FFD54F;font-family:\'JetBrains Mono\',monospace;line-height:1.15">' + escapeHtml(it.sku || it.item_sku || '(no SKU)') + '</div>'
+            +     (it.name ? '<div style="font-size:12px;color:#E8EDF4;-webkit-text-fill-color:#E8EDF4;margin-top:2px">' + escapeHtml(it.name) + '</div>' : '')
+            +   '</div>'
+            + '</div>';
+        }).join('');
+        customItemsHtml = '<div style="display:flex;flex-direction:column;gap:6px;padding-left:48px;border-top:1px dashed rgba(255,179,0,.35);padding-top:10px;margin-top:4px">'
+          + '<div style="font-size:10px;font-weight:700;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;letter-spacing:.7px">📦 Items to put in this box · tap to check off</div>'
+          + itemChecklistRows
+          + '</div>';
+      }
+    }
+    row.innerHTML = topRow + packNotesHtml + insideHtml + customItemsHtml + colorsBtnHtml;
     list.appendChild(row);
   });
 
@@ -19675,6 +19777,65 @@ function renderGroundPackBoxes() {
   });
   document.getElementById('groundPackScanRow').style.display = allReady ? 'none' : '';
   document.getElementById('groundPackCompleteBtn').style.display = allReady ? '' : 'none';
+}
+
+// v10.601 (Zac 2026-06-16): toggle local-state checkmark on a
+// CUSTOM box's items checklist. No server call — just visual
+// progress so the packer sees what's been bagged. The box's
+// scanned state advances when the packer taps "✓ PACKED IT".
+function toggleCustomItemCheck(boxIdx, itemIdx) {
+  if (!groundCurrentOrder || !Array.isArray(groundCurrentOrder.packages)) return;
+  const p = groundCurrentOrder.packages[boxIdx];
+  if (!p) return;
+  if (!p._customItemsChecked) p._customItemsChecked = {};
+  const key = 'ci_' + boxIdx + '_' + itemIdx;
+  p._customItemsChecked[key] = !p._customItemsChecked[key];
+  renderGroundPackBoxes();
+}
+
+// v10.601 (Zac 2026-06-16): tap-to-confirm for CUSTOM-* boxes.
+// No physical barcode = no scan. The packer reads the item list,
+// puts the items in the box, taps PACKED IT — server runs
+// recordPackageScanned with the box's own SKU (outer_exact match),
+// marks Scanned, auto-prints. No manager PIN required (the modal
+// already required manager PIN to define the override that
+// created this CUSTOM box, so the trust chain is in place).
+async function confirmCustomBoxPacked(idx) {
+  if (!groundCurrentOrder || !Array.isArray(groundCurrentOrder.packages)) return;
+  const p = groundCurrentOrder.packages[idx];
+  if (!p) return;
+  if (p._confirmInFlight) return;
+  p._confirmInFlight = true;
+  try {
+    const btn = document.querySelector('button[onclick="confirmCustomBoxPacked(' + idx + ')"]');
+    if (btn) { btn.disabled = true; btn.style.opacity = '.55'; btn.innerHTML = '⏳ Marking…'; }
+  } catch (_e) {}
+  try {
+    const res = await groundApi('recordPackageScanned', {
+      orderId: groundCurrentOrder.orderId,
+      sequence: p.sequence,
+      scannedSku: p.box_sku,
+      packerName: localStorage.getItem('mbd_ground_packer') || '',
+    });
+    if (!res || !res.ok) {
+      p._confirmInFlight = false;
+      renderGroundPackBoxes();
+      showToast('Confirm failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    p.scanned = true;
+    p._confirmInFlight = false;
+    renderGroundPackBoxes();
+    showToast('✓ Box marked packed');
+    // Auto-print mirrors the v65 scan-completion behavior.
+    if (res.is_ready_to_print && !p.printed) {
+      setTimeout(() => printGroundLabel(idx), 200);
+    }
+  } catch (e) {
+    p._confirmInFlight = false;
+    renderGroundPackBoxes();
+    showToast('Confirm error: ' + e.message);
+  }
 }
 
 // SAMPLES colors-to-pack printable sheet (Zac 2026-05-18). Packer
@@ -20475,7 +20636,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.600"></script>
+<script src="./pack.js?v=10.601"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20486,7 +20647,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.600<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.601<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
