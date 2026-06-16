@@ -18026,6 +18026,14 @@ async function openVoidOrderPrompt_() {
 // v10.592 — paint a "🚦 N on hold" banner above the Ground queue.
 // Renders each held order as a tappable row so Jonah can release / act
 // directly from the same tab he uses for active packing.
+//
+// v10.594 — oddball picker inline. When the hold is an unknown-SKU
+// hold (matches the patterns Breakdown.js + Persistance.js emit) we
+// show a ⚙ Configure button right on the banner row that opens the
+// packer-override modal directly. Skips a tap (was: row → Holds
+// panel → ⚙ Configure → modal; now: row's ⚙ → modal). Non-unknown
+// holds (Beacon-Hold, size-confirm, etc.) still route to the Holds
+// panel where their kind-specific flow runs.
 function renderGroundHoldsBanner_(holds) {
   const el = document.getElementById('groundHoldsBanner');
   if (!el) return;
@@ -18042,19 +18050,30 @@ function renderGroundHoldsBanner_(holds) {
     const cust = String(h.customer_name || '');
     const reason = String(h.hold_reason || '').replace(/\s+/g, ' ').slice(0, 70);
     const kindLabel = h.kind === 'beacon_hold' ? '🛡 Beacon' : '🚦 Hold';
+    // v10.594 — parse unknown SKU out of the hold_reason; matches both
+    // patterns the server emits (see Breakdown.js:142 + Persistance.js:486).
+    const unknownSkuMatch = String(h.hold_reason || '').match(/No packaging rule for SKU "([^"]+)"|Unknown SKU "([^"]+)"/i);
+    const unknownSku = unknownSkuMatch ? (unknownSkuMatch[1] || unknownSkuMatch[2] || '') : '';
+    const canConfigure = !!unknownSku && h.kind === 'orderpack_hold' && h.order_id;
+    const actionPill = canConfigure
+      ? '<span style="flex:0 0 auto;font-size:11px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;background:#7C3AED !important;padding:5px 10px;border-radius:999px;letter-spacing:.4px">⚙ Configure</span>'
+      : '<span style="flex:0 0 auto;font-size:11px;font-weight:800;color:#9C27B0 !important;-webkit-text-fill-color:#9C27B0 !important;background:#fff !important;padding:3px 8px;border-radius:999px">Tap</span>';
+    const onclick = canConfigure
+      ? 'openPackerOverrideModal(\'' + esc(unknownSku).replace(/'/g, '\\\'') + '\',\'' + esc(String(h.order_id)) + '\',\'' + esc(on) + '\')'
+      : 'openHoldsPanel({kind:\'' + (h.kind || 'orderpack_hold') + '\'})';
     return ''
-      + '<button onclick="openHoldsPanel({kind:\'orderpack_hold\'})" '
+      + '<button onclick="' + onclick + '" '
       +    'style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;'
       +    'background:rgba(156,39,176,.10) !important;color:#E1BEE7 !important;'
       +    '-webkit-text-fill-color:#E1BEE7 !important;'
-      +    'border:1px solid rgba(156,39,176,.45) !important;border-radius:8px;'
+      +    'border:1px solid ' + (canConfigure ? 'rgba(124,58,237,.65)' : 'rgba(156,39,176,.45)') + ' !important;border-radius:8px;'
       +    'padding:10px 12px;font-family:inherit;cursor:pointer">'
       +   '<span style="flex:0 0 auto;font-size:13px;font-weight:800;color:#CE93D8 !important;-webkit-text-fill-color:#CE93D8 !important">' + kindLabel + '</span>'
-      +   '<span style="flex:1;min-width:0;font-weight:800;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + esc(on) + (cust ? ' · ' + esc(cust) : '') + '</span>'
-      +   (reason
+      +   '<span style="flex:1;min-width:0;font-weight:800;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + esc(on) + (cust ? ' · ' + esc(cust) : '') + (unknownSku ? ' · <span style="font-family:\'JetBrains Mono\',monospace;color:#FFD54F !important;-webkit-text-fill-color:#FFD54F !important;background:rgba(255,213,79,.12);padding:1px 5px;border-radius:3px;font-size:12px">' + esc(unknownSku) + '</span>' : '') + '</span>'
+      +   (reason && !canConfigure
         ? '<span style="flex:0 1 auto;min-width:0;font-size:11px;color:#E1BEE7 !important;-webkit-text-fill-color:#E1BEE7 !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%">' + esc(reason) + '</span>'
         : '')
-      +   '<span style="flex:0 0 auto;font-size:11px;font-weight:800;color:#9C27B0 !important;-webkit-text-fill-color:#9C27B0 !important;background:#fff !important;padding:3px 8px;border-radius:999px">Tap</span>'
+      +   actionPill
       + '</button>';
   }).join('');
   el.innerHTML = ''
@@ -20448,7 +20467,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.592<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.594<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
