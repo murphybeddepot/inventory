@@ -10443,7 +10443,13 @@ function _renderPlannerOrderCard_(o, source) {
   const borderColor = isSelected ? '#7C3AED' : (isPriority ? 'rgba(255,82,82,.55)' : 'rgba(255,255,255,.12)');
   return ''
     + '<div data-planner-order="' + esc(on) + '" data-planner-source="' + esc(source) + '" data-planner-bucket="' + esc(o.pack_bucket || 'pack') + '" '
-    +   'onclick="_plannerSelectOrder_(\'' + esc(on) + '\',\'' + esc(source) + '\')" '
+    // v10.619 (Zac 2026-06-16) — Playwright walkthrough revealed
+    // the tap-and-tap bug. Clicking an order INSIDE a bucket fired
+    // BOTH the order's selectOrder AND the bucket's dropOnDay
+    // (event bubbles to the parent). The drop would deselect, so
+    // the next tap on a different bucket failed with "Tap an order
+    // first." stopPropagation kills the bubble.
+    +   'onclick="event.stopPropagation();_plannerSelectOrder_(\'' + esc(on) + '\',\'' + esc(source) + '\')" '
     +   'style="display:block;padding:10px 11px;margin-bottom:6px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;cursor:pointer;user-select:none">'
     +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px">'
     +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">#' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
