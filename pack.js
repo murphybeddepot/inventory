@@ -10178,6 +10178,137 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 // size_confirmed_at on OrderPack so the breakdown skips that hold on
 // next pack attempt. Without this, Resume + Start Pack just re-triggers
 // the same hold infinitely.
+// v10.606 (Zac 2026-06-16) — Interactive survey overlay. Lets
+// stakeholders (Seth, Norm, etc.) answer design questions inside
+// the PWA via tap-through choices + optional notes. Submit hits
+// submitSurvey → saves to Murphy Ops `Surveys` tab + Slack-pings
+// Zac. Deep-linkable via ?survey=<surveyId> on the PWA URL.
+async function openSethSurvey(surveyId) {
+  surveyId = String(surveyId || '').trim();
+  if (!surveyId) return;
+  const prior = document.getElementById('sethSurveyOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'sethSurveyOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:10006;display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow-y:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" id="sethSurveyCard" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:24px;max-width:640px;width:100%;margin-top:20px;margin-bottom:40px">'
+    + '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">⟳ Loading survey…</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  let data;
+  try {
+    data = await groundApi('getSurvey', { surveyId });
+  } catch (e) {
+    document.getElementById('sethSurveyCard').innerHTML = '<div style="color:#c62828 !important;-webkit-text-fill-color:#c62828 !important;padding:20px">Network error: ' + esc(e.message) + '</div>';
+    return;
+  }
+  if (!data || !data.ok) {
+    document.getElementById('sethSurveyCard').innerHTML = '<div style="color:#c62828 !important;-webkit-text-fill-color:#c62828 !important;padding:20px">' + esc((data && data.error) || 'unknown error') + '</div>';
+    return;
+  }
+  _renderSethSurvey_(data.survey, data.prior_submissions_count || 0);
+}
+
+function _renderSethSurvey_(survey, priorCount) {
+  const card = document.getElementById('sethSurveyCard');
+  if (!card) return;
+  const labelStyle = 'display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:6px;margin-top:18px';
+  const inputStyle = 'width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box';
+
+  let html = ''
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;letter-spacing:.5px;line-height:1.05">' + esc(survey.title) + '</div>'
+    +   '<button onclick="document.getElementById(\'sethSurveyOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕</button>'
+    + '</div>'
+    + (priorCount > 0 ? '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:8px">' + priorCount + ' prior submission' + (priorCount === 1 ? '' : 's') + ' on file</div>' : '')
+    + (survey.intro ? '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;line-height:1.5;background:#fafafa !important;padding:14px;border-radius:8px;border-left:4px solid #7C3AED">' + esc(survey.intro) + '</div>' : '')
+    + '<label style="' + labelStyle + '">Your name</label>'
+    + '<input id="sethSurveyRespondent" type="text" placeholder="e.g. Seth Davis" style="' + inputStyle + '">';
+
+  survey.questions.forEach((q, qi) => {
+    html += '<div style="margin-top:22px;padding-top:18px;border-top:1px solid #eee">';
+    html += '<div style="font-size:15px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;line-height:1.35;margin-bottom:8px">' + (qi + 1) + '. ' + esc(q.text) + (q.optional ? ' <span style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;font-weight:600">(optional)</span>' : '') + '</div>';
+    if (q.help) {
+      html += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic;margin-bottom:10px">' + esc(q.help) + '</div>';
+    }
+    if (q.type === 'choice') {
+      (q.options || []).forEach((opt, oi) => {
+        const inputId = 'ssq_' + q.id + '_' + oi;
+        html += '<label for="' + inputId + '" style="display:flex;align-items:flex-start;gap:10px;padding:11px 13px;margin-bottom:6px;background:#f5f5f5 !important;border:1.5px solid #ddd;border-radius:8px;cursor:pointer;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;line-height:1.4">'
+          + '<input type="radio" id="' + inputId + '" name="ssq_' + q.id + '" value="' + esc(opt.value) + '" style="margin-top:3px;flex-shrink:0;width:18px;height:18px;cursor:pointer">'
+          + '<span>' + esc(opt.label) + '</span>'
+          + '</label>';
+      });
+    } else if (q.type === 'text') {
+      html += '<textarea id="ssq_' + q.id + '" rows="3" placeholder="' + esc(q.placeholder || '') + '" style="' + inputStyle + ';font-family:inherit;resize:vertical"></textarea>';
+    }
+    html += '</div>';
+  });
+
+  html += ''
+    + '<div style="margin-top:24px;padding-top:18px;border-top:2px solid #7C3AED;display:flex;gap:8px">'
+    +   '<button onclick="_submitSethSurvey_(\'' + esc(survey.id) + '\')" class="ss-submit-btn" style="flex:1;padding:16px;background:linear-gradient(180deg,#7C3AED 0%,#4C1D95 100%) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:15px;font-weight:900;letter-spacing:.5px;cursor:pointer">✓ Submit Answers</button>'
+    +   '<button onclick="document.getElementById(\'sethSurveyOverlay\').remove()" style="padding:16px 22px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>';
+
+  card.innerHTML = html;
+}
+
+async function _submitSethSurvey_(surveyId) {
+  const card = document.getElementById('sethSurveyCard');
+  if (!card) return;
+  const respondent = (document.getElementById('sethSurveyRespondent').value || '').trim();
+  const btn = document.querySelector('.ss-submit-btn');
+  // Gather answers.
+  const answers = {};
+  // Choice questions: find checked radio per question.
+  const radios = card.querySelectorAll('input[type="radio"]:checked');
+  radios.forEach(r => {
+    const qid = r.name.replace(/^ssq_/, '');
+    answers[qid] = r.value;
+  });
+  // Text questions.
+  const textAreas = card.querySelectorAll('textarea[id^="ssq_"]');
+  textAreas.forEach(t => {
+    const qid = t.id.replace(/^ssq_/, '');
+    const val = (t.value || '').trim();
+    if (val) answers[qid] = val;
+  });
+  if (!respondent) {
+    showToast('Add your name before submitting');
+    return;
+  }
+  if (Object.keys(answers).length === 0) {
+    showToast('Answer at least one question first');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Submitting…'; btn.style.opacity = '.7'; }
+  try {
+    const res = await groundApi('submitSurvey', {
+      surveyId,
+      respondent,
+      answers,
+      user_agent: navigator.userAgent || '',
+    });
+    if (!res || !res.ok) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '✓ Submit Answers'; btn.style.opacity = '1'; }
+      showToast('Submit failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    card.innerHTML = ''
+      + '<div style="text-align:center;padding:40px 20px">'
+      +   '<div style="font-size:56px;margin-bottom:14px">✅</div>'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;letter-spacing:.4px;margin-bottom:8px">THANKS, ' + esc(respondent.toUpperCase()) + '!</div>'
+      +   '<div style="font-size:14px;color:#444 !important;-webkit-text-fill-color:#444 !important;line-height:1.5;margin-bottom:20px">Zac has been pinged. He + Claude will build the next slice based on your answers.</div>'
+      +   '<button onclick="document.getElementById(\'sethSurveyOverlay\').remove()" style="padding:14px 24px;background:#7C3AED !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer">Close</button>'
+      + '</div>';
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '✓ Submit Answers'; btn.style.opacity = '1'; }
+    showToast('Network error: ' + e.message);
+  }
+}
+
 // v10.598 — FedEx-direct rate preview modal. Triggered from the
 // chip under the printer pill in Ground pack view. Read-only quote
 // using the order's current boxes (from groundCurrentOrder.packages).
