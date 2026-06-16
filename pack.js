@@ -14987,6 +14987,20 @@ function renderLookupCabinet_(h) {
     + _lkFld('Address', h.customer_address)
     + _lkFld('Phone', h.customer_phone)
     + _lkFld('Ship date', h.ship_date)
+    // v10.621 (Jessica CS lens) — planner placement, when present.
+    // Easier scan for CS than Status. "Scheduled: Wed 6/19 · Make"
+    // or "—" if not yet placed.
+    + (h.pack_target_date
+        ? _lkFld('Scheduled', (function(){
+            try {
+              const d = new Date(String(h.pack_target_date).slice(0,10)+'T00:00:00');
+              if (isNaN(d.getTime())) return String(h.pack_target_date);
+              const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+              const bucket = h.pack_bucket && h.pack_bucket.toLowerCase()==='make' ? 'Make' : 'Pack';
+              return dow + ' ' + (d.getMonth()+1) + '/' + d.getDate() + ' · ' + bucket;
+            } catch(e) { return String(h.pack_target_date); }
+          })())
+        : '')
     + _lkFld('Carrier', h.carrier || 'TBD')
     + _lkFld('Status', h.status)
     + _lkFld('Task line', h.task_line)
