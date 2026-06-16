@@ -2499,6 +2499,16 @@ function _packLooksNonHardware_(sku) {
   return false;
 }
 
+// v10.623 (Jonah persona) — toggle the "show remaining only" filter.
+// Stores per-device in localStorage; re-renders the SKU list.
+function _togglePackShowRemaining_(orderNumber) {
+  try {
+    const cur = localStorage.getItem('mbd_pack_show_remaining') === '1';
+    localStorage.setItem('mbd_pack_show_remaining', cur ? '0' : '1');
+  } catch (e) {}
+  if (typeof renderPackSkuList_ === 'function') renderPackSkuList_(orderNumber);
+}
+
 function renderPackSkuList_(orderNumber) {
   const list = document.getElementById('packSkuList');
   const prog = document.getElementById('packSkuProgress');
@@ -2546,16 +2556,31 @@ function renderPackSkuList_(orderNumber) {
     });
   }
   const done = visibleSkus.filter(s => s.scanned >= s.qty).length;
+  // v10.623 (Jonah persona) — "Show remaining only" toggle. As the
+  // SKU list grows, Jonah loses time visually skipping over already-
+  // scanned rows. Toggle hides them so he sees ONLY what's left.
+  // localStorage'd per device so it sticks across orders / sessions.
+  let showRemainingOnly = false;
+  try { showRemainingOnly = localStorage.getItem('mbd_pack_show_remaining') === '1'; } catch (e) {}
+  if (showRemainingOnly) {
+    visibleSkus = visibleSkus.filter(s => s.scanned < s.qty);
+  }
   // v10.400 — progress BAR replaces "X/Y complete" text. Filling bar +
   // "N of M" counter beside it for at-a-glance progress.
   if (prog) {
-    const pct = visibleSkus.length ? Math.round((done / visibleSkus.length) * 100) : 0;
-    const barColor = done === visibleSkus.length ? '#00C853' : '#42a5f5';
-    prog.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);font-weight:700">'
+    // Recompute against the ORIGINAL (not filtered) so the bar shows
+    // true completion, not "100% (filter active)" misleading.
+    const totalAll = state.skus.length;
+    const doneAll = state.skus.filter(s => s.scanned >= s.qty).length;
+    const pct = totalAll ? Math.round((doneAll / totalAll) * 100) : 0;
+    const barColor = doneAll === totalAll ? '#00C853' : '#42a5f5';
+    const toggleLabel = showRemainingOnly ? '↺ Show all' : '◐ Show remaining only';
+    prog.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);font-weight:700;flex-wrap:wrap">'
       + '<span style="position:relative;width:120px;height:8px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden;display:inline-block">'
       +   '<span style="position:absolute;top:0;left:0;bottom:0;width:' + pct + '%;background:' + barColor + ';transition:width .2s"></span>'
       + '</span>'
-      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:var(--text)">' + done + ' of ' + visibleSkus.length + (_packDetailPrePackMode ? ' HW' : '') + '</span>'
+      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:var(--text)">' + doneAll + ' of ' + totalAll + (_packDetailPrePackMode ? ' HW' : '') + '</span>'
+      + '<button onclick="_togglePackShowRemaining_(\'' + esc(orderNumber) + '\')" style="background:transparent;color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(66,165,245,.55);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.3px">' + toggleLabel + '</button>'
       + '</span>';
   }
   list.innerHTML = visibleSkus.map((s) => {
