@@ -14336,6 +14336,12 @@ function renderLookupCabinet_(h) {
     + _lkFld('Last updated', h.last_updated_at ? h.last_updated_at.slice(0, 16) : '—')
     + _lkTimeline_(h)
     + _lookupRemakeBtn_(h)
+    // v10.603 — Print Corrected Pick List works for ANY order with a
+    // seeded PickListCorrections row, regardless of whether it's in
+    // PackingQueue. Zac 2026-06-16 #31333: was seeded but the button
+    // didn't surface because the order had no PackingQueue row to
+    // attach to. Lookup now carries the same annotation.
+    + (h.has_corrected_pick_list && h.order_number ? '<button onclick="printCorrectedPickList_(\'' + esc(h.order_number) + '\')" style="margin-top:8px;width:100%;padding:12px;background:rgba(255,143,0,.18);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px solid rgba(255,143,0,.65);border-radius:8px;font-size:13px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">🖨 Print Corrected Pick List</button>' : '')
     + (h.order_number ? '<button onclick="openFedexFreightModal(\'' + esc(h.order_number) + '\')" style="margin-top:10px;width:100%;padding:12px;background:linear-gradient(180deg,#4D148C,#2D0A52);color:#fff;border:1.5px solid #7C3AED;border-radius:8px;font-size:13px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">📦 FedEx Freight: Quote → Book</button>' : '');
   return _lkCard('Cabinet / Freight', '#FFB300', h.status, body);
 }
