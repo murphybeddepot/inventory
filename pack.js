@@ -15044,8 +15044,78 @@ function renderLookupCabinet_(h) {
     // didn't surface because the order had no PackingQueue row to
     // attach to. Lookup now carries the same annotation.
     + (h.has_corrected_pick_list && h.order_number ? '<button onclick="printCorrectedPickList_(\'' + esc(h.order_number) + '\')" style="margin-top:8px;width:100%;padding:12px;background:rgba(255,143,0,.18);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px solid rgba(255,143,0,.65);border-radius:8px;font-size:13px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">🖨 Print Corrected Pick List</button>' : '')
+    // v10.626 (Seth ops) — inline "Schedule…" picker so Seth can drop
+    // an order on a planner day without leaving Lookup. Tap → reveals
+    // a 5-biz-day grid with Make/Pack sub-buttons. Each sub-button
+    // fires setPackTargetDate + setOrderPackBucket + closes.
+    + (h.order_number ? '<button onclick="_lookupToggleSchedule_(\'' + esc(h.order_number) + '\')" style="margin-top:8px;width:100%;padding:12px;background:linear-gradient(135deg,#1A4FB0,#003087);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid #42a5f5;border-radius:8px;font-size:13px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">📋 Schedule…</button><div id="lkSched_' + esc(h.order_number) + '" style="display:none;margin-top:8px"></div>' : '')
     + (h.order_number ? '<button onclick="openFedexFreightModal(\'' + esc(h.order_number) + '\')" style="margin-top:10px;width:100%;padding:12px;background:linear-gradient(180deg,#4D148C,#2D0A52);color:#fff;border:1.5px solid #7C3AED;border-radius:8px;font-size:13px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">📦 FedEx Freight: Quote → Book</button>' : '');
   return _lkCard('Cabinet / Freight', '#FFB300', h.status, body);
+}
+
+// v10.626 (Seth ops) — Inline schedule picker on Lookup cabinet cards.
+// Tap "📋 Schedule…" to reveal a 5-biz-day grid of Make/Pack buttons.
+function _lookupToggleSchedule_(orderNumber) {
+  const host = document.getElementById('lkSched_' + orderNumber);
+  if (!host) return;
+  if (host.style.display !== 'none' && host.innerHTML) {
+    host.style.display = 'none';
+    return;
+  }
+  // Next 5 biz days starting today.
+  const days = [];
+  let cursor = new Date();
+  while (days.length < 5) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) {
+      days.push(new Date(cursor.getTime()));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  const dayRows = days.map((dt, i) => {
+    const iso = dt.toISOString().slice(0, 10);
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dt.getDay()];
+    const lbl = i === 0 ? 'TODAY' : (i === 1 ? 'TOMORROW' : dow.toUpperCase() + ' ' + (dt.getMonth()+1) + '/' + dt.getDate());
+    return ''
+      + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">'
+      +   '<div style="flex:1;min-width:0;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;color:' + (i === 0 ? '#C4B5FD' : 'var(--text)') + ';-webkit-text-fill-color:' + (i === 0 ? '#C4B5FD' : 'var(--text)') + '">' + esc(lbl) + '</div>'
+      +   '<button onclick="_lookupScheduleOrder_(\'' + esc(orderNumber) + '\',\'' + iso + '\',\'make\')" style="background:rgba(255,145,0,.18);color:#FFB74D !important;-webkit-text-fill-color:#FFB74D !important;border:1.5px solid rgba(255,145,0,.55);border-radius:6px;padding:6px 12px;font-size:11px;font-weight:900;letter-spacing:.4px;cursor:pointer;font-family:inherit">🔨 MAKE</button>'
+      +   '<button onclick="_lookupScheduleOrder_(\'' + esc(orderNumber) + '\',\'' + iso + '\',\'pack\')" style="background:rgba(0,230,118,.18);color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border:1.5px solid rgba(0,230,118,.55);border-radius:6px;padding:6px 12px;font-size:11px;font-weight:900;letter-spacing:.4px;cursor:pointer;font-family:inherit">📦 PACK</button>'
+      + '</div>';
+  }).join('');
+  host.innerHTML = ''
+    + '<div style="padding:10px 12px;background:rgba(0,48,135,.18);border:1px solid rgba(66,165,245,.45);border-radius:8px">'
+    +   '<div style="font-size:10px;font-weight:800;letter-spacing:.8px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-transform:uppercase;margin-bottom:6px">Drop on day · bucket</div>'
+    +   dayRows
+    + '</div>';
+  host.style.display = '';
+}
+
+async function _lookupScheduleOrder_(orderNumber, targetDate, bucket) {
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('schedule ' + orderNumber) : null;
+  if (!pin) return;
+  try {
+    const r1 = await groundApi('setPackTargetDate', {
+      orderNumber: orderNumber, targetDate: targetDate, manager_pin: pin,
+      set_by: localStorage.getItem('mbd_ground_packer') || '',
+    });
+    if (!r1 || !r1.ok) {
+      if (/pin/i.test(String((r1 && r1.error) || ''))) (typeof clearManagerPin_ === 'function') && clearManagerPin_();
+      showToast('Schedule failed: ' + ((r1 && r1.error) || 'unknown'));
+      return;
+    }
+    const r2 = await groundApi('setOrderPackBucket', {
+      order_number: orderNumber, bucket: bucket, manager_pin: pin,
+    });
+    if (!r2 || !r2.ok) {
+      showToast('Bucket update failed: ' + ((r2 && r2.error) || 'unknown'));
+    }
+    showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + bucket + ')');
+    const host = document.getElementById('lkSched_' + orderNumber);
+    if (host) { host.style.display = 'none'; host.innerHTML = ''; }
+  } catch (e) {
+    showToast('Network error: ' + e.message);
+  }
 }
 
 function _lookupRemakeBtn_(h) {
