@@ -10192,6 +10192,65 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 let _packPlannerSelectedOrder = null; // { order_number, source: 'unscheduled' | 'date' }
 let _packPlannerCache = null;
 
+// v10.614 (Zac 2026-06-16, for Seth the fisherman) — fishing-themed
+// loading animation. Pure CSS keyframes; injected once on first call.
+let _packPlannerFishingCssInjected = false;
+function _plannerFishingLoader_(message) {
+  if (!_packPlannerFishingCssInjected) {
+    const style = document.createElement('style');
+    style.id = 'plannerFishingStyles';
+    style.textContent = ''
+      + '@keyframes plannerWave { 0%,100% { transform: translateX(-12px) } 50% { transform: translateX(12px) } }'
+      + '@keyframes plannerWave2 { 0%,100% { transform: translateX(8px) } 50% { transform: translateX(-8px) } }'
+      + '@keyframes plannerBob { 0%,100% { transform: translateY(0) rotate(-3deg) } 50% { transform: translateY(8px) rotate(3deg) } }'
+      + '@keyframes plannerFishSwim { 0% { transform: translateX(-220px) scaleX(1) } 49% { transform: translateX(220px) scaleX(1) } 50% { transform: translateX(220px) scaleX(-1) } 99% { transform: translateX(-220px) scaleX(-1) } 100% { transform: translateX(-220px) scaleX(1) } }'
+      + '@keyframes plannerFishSwim2 { 0% { transform: translateX(180px) scaleX(-1) } 49% { transform: translateX(-180px) scaleX(-1) } 50% { transform: translateX(-180px) scaleX(1) } 99% { transform: translateX(180px) scaleX(1) } 100% { transform: translateX(180px) scaleX(-1) } }'
+      + '@keyframes plannerLineSway { 0%,100% { transform: rotate(-2deg) } 50% { transform: rotate(2deg) } }'
+      + '@keyframes plannerRodCast { 0%,15% { transform: rotate(-25deg) } 22% { transform: rotate(35deg) } 100% { transform: rotate(-12deg) } }'
+      + '@keyframes plannerSplash { 0% { transform: scale(0) translateY(0); opacity: 0 } 20% { opacity: 1 } 100% { transform: scale(1.4) translateY(-20px); opacity: 0 } }'
+      + '@keyframes plannerTipFade { 0%,33% { opacity: 0; transform: translateY(6px) } 38%,62% { opacity: 1; transform: translateY(0) } 67%,100% { opacity: 0; transform: translateY(-6px) } }';
+    document.head.appendChild(style);
+    _packPlannerFishingCssInjected = true;
+  }
+  // 4 rotating fishing puns Seth would smirk at (3.6s each).
+  const tips = [
+    '🎣 Casting the line…',
+    '🪝 Waiting for a nibble…',
+    '🐟 Got one! Reeling…',
+    '🌊 Sorting the catch…',
+  ];
+  const tipDivs = tips.map((t, i) =>
+    '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;text-shadow:0 1px 6px rgba(0,0,0,.6);animation:plannerTipFade 14.4s ease-in-out infinite;animation-delay:' + (i * 3.6) + 's">' + t + '</div>'
+  ).join('');
+  return ''
+    + '<div style="position:relative;width:100%;height:100%;background:linear-gradient(180deg,#0a1a2e 0%,#0a3556 60%,#0a4a7a 100%);overflow:hidden;display:flex;align-items:center;justify-content:center">'
+    +   '<div style="position:relative;width:480px;max-width:90vw;height:360px">'
+    // Sun
+    +     '<div style="position:absolute;right:24px;top:18px;width:54px;height:54px;background:radial-gradient(circle,#FFD86B 0%,#FF9E42 70%,transparent 100%);border-radius:50%;box-shadow:0 0 40px #FF9E42">☀️</div>'
+    // Fishing rod — top-left, casting
+    +     '<div style="position:absolute;left:30px;top:40px;width:6px;height:140px;background:linear-gradient(180deg,#8B4513,#3a1c08);border-radius:3px;transform-origin:top left;animation:plannerRodCast 4s ease-in-out infinite"></div>'
+    +     '<div style="position:absolute;left:36px;top:55px;font-size:26px;transform-origin:top left;animation:plannerRodCast 4s ease-in-out infinite">🎣</div>'
+    // Line + hook (bobbing)
+    +     '<div style="position:absolute;left:170px;top:160px;width:2px;height:90px;background:rgba(255,255,255,.55);transform-origin:top center;animation:plannerLineSway 2.4s ease-in-out infinite"></div>'
+    +     '<div style="position:absolute;left:165px;top:235px;font-size:22px;animation:plannerBob 1.8s ease-in-out infinite">🪝</div>'
+    // Water surface ripples
+    +     '<div style="position:absolute;left:-30px;right:-30px;top:255px;height:18px;background:radial-gradient(ellipse at center,rgba(255,255,255,.30) 0%,transparent 60%);animation:plannerWave 3.2s ease-in-out infinite"></div>'
+    +     '<div style="position:absolute;left:-30px;right:-30px;top:262px;height:14px;background:radial-gradient(ellipse at center,rgba(255,255,255,.20) 0%,transparent 60%);animation:plannerWave2 3.6s ease-in-out infinite"></div>'
+    // Fish swimming
+    +     '<div style="position:absolute;left:50%;top:300px;font-size:30px;animation:plannerFishSwim 8s ease-in-out infinite">🐟</div>'
+    +     '<div style="position:absolute;left:50%;top:330px;font-size:22px;animation:plannerFishSwim2 11s ease-in-out infinite">🐠</div>'
+    // Splash near hook
+    +     '<div style="position:absolute;left:158px;top:253px;font-size:20px;opacity:0;animation:plannerSplash 4s ease-in-out infinite;animation-delay:1s">💦</div>'
+    // Tip text rotating
+    +     '<div style="position:absolute;left:0;right:0;bottom:-46px;height:32px">'
+    +       tipDivs
+    +     '</div>'
+    // Bedrock message
+    +     '<div style="position:absolute;left:0;right:0;bottom:-86px;text-align:center;color:rgba(255,255,255,.55) !important;-webkit-text-fill-color:rgba(255,255,255,.55) !important;font-size:11px;font-weight:600;letter-spacing:.4px">' + esc(message || 'Loading…') + '</div>'
+    +   '</div>'
+    + '</div>';
+}
+
 async function openPackPlanner() {
   const pin = promptManagerPin_('open planner');
   if (!pin) return;
@@ -10213,7 +10272,7 @@ async function openPackPlanner() {
     +   '</div>'
     + '</div>'
     + '<div id="packPlannerBody" style="flex:1;display:flex;overflow:hidden">'
-    +   '<div style="text-align:center;padding:60px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;width:100%">⟳ Loading planner…</div>'
+    +   _plannerFishingLoader_('Reeling in your planner…')
     + '</div>';
   document.body.appendChild(ov);
   await refreshPackPlanner_();
@@ -10232,7 +10291,7 @@ async function refreshPackPlanner_() {
   // on first tap → "Failed to fetch" if the first POST times out.
   // Auto-retry once after 1.2s so the cold-start is invisible.
   const body = document.getElementById('packPlannerBody');
-  if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;width:100%">⟳ Loading planner…</div>';
+  if (body) body.innerHTML = _plannerFishingLoader_('Reeling in your planner…');
   async function attempt() {
     return await groundApi('listPackPlannerData', { days: 5 });
   }
@@ -10240,7 +10299,7 @@ async function refreshPackPlanner_() {
   try {
     res = await attempt();
   } catch (e) {
-    if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;width:100%">⟳ Warming server… retrying</div>';
+    if (body) body.innerHTML = _plannerFishingLoader_('Warming server… casting again');
     await new Promise(r => setTimeout(r, 1200));
     try {
       res = await attempt();
@@ -10272,12 +10331,19 @@ function _renderPackPlanner_(data) {
     groups[key].push(o);
   });
   function _fmtGroupHdr_(iso) {
-    if (iso === 'no-date') return 'No ship date';
+    if (iso === 'no-date' || !iso) return 'No ship date';
+    // v10.614 — was emitting "undefined NaN/NaN" when the cell
+    // contained a non-ISO string (gcal date object string, blank,
+    // etc.). Strict YYYY-MM-DD check before parsing; fall back to
+    // the raw string when we can't tell.
+    const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+    if (!isoMatch) return String(iso) || 'No ship date';
     try {
-      const dt = new Date(iso + 'T00:00:00');
+      const dt = new Date(isoMatch[0] + 'T00:00:00');
+      if (isNaN(dt.getTime())) return isoMatch[0];
       const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
       return dow + ' ' + (dt.getMonth() + 1) + '/' + dt.getDate();
-    } catch (e) { return iso; }
+    } catch (e) { return isoMatch[0]; }
   }
   const sidebarBody = groupOrder.map(k => {
     const rows = groups[k].map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('');
