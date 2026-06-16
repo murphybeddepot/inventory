@@ -10227,19 +10227,36 @@ function closePackPlanner_() {
 }
 
 async function refreshPackPlanner_() {
+  // v10.612 (Zac 2026-06-16) — Apps Script cold-start retries.
+  // Planner is a fresh code path that often hits a cold runtime
+  // on first tap → "Failed to fetch" if the first POST times out.
+  // Auto-retry once after 1.2s so the cold-start is invisible.
+  const body = document.getElementById('packPlannerBody');
+  if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;width:100%">⟳ Loading planner…</div>';
+  async function attempt() {
+    return await groundApi('listPackPlannerData', { days: 5 });
+  }
+  let res;
   try {
-    const res = await groundApi('listPackPlannerData', { days: 5 });
-    if (!res || !res.ok) {
-      const body = document.getElementById('packPlannerBody');
-      if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#FF5252;-webkit-text-fill-color:#FF5252;width:100%">Load failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+    res = await attempt();
+  } catch (e) {
+    if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;width:100%">⟳ Warming server… retrying</div>';
+    await new Promise(r => setTimeout(r, 1200));
+    try {
+      res = await attempt();
+    } catch (e2) {
+      if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#FF5252;-webkit-text-fill-color:#FF5252;width:100%">Network error: ' + esc(e2.message)
+        + '<br><button onclick="refreshPackPlanner_()" style="margin-top:14px;padding:10px 18px;background:#003087;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">↻ Retry</button></div>';
       return;
     }
-    _packPlannerCache = res;
-    _renderPackPlanner_(res);
-  } catch (e) {
-    const body = document.getElementById('packPlannerBody');
-    if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#FF5252;-webkit-text-fill-color:#FF5252;width:100%">Network error: ' + esc(e.message) + '</div>';
   }
+  if (!res || !res.ok) {
+    if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#FF5252;-webkit-text-fill-color:#FF5252;width:100%">Load failed: ' + esc((res && res.error) || 'unknown')
+      + '<br><button onclick="refreshPackPlanner_()" style="margin-top:14px;padding:10px 18px;background:#003087;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">↻ Retry</button></div>';
+    return;
+  }
+  _packPlannerCache = res;
+  _renderPackPlanner_(res);
 }
 
 function _renderPackPlanner_(data) {
