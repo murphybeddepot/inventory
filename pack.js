@@ -10262,12 +10262,37 @@ async function refreshPackPlanner_() {
 function _renderPackPlanner_(data) {
   const body = document.getElementById('packPlannerBody');
   if (!body) return;
-  // Left sidebar: unscheduled orders.
+  // v10.613 — Group unscheduled by ship_date. Sticky date headers
+  // so manager scans a 1500-row backlog by date instead of by order.
+  const groups = {};
+  const groupOrder = [];
+  (data.unscheduled || []).forEach(o => {
+    const key = (o.ship_date || '').slice(0, 10) || 'no-date';
+    if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+    groups[key].push(o);
+  });
+  function _fmtGroupHdr_(iso) {
+    if (iso === 'no-date') return 'No ship date';
+    try {
+      const dt = new Date(iso + 'T00:00:00');
+      const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
+      return dow + ' ' + (dt.getMonth() + 1) + '/' + dt.getDate();
+    } catch (e) { return iso; }
+  }
+  const sidebarBody = groupOrder.map(k => {
+    const rows = groups[k].map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('');
+    return ''
+      + '<div style="position:sticky;top:0;background:#181818;padding:6px 6px;margin:8px -8px 4px;border-bottom:1px solid rgba(255,179,0,.35);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;text-transform:uppercase">'
+      +   _fmtGroupHdr_(k) + ' · ' + groups[k].length
+      + '</div>'
+      + rows;
+  }).join('');
+  // Left sidebar: unscheduled orders, grouped by ship_date.
   const sidebar = ''
-    + '<div id="packPlannerSidebar" style="flex:0 0 220px;background:#111;border-right:1px solid rgba(255,255,255,.12);overflow-y:auto;padding:10px 8px">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;padding:4px 6px;margin-bottom:8px">📥 Unscheduled (' + data.unscheduled.length + ')</div>'
-    +   data.unscheduled.map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('')
-    +   (data.unscheduled.length === 0 ? '<div style="padding:14px 8px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:11px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
+    + '<div id="packPlannerSidebar" style="flex:0 0 240px;background:#111;border-right:1px solid rgba(255,255,255,.12);overflow-y:auto;padding:10px 8px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;padding:4px 6px;margin-bottom:8px;border-bottom:1.5px solid rgba(255,179,0,.45)">📥 Unscheduled · ' + (data.unscheduled || []).length + '</div>'
+    +   sidebarBody
+    +   ((data.unscheduled || []).length === 0 ? '<div style="padding:14px 8px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:11px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
     + '</div>';
   // Day columns.
   const today = new Date();
@@ -10302,7 +10327,12 @@ function _renderPackPlanner_(data) {
 
 function _renderPlannerOrderCard_(o, source) {
   const on = String(o.order_number || '');
-  const cust = String(o.customer_name || '').slice(0, 22);
+  // v10.613 (Zac 2026-06-16) — show the full order_details
+  // (same blob gcal shows), larger + more readable than the
+  // grayed customer_name. Fall back to task_line / customer_name
+  // if order_details is empty.
+  const detailsRaw = String(o.order_details || o.task_line || o.customer_name || '');
+  const details = detailsRaw.replace(/\s+/g, ' ').trim();
   const ship = String(o.ship_date || '').slice(5, 10); // mm-dd
   const isPriority = !!o.priority;
   const isSelected = _packPlannerSelectedOrder && _packPlannerSelectedOrder.order_number === on;
@@ -10311,10 +10341,12 @@ function _renderPlannerOrderCard_(o, source) {
   return ''
     + '<div data-planner-order="' + esc(on) + '" data-planner-source="' + esc(source) + '" data-planner-bucket="' + esc(o.pack_bucket || 'pack') + '" '
     +   'onclick="_plannerSelectOrder_(\'' + esc(on) + '\',\'' + esc(source) + '\')" '
-    +   'style="display:block;padding:8px 10px;margin-bottom:5px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:7px;cursor:pointer;user-select:none">'
-    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">#' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:10px">★</span>' : '') + '</div>'
-    +   (cust ? '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(cust) + '</div>' : '')
-    +   (ship ? '<div style="font-size:10px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">ship ' + esc(ship) + '</div>' : '')
+    +   'style="display:block;padding:10px 11px;margin-bottom:6px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;cursor:pointer;user-select:none">'
+    +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px">'
+    +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">#' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
+    +     (ship ? '<span style="font-size:11px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;flex-shrink:0">' + esc(ship) + '</span>' : '')
+    +   '</div>'
+    +   (details ? '<div style="font-size:13px;line-height:1.32;color:#E8EDF4 !important;-webkit-text-fill-color:#E8EDF4 !important;font-weight:600;word-wrap:break-word">' + esc(details) + '</div>' : '')
     + '</div>';
 }
 
