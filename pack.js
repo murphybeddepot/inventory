@@ -10078,6 +10078,112 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 // size_confirmed_at on OrderPack so the breakdown skips that hold on
 // next pack attempt. Without this, Resume + Start Pack just re-triggers
 // the same hold infinitely.
+// v10.598 — FedEx-direct rate preview modal. Triggered from the
+// chip under the printer pill in Ground pack view. Read-only quote
+// using the order's current boxes (from groundCurrentOrder.packages).
+// Booking remains routed through ShipStation until v10.599 wires
+// the actual ship endpoint.
+async function openFedexRatePreview() {
+  if (!groundCurrentOrder || !Array.isArray(groundCurrentOrder.packages) || !groundCurrentOrder.packages.length) {
+    showToast('No boxes built yet — finish breakdown first');
+    return;
+  }
+  const prior = document.getElementById('fedexRatePreviewOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'fedexRatePreviewOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  const packages = groundCurrentOrder.packages.map(p => ({
+    weightLb: Number(p.weight_lb || p.weight || 5),
+    lengthIn: Number(p.length_in || p.length || 12),
+    widthIn: Number(p.width_in || p.width || 9),
+    heightIn: Number(p.height_in || p.height || 6),
+  }));
+  const pkgSummary = packages.map((p, i) =>
+    `Box ${i+1}: ${p.lengthIn}×${p.widthIn}×${p.heightIn}" / ${p.weightLb}lb`
+  ).join(' · ');
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;letter-spacing:.5px">⚡ FedEx Rate Preview</div>'
+    +   '<button onclick="document.getElementById(\'fedexRatePreviewOverlay\').remove()" style="padding:8px 12px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:10px">Order <strong>#' + esc(groundCurrentOrder.orderNumber) + '</strong> · ' + packages.length + ' box' + (packages.length === 1 ? '' : 'es') + '</div>'
+    + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;background:#fafafa !important;padding:8px;border-radius:6px;margin-bottom:12px;font-family:\'JetBrains Mono\',monospace">' + esc(pkgSummary) + '</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:12px">'
+    +   '<label style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-weight:700;display:flex;align-items:center;gap:6px;cursor:pointer">'
+    +     '<input type="checkbox" id="fxOneRateChk" style="cursor:pointer"> Include One Rate (XS/S/M/L/XL flat-rate boxes)'
+    +   '</label>'
+    + '</div>'
+    + '<button id="fxGetRateBtn" style="width:100%;padding:12px 14px;background:#5B21B6 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px;margin-bottom:14px">⚡ Get FedEx Rate</button>'
+    + '<div id="fxRateBody" style="color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  document.getElementById('fxGetRateBtn').onclick = () => _runFedexRatePreview_(packages);
+  // Auto-fire on open — the packer already tapped the chip.
+  _runFedexRatePreview_(packages);
+}
+
+async function _runFedexRatePreview_(packages) {
+  const body = document.getElementById('fxRateBody');
+  const btn = document.getElementById('fxGetRateBtn');
+  if (!body || !btn) return;
+  const oneRate = document.getElementById('fxOneRateChk') && document.getElementById('fxOneRateChk').checked;
+  btn.disabled = true;
+  btn.textContent = '⟳ Quoting…';
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">⟳ Calling FedEx…</div>';
+  try {
+    const res = await groundApi('fedexParcelRateForOrder', {
+      orderId: groundCurrentOrder.orderId,
+      packages: packages,
+      oneRate: !!oneRate,
+    });
+    btn.disabled = false;
+    btn.textContent = oneRate ? '⚡ Re-quote (One Rate)' : '⚡ Re-quote';
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="background:#FAEAEA !important;color:#9E2222 !important;-webkit-text-fill-color:#9E2222 !important;border:1.5px solid #C43030;padding:12px;border-radius:8px;font-size:13px;font-weight:600">'
+        + esc(String((res && res.error) || 'unknown error'))
+        + '</div>';
+      return;
+    }
+    const services = res.services || [];
+    if (!services.length) {
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important">No service options returned</div>';
+      return;
+    }
+    const rows = services.map((s, i) => {
+      const cheapest = i === 0;
+      const price = s.totalNetCharge != null ? '$' + Number(s.totalNetCharge).toFixed(2) : '—';
+      const list = (s.totalListCharge != null && s.totalListCharge !== s.totalNetCharge)
+        ? '<span style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;text-decoration:line-through;margin-left:6px">$' + Number(s.totalListCharge).toFixed(2) + '</span>'
+        : '';
+      const transit = s.transitDays ? ' · ' + esc(String(s.transitDays).replace('_', ' ').toLowerCase()) : '';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + (cheapest ? 'rgba(0,200,83,.10)' : '#fafafa') + ' !important;border:1.5px solid ' + (cheapest ? '#00C853' : '#e0e0e0') + ' !important;border-radius:8px;margin-bottom:6px">'
+        + '<div style="flex:1;min-width:0">'
+        +   '<div style="font-weight:800;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(s.serviceName || s.serviceType) + '</div>'
+        +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:\'JetBrains Mono\',monospace">' + esc(s.serviceType) + transit + (s.deliveryDate ? ' · arr ' + esc(String(s.deliveryDate).slice(0,10)) : '') + '</div>'
+        + '</div>'
+        + '<div style="text-align:right">'
+        +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:900;color:' + (cheapest ? '#1A5C1A' : '#1a1a1a') + ' !important;-webkit-text-fill-color:' + (cheapest ? '#1A5C1A' : '#1a1a1a') + ' !important">' + price + '</div>'
+        +   list
+        + '</div>'
+        + (cheapest ? '<span style="font-size:10px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;letter-spacing:.5px">CHEAPEST</span>' : '')
+        + '</div>';
+    }).join('');
+    body.innerHTML = '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">' + services.length + ' service' + (services.length === 1 ? '' : 's') + ' returned — sorted cheapest first</div>'
+      + rows
+      + '<div style="margin-top:14px;padding:10px 12px;background:#FFF5E6 !important;border-left:4px solid #FF9100;color:#444 !important;-webkit-text-fill-color:#444 !important;border-radius:6px;font-size:12px;line-height:1.5">'
+      +   '<strong>Read-only quote.</strong> Booking still routes through ShipStation. Direct FedEx booking lands in v10.599+.'
+      + '</div>';
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '⚡ Get FedEx Rate';
+    body.innerHTML = '<div style="background:#FAEAEA !important;color:#9E2222 !important;-webkit-text-fill-color:#9E2222 !important;border:1.5px solid #C43030;padding:12px;border-radius:8px;font-size:13px;font-weight:600">'
+      + esc('Network error: ' + (e.message || e))
+      + '</div>';
+  }
+}
+
 // v10.476 — Packer-override modal. Manager picks a box / carrier /
 // service / weight / label for an unknown-SKU hold. Save scope picks
 // between "just this order" (saves with max_qty=current qty, will
