@@ -10468,8 +10468,12 @@ function _renderPlannerBucket_(date, bucket, orders) {
     +   'onclick="_plannerDropOnDay_(\'' + esc(date) + '\',\'' + esc(bucket) + '\')" '
     +   'style="margin-bottom:10px;padding:6px;border:1.5px dashed rgba(255,255,255,.10);border-radius:7px;min-height:48px">'
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1px;color:' + accent + ' !important;-webkit-text-fill-color:' + accent + ' !important;margin-bottom:4px;padding:0 2px">' + label + '</div>'
+    // v10.620 (Mira UX) — empty bucket: bumped contrast (#5C7390
+    // → #9AAAC0, the same text-dim used elsewhere), and the hint
+    // copy now teaches the workflow ("tap an order, then tap here")
+    // instead of the unhelpful "drop zone" label.
     +   (orders.length === 0
-      ? '<div style="font-size:10px;color:#5C7390 !important;-webkit-text-fill-color:#5C7390 !important;text-align:center;padding:8px;font-style:italic">drop zone</div>'
+      ? '<div style="font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-align:center;padding:10px;font-style:italic;opacity:.85">tap an order →<br>tap here to drop</div>'
       : orders.map(o => _renderPlannerOrderCard_(o, 'date:' + date + ':' + bucket)).join(''))
     + '</div>';
 }
@@ -10495,7 +10499,8 @@ function _renderPlannerTasks_(date, tasks) {
     +     '<button onclick="_plannerAddTask_(\'' + esc(date) + '\')" style="background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer">+</button>'
     +   '</div>'
     +   rows
-    +   (tasks.length === 0 ? '<div style="font-size:10px;color:#5C7390 !important;-webkit-text-fill-color:#5C7390 !important;text-align:center;padding:4px;font-style:italic">no tasks</div>' : '')
+    // v10.620 (Mira UX) — bumped contrast on "no tasks" placeholder.
+    +   (tasks.length === 0 ? '<div style="font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-align:center;padding:6px 4px;font-style:italic;opacity:.85">no tasks · tap + to add</div>' : '')
     + '</div>';
 }
 
