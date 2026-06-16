@@ -10275,7 +10275,11 @@ function _renderPackerOverrideForm(sku, orderId, orderNumber, pin) {
     +   '<span style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important">qty</span>'
     + '</div>'
     + '<div style="display:flex;gap:8px;margin-top:18px">'
-    +   '<button onclick="_savePackerOverride(\'' + esc(sku) + '\',\'' + esc(orderId) + '\',\'' + esc(orderNumber) + '\',\'' + esc(pin) + '\')" style="flex:1;padding:14px 18px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Save & Resume</button>'
+    // v10.600 — added po-save-btn class so _guardedAction_'s in-flight
+    // indicator selector can find this button. Zac 2026-06-16: "no
+    // immediate indication it was working" — was because the selector
+    // never matched, so the busyText/disable never applied.
+    +   '<button class="po-save-btn" onclick="_savePackerOverride(\'' + esc(sku) + '\',\'' + esc(orderId) + '\',\'' + esc(orderNumber) + '\',\'' + esc(pin) + '\')" style="flex:1;padding:14px 18px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Save & Resume</button>'
     +   '<button onclick="document.getElementById(\'packerOverrideOverlay\').remove()" style="padding:14px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
     + '</div>';
 }
@@ -10370,7 +10374,22 @@ async function _savePackerOverride(sku, orderId, orderNumber, pin) {
         }
         const ov = document.getElementById('packerOverrideOverlay');
         if (ov) ov.remove();
-        if (typeof openHoldsPanel === 'function') openHoldsPanel();
+        // v10.600 — Zac 2026-06-16: post-save landed on Holds view
+        // instead of Ground with the resumed order. Switch to Ground +
+        // refresh queue so the just-resumed order appears at the top
+        // and the packer can tap it without backtracking.
+        // Also close the Holds panel if it's open (the modal was
+        // launched from it).
+        try { document.getElementById('holdsOverlay') && document.getElementById('holdsOverlay').remove(); } catch (_e) {}
+        if (typeof switchTab === 'function') {
+          switchTab('ground');
+        }
+        if (typeof refreshGroundQueue === 'function') {
+          // Brief delay so resumeOrderFromHold's write to OrderPack
+          // settles before the queue re-fetch (avoids re-rendering
+          // the order as still-held).
+          setTimeout(() => refreshGroundQueue(), 250);
+        }
       } catch (err) {
         showToast('Save error: ' + err.message);
       }
