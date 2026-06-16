@@ -10226,15 +10226,32 @@ function _renderPackerOverrideForm(sku, orderId, orderNumber, pin) {
   const body = document.getElementById('packerOverrideBody');
   if (!body) return;
   const boxes = _packerOverrideBoxesCache || [];
+  // v10.599 — CUSTOM option first (Zac 2026-06-16). Reveals inline
+  // length/width/height inputs; saving auto-creates a CUSTOM-<L>x<W>x<H>
+  // boxes-tab row via the server.
   const boxOptions = '<option value="">— pick a box —</option>'
+    + '<option value="CUSTOM">✎ Custom size (enter dimensions)</option>'
     + boxes.map(b => '<option value="' + esc(b.box_sku) + '" data-len="' + b.length_in + '" data-wid="' + b.width_in + '" data-hgt="' + b.height_in + '" data-wt="' + b.weight_lb + '" data-svc="' + esc(b.service_hint) + '" data-car="' + esc(b.carrier_hint) + '">'
         + esc(b.box_sku) + ' · ' + b.length_in + '×' + b.width_in + '×' + b.height_in + '" / ' + b.weight_lb + 'lb' + (b.carrier_hint ? ' / ' + esc(b.carrier_hint) : '') + '</option>').join('');
   const inputStyle = 'width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box';
   const labelStyle = 'display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px';
+  const smallInputStyle = 'flex:1;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;min-width:0';
   body.innerHTML =
       '<label style="' + labelStyle + '">Box</label>'
     + '<select id="poBoxSku" style="' + inputStyle + '" onchange="_packerOverrideBoxChanged()">' + boxOptions + '</select>'
     + '<div id="poDims" style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px"></div>'
+    // v10.599 — inline dim inputs, hidden until CUSTOM selected.
+    + '<div id="poCustomDims" style="display:none;margin-top:8px">'
+    +   '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#7C3AED !important;-webkit-text-fill-color:#7C3AED !important;margin-bottom:6px">Custom box — inches</div>'
+    +   '<div style="display:flex;gap:8px;align-items:center">'
+    +     '<input type="number" id="poCustomLen" step="0.25" min="0.5" placeholder="L" style="' + smallInputStyle + '">'
+    +     '<span style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-weight:700">×</span>'
+    +     '<input type="number" id="poCustomWid" step="0.25" min="0.5" placeholder="W" style="' + smallInputStyle + '">'
+    +     '<span style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-weight:700">×</span>'
+    +     '<input type="number" id="poCustomHgt" step="0.25" min="0.5" placeholder="H" style="' + smallInputStyle + '">'
+    +   '</div>'
+    +   '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px;font-style:italic">Saved as <code>CUSTOM-LxWxH</code> in the boxes tab — reusable on future overrides.</div>'
+    + '</div>'
     + '<label style="' + labelStyle + '">Carrier</label>'
     + '<select id="poCarrier" style="' + inputStyle + '" onchange="_packerOverrideCarrierChanged()">'
     +   '<option value="">— pick a carrier —</option>'
@@ -10267,9 +10284,18 @@ function _packerOverrideBoxChanged() {
   const sel = document.getElementById('poBoxSku');
   const opt = sel.options[sel.selectedIndex];
   const dims = document.getElementById('poDims');
+  const customWrap = document.getElementById('poCustomDims');
   const car = document.getElementById('poCarrier');
   const svc = document.getElementById('poService');
-  if (!opt || !opt.value) { dims.textContent = ''; return; }
+  // v10.599 — CUSTOM mode: reveal inline dim inputs, hide the dims
+  // summary line (it's empty until they type).
+  if (opt && opt.value === 'CUSTOM') {
+    if (dims) dims.textContent = '';
+    if (customWrap) customWrap.style.display = '';
+    return;
+  }
+  if (customWrap) customWrap.style.display = 'none';
+  if (!opt || !opt.value) { if (dims) dims.textContent = ''; return; }
   dims.textContent = opt.dataset.len + '×' + opt.dataset.wid + '×' + opt.dataset.hgt + '" · ' + opt.dataset.wt + ' lb';
   if (opt.dataset.car && !car.value) { car.value = opt.dataset.car; _packerOverrideCarrierChanged(); }
   if (opt.dataset.svc) { setTimeout(() => { if (svc) svc.value = opt.dataset.svc; }, 20); }
@@ -10298,6 +10324,17 @@ async function _savePackerOverride(sku, orderId, orderNumber, pin) {
   const scope = document.querySelector('input[name="poScope"]:checked').value;
   const maxQty = scope === 'oneshot' ? 1 : Math.max(1, Number(document.getElementById('poMaxQty').value) || 1);
   if (!boxSku) { showToast('Pick a box first'); return; }
+  // v10.599 — custom-box dim validation client-side.
+  let customLen = 0, customWid = 0, customHgt = 0;
+  if (boxSku === 'CUSTOM') {
+    customLen = Number((document.getElementById('poCustomLen') || {}).value) || 0;
+    customWid = Number((document.getElementById('poCustomWid') || {}).value) || 0;
+    customHgt = Number((document.getElementById('poCustomHgt') || {}).value) || 0;
+    if (!(customLen > 0 && customWid > 0 && customHgt > 0)) {
+      showToast('Custom box needs L × W × H (in inches)');
+      return;
+    }
+  }
   if (!carrier) { showToast('Pick a carrier'); return; }
   if (!service) { showToast('Pick a service'); return; }
   let confirmedBy = '';
@@ -10314,6 +10351,10 @@ async function _savePackerOverride(sku, orderId, orderNumber, pin) {
           sku: sku, max_qty: maxQty, box_sku: boxSku, weight_lb: weight,
           carrier: carrier, service: service, label_text: labelText,
           manager_pin: pin, created_by: confirmedBy,
+          // v10.599 — custom box dims (only sent when boxSku==='CUSTOM').
+          length_in: customLen || undefined,
+          width_in: customWid || undefined,
+          height_in: customHgt || undefined,
         });
         if (!res || !res.ok) {
           if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
