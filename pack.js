@@ -10192,43 +10192,70 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 let _packPlannerSelectedOrder = null; // { order_number, source: 'unscheduled' | 'date' }
 let _packPlannerCache = null;
 
-// v10.615 (Zac 2026-06-16 — caught a mess on v10.614, rebuilt in
-// a browser w/ Playwright before re-shipping). Emoji-first loader,
-// no fake wooden sticks or rectangle "water". The 🎣 emoji already
-// contains a rod+line+hook+fish so it carries the metaphor on its
-// own — bob it, drop a 🌊 wave row below, swim a 🐟 underneath,
-// rotate tip text. Looks clean at any width.
+// v10.617 (Zac 2026-06-16 — reference image: pixel-art fisherman
+// with a whipping cast line. Built in /tmp + Playwright, then
+// ported). SVG fisherman (hat, brown shirt, boots, rod) +
+// SMIL-animated path for the casting line. 4 cycle states:
+// wound back → forward whip → apex over-left → settle in water.
 let _packPlannerFishingCssInjected = false;
 function _plannerFishingLoader_(message) {
   if (!_packPlannerFishingCssInjected) {
     const style = document.createElement('style');
     style.id = 'plannerFishingStyles';
     style.textContent = ''
-      + '@keyframes flCast { 0%,12% { transform: rotate(-18deg) translateY(0) } 18% { transform: rotate(28deg) translateY(-6px) } 100% { transform: rotate(-18deg) translateY(0) } }'
       + '@keyframes flWaveDrift { 0%,100% { transform: translateX(-12px) } 50% { transform: translateX(12px) } }'
-      + '@keyframes flFish { 0% { left: -36px; transform: scaleX(1) } 47% { left: 100%; transform: scaleX(1) } 50% { left: 100%; transform: scaleX(-1) } 97% { left: -36px; transform: scaleX(-1) } 100% { left: -36px; transform: scaleX(1) } }'
       + '@keyframes flTipCycle { 0% { opacity: 0; transform: translateY(6px) } 4%, 21% { opacity: 1; transform: translateY(0) } 25%, 100% { opacity: 0 } }';
     document.head.appendChild(style);
     _packPlannerFishingCssInjected = true;
   }
   const tips = [
-    '🎣 Casting the line…',
-    '🪝 Waiting for a nibble…',
-    '🐟 Got one! Reeling…',
-    '🌊 Sorting the catch…',
+    'Casting the line…',
+    'Waiting for a nibble…',
+    'Got one! Reeling…',
+    'Sorting the catch…',
   ];
   const tipSpans = tips.map((t, i) =>
     '<span style="position:absolute;left:0;right:0;text-align:center;color:#FFD27A !important;-webkit-text-fill-color:#FFD27A !important;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:17px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;text-shadow:0 1px 6px rgba(0,0,0,.6);opacity:0;animation:flTipCycle 13.6s linear infinite;animation-delay:' + (i * 3.4) + 's">' + t + '</span>'
   ).join('');
+  // Pixel-art fisherman + SMIL-animated cast line. Verified in
+  // browser via Playwright before ship.
+  const svg = ''
+    + '<svg width="380" height="160" viewBox="0 0 380 160" xmlns="http://www.w3.org/2000/svg" style="display:block">'
+    +   '<g transform="translate(220 90)" shape-rendering="crispEdges">'
+    +     '<rect x="6" y="0" width="20" height="4" fill="#2A2A2A"/>'
+    +     '<rect x="10" y="-6" width="12" height="6" fill="#2A2A2A"/>'
+    +     '<rect x="10" y="4" width="12" height="8" fill="#F0CFA8"/>'
+    +     '<rect x="6" y="12" width="20" height="18" fill="#7B4A1C"/>'
+    +     '<rect x="6" y="30" width="20" height="3" fill="#3A2210"/>'
+    +     '<rect x="8" y="33" width="6" height="14" fill="#2F2A26"/>'
+    +     '<rect x="18" y="33" width="6" height="14" fill="#2F2A26"/>'
+    +     '<rect x="6" y="47" width="10" height="4" fill="#1A0F08"/>'
+    +     '<rect x="16" y="47" width="10" height="4" fill="#1A0F08"/>'
+    +     '<rect x="26" y="14" width="4" height="14" fill="#7B4A1C"/>'
+    +     '<rect x="2" y="14" width="4" height="14" fill="#7B4A1C"/>'
+    +     '<rect x="28" y="10" width="4" height="6" fill="#F0CFA8"/>'
+    +     '<rect x="0" y="10" width="4" height="6" fill="#F0CFA8"/>'
+    +     '<line x1="30" y1="12" x2="120" y2="-60" stroke="#8B5A2B" stroke-width="2.5" stroke-linecap="round"/>'
+    +     '<line x1="0" y1="12" x2="30" y2="12" stroke="#3A2210" stroke-width="3" stroke-linecap="round"/>'
+    +   '</g>'
+    +   '<path stroke="#E8EDF4" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.95">'
+    +     '<animate attributeName="d" dur="3.6s" repeatCount="indefinite"'
+    +       ' values="M 340 30 C 360 5, 320 -10, 270 0 S 200 30, 180 60;M 340 30 C 290 0, 220 -25, 160 -20 S 60 10, 30 50;M 340 30 C 280 0, 200 -15, 140 0 S 50 60, 10 100;M 340 30 C 300 20, 250 30, 200 60 S 120 130, 60 150;M 340 30 C 360 5, 320 -10, 270 0 S 200 30, 180 60"'
+    +       ' keyTimes="0; 0.30; 0.55; 0.80; 1"'
+    +       ' calcMode="spline"'
+    +       ' keySplines="0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1"/>'
+    +   '</path>'
+    +   '<circle r="2.4" fill="#FFD27A" stroke="#3a1c08" stroke-width=".7">'
+    +     '<animate attributeName="cx" dur="3.6s" repeatCount="indefinite" values="180; 30; 10; 60; 180" keyTimes="0; 0.30; 0.55; 0.80; 1" calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1"/>'
+    +     '<animate attributeName="cy" dur="3.6s" repeatCount="indefinite" values="60; 50; 100; 150; 60" keyTimes="0; 0.30; 0.55; 0.80; 1" calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1"/>'
+    +   '</circle>'
+    + '</svg>';
   return ''
-    + '<div style="position:relative;width:100%;height:100%;background:linear-gradient(180deg,#0c2746 0%,#1a4a78 55%,#2a7ec0 100%);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">'
-    +   '<div style="font-size:84px;line-height:1;transform-origin:50% 20%;animation:flCast 3.4s ease-in-out infinite;filter:drop-shadow(0 6px 16px rgba(0,0,0,.5))">🎣</div>'
+    + '<div style="position:relative;width:100%;height:100%;background:linear-gradient(180deg,#0c2746 0%,#1a4a78 55%,#2a7ec0 100%);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px">'
+    +   svg
     +   '<div style="font-size:26px;line-height:1;letter-spacing:4px;white-space:nowrap;color:rgba(255,255,255,.95);text-shadow:0 1px 4px rgba(0,0,0,.4);animation:flWaveDrift 5s ease-in-out infinite">🌊🌊🌊🌊🌊🌊🌊🌊🌊</div>'
-    +   '<div style="position:relative;width:90%;max-width:480px;height:36px;overflow:hidden">'
-    +     '<span style="position:absolute;bottom:0;font-size:28px;line-height:1;animation:flFish 7.5s ease-in-out infinite">🐟</span>'
-    +   '</div>'
     +   '<div style="position:relative;width:320px;height:28px;margin-top:4px">' + tipSpans + '</div>'
-    +   (message ? '<div style="margin-top:6px;color:rgba(255,255,255,.55) !important;-webkit-text-fill-color:rgba(255,255,255,.55) !important;font-size:11px;font-weight:600;letter-spacing:.4px">' + esc(message) + '</div>' : '')
+    +   (message ? '<div style="margin-top:2px;color:rgba(255,255,255,.55) !important;-webkit-text-fill-color:rgba(255,255,255,.55) !important;font-size:11px;font-weight:600;letter-spacing:.4px">' + esc(message) + '</div>' : '')
     + '</div>';
 }
 
