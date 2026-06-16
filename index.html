@@ -2039,6 +2039,9 @@ input::placeholder, textarea::placeholder {
 
   <!-- View 1: queue list (default) -->
   <div id="groundView-queue">
+    <!-- v10.592 — ground-source holds banner (Zac 2026-06-16: held
+         orders only appeared on Cabinets tab; they were missed daily). -->
+    <div id="groundHoldsBanner" style="display:none;margin-bottom:10px"></div>
     <div id="groundQueueList" style="display:flex;flex-direction:column;gap:8px"></div>
     <div id="groundQueueEmpty" style="display:none;background:#fff;border:1.5px dashed #d0d0d0;border-radius:10px;padding:24px 18px;text-align:center;color:#666;font-size:14px;line-height:1.5">
       <div style="font-size:32px;margin-bottom:8px">📦</div>
@@ -18020,6 +18023,51 @@ async function openVoidOrderPrompt_() {
   }
 }
 
+// v10.592 — paint a "🚦 N on hold" banner above the Ground queue.
+// Renders each held order as a tappable row so Jonah can release / act
+// directly from the same tab he uses for active packing.
+function renderGroundHoldsBanner_(holds) {
+  const el = document.getElementById('groundHoldsBanner');
+  if (!el) return;
+  if (!Array.isArray(holds) || holds.length === 0) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  // Card uses !important + -webkit-text-fill-color throughout per the
+  // dark-theme override rules (CLAUDE.md / memory). Purple/violet to
+  // match the existing "ON HOLD" pill aesthetic from cabAttentionStrip.
+  const rows = holds.map(h => {
+    const on = String(h.order_number || '');
+    const cust = String(h.customer_name || '');
+    const reason = String(h.hold_reason || '').replace(/\s+/g, ' ').slice(0, 70);
+    const kindLabel = h.kind === 'beacon_hold' ? '🛡 Beacon' : '🚦 Hold';
+    return ''
+      + '<button onclick="openHoldsPanel({kind:\'orderpack_hold\'})" '
+      +    'style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;'
+      +    'background:rgba(156,39,176,.10) !important;color:#E1BEE7 !important;'
+      +    '-webkit-text-fill-color:#E1BEE7 !important;'
+      +    'border:1px solid rgba(156,39,176,.45) !important;border-radius:8px;'
+      +    'padding:10px 12px;font-family:inherit;cursor:pointer">'
+      +   '<span style="flex:0 0 auto;font-size:13px;font-weight:800;color:#CE93D8 !important;-webkit-text-fill-color:#CE93D8 !important">' + kindLabel + '</span>'
+      +   '<span style="flex:1;min-width:0;font-weight:800;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + esc(on) + (cust ? ' · ' + esc(cust) : '') + '</span>'
+      +   (reason
+        ? '<span style="flex:0 1 auto;min-width:0;font-size:11px;color:#E1BEE7 !important;-webkit-text-fill-color:#E1BEE7 !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%">' + esc(reason) + '</span>'
+        : '')
+      +   '<span style="flex:0 0 auto;font-size:11px;font-weight:800;color:#9C27B0 !important;-webkit-text-fill-color:#9C27B0 !important;background:#fff !important;padding:3px 8px;border-radius:999px">Tap</span>'
+      + '</button>';
+  }).join('');
+  el.innerHTML = ''
+    + '<div style="background:linear-gradient(135deg,rgba(156,39,176,.18),rgba(74,20,110,.22));border:1.5px solid rgba(156,39,176,.55);border-radius:10px;padding:10px 12px 10px">'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;color:#CE93D8 !important;-webkit-text-fill-color:#CE93D8 !important">🚦 ' + holds.length + ' GROUND ORDER' + (holds.length === 1 ? '' : 'S') + ' ON HOLD</div>'
+    +     '<button onclick="openHoldsPanel({kind:\'orderpack_hold\'})" style="background:#9C27B0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.4px">View all →</button>'
+    +   '</div>'
+    +   '<div style="display:flex;flex-direction:column;gap:6px">' + rows + '</div>'
+    + '</div>';
+  el.style.display = 'block';
+}
+
 async function refreshGroundQueue() {
   const list = document.getElementById('groundQueueList');
   const empty = document.getElementById('groundQueueEmpty');
@@ -18040,6 +18088,7 @@ async function refreshGroundQueue() {
 
   if (cached && cached.queue.length > 0) {
     groundQueue = paintGroundQueue_(cached.queue.slice(), list, empty);
+    renderGroundHoldsBanner_(cached.holds || []);
     status.textContent = groundQueue.length + ' awaiting · refreshing…';
   } else {
     // v10.165 Sable S1 — shaped skeleton placeholders match final card
@@ -18079,12 +18128,17 @@ async function refreshGroundQueue() {
     const data = await groundApi('getQueue', {});
     if (!data.ok) throw new Error(data.error || 'Server error');
     groundQueue = paintGroundQueue_((data.queue || []).slice(), list, empty);
-    status.textContent = groundQueue.length === 0
+    // v10.592 — paint ground holds banner from the same response.
+    const holds = Array.isArray(data.holds) ? data.holds : [];
+    renderGroundHoldsBanner_(holds);
+    const holdsLabel = holds.length ? ' · ' + holds.length + ' on hold' : '';
+    status.textContent = (groundQueue.length === 0
       ? '0 awaiting'
-      : groundQueue.length + ' awaiting';
+      : groundQueue.length + ' awaiting') + holdsLabel;
     try {
       localStorage.setItem(GROUND_QUEUE_CACHE_KEY, JSON.stringify({
         queue: groundQueue,
+        holds: holds,
         cached_at: new Date().toISOString(),
       }));
     } catch(e) {}
@@ -20394,7 +20448,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.581<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.592<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
