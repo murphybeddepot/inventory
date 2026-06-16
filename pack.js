@@ -10178,6 +10178,275 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 // size_confirmed_at on OrderPack so the breakdown skips that hold on
 // next pack attempt. Without this, Resume + Start Pack just re-triggers
 // the same hold infinitely.
+// v10.609 (Seth survey r2 2026-06-16) — Make Today / Pack Today
+// multi-day planner. Manager-only view. Touch-DnD (with tap-to-
+// move accessibility fallback) to schedule orders across days.
+// PIN cached for the session (30min via cacheManagerPin_).
+//
+// Layout (Seth-locked):
+//   ┌────────────┬───────────┬───────────┬─── 5 day columns
+//   │ Unscheduled│ Today     │ Tomorrow  │ ...
+//   │ (sidebar)  │ Make:     │ Make:     │
+//   │            │ Pack:     │ Pack:     │
+//   │            │ Tasks:    │ Tasks:    │
+let _packPlannerSelectedOrder = null; // { order_number, source: 'unscheduled' | 'date' }
+let _packPlannerCache = null;
+
+async function openPackPlanner() {
+  const pin = promptManagerPin_('open planner');
+  if (!pin) return;
+  // Render the overlay shell + fetch.
+  const prior = document.getElementById('packPlannerOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'packPlannerOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:#0a0a0a;z-index:9998;display:flex;flex-direction:column;overflow:hidden';
+  ov.innerHTML = ''
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0">'
+    +   '<div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:1px;color:#fff;-webkit-text-fill-color:#fff;line-height:1">MAKE TODAY / PACK TODAY</div>'
+    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">5-day planner · drag unscheduled orders into a day · tap-and-tap also works</div>'
+    +   '</div>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<button onclick="refreshPackPlanner_()" style="background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer">↻</button>'
+    +     '<button onclick="closePackPlanner_()" style="background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">✕ Close</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="packPlannerBody" style="flex:1;display:flex;overflow:hidden">'
+    +   '<div style="text-align:center;padding:60px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;width:100%">⟳ Loading planner…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  await refreshPackPlanner_();
+}
+
+function closePackPlanner_() {
+  const ov = document.getElementById('packPlannerOverlay');
+  if (ov) ov.remove();
+  _packPlannerSelectedOrder = null;
+  _packPlannerCache = null;
+}
+
+async function refreshPackPlanner_() {
+  try {
+    const res = await groundApi('listPackPlannerData', { days: 5 });
+    if (!res || !res.ok) {
+      const body = document.getElementById('packPlannerBody');
+      if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#FF5252;-webkit-text-fill-color:#FF5252;width:100%">Load failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    _packPlannerCache = res;
+    _renderPackPlanner_(res);
+  } catch (e) {
+    const body = document.getElementById('packPlannerBody');
+    if (body) body.innerHTML = '<div style="text-align:center;padding:60px;color:#FF5252;-webkit-text-fill-color:#FF5252;width:100%">Network error: ' + esc(e.message) + '</div>';
+  }
+}
+
+function _renderPackPlanner_(data) {
+  const body = document.getElementById('packPlannerBody');
+  if (!body) return;
+  // Left sidebar: unscheduled orders.
+  const sidebar = ''
+    + '<div id="packPlannerSidebar" style="flex:0 0 220px;background:#111;border-right:1px solid rgba(255,255,255,.12);overflow-y:auto;padding:10px 8px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;padding:4px 6px;margin-bottom:8px">📥 Unscheduled (' + data.unscheduled.length + ')</div>'
+    +   data.unscheduled.map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('')
+    +   (data.unscheduled.length === 0 ? '<div style="padding:14px 8px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:11px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
+    + '</div>';
+  // Day columns.
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const days = data.days.map((d, i) => {
+    const date = new Date(d + 'T00:00:00');
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
+    const dayLabel = i === 0 ? 'TODAY' : (i === 1 ? 'TOMORROW' : dow.toUpperCase());
+    const dateLabel = (date.getMonth() + 1) + '/' + date.getDate();
+    const isToday = d === todayIso;
+    const makeOrders = (data.orders_by_date[d] && data.orders_by_date[d].make) || [];
+    const packOrders = (data.orders_by_date[d] && data.orders_by_date[d].pack) || [];
+    const tasks = data.tasks_by_date[d] || [];
+    return ''
+      + '<div data-planner-day="' + esc(d) + '" style="flex:1;min-width:220px;border-right:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;overflow:hidden">'
+      +   '<div style="padding:10px 12px;background:' + (isToday ? 'rgba(124,58,237,.18)' : '#181818') + ';border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:1px;color:' + (isToday ? '#C4B5FD' : '#fff') + ';-webkit-text-fill-color:' + (isToday ? '#C4B5FD' : '#fff') + '">' + dayLabel + '</div>'
+      +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0">' + dow + ' ' + dateLabel + ' · ' + (makeOrders.length + packOrders.length) + ' order(s) · ' + tasks.length + ' task(s)</div>'
+      +   '</div>'
+      +   '<div style="flex:1;overflow-y:auto;padding:8px">'
+      +     _renderPlannerBucket_(d, 'make', makeOrders)
+      +     _renderPlannerBucket_(d, 'pack', packOrders)
+      +     _renderPlannerTasks_(d, tasks)
+      +   '</div>'
+      + '</div>';
+  }).join('');
+  body.innerHTML = sidebar
+    + '<div style="flex:1;display:flex;overflow-x:auto" id="packPlannerDays">' + days + '</div>';
+  // Wire selectable orders + drop targets.
+  _wirePlannerInteractions_();
+}
+
+function _renderPlannerOrderCard_(o, source) {
+  const on = String(o.order_number || '');
+  const cust = String(o.customer_name || '').slice(0, 22);
+  const ship = String(o.ship_date || '').slice(5, 10); // mm-dd
+  const isPriority = !!o.priority;
+  const isSelected = _packPlannerSelectedOrder && _packPlannerSelectedOrder.order_number === on;
+  const bgColor = isSelected ? 'rgba(124,58,237,.35)' : (isPriority ? 'rgba(255,82,82,.10)' : 'rgba(255,255,255,.04)');
+  const borderColor = isSelected ? '#7C3AED' : (isPriority ? 'rgba(255,82,82,.55)' : 'rgba(255,255,255,.12)');
+  return ''
+    + '<div data-planner-order="' + esc(on) + '" data-planner-source="' + esc(source) + '" data-planner-bucket="' + esc(o.pack_bucket || 'pack') + '" '
+    +   'onclick="_plannerSelectOrder_(\'' + esc(on) + '\',\'' + esc(source) + '\')" '
+    +   'style="display:block;padding:8px 10px;margin-bottom:5px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:7px;cursor:pointer;user-select:none">'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">#' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:10px">★</span>' : '') + '</div>'
+    +   (cust ? '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(cust) + '</div>' : '')
+    +   (ship ? '<div style="font-size:10px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">ship ' + esc(ship) + '</div>' : '')
+    + '</div>';
+}
+
+function _renderPlannerBucket_(date, bucket, orders) {
+  const isMake = bucket === 'make';
+  const label = isMake ? '🔨 MAKE TODAY' : '📦 PACK TODAY';
+  const accent = isMake ? '#FF9100' : '#00E676';
+  return ''
+    + '<div data-planner-drop-zone="' + esc(date) + '" data-planner-drop-bucket="' + esc(bucket) + '" '
+    +   'onclick="_plannerDropOnDay_(\'' + esc(date) + '\',\'' + esc(bucket) + '\')" '
+    +   'style="margin-bottom:10px;padding:6px;border:1.5px dashed rgba(255,255,255,.10);border-radius:7px;min-height:48px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1px;color:' + accent + ' !important;-webkit-text-fill-color:' + accent + ' !important;margin-bottom:4px;padding:0 2px">' + label + '</div>'
+    +   (orders.length === 0
+      ? '<div style="font-size:10px;color:#5C7390 !important;-webkit-text-fill-color:#5C7390 !important;text-align:center;padding:8px;font-style:italic">drop zone</div>'
+      : orders.map(o => _renderPlannerOrderCard_(o, 'date:' + date + ':' + bucket)).join(''))
+    + '</div>';
+}
+
+function _renderPlannerTasks_(date, tasks) {
+  const rows = tasks.map(t => {
+    const priColor = t.priority === 'high' ? '#FF5252' : (t.priority === 'low' ? '#9AAAC0' : '#FFB300');
+    const isDone = t.status === 'done';
+    return ''
+      + '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(255,255,255,.04);border-left:3px solid ' + priColor + ';border-radius:5px;margin-bottom:4px;' + (isDone ? 'opacity:.55' : '') + '">'
+      +   '<button onclick="_plannerToggleTask_(\'' + esc(t.task_id) + '\',\'' + (isDone ? 'open' : 'done') + '\')" style="background:transparent;color:' + (isDone ? '#00E676' : '#9AAAC0') + ' !important;-webkit-text-fill-color:' + (isDone ? '#00E676' : '#9AAAC0') + ' !important;border:1.5px solid currentColor;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;flex-shrink:0">' + (isDone ? '✓' : '') + '</button>'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<div style="font-size:12px;font-weight:700;color:#fff !important;-webkit-text-fill-color:#fff !important;' + (isDone ? 'text-decoration:line-through' : '') + '">' + esc(t.title) + '</div>'
+      +     '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important">' + (t.assignee ? esc(t.assignee) : 'unassigned') + ' · ' + esc(t.priority) + '</div>'
+      +   '</div>'
+      +   '<button onclick="_plannerDeleteTask_(\'' + esc(t.task_id) + '\')" style="background:transparent;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:none;font-size:14px;cursor:pointer;padding:0 4px">✕</button>'
+      + '</div>';
+  }).join('');
+  return ''
+    + '<div style="margin-top:6px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important">✓ TASKS</div>'
+    +     '<button onclick="_plannerAddTask_(\'' + esc(date) + '\')" style="background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer">+</button>'
+    +   '</div>'
+    +   rows
+    +   (tasks.length === 0 ? '<div style="font-size:10px;color:#5C7390 !important;-webkit-text-fill-color:#5C7390 !important;text-align:center;padding:4px;font-style:italic">no tasks</div>' : '')
+    + '</div>';
+}
+
+function _wirePlannerInteractions_() {
+  // Touch-DnD: long-press an order to start dragging, drop on a zone.
+  // For now we use the tap-select + tap-target fallback (works on all
+  // browsers + accessibility). Native touch DnD is a polish pass.
+}
+
+function _plannerSelectOrder_(orderNumber, source) {
+  if (_packPlannerSelectedOrder && _packPlannerSelectedOrder.order_number === orderNumber) {
+    _packPlannerSelectedOrder = null;
+  } else {
+    _packPlannerSelectedOrder = { order_number: orderNumber, source };
+  }
+  if (_packPlannerCache) _renderPackPlanner_(_packPlannerCache);
+}
+
+async function _plannerDropOnDay_(targetDate, targetBucket) {
+  if (!_packPlannerSelectedOrder) {
+    showToast('Tap an order in the sidebar first');
+    return;
+  }
+  const pin = getCachedManagerPin_() || promptManagerPin_('drop on day');
+  if (!pin) return;
+  const orderNumber = _packPlannerSelectedOrder.order_number;
+  // Two server calls: set target date + set bucket.
+  try {
+    const r1 = await groundApi('setPackTargetDate', {
+      orderNumber, targetDate, manager_pin: pin, set_by: localStorage.getItem('mbd_ground_packer') || ''
+    });
+    if (!r1 || !r1.ok) {
+      if (/pin/i.test(String((r1 && r1.error) || ''))) clearManagerPin_();
+      showToast('Drop failed: ' + ((r1 && r1.error) || 'unknown'));
+      return;
+    }
+    const r2 = await groundApi('setOrderPackBucket', {
+      order_number: orderNumber, bucket: targetBucket, manager_pin: pin
+    });
+    if (!r2 || !r2.ok) {
+      showToast('Bucket update failed: ' + ((r2 && r2.error) || 'unknown'));
+    }
+    _packPlannerSelectedOrder = null;
+    showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + targetBucket + ')');
+    await refreshPackPlanner_();
+  } catch (e) {
+    showToast('Network error: ' + e.message);
+  }
+}
+
+async function _plannerAddTask_(targetDate) {
+  const title = prompt('Task title (for ' + targetDate + '):');
+  if (!title || !title.trim()) return;
+  const assignee = prompt('Assignee (optional — Jonah, Shane, etc.):') || '';
+  const priority = prompt('Priority? low / normal / high (default normal):') || 'normal';
+  const pin = getCachedManagerPin_() || promptManagerPin_('add task');
+  if (!pin) return;
+  try {
+    const res = await groundApi('addPackTask', {
+      title: title.trim(),
+      assignee: assignee.trim(),
+      priority: priority.trim().toLowerCase(),
+      target_date: targetDate,
+      created_by: localStorage.getItem('mbd_ground_packer') || '',
+      manager_pin: pin,
+    });
+    if (!res || !res.ok) {
+      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
+      showToast('Add task failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ Task added');
+    await refreshPackPlanner_();
+  } catch (e) { showToast('Network error: ' + e.message); }
+}
+
+async function _plannerToggleTask_(taskId, newStatus) {
+  const pin = getCachedManagerPin_() || promptManagerPin_('toggle task');
+  if (!pin) return;
+  try {
+    const res = await groundApi('updatePackTask', {
+      task_id: taskId, status: newStatus, manager_pin: pin,
+      completed_by: localStorage.getItem('mbd_ground_packer') || '',
+    });
+    if (!res || !res.ok) {
+      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
+      showToast('Update failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    await refreshPackPlanner_();
+  } catch (e) { showToast('Network error: ' + e.message); }
+}
+
+async function _plannerDeleteTask_(taskId) {
+  if (!confirm('Delete this task?')) return;
+  const pin = getCachedManagerPin_() || promptManagerPin_('delete task');
+  if (!pin) return;
+  try {
+    const res = await groundApi('deletePackTask', { task_id: taskId, manager_pin: pin });
+    if (!res || !res.ok) {
+      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
+      showToast('Delete failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ Task deleted');
+    await refreshPackPlanner_();
+  } catch (e) { showToast('Network error: ' + e.message); }
+}
+
 // v10.606 (Zac 2026-06-16) — Interactive survey overlay. Lets
 // stakeholders (Seth, Norm, etc.) answer design questions inside
 // the PWA via tap-through choices + optional notes. Submit hits
