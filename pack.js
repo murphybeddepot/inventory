@@ -1503,6 +1503,12 @@ async function refreshPackQueue() {
     localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
     paintPackQueue_(_packQueueCache, false);
     paintPackUpcoming_(_packUpcomingCache);
+    // v10.605 — render fill-mode chip + unscheduled-soon warning above the queue.
+    paintPackFillModeAndWarning_({
+      fill_mode: inflight.fill_mode,
+      unscheduled_soon: inflight.unscheduled_soon || [],
+      warning_biz_days: inflight.warning_biz_days,
+    });
     const ipPart = inflightRows.length + ' to pack';
     const pkPart = packedRows.length ? (', ' + packedRows.length + ' awaiting ship') : '';
     const upPart = _packUpcomingCache.length ? (' · ' + _packUpcomingCache.length + ' upcoming') : '';
@@ -1511,6 +1517,100 @@ async function refreshPackQueue() {
   } catch (err) {
     if (loader) loader.stop();
     _packStatusError_(statusEl, err.message);
+  }
+}
+
+// v10.605 (Zac 2026-06-16, pre-Seth-meeting) — Pack Today fill mode
+// chip + ship-date-soon warning banner. Both sit above the queue
+// list, in a sticky panel called #packModeWarningHost.
+function paintPackFillModeAndWarning_(state) {
+  let host = document.getElementById('packModeWarningHost');
+  if (!host) {
+    // Insert above the queue list, after the day-plan strip.
+    const queueEl = document.getElementById('packQueueList');
+    const dpEl = document.getElementById('packDayPlan');
+    const parent = (queueEl && queueEl.parentNode) || (dpEl && dpEl.parentNode);
+    if (!parent) return;
+    host = document.createElement('div');
+    host.id = 'packModeWarningHost';
+    host.style.cssText = 'margin:8px 0;display:flex;flex-direction:column;gap:8px';
+    parent.insertBefore(host, queueEl);
+  }
+  const mode = String(state.fill_mode || 'manual').toLowerCase();
+  const isManual = mode === 'manual';
+  const modeChip = ''
+    + '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;'
+    +   'background:' + (isManual ? 'rgba(0,200,83,.10)' : 'rgba(255,179,0,.10)') + ' !important;'
+    +   'color:' + (isManual ? '#00E676' : '#FFB300') + ' !important;'
+    +   '-webkit-text-fill-color:' + (isManual ? '#00E676' : '#FFB300') + ' !important;'
+    +   'border:1px solid ' + (isManual ? 'rgba(0,200,83,.55)' : 'rgba(255,179,0,.55)') + ' !important;'
+    +   'border-radius:8px;font-size:12px;font-weight:800;letter-spacing:.4px">'
+    +   '<span style="font-size:14px">' + (isManual ? '✋' : '🤖') + '</span>'
+    +   '<span style="flex:1">Fill mode: ' + (isManual ? 'MANUAL' : 'AUTO-FILL') + '</span>'
+    +   '<button onclick="togglePackFillMode_()" style="background:' + (isManual ? '#1A5C1A' : '#7C5800') + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;padding:5px 10px;font-size:10px;font-weight:900;cursor:pointer;letter-spacing:.4px">Switch to ' + (isManual ? 'AUTO' : 'MANUAL') + '</button>'
+    + '</div>';
+
+  const soon = Array.isArray(state.unscheduled_soon) ? state.unscheduled_soon : [];
+  let warningHtml = '';
+  if (soon.length > 0) {
+    const rows = soon.slice(0, 10).map(o => {
+      const on = String(o.order_number || '');
+      const ship = String(o.ship_date || '').slice(0, 10);
+      const cust = String(o.customer_name || '').slice(0, 30);
+      return '<div onclick="openPackDetailByNumber_(\'' + esc(on) + '\')" style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:rgba(255,82,82,.10);border:1px solid rgba(255,82,82,.45);border-radius:6px;cursor:pointer">'
+        + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">#' + esc(on) + '</span>'
+        + '<span style="flex:1;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(cust) + '</span>'
+        + '<span style="color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;font-size:11px;font-weight:800">ship ' + esc(ship) + '</span>'
+        + '</div>';
+    }).join('');
+    warningHtml = ''
+      + '<div style="padding:10px 12px;background:linear-gradient(135deg,rgba(255,82,82,.18),rgba(183,28,28,.22)) !important;border:1.5px solid #FF5252 !important;border-radius:10px">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:1px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">⚠ ' + soon.length + ' ORDER' + (soon.length === 1 ? '' : 'S') + ' SHIPPING WITHIN ' + (state.warning_biz_days || 5) + ' BIZ DAYS · NOT ON LIST</div>'
+      +   '</div>'
+      +   '<div style="display:flex;flex-direction:column;gap:5px">' + rows + (soon.length > 10 ? '<div style="font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;margin-top:3px">…and ' + (soon.length - 10) + ' more</div>' : '') + '</div>'
+      +   '<div style="font-size:11px;color:#FFD27A !important;-webkit-text-fill-color:#FFD27A !important;margin-top:8px;font-style:italic">Tap any row to open detail. Add to today/upcoming via "+ Add to List".</div>'
+      + '</div>';
+  }
+  host.innerHTML = modeChip + warningHtml;
+}
+
+async function togglePackFillMode_() {
+  const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('change Pack Today fill mode') : null;
+  if (!pin) return;
+  // Read current mode from the chip text (avoid extra round-trip).
+  const host = document.getElementById('packModeWarningHost');
+  const isManualNow = host && host.innerHTML.indexOf('MANUAL') !== -1 && host.innerHTML.indexOf('Switch to AUTO') !== -1;
+  const nextMode = isManualNow ? 'auto' : 'manual';
+  let setBy = '';
+  try { setBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  try {
+    const res = await groundApi('setPackListFillMode', { mode: nextMode, manager_pin: pin, set_by: setBy });
+    if (!res || !res.ok) {
+      if (/pin/i.test(String((res && res.error) || ''))) (typeof clearManagerPin_ === 'function') && clearManagerPin_();
+      showToast('Mode change failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ Pack Today fill mode: ' + nextMode.toUpperCase());
+    await refreshPackQueue();
+  } catch (e) {
+    showToast('Mode change error: ' + e.message);
+  }
+}
+
+// v10.605 — open a Pack-tab order detail by order number (used by
+// the unscheduled-soon warning rows). Defers to existing pack
+// detail opener once the row is found in cache.
+function openPackDetailByNumber_(orderNumber) {
+  if (typeof switchTab === 'function') switchTab('pack');
+  const key = String(orderNumber || '').trim();
+  const row = (_packQueueCache || []).find(r => String(r.order_number) === key)
+    || (_packUpcomingCache || []).find(r => String(r.order_number) === key);
+  if (row && typeof openPackDetail === 'function') {
+    openPackDetail(row);
+  } else if (typeof refreshPackQueue === 'function') {
+    refreshPackQueue();
+    showToast('Order #' + key + ' not in current view — refreshing');
   }
 }
 
