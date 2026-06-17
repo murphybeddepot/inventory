@@ -10300,7 +10300,10 @@ function _plannerFishingLoader_(message) {
   // Pixel-art fisherman + SMIL-animated cast line. Verified in
   // browser via Playwright before ship.
   const svg = ''
-    + '<svg width="380" height="160" viewBox="0 0 380 160" xmlns="http://www.w3.org/2000/svg" style="display:block">'
+    // v10.649 (Zac 2026-06-17) — viewBox top expanded to -40 so the
+    // line's cast apex (y goes to -25 mid-swing) no longer clips. SVG
+    // height bumped to match so the fisherman stays the same size.
+    + '<svg width="380" height="200" viewBox="0 -40 380 200" xmlns="http://www.w3.org/2000/svg" style="display:block">'
     +   '<g transform="translate(220 90)" shape-rendering="crispEdges">'
     +     '<rect x="6" y="0" width="20" height="4" fill="#2A2A2A"/>'
     +     '<rect x="10" y="-6" width="12" height="6" fill="#2A2A2A"/>'

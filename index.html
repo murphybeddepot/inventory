@@ -4599,7 +4599,23 @@ function _filterOrdersForLens_(orders, lens) {
       return orders.filter(o => o && o.pipeline_status === 'pre_pack_today');
     case 'pack':
       // A3b: auto-derived is_on_active_list (explicit override wins)
-      return orders.filter(o => o && o.is_on_active_list);
+      // v10.649 (Zac 2026-06-17) — defense in depth: even if the server
+      // flagged is_on_active_list, hide rows the operator clearly
+      // doesn't need to pack. cal_p (P icon on gcal) / cal_shipped
+      // (green) / cal_l (labels printed when it's a ground order, post-
+      // pack) / status='packed' all mean "past the pack stage." The
+      // server should already filter these via computeIsOnActiveList_
+      // but Zac saw packed cards leaking through — likely from a
+      // stale `on_active_list=TRUE` explicit override that beat the
+      // server's auto-clear. Belt-and-suspenders.
+      return orders.filter(o => {
+        if (!o || !o.is_on_active_list) return false;
+        const truthy = (v) => v === true || String(v || '').toUpperCase() === 'TRUE';
+        if (truthy(o.cal_p) || truthy(o.cal_shipped) || truthy(o.cal_l)) return false;
+        const status = String(o.status || '').toLowerCase();
+        if (status === 'packed' || status === 'shipped' || status === 'dry_run') return false;
+        return true;
+      });
     case 'attention':
       // Stalled / on-hold / overdue (cross-cutting). v10.332 added
       // cal_shipped + cal_l exclusion. v10.339 also adds cal_p — any
@@ -20674,7 +20690,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.648"></script>
+<script src="./pack.js?v=10.649"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20685,7 +20701,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.648<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.649<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
