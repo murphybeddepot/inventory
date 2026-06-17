@@ -10380,7 +10380,10 @@ function closePackPlanner_() {
 // + 4 biz days (5 columns). Previous/Next buttons walk the window
 // ±5 biz days; Today snaps back. startDate=null means "today" so the
 // server's default kicks in.
+// v10.655 — preload prev/next so navigation is instant. Map keyed by
+// the startDate string the window represents.
 let _packPlannerStartDate = null;
+const _packPlannerCacheByStart = new Map();
 function _addBusinessDaysClient_(startIso, n) {
   let d = new Date(startIso + 'T00:00:00');
   let added = 0;
@@ -10393,18 +10396,52 @@ function _addBusinessDaysClient_(startIso, n) {
   }
   return d.toISOString().slice(0, 10);
 }
+function _todayIsoLocal_() {
+  return new Date().toISOString().slice(0, 10);
+}
+async function _preloadWindow_(startDate) {
+  if (_packPlannerCacheByStart.has(startDate)) return;
+  try {
+    const res = await groundApi('listPackPlannerData', { days: 5, startDate });
+    if (res && res.ok) _packPlannerCacheByStart.set(startDate, res);
+  } catch (e) { /* silent — preload is best-effort */ }
+}
+function _preloadAdjacentWindows_() {
+  const cur = _packPlannerStartDate || _todayIsoLocal_();
+  _preloadWindow_(_addBusinessDaysClient_(cur, -5));
+  _preloadWindow_(_addBusinessDaysClient_(cur, 5));
+}
+function _plannerSwapToPreloaded_(targetStart) {
+  const cached = _packPlannerCacheByStart.get(targetStart);
+  if (!cached) return false;
+  _packPlannerStartDate = targetStart;
+  _packPlannerCache = cached;
+  _renderPackPlanner_(cached);
+  // Queue adjacent windows from the NEW center so the next click is also instant.
+  _preloadAdjacentWindows_();
+  return true;
+}
 function _plannerGoToToday_() {
   _packPlannerStartDate = null;
+  const todayWindow = _todayIsoLocal_();
+  if (_plannerSwapToPreloaded_(todayWindow)) {
+    _packPlannerStartDate = null;
+    return;
+  }
   refreshPackPlanner_();
 }
 function _plannerGoPrev_() {
-  const cur = _packPlannerStartDate || new Date().toISOString().slice(0, 10);
-  _packPlannerStartDate = _addBusinessDaysClient_(cur, -5);
+  const cur = _packPlannerStartDate || _todayIsoLocal_();
+  const target = _addBusinessDaysClient_(cur, -5);
+  if (_plannerSwapToPreloaded_(target)) return;
+  _packPlannerStartDate = target;
   refreshPackPlanner_();
 }
 function _plannerGoNext_() {
-  const cur = _packPlannerStartDate || new Date().toISOString().slice(0, 10);
-  _packPlannerStartDate = _addBusinessDaysClient_(cur, 5);
+  const cur = _packPlannerStartDate || _todayIsoLocal_();
+  const target = _addBusinessDaysClient_(cur, 5);
+  if (_plannerSwapToPreloaded_(target)) return;
+  _packPlannerStartDate = target;
   refreshPackPlanner_();
 }
 
@@ -10440,7 +10477,15 @@ async function refreshPackPlanner_() {
     return;
   }
   _packPlannerCache = res;
+  // v10.655 — cache this window by its startDate so subsequent
+  // navigation can find it (avoid re-fetch when user goes prev/next
+  // back to this window).
+  const myStart = (res.days && res.days[0]) || _todayIsoLocal_();
+  _packPlannerCacheByStart.set(myStart, res);
   _renderPackPlanner_(res);
+  // Kick off preloads for the adjacent windows so the next prev/next
+  // click is instant. Fire-and-forget.
+  _preloadAdjacentWindows_();
 }
 
 function _renderPackPlanner_(data) {
@@ -10517,23 +10562,36 @@ function _renderPackPlanner_(data) {
     +   sidebarBody
     +   ((data.unscheduled || []).length === 0 && pastDueSorted.length === 0 ? '<div style="padding:14px 8px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:11px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
     + '</div>';
-  // Day columns.
+  // Day columns. v10.655 — big readable date + accurate TODAY/TOMORROW
+  // pill (only when the column's actual date is today/tomorrow; Zac
+  // flagged that v10.653 was hardcoding TODAY on the leftmost column
+  // even when navigating to a non-today window).
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const tomorrowIso = tomorrow.toISOString().slice(0, 10);
   const days = data.days.map((d, i) => {
     const date = new Date(d + 'T00:00:00');
     const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
-    const dayLabel = i === 0 ? 'TODAY' : (i === 1 ? 'TOMORROW' : dow.toUpperCase());
-    const dateLabel = (date.getMonth() + 1) + '/' + date.getDate();
+    const dateBig = (date.getMonth() + 1) + '/' + date.getDate();
     const isToday = d === todayIso;
+    const isTomorrow = d === tomorrowIso;
+    const pillLabel = isToday ? 'TODAY' : (isTomorrow ? 'TOMORROW' : '');
+    const pillColor = isToday ? '#7C3AED' : '#FFB300';
     const makeOrders = (data.orders_by_date[d] && data.orders_by_date[d].make) || [];
     const packOrders = (data.orders_by_date[d] && data.orders_by_date[d].pack) || [];
     const tasks = data.tasks_by_date[d] || [];
     return ''
       + '<div data-planner-day="' + esc(d) + '" style="flex:1;min-width:220px;border-right:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;overflow:hidden">'
       +   '<div style="padding:10px 12px;background:' + (isToday ? 'rgba(124,58,237,.18)' : '#181818') + ';border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0">'
-      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:1px;color:' + (isToday ? '#C4B5FD' : '#fff') + ';-webkit-text-fill-color:' + (isToday ? '#C4B5FD' : '#fff') + '">' + dayLabel + '</div>'
-      +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0">' + dow + ' ' + dateLabel + ' · ' + (makeOrders.length + packOrders.length) + ' order(s) · ' + tasks.length + ' task(s)</div>'
+      +     '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">'
+      +       '<div>'
+      +         '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-transform:uppercase">' + dow + '</div>'
+      +         '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;line-height:1;color:' + (isToday ? '#C4B5FD' : '#fff') + ' !important;-webkit-text-fill-color:' + (isToday ? '#C4B5FD' : '#fff') + ' !important;margin-top:1px">' + dateBig + '</div>'
+      +       '</div>'
+      +       (pillLabel ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1.3px;color:#fff !important;-webkit-text-fill-color:#fff !important;background:' + pillColor + ' !important;padding:2px 7px;border-radius:999px;align-self:flex-start;margin-top:2px">' + pillLabel + '</div>' : '')
+      +     '</div>'
+      +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:4px">' + (makeOrders.length + packOrders.length) + ' order(s) · ' + tasks.length + ' task(s)</div>'
       +   '</div>'
       +   '<div style="flex:1;overflow-y:auto;padding:8px">'
       +     _renderPlannerBucket_(d, 'make', makeOrders)
