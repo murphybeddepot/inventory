@@ -10880,6 +10880,27 @@ function _plannerShouldShowDone_() {
   try { return localStorage.getItem('mbd_planner_show_done_tasks') === '1'; }
   catch (e) { return false; }
 }
+// v10.676 (Roo) — extracted from v10.675 inline IIFE so a unit
+// test can lock the hash. Returns { unassigned, hue } so the
+// caller renders the chip; HTML build is `_assigneeChipHtml_`.
+// Hash: case-insensitive (upper), djb-ish (h*31 + charCode) mod
+// 360. Same name → same hue, forever.
+function _assigneeChipHash_(name) {
+  const raw = (name == null) ? '' : String(name).trim();
+  if (!raw) return { unassigned: true, hue: 0 };
+  let h = 0;
+  for (let i = 0; i < raw.length; i++) {
+    h = (h * 31 + raw.toUpperCase().charCodeAt(i)) >>> 0;
+  }
+  return { unassigned: false, hue: h % 360, label: raw };
+}
+function _assigneeChipHtml_(name) {
+  const c = _assigneeChipHash_(name);
+  if (c.unassigned) {
+    return '<span style="background:rgba(154,170,192,.18);color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;font-size:9px;font-weight:900;letter-spacing:.6px;padding:1px 5px;border-radius:3px;text-transform:uppercase">unassigned</span>';
+  }
+  return '<span style="background:hsl(' + c.hue + ',60%,30%) !important;color:hsl(' + c.hue + ',80%,80%) !important;-webkit-text-fill-color:hsl(' + c.hue + ',80%,80%) !important;font-size:9px;font-weight:900;letter-spacing:.6px;padding:1px 5px;border-radius:3px;text-transform:uppercase;border:1px solid hsl(' + c.hue + ',60%,45%)">' + esc(c.label) + '</span>';
+}
 
 function _renderPlannerTasks_(date, tasks) {
   const showDone = _plannerShouldShowDone_();
@@ -10897,16 +10918,7 @@ function _renderPlannerTasks_(date, tasks) {
       +   '<button onclick="_plannerToggleTask_(\'' + esc(t.task_id) + '\',\'' + (isDone ? 'open' : 'done') + '\')" style="background:transparent;color:' + (isDone ? '#00E676' : '#9AAAC0') + ' !important;-webkit-text-fill-color:' + (isDone ? '#00E676' : '#9AAAC0') + ' !important;border:1.5px solid currentColor;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;flex-shrink:0">' + (isDone ? '✓' : '') + '</button>'
       +   '<div style="flex:1;min-width:0">'
       +     '<div style="font-size:12px;font-weight:700;color:#fff !important;-webkit-text-fill-color:#fff !important;' + (isDone ? 'text-decoration:line-through' : '') + ';display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
-      +       (function () {
-              const aRaw = String(t.assignee || '').trim();
-              if (!aRaw) {
-                return '<span style="background:rgba(154,170,192,.18);color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;font-size:9px;font-weight:900;letter-spacing:.6px;padding:1px 5px;border-radius:3px;text-transform:uppercase">unassigned</span>';
-              }
-              let h = 0;
-              for (let i = 0; i < aRaw.length; i++) h = (h * 31 + aRaw.toUpperCase().charCodeAt(i)) >>> 0;
-              const hue = h % 360;
-              return '<span style="background:hsl(' + hue + ',60%,30%) !important;color:hsl(' + hue + ',80%,80%) !important;-webkit-text-fill-color:hsl(' + hue + ',80%,80%) !important;font-size:9px;font-weight:900;letter-spacing:.6px;padding:1px 5px;border-radius:3px;text-transform:uppercase;border:1px solid hsl(' + hue + ',60%,45%)">' + esc(aRaw) + '</span>';
-            })()
+      +       _assigneeChipHtml_(t.assignee)
       +       '<span>' + esc(t.title) + '</span>'
       +     '</div>'
       +     '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;margin-top:2px">priority: ' + esc(t.priority) + '</div>'
