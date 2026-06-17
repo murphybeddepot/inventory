@@ -10745,13 +10745,19 @@ function _renderPlannerOrderCard_(o, source) {
     +     '</span>'
     +   '</div>'
     +   (details ? '<div style="font-size:13px;line-height:1.32;color:#E8EDF4 !important;-webkit-text-fill-color:#E8EDF4 !important;font-weight:600;word-wrap:break-word">' + esc(details) + '</div>' : '')
-    // v10.664 (Zac 2026-06-17) — "📋 Pick date" button on To-Be-
-    //   Scheduled cards. Alternative to tap-and-tap: tap → reveals
-    //   inline 5-day grid with Make/Pack sub-buttons. One tap = drop.
+    // v10.664 — "📋 Pick date" on To-Be-Scheduled. v10.669 — same
+    //   button on day-bucket cards as "📅 RESCHEDULE" so Seth can
+    //   move an order to a different day without going Move Back →
+    //   hunt in sidebar → tap new day. The handler reuses
+    //   _plannerOpenInlinePicker_; the day-bucket caller pre-fills
+    //   the date input with the current pack_target_date.
     +   (source === 'unscheduled'
-        ? '<button onclick="event.stopPropagation();_plannerOpenInlinePicker_(\'' + esc(on) + '\')" style="margin-top:7px;width:100%;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5 !important;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer">📋 Pick date</button>'
+        ? '<button onclick="event.stopPropagation();_plannerOpenInlinePicker_(\'' + esc(on) + '\',\'\')" style="margin-top:7px;width:100%;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5 !important;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer">📋 Pick date</button>'
         + '<div id="plannerInlinePicker_' + esc(on) + '" style="display:none;margin-top:7px"></div>'
-        : '')
+        : (sourceMatch
+          ? '<button onclick="event.stopPropagation();_plannerOpenInlinePicker_(\'' + esc(on) + '\',\'' + esc(sourceMatch[1]) + '\')" style="margin-top:7px;width:100%;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5 !important;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer">📅 Reschedule</button>'
+            + '<div id="plannerInlinePicker_' + esc(on) + '" style="display:none;margin-top:6px"></div>'
+          : ''))
     + '</div>';
 }
 
@@ -10765,7 +10771,10 @@ function _renderPlannerOrderCard_(o, source) {
 // HTML5 <input type="date"> which Safari/Chrome on iPad pops a native
 // month-grid picker for — Seth can scroll to ANY date, not just the
 // next 4 days. After picking, two buttons (Make/Pack) commit.
-function _plannerOpenInlinePicker_(orderNumber) {
+// v10.669 — second arg currentDate. When called from a day-bucket
+// "Reschedule" button, this is the order's existing target date so
+// the input pre-fills there instead of today.
+function _plannerOpenInlinePicker_(orderNumber, currentDate) {
   const holder = document.getElementById('plannerInlinePicker_' + orderNumber);
   if (!holder) return;
   if (holder.style.display === 'block') {
@@ -10773,7 +10782,9 @@ function _plannerOpenInlinePicker_(orderNumber) {
   }
   // Default the date input to today.
   const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = (currentDate && /^\d{4}-\d{2}-\d{2}$/.test(currentDate))
+    ? currentDate
+    : today.toISOString().slice(0, 10);
   const inputId = 'plannerPickerDate_' + orderNumber;
   holder.innerHTML = ''
     + '<div style="padding:10px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.45);border-radius:6px">'
