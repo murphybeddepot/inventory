@@ -10639,11 +10639,19 @@ function _renderPackPlanner_(data) {
 
 function _renderPlannerOrderCard_(o, source) {
   const on = String(o.order_number || '');
-  // v10.613 (Zac 2026-06-16) — show the full order_details
-  // (same blob gcal shows), larger + more readable than the
-  // grayed customer_name. Fall back to task_line / customer_name
-  // if order_details is empty.
-  const detailsRaw = String(o.order_details || o.task_line || o.customer_name || '');
+  // v10.660 (Zac 2026-06-17) — prefer the live gcal title (cal_label)
+  // over order_details. The gcal title already encodes assignee/carrier
+  // ("Kim", "FedEx", "JURGEN"), stock serial, state, and shipping
+  // method in one descriptive string — exactly what Zac flagged the
+  // planner card should show. Strip the redundant order# from the
+  // label (we already show it on its own line) so the card isn't
+  // "31600 · 31600 BOAZ Q WALNUT...". Fall back to order_details /
+  // task_line / customer_name in that order if cal_label is empty.
+  const calLabelRaw = String(o.cal_label || '');
+  const stripOnRegex = new RegExp('\\b' + on + '\\b', 'g');
+  const calLabel = calLabelRaw.replace(stripOnRegex, '').replace(/\s+/g, ' ').trim();
+  const detailsRaw = calLabel
+    || String(o.order_details || o.task_line || o.customer_name || '');
   const details = detailsRaw.replace(/\s+/g, ' ').trim();
   const ship = String(o.ship_date || '').slice(5, 10); // mm-dd
   const isPriority = !!o.priority;
