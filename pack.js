@@ -10640,6 +10640,61 @@ function _plannerSelectOrder_(orderNumber, source) {
   if (_packPlannerCache) _renderPackPlanner_(_packPlannerCache);
 }
 
+// v10.652 (Zac 2026-06-17) — Optimistic UI. Previously every drop +
+// task action did `await refreshPackPlanner_()` which fired the full
+// 60s fishing-animation reload. That's why tap-and-tap felt broken
+// ("nothing happens then a minute later it appears") AND why adding a
+// task during a pending drop lost the task (the drop's refresh
+// clobbered the in-progress add). Now: mutate the local cache + render
+// instantly + fire server save in background. If save fails, rollback
+// the cache to its pre-mutation state.
+function _plannerSnapshotCache_() {
+  if (!_packPlannerCache) return null;
+  return JSON.parse(JSON.stringify(_packPlannerCache));
+}
+function _plannerRestoreCache_(snapshot) {
+  if (snapshot) {
+    _packPlannerCache = snapshot;
+    _renderPackPlanner_(_packPlannerCache);
+  }
+}
+function _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket) {
+  if (!_packPlannerCache) return false;
+  const cache = _packPlannerCache;
+  let moving = null;
+  // Find + remove from unscheduled
+  if (Array.isArray(cache.unscheduled)) {
+    const ix = cache.unscheduled.findIndex(o => String(o.order_number) === String(orderNumber));
+    if (ix >= 0) { moving = cache.unscheduled.splice(ix, 1)[0]; }
+  }
+  // Find + remove from any day bucket
+  if (!moving && cache.orders_by_date) {
+    Object.keys(cache.orders_by_date).forEach(d => {
+      ['make', 'pack'].forEach(b => {
+        const arr = (cache.orders_by_date[d] || {})[b] || [];
+        const ix = arr.findIndex(o => String(o.order_number) === String(orderNumber));
+        if (ix >= 0) { moving = arr.splice(ix, 1)[0]; }
+      });
+    });
+  }
+  // Find + remove from past_due (if user drops one back onto a day)
+  if (!moving && Array.isArray(cache.past_due)) {
+    const ix = cache.past_due.findIndex(o => String(o.order_number) === String(orderNumber));
+    if (ix >= 0) { moving = cache.past_due.splice(ix, 1)[0]; }
+  }
+  if (!moving) return false;
+  // Update bucket annotation + push into target day
+  moving.pack_bucket = targetBucket;
+  cache.orders_by_date = cache.orders_by_date || {};
+  cache.orders_by_date[targetDate] = cache.orders_by_date[targetDate] || { make: [], pack: [] };
+  cache.orders_by_date[targetDate][targetBucket] = cache.orders_by_date[targetDate][targetBucket] || [];
+  cache.orders_by_date[targetDate][targetBucket].push(moving);
+  // Adjust counts.
+  cache.unscheduled_count = (cache.unscheduled || []).length;
+  cache.past_due_count = (cache.past_due || []).length;
+  return true;
+}
+
 async function _plannerDropOnDay_(targetDate, targetBucket) {
   if (!_packPlannerSelectedOrder) {
     showToast('Tap an order in the sidebar first');
@@ -10653,20 +10708,37 @@ async function _plannerDropOnDay_(targetDate, targetBucket) {
     showToast('Already moving #' + orderNumber + '…');
     return;
   }
+  // OPTIMISTIC: snapshot cache, mutate locally, re-render. The user
+  // sees the move INSTANTLY. Server save fires async; on failure we
+  // restore the snapshot + toast the error.
+  const snapshot = _plannerSnapshotCache_();
+  const moved = _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket);
+  _packPlannerSelectedOrder = null;
+  if (moved) {
+    _renderPackPlanner_(_packPlannerCache);
+    showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + targetBucket + ')');
+  }
   try {
     const r1 = await groundApi('setPackTargetDate', {
       orderNumber, targetDate, manager_pin: pin, set_by: localStorage.getItem('mbd_ground_packer') || ''
     });
-    if (_handleApiErrorWithPin_(r1, 'Drop failed')) return;
+    if (r1 && !r1.ok) {
+      _plannerRestoreCache_(snapshot);
+      _handleApiErrorWithPin_(r1, 'Drop failed (rolled back)');
+      return;
+    }
     const r2 = await groundApi('setOrderPackBucket', {
       order_number: orderNumber, bucket: targetBucket, manager_pin: pin
     });
-    if (r2 && !r2.ok) showToast('Bucket update failed: ' + (r2.error || 'unknown'));
-    _packPlannerSelectedOrder = null;
-    showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + targetBucket + ')');
-    await refreshPackPlanner_();
+    if (r2 && !r2.ok) {
+      // Server's pack_target_date IS set; only the bucket failed. Don't
+      // roll back the whole optimistic move — toast the partial failure
+      // so the user knows the bucket label may not survive a refresh.
+      showToast('Bucket save failed (date saved): ' + (r2.error || 'unknown'));
+    }
   } catch (e) {
-    showToast('Network error: ' + e.message);
+    _plannerRestoreCache_(snapshot);
+    showToast('Network error (rolled back): ' + e.message);
   } finally {
     _scheduleUnlock_(orderNumber);
   }
@@ -10677,39 +10749,108 @@ async function _plannerAddTask_(targetDate) {
   if (!title || !title.trim()) return;
   const assignee = prompt('Assignee (optional — Jonah, Shane, etc.):') || '';
   const priority = prompt('Priority? low / normal / high (default normal):') || 'normal';
+  // v10.652 — optimistic add. Append a temp task to the cache
+  // immediately; replace the temp id with the real one after server
+  // returns. If server fails, remove the temp task + toast.
+  const tempId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const tempTask = {
+    task_id: tempId,
+    title: title.trim(),
+    assignee: assignee.trim(),
+    priority: priority.trim().toLowerCase() || 'normal',
+    target_date: targetDate,
+    status: 'pending',
+    _pending: true,
+  };
+  if (_packPlannerCache) {
+    _packPlannerCache.tasks_by_date = _packPlannerCache.tasks_by_date || {};
+    _packPlannerCache.tasks_by_date[targetDate] = _packPlannerCache.tasks_by_date[targetDate] || [];
+    _packPlannerCache.tasks_by_date[targetDate].push(tempTask);
+    _renderPackPlanner_(_packPlannerCache);
+  }
   return _plannerAuthedCall_('add task', async (pin) => {
     const res = await groundApi('addPackTask', {
-      title: title.trim(),
-      assignee: assignee.trim(),
-      priority: priority.trim().toLowerCase(),
+      title: tempTask.title,
+      assignee: tempTask.assignee,
+      priority: tempTask.priority,
       target_date: targetDate,
       created_by: localStorage.getItem('mbd_ground_packer') || '',
       manager_pin: pin,
     });
-    if (_handleApiErrorWithPin_(res, 'Add task failed')) return;
+    if (_handleApiErrorWithPin_(res, 'Add task failed')) {
+      // Roll the temp out.
+      if (_packPlannerCache && _packPlannerCache.tasks_by_date) {
+        const arr = _packPlannerCache.tasks_by_date[targetDate] || [];
+        const ix = arr.findIndex(t => t.task_id === tempId);
+        if (ix >= 0) arr.splice(ix, 1);
+        _renderPackPlanner_(_packPlannerCache);
+      }
+      return;
+    }
+    // Swap temp id for real id so subsequent toggle/delete works.
+    if (res && res.task_id && _packPlannerCache && _packPlannerCache.tasks_by_date) {
+      const arr = _packPlannerCache.tasks_by_date[targetDate] || [];
+      const t = arr.find(x => x.task_id === tempId);
+      if (t) { t.task_id = res.task_id; t._pending = false; }
+      _renderPackPlanner_(_packPlannerCache);
+    }
     showToast('✓ Task added');
-    await refreshPackPlanner_();
   });
 }
 
 async function _plannerToggleTask_(taskId, newStatus) {
+  // v10.652 — optimistic toggle. Find the task in cache, flip status,
+  // re-render; revert if server save fails.
+  let prevStatus = null;
+  let owner = null;
+  if (_packPlannerCache && _packPlannerCache.tasks_by_date) {
+    Object.keys(_packPlannerCache.tasks_by_date).forEach(d => {
+      const arr = _packPlannerCache.tasks_by_date[d] || [];
+      const t = arr.find(x => x.task_id === taskId);
+      if (t && !owner) { owner = t; prevStatus = t.status; t.status = newStatus; }
+    });
+    if (owner) _renderPackPlanner_(_packPlannerCache);
+  }
   return _plannerAuthedCall_('toggle task', async (pin) => {
     const res = await groundApi('updatePackTask', {
       task_id: taskId, status: newStatus, manager_pin: pin,
       completed_by: localStorage.getItem('mbd_ground_packer') || '',
     });
-    if (_handleApiErrorWithPin_(res, 'Update failed')) return;
-    await refreshPackPlanner_();
+    if (_handleApiErrorWithPin_(res, 'Update failed')) {
+      if (owner) { owner.status = prevStatus; _renderPackPlanner_(_packPlannerCache); }
+      return;
+    }
   });
 }
 
 async function _plannerDeleteTask_(taskId) {
   if (!confirm('Delete this task?')) return;
+  // v10.652 — optimistic delete. Remove from cache, re-render. If
+  // server fails, restore from a saved copy.
+  let removedTask = null;
+  let removedFromDate = null;
+  if (_packPlannerCache && _packPlannerCache.tasks_by_date) {
+    Object.keys(_packPlannerCache.tasks_by_date).forEach(d => {
+      const arr = _packPlannerCache.tasks_by_date[d] || [];
+      const ix = arr.findIndex(t => t.task_id === taskId);
+      if (ix >= 0 && !removedTask) {
+        removedTask = arr.splice(ix, 1)[0];
+        removedFromDate = d;
+      }
+    });
+    if (removedTask) _renderPackPlanner_(_packPlannerCache);
+  }
   return _plannerAuthedCall_('delete task', async (pin) => {
     const res = await groundApi('deletePackTask', { task_id: taskId, manager_pin: pin });
-    if (_handleApiErrorWithPin_(res, 'Delete failed')) return;
+    if (_handleApiErrorWithPin_(res, 'Delete failed')) {
+      if (removedTask && removedFromDate && _packPlannerCache) {
+        _packPlannerCache.tasks_by_date[removedFromDate] = _packPlannerCache.tasks_by_date[removedFromDate] || [];
+        _packPlannerCache.tasks_by_date[removedFromDate].push(removedTask);
+        _renderPackPlanner_(_packPlannerCache);
+      }
+      return;
+    }
     showToast('✓ Task deleted');
-    await refreshPackPlanner_();
   });
 }
 
