@@ -1706,42 +1706,46 @@ input::placeholder, textarea::placeholder {
   <!-- RESULT AREA -->
   <div id="cabResult"></div>
 
-  <!-- PRIMARY ACTIONS — Add Cabinet + Bulk Move + Receive -->
-  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-    <button onclick="openAddCabinet()" class="amp-btn go">
-      + Add Cabinet(s)
-    </button>
-    <button onclick="openBulkMove()" class="amp-btn warn">
-      ↪ Bulk Move
-    </button>
-  </div>
-  <!-- Receive shipment button (shows active session badge if applicable) -->
+  <!-- v10.678 (Zac: "cleaner and less cluttered") — actions
+       restructured into hierarchy. Receive Shipment is the most-
+       used: full-width on top with bigger tap target. The other 3
+       (Add, Bulk Move, Damage Log) live as a 3-up secondary row
+       underneath — equal weights, smaller, less visual noise. -->
   <div id="receiveButtonContainer">
     <button onclick="openReceiveShipment()" class="amp-btn info" style="width:100%;margin-bottom:8px">
       📥 Receive Shipment
     </button>
   </div>
-  <!-- v71: damage log opener — small subdued button so it doesn't compete
-       with the primary receive flow; badge shows open-record count when known -->
-  <button onclick="openDamageLog()" id="damageLogOpener" style="width:100%;margin-bottom:14px;padding:11px 14px;background:rgba(139,0,0,.08);color:#8B0000;border:1.5px solid rgba(139,0,0,.35);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:1px">
-    🚫 Damage Log <span id="damageLogBadge" style="opacity:.7;font-weight:600"></span>
-  </button>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px">
+    <button onclick="openAddCabinet()" style="padding:11px 6px;background:rgba(0,200,83,.12);color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;border:1.5px solid #00C853;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.6px;line-height:1.2">
+      + Add
+    </button>
+    <button onclick="openBulkMove()" style="padding:11px 6px;background:rgba(255,145,0,.12);color:#7A4A00 !important;-webkit-text-fill-color:#7A4A00 !important;border:1.5px solid #FF9100;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.6px;line-height:1.2">
+      ↪ Bulk Move
+    </button>
+    <button onclick="openDamageLog()" id="damageLogOpener" style="padding:11px 6px;background:rgba(139,0,0,.08);color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important;border:1.5px solid rgba(139,0,0,.35);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.6px;line-height:1.2">
+      🚫 Damage <span id="damageLogBadge" style="opacity:.7;font-weight:600"></span>
+    </button>
+  </div>
 
   <!-- EMPTY STATE -->
   <div id="cabEmpty" class="barcode-hint" style="background:#FFF8E1;border-color:#FFC107;display:none">
     <strong>📦 No cabinet locations loaded yet</strong>
-    Tap <strong>+ Add Cabinet(s)</strong> above to add cabinets one or many at a time, or use Upload Spreadsheet (admin tools below).
+    Tap <strong>+ Add</strong> above to add cabinets one or many at a time, or use Upload Spreadsheet (admin tools below).
   </div>
 
-  <!-- SHOW PULLED / DAMAGED TOGGLES -->
-  <div style="margin-top:0;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:14px">
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;cursor:pointer">
-      <input type="checkbox" id="showPulledToggle" onchange="togglePulled(this.checked)" style="width:18px;height:18px;cursor:pointer">
-      Show pulled cabinets in search
+  <!-- v10.678 — show pulled / damaged collapsed into compact chips
+       (was 2 large checkboxes with label text). Lighter weight; same
+       behavior. Defaults still off. -->
+  <div style="margin:0 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+    <span style="font-size:10px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-weight:700;letter-spacing:.8px;text-transform:uppercase;margin-right:2px">Also show:</span>
+    <label id="showPulledChip" style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;font-size:11px;font-weight:700;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:14px;cursor:pointer">
+      <input type="checkbox" id="showPulledToggle" onchange="togglePulled(this.checked);_cabFilterChipsSync_()" style="width:13px;height:13px;cursor:pointer;margin:0">
+      pulled
     </label>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;cursor:pointer">
-      <input type="checkbox" id="showDamagedToggle" onchange="toggleDamaged(this.checked)" style="width:18px;height:18px;cursor:pointer">
-      Show damaged cabinets in search
+    <label id="showDamagedChip" style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;font-size:11px;font-weight:700;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:14px;cursor:pointer">
+      <input type="checkbox" id="showDamagedToggle" onchange="toggleDamaged(this.checked);_cabFilterChipsSync_()" style="width:13px;height:13px;cursor:pointer;margin:0">
+      damaged
     </label>
   </div>
 
@@ -16545,6 +16549,28 @@ function toggleDamaged(on) {
   renderCabResult(document.getElementById('cabSearchInput').value);
 }
 
+// v10.678 — sync chip visual state to checkbox. Active chips get
+// a brighter border + text + tinted background. Called by both
+// onchange handlers; safe to call on boot to set initial visual.
+function _cabFilterChipsSync_() {
+  ['Pulled', 'Damaged'].forEach(function (which) {
+    const cb = document.getElementById('show' + which + 'Toggle');
+    const chip = document.getElementById('show' + which + 'Chip');
+    if (!cb || !chip) return;
+    if (cb.checked) {
+      chip.style.background = 'rgba(255,179,0,.18)';
+      chip.style.borderColor = '#FFB300';
+      chip.style.color = '#FFB300';
+      chip.style.webkitTextFillColor = '#FFB300';
+    } else {
+      chip.style.background = 'rgba(0,0,0,.18)';
+      chip.style.borderColor = 'var(--border)';
+      chip.style.color = 'var(--text-dim)';
+      chip.style.webkitTextFillColor = 'var(--text-dim)';
+    }
+  });
+}
+
 function toggleAdminTools() {
   const body = document.getElementById('adminToolsBody');
   const caret = document.getElementById('adminToolsCaret');
@@ -16696,11 +16722,13 @@ function cabRemoveMember(i) {
 function syncShowPulledToggle() {
   const t = document.getElementById('showPulledToggle');
   if (t) t.checked = showPulled;
+  if (typeof _cabFilterChipsSync_ === 'function') _cabFilterChipsSync_();
 }
 
 function syncShowDamagedToggle() {
   const t = document.getElementById('showDamagedToggle');
   if (t) t.checked = showDamaged;
+  if (typeof _cabFilterChipsSync_ === 'function') _cabFilterChipsSync_();
 }
 
 function printCommandCard() {
@@ -20737,7 +20765,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.676"></script>
+<script src="./pack.js?v=10.678"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20748,7 +20776,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.676<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.678<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
