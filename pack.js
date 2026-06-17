@@ -10892,11 +10892,15 @@ function _jumpFromPlannerToLookup_(orderNumber) {
 // v10.662 — close the planner overlay but PRESERVE the LS flags so
 // the boot path / Back button can restore it. (closePackPlanner_
 // clears the flags for an intentional close via the ✕ button.)
+// v10.666 — also preserve _packPlannerCache + _packPlannerCacheByStart
+// in memory so Back-to-Planner can render INSTANTLY without going
+// through refreshPackPlanner_'s fetch+fishing-animation path. Lookup
+// is a same-page navigation; JS heap state is intact.
 function closePackPlannerOverlayKeepFlags_() {
   const ov = document.getElementById('packPlannerOverlay');
   if (ov) ov.remove();
   _packPlannerSelectedOrder = null;
-  _packPlannerCache = null;
+  // Intentionally NOT nulling _packPlannerCache / _packPlannerCacheByStart.
 }
 
 function _renderBackToPlannerBanner_() {
@@ -10925,7 +10929,47 @@ function _backToPlannerFromLookup_() {
     const saved = localStorage.getItem(PLANNER_START_LS_KEY);
     _packPlannerStartDate = saved || null;
   } catch (e) { _packPlannerStartDate = null; }
+  // v10.666 — instant return from cache. closePackPlannerOverlayKeepFlags_
+  // preserves _packPlannerCache + _packPlannerCacheByStart in memory now,
+  // so if we have cached data for the target window we can render
+  // immediately + kick off a background refresh for freshness. Falls
+  // back to the full openPackPlanner fetch only on a true cache miss.
+  const wantStart = _packPlannerStartDate || _todayIsoLocal_();
+  const cached = _packPlannerCacheByStart.get(wantStart) || _packPlannerCache;
+  if (cached) {
+    _openPlannerOverlayShell_();
+    try { localStorage.setItem(PLANNER_OPEN_LS_KEY, '1'); } catch (e) {}
+    _packPlannerCache = cached;
+    _renderPackPlanner_(cached);
+    // Refresh in the background so any changes made elsewhere come in.
+    setTimeout(refreshPackPlanner_, 200);
+    return;
+  }
   openPackPlanner();
+}
+
+// v10.666 — extracted overlay shell builder so the cache-hit path
+// doesn't need to call openPackPlanner (which prompts for PIN +
+// always fetches). Same DOM as openPackPlanner's shell.
+function _openPlannerOverlayShell_() {
+  const prior = document.getElementById('packPlannerOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'packPlannerOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:#0a0a0a;z-index:9998;display:flex;flex-direction:column;overflow:hidden';
+  ov.innerHTML = ''
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0">'
+    +   '<div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:1px;color:#fff;-webkit-text-fill-color:#fff;line-height:1">MAKE TODAY / PACK TODAY</div>'
+    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">5-day planner · tap an order, then tap a day · ⊘ on a card sends it back to To Be Scheduled</div>'
+    +   '</div>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<button onclick="refreshPackPlanner_()" style="background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer">↻</button>'
+    +     '<button onclick="closePackPlanner_()" style="background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">✕ Close</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="packPlannerBody" style="flex:1;display:flex;overflow:hidden"></div>';
+  document.body.appendChild(ov);
 }
 
 function _plannerSelectOrder_(orderNumber, source) {
