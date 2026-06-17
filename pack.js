@@ -10724,7 +10724,10 @@ function _renderPlannerOrderCard_(o, source) {
     +   'style="display:block;padding:10px 11px;margin-bottom:6px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;cursor:pointer;user-select:none">'
     +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px">'
     +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
-    +     '<span style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
+    // v10.667 — flex-wrap so the delay badge / UNSCHED button don't
+    //   push the row off-screen on narrow cards. min-width:0 lets the
+    //   span shrink past its children's intrinsic size.
+    +     '<span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:1;min-width:0;justify-content:flex-end">'
     // v10.632 (Seth navigation) — 🔍 quick-jump to Lookup. Click
     //   propagation stopped so it doesn't trigger select/drop.
     +       '<button onclick="event.stopPropagation();_jumpFromPlannerToLookup_(\'' + esc(on) + '\')" title="Open in Lookup" style="background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18);border-radius:4px;width:22px;height:22px;font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;cursor:pointer;padding:0;line-height:1">🔍</button>'
@@ -10732,8 +10735,10 @@ function _renderPlannerOrderCard_(o, source) {
     //   bumped from 22px ⊘ to a labeled pill "↩ Unsched" so it's
     //   visually obvious it's tappable + what it does. Tap target
     //   is also bigger now (32px tall).
+    // v10.667 — relabel from UNSCHED → "MOVE BACK" (Seth's word).
+    //   The action is "take this off this day". UNSCHED was too jargon-y.
     +       (/^date:/.test(String(source || ''))
-        ? '<button onclick="event.stopPropagation();_plannerUnschedule_(\'' + esc(on) + '\')" title="Back to To Be Scheduled" style="background:rgba(255,179,0,.18) !important;border:1.5px solid #FFB300 !important;border-radius:5px;height:24px;padding:0 8px;font-size:11px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;cursor:pointer;line-height:1;letter-spacing:.4px">↩ UNSCHED</button>'
+        ? '<button onclick="event.stopPropagation();_plannerUnschedule_(\'' + esc(on) + '\')" title="Move back to To Be Scheduled" style="background:rgba(255,179,0,.18) !important;border:1.5px solid #FFB300 !important;border-radius:5px;height:24px;padding:0 8px;font-size:11px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;cursor:pointer;line-height:1;letter-spacing:.4px">↩ MOVE BACK</button>'
         : '')
     +       (ship ? '<span style="font-size:11px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(ship) + '</span>' : '')
     +       delayBadge
@@ -10756,34 +10761,39 @@ function _renderPlannerOrderCard_(o, source) {
 // reuse data.days from the current window. Each cell has Make + Pack
 // sub-buttons; tapping one fires _plannerDropOnDay_ as if the user
 // had tapped the order then tapped that day.
+// v10.667 — full-calendar date picker. Replaces the 5-day window. Uses
+// HTML5 <input type="date"> which Safari/Chrome on iPad pops a native
+// month-grid picker for — Seth can scroll to ANY date, not just the
+// next 4 days. After picking, two buttons (Make/Pack) commit.
 function _plannerOpenInlinePicker_(orderNumber) {
   const holder = document.getElementById('plannerInlinePicker_' + orderNumber);
   if (!holder) return;
   if (holder.style.display === 'block') {
     holder.style.display = 'none'; holder.innerHTML = ''; return;
   }
-  const days = (_packPlannerCache && _packPlannerCache.days) || [];
-  if (!days.length) { showToast('Planner data not loaded yet'); return; }
-  const cells = days.map(d => {
-    const dt = new Date(d + 'T00:00:00');
-    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
-    const mdy = (dt.getMonth() + 1) + '/' + dt.getDate();
-    return ''
-      + '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-items:stretch">'
-      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;letter-spacing:1px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-transform:uppercase;text-align:center">' + dow + ' ' + mdy + '</div>'
-      +   '<button onclick="event.stopPropagation();_plannerInlinePickerFire_(\'' + esc(orderNumber) + '\',\'' + esc(d) + '\',\'make\')" style="background:rgba(255,145,0,.18) !important;color:#FF9100 !important;-webkit-text-fill-color:#FF9100 !important;border:1px solid #FF9100 !important;border-radius:4px;padding:5px 0;font-size:10px;font-weight:900;letter-spacing:.5px;cursor:pointer">🔨 MAKE</button>'
-      +   '<button onclick="event.stopPropagation();_plannerInlinePickerFire_(\'' + esc(orderNumber) + '\',\'' + esc(d) + '\',\'pack\')" style="background:rgba(0,230,118,.18) !important;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border:1px solid #00E676 !important;border-radius:4px;padding:5px 0;font-size:10px;font-weight:900;letter-spacing:.5px;cursor:pointer">📦 PACK</button>'
-      + '</div>';
-  }).join('');
+  // Default the date input to today.
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const inputId = 'plannerPickerDate_' + orderNumber;
   holder.innerHTML = ''
-    + '<div style="display:flex;gap:6px;align-items:stretch;padding:8px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.45);border-radius:6px">'
-    +   cells
+    + '<div style="padding:10px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.45);border-radius:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:1.5px;color:#C4B5FD !important;-webkit-text-fill-color:#C4B5FD !important;text-transform:uppercase;margin-bottom:6px">Pick any date</div>'
+    +   '<input type="date" id="' + inputId + '" value="' + todayIso + '" onclick="event.stopPropagation()" '
+    +     'style="width:100%;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #7C3AED;border-radius:5px;padding:8px;font-size:14px;font-family:inherit;font-weight:700;margin-bottom:8px">'
+    +   '<div style="display:flex;gap:6px">'
+    +     '<button onclick="event.stopPropagation();_plannerInlinePickerFire_(\'' + esc(orderNumber) + '\',\'make\')" style="flex:1;background:rgba(255,145,0,.18) !important;color:#FF9100 !important;-webkit-text-fill-color:#FF9100 !important;border:1.5px solid #FF9100 !important;border-radius:5px;padding:8px 0;font-size:12px;font-weight:900;letter-spacing:.5px;cursor:pointer">🔨 MAKE</button>'
+    +     '<button onclick="event.stopPropagation();_plannerInlinePickerFire_(\'' + esc(orderNumber) + '\',\'pack\')" style="flex:1;background:rgba(0,230,118,.18) !important;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border:1.5px solid #00E676 !important;border-radius:5px;padding:8px 0;font-size:12px;font-weight:900;letter-spacing:.5px;cursor:pointer">📦 PACK</button>'
+    +   '</div>'
     + '</div>';
   holder.style.display = 'block';
 }
-function _plannerInlinePickerFire_(orderNumber, date, bucket) {
-  // Pre-select the order so _plannerDropOnDay_'s gate ("Tap an order
-  // first") passes, then call drop.
+function _plannerInlinePickerFire_(orderNumber, bucket) {
+  const input = document.getElementById('plannerPickerDate_' + orderNumber);
+  const date = input ? input.value : '';
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    showToast('Pick a date first');
+    return;
+  }
   _packPlannerSelectedOrder = { order_number: orderNumber, source: 'unscheduled' };
   const holder = document.getElementById('plannerInlinePicker_' + orderNumber);
   if (holder) { holder.style.display = 'none'; holder.innerHTML = ''; }
@@ -10999,77 +11009,127 @@ function _plannerRestoreCache_(snapshot) {
     _renderPackPlanner_(_packPlannerCache);
   }
 }
+// v10.667 — returns a per-op rollback record { moved, fromBucket }
+// so concurrent drops + unschedules can each revert ONLY their own
+// mutation. Returns null on cache miss.
 function _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket) {
-  if (!_packPlannerCache) return false;
+  if (!_packPlannerCache) return null;
   const cache = _packPlannerCache;
   let moving = null;
-  // Find + remove from unscheduled
+  let fromUnsched = false;
+  let fromDate = null;
+  let fromBucket = null;
+  let fromPastDue = false;
   if (Array.isArray(cache.unscheduled)) {
     const ix = cache.unscheduled.findIndex(o => String(o.order_number) === String(orderNumber));
-    if (ix >= 0) { moving = cache.unscheduled.splice(ix, 1)[0]; }
+    if (ix >= 0) { moving = cache.unscheduled.splice(ix, 1)[0]; fromUnsched = true; }
   }
-  // Find + remove from any day bucket
   if (!moving && cache.orders_by_date) {
-    Object.keys(cache.orders_by_date).forEach(d => {
-      ['make', 'pack'].forEach(b => {
+    Object.keys(cache.orders_by_date).some(d => {
+      return ['make', 'pack'].some(b => {
         const arr = (cache.orders_by_date[d] || {})[b] || [];
         const ix = arr.findIndex(o => String(o.order_number) === String(orderNumber));
-        if (ix >= 0) { moving = arr.splice(ix, 1)[0]; }
+        if (ix >= 0) {
+          moving = arr.splice(ix, 1)[0];
+          fromDate = d; fromBucket = b;
+          return true;
+        }
+        return false;
       });
     });
   }
-  // Find + remove from past_due (if user drops one back onto a day)
   if (!moving && Array.isArray(cache.past_due)) {
     const ix = cache.past_due.findIndex(o => String(o.order_number) === String(orderNumber));
-    if (ix >= 0) { moving = cache.past_due.splice(ix, 1)[0]; }
+    if (ix >= 0) { moving = cache.past_due.splice(ix, 1)[0]; fromPastDue = true; }
   }
-  if (!moving) return false;
-  // Update bucket annotation + push into target day
+  if (!moving) return null;
   moving.pack_bucket = targetBucket;
   cache.orders_by_date = cache.orders_by_date || {};
   cache.orders_by_date[targetDate] = cache.orders_by_date[targetDate] || { make: [], pack: [] };
   cache.orders_by_date[targetDate][targetBucket] = cache.orders_by_date[targetDate][targetBucket] || [];
   cache.orders_by_date[targetDate][targetBucket].push(moving);
-  // Adjust counts.
   cache.unscheduled_count = (cache.unscheduled || []).length;
   cache.past_due_count = (cache.past_due || []).length;
-  return true;
+  return {
+    moved: moving,
+    toDate: targetDate, toBucket: targetBucket,
+    fromUnsched, fromDate, fromBucket, fromPastDue,
+  };
+}
+
+// v10.667 — undo a drop using the rollback record from
+// _plannerMoveOrderInCache_. Only touches the moved row; doesn't
+// disturb other concurrent mutations.
+function _plannerLocalRollbackDrop_(rb) {
+  if (!_packPlannerCache || !rb || !rb.moved) return;
+  const cache = _packPlannerCache;
+  const on = String(rb.moved.order_number);
+  // Remove from the destination first.
+  if (cache.orders_by_date && cache.orders_by_date[rb.toDate]) {
+    const arr = cache.orders_by_date[rb.toDate][rb.toBucket] || [];
+    const ix = arr.findIndex(o => String(o.order_number) === on);
+    if (ix >= 0) arr.splice(ix, 1);
+  }
+  // Put back where it came from.
+  if (rb.fromUnsched) {
+    cache.unscheduled = cache.unscheduled || [];
+    cache.unscheduled.push(rb.moved);
+  } else if (rb.fromPastDue) {
+    cache.past_due = cache.past_due || [];
+    cache.past_due.push(rb.moved);
+  } else if (rb.fromDate && rb.fromBucket) {
+    cache.orders_by_date = cache.orders_by_date || {};
+    cache.orders_by_date[rb.fromDate] = cache.orders_by_date[rb.fromDate] || { make: [], pack: [] };
+    cache.orders_by_date[rb.fromDate][rb.fromBucket] = cache.orders_by_date[rb.fromDate][rb.fromBucket] || [];
+    cache.orders_by_date[rb.fromDate][rb.fromBucket].push(rb.moved);
+  }
+  cache.unscheduled_count = (cache.unscheduled || []).length;
+  cache.past_due_count = (cache.past_due || []).length;
+  _renderPackPlanner_(cache);
 }
 
 // v10.662 (Zac 2026-06-17) — unschedule a day-bucket order back into
 // the "To Be Scheduled" sidebar. Optimistic: splice locally + re-render,
 // then setPackTargetDate('') server-side. On failure, roll back.
 async function _plannerUnschedule_(orderNumber) {
-  // v10.663 — immediate tap feedback so user knows the click registered
-  // even before the optimistic move renders.
-  showToast('Unscheduling ' + orderNumber + '…');
-  console.log('DIAG-V10.663-UNSCHED tap', orderNumber);
+  showToast('Moving ' + orderNumber + ' back…');
+  console.log('DIAG-V10.667-UNSCHED tap', orderNumber);
   const pin = getCachedManagerPin_() || promptManagerPin_('unschedule');
-  if (!pin) {
-    console.log('DIAG-V10.663-UNSCHED no PIN, bailing');
-    return;
-  }
+  if (!pin) return;
   if (!_scheduleLock_(orderNumber)) {
     showToast('Already moving #' + orderNumber + '…');
     return;
   }
-  const snapshot = _plannerSnapshotCache_();
-  // Splice from any day bucket / past_due, push into unscheduled.
-  let moved = null;
+  // v10.667 — per-op rollback record instead of global snapshot. Two
+  // simultaneous unschedules each remember only what THEY moved, so
+  // one's rollback can't clobber the other's optimistic mutation.
+  let rollback = null;
   if (_packPlannerCache) {
     const cache = _packPlannerCache;
+    let moved = null;
+    let fromDate = null;
+    let fromBucket = null;
+    let fromPastDue = false;
     if (cache.orders_by_date) {
-      Object.keys(cache.orders_by_date).forEach(d => {
-        ['make', 'pack'].forEach(b => {
+      Object.keys(cache.orders_by_date).some(d => {
+        return ['make', 'pack'].some(b => {
           const arr = (cache.orders_by_date[d] || {})[b] || [];
           const ix = arr.findIndex(o => String(o.order_number) === String(orderNumber));
-          if (ix >= 0 && !moved) moved = arr.splice(ix, 1)[0];
+          if (ix >= 0) {
+            moved = arr.splice(ix, 1)[0];
+            fromDate = d; fromBucket = b;
+            return true;
+          }
+          return false;
         });
       });
     }
     if (!moved && Array.isArray(cache.past_due)) {
       const ix = cache.past_due.findIndex(o => String(o.order_number) === String(orderNumber));
-      if (ix >= 0) moved = cache.past_due.splice(ix, 1)[0];
+      if (ix >= 0) {
+        moved = cache.past_due.splice(ix, 1)[0];
+        fromPastDue = true;
+      }
     }
     if (moved) {
       cache.unscheduled = cache.unscheduled || [];
@@ -11077,12 +11137,12 @@ async function _plannerUnschedule_(orderNumber) {
       cache.unscheduled_count = cache.unscheduled.length;
       _renderPackPlanner_(cache);
       showToast('↩ ' + orderNumber + ' → To Be Scheduled');
+      rollback = { moved, fromDate, fromBucket, fromPastDue };
     } else {
-      console.log('DIAG-V10.663-UNSCHED order not found in cache', orderNumber, Object.keys(cache.orders_by_date || {}));
-      showToast('Could not find ' + orderNumber + ' in planner cache — try refresh');
+      console.log('DIAG-V10.667-UNSCHED order not found in cache', orderNumber);
+      showToast('Could not find ' + orderNumber + ' — try refresh');
     }
   } else {
-    console.log('DIAG-V10.663-UNSCHED _packPlannerCache is null!');
     showToast('Planner cache empty — try refresh');
   }
   try {
@@ -11091,15 +11151,39 @@ async function _plannerUnschedule_(orderNumber) {
       set_by: localStorage.getItem('mbd_ground_packer') || '',
     });
     if (r && !r.ok) {
-      _plannerRestoreCache_(snapshot);
+      if (rollback) _plannerLocalRollback_(rollback);
       _handleApiErrorWithPin_(r, 'Unschedule failed (rolled back)');
     }
   } catch (e) {
-    _plannerRestoreCache_(snapshot);
+    if (rollback) _plannerLocalRollback_(rollback);
     showToast('Network error (rolled back): ' + e.message);
   } finally {
     _scheduleUnlock_(orderNumber);
   }
+}
+
+// v10.667 — per-op rollback. Removes the order from unscheduled +
+// re-inserts where it came from. Touches ONLY the moved row; other
+// concurrent ops' mutations stay intact.
+function _plannerLocalRollback_(rb) {
+  if (!_packPlannerCache || !rb || !rb.moved) return;
+  const cache = _packPlannerCache;
+  const on = String(rb.moved.order_number);
+  if (Array.isArray(cache.unscheduled)) {
+    const ix = cache.unscheduled.findIndex(o => String(o.order_number) === on);
+    if (ix >= 0) cache.unscheduled.splice(ix, 1);
+    cache.unscheduled_count = cache.unscheduled.length;
+  }
+  if (rb.fromPastDue) {
+    cache.past_due = cache.past_due || [];
+    cache.past_due.push(rb.moved);
+  } else if (rb.fromDate && rb.fromBucket) {
+    cache.orders_by_date = cache.orders_by_date || {};
+    cache.orders_by_date[rb.fromDate] = cache.orders_by_date[rb.fromDate] || { make: [], pack: [] };
+    cache.orders_by_date[rb.fromDate][rb.fromBucket] = cache.orders_by_date[rb.fromDate][rb.fromBucket] || [];
+    cache.orders_by_date[rb.fromDate][rb.fromBucket].push(rb.moved);
+  }
+  _renderPackPlanner_(cache);
 }
 
 async function _plannerDropOnDay_(targetDate, targetBucket) {
@@ -11115,13 +11199,11 @@ async function _plannerDropOnDay_(targetDate, targetBucket) {
     showToast('Already moving #' + orderNumber + '…');
     return;
   }
-  // OPTIMISTIC: snapshot cache, mutate locally, re-render. The user
-  // sees the move INSTANTLY. Server save fires async; on failure we
-  // restore the snapshot + toast the error.
-  const snapshot = _plannerSnapshotCache_();
-  const moved = _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket);
+  // v10.667 — per-op rollback (record of THIS op's mutation only) so
+  // concurrent drops/unschedules don't clobber each other.
+  const rollback = _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket);
   _packPlannerSelectedOrder = null;
-  if (moved) {
+  if (rollback) {
     _renderPackPlanner_(_packPlannerCache);
     showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + targetBucket + ')');
   }
@@ -11130,7 +11212,7 @@ async function _plannerDropOnDay_(targetDate, targetBucket) {
       orderNumber, targetDate, manager_pin: pin, set_by: localStorage.getItem('mbd_ground_packer') || ''
     });
     if (r1 && !r1.ok) {
-      _plannerRestoreCache_(snapshot);
+      if (rollback) _plannerLocalRollbackDrop_(rollback);
       _handleApiErrorWithPin_(r1, 'Drop failed (rolled back)');
       return;
     }
@@ -11144,7 +11226,7 @@ async function _plannerDropOnDay_(targetDate, targetBucket) {
       showToast('Bucket save failed (date saved): ' + (r2.error || 'unknown'));
     }
   } catch (e) {
-    _plannerRestoreCache_(snapshot);
+    if (rollback) _plannerLocalRollbackDrop_(rollback);
     showToast('Network error (rolled back): ' + e.message);
   } finally {
     _scheduleUnlock_(orderNumber);
