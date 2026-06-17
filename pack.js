@@ -10509,7 +10509,12 @@ function _renderPlannerOrderCard_(o, source) {
     +   'style="display:block;padding:10px 11px;margin-bottom:6px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;cursor:pointer;user-select:none">'
     +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px">'
     +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">#' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
-    +     (ship ? '<span style="font-size:11px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;flex-shrink:0">' + esc(ship) + '</span>' : '')
+    +     '<span style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
+    // v10.632 (Seth navigation) — 🔍 quick-jump to Lookup. Click
+    //   propagation stopped so it doesn't trigger select/drop.
+    +       '<button onclick="event.stopPropagation();_jumpFromPlannerToLookup_(\'' + esc(on) + '\')" title="Open in Lookup" style="background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18);border-radius:4px;width:22px;height:22px;font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;cursor:pointer;padding:0;line-height:1">🔍</button>'
+    +       (ship ? '<span style="font-size:11px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(ship) + '</span>' : '')
+    +     '</span>'
     +   '</div>'
     +   (details ? '<div style="font-size:13px;line-height:1.32;color:#E8EDF4 !important;-webkit-text-fill-color:#E8EDF4 !important;font-weight:600;word-wrap:break-word">' + esc(details) + '</div>' : '')
     + '</div>';
@@ -10588,6 +10593,15 @@ function _wirePlannerInteractions_() {
   // Touch-DnD: long-press an order to start dragging, drop on a zone.
   // For now we use the tap-select + tap-target fallback (works on all
   // browsers + accessibility). Native touch DnD is a polish pass.
+}
+
+// v10.632 (Seth navigation) — close the planner overlay and jump
+// to Lookup pre-filled with this order. Uses the existing
+// jumpToLookup_ helper so behavior matches Tracking's deep-link
+// pattern.
+function _jumpFromPlannerToLookup_(orderNumber) {
+  closePackPlanner_();
+  if (typeof jumpToLookup_ === 'function') jumpToLookup_(orderNumber);
 }
 
 function _plannerSelectOrder_(orderNumber, source) {
