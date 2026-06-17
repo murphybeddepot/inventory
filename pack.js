@@ -10372,6 +10372,26 @@ async function openPackPlanner() {
     +   _plannerFishingLoader_('Reeling in your planner…')
     + '</div>';
   document.body.appendChild(ov);
+  // v10.683 (Indigo) — short-circuit to prewarmed cache if available.
+  // _packPlannerStartDate null means default = today. We accept any
+  // entry in _packPlannerCacheByStart that's <= 90s fresh.
+  if (!_packPlannerStartDate
+      && _packPlannerPrewarmAt
+      && (Date.now() - _packPlannerPrewarmAt) < PLANNER_PREWARM_FRESH_MS) {
+    const todayIso = _todayIsoLocal_();
+    let cached = null;
+    for (const [k, v] of _packPlannerCacheByStart) {
+      if (k <= todayIso) { cached = v; break; }
+    }
+    if (cached) {
+      _packPlannerCache = cached;
+      _renderPackPlanner_(cached);
+      // Kick adjacent preloads off the prewarmed center so prev/next
+      // is also instant.
+      _preloadAdjacentWindows_();
+      return;
+    }
+  }
   await refreshPackPlanner_();
 }
 
@@ -10380,6 +10400,9 @@ function closePackPlanner_() {
   if (ov) ov.remove();
   _packPlannerSelectedOrder = null;
   _packPlannerCache = null;
+  // v10.683 (Indigo) — re-prewarm in the background so the NEXT
+  // planner open is also instant. Same 8s delay as boot-time.
+  if (typeof _schedulePlannerPrewarm_ === 'function') _schedulePlannerPrewarm_();
   // v10.662 — only clear the "open" flag when CLOSING via the ✕
   // button (deliberate close). Browser refresh / Lookup jump both
   // remove the overlay without going through this; they set their
@@ -10411,6 +10434,13 @@ function _maybeRestorePackPlanner_() {
 // the startDate string the window represents.
 let _packPlannerStartDate = null;
 const _packPlannerCacheByStart = new Map();
+// v10.683 (Indigo) — prewarm timestamp. Set when boot-time
+// background fetch populates _packPlannerCacheByStart with today's
+// window. openPackPlanner reads this to skip the fishing animation
+// + fetch when the prewarmed cache is fresh (< 90s old). After
+// that window, behavior reverts to the live-fetch path.
+let _packPlannerPrewarmAt = 0;
+const PLANNER_PREWARM_FRESH_MS = 90 * 1000;
 function _addBusinessDaysClient_(startIso, n) {
   let d = new Date(startIso + 'T00:00:00');
   let added = 0;
@@ -10432,6 +10462,31 @@ async function _preloadWindow_(startDate) {
     const res = await groundApi('listPackPlannerData', { days: 5, startDate });
     if (res && res.ok) _packPlannerCacheByStart.set(startDate, res);
   } catch (e) { /* silent — preload is best-effort */ }
+}
+// v10.683 (Indigo) — boot-time prewarm of today's planner window.
+// Schedules a background fetch ~8s after boot so the FIRST time
+// Seth taps PLANNER, the data is already there. No fishing
+// animation, no cold-fetch wait. PIN-cached users only — anonymous
+// boot does not fire (avoids needless network).
+//
+// Only stores by first-day key in _packPlannerCacheByStart; sets
+// _packPlannerPrewarmAt. openPackPlanner reads both to decide
+// whether to use the cache or fall through to a live fetch.
+async function _plannerPrewarm_() {
+  try {
+    if (typeof getCachedManagerPin_ === 'function' && !getCachedManagerPin_()) return;
+    const res = await groundApi('listPackPlannerData', { days: 5 });
+    if (res && res.ok) {
+      const firstDay = (res.days && res.days[0]) || _todayIsoLocal_();
+      _packPlannerCacheByStart.set(firstDay, res);
+      _packPlannerPrewarmAt = Date.now();
+    }
+  } catch (e) { /* silent — prewarm is best-effort */ }
+}
+function _schedulePlannerPrewarm_() {
+  // 8s after boot — gives critical fetches priority. Re-fires after
+  // every planner close so the NEXT open is also instant.
+  setTimeout(_plannerPrewarm_, 8000);
 }
 function _preloadAdjacentWindows_() {
   const cur = _packPlannerStartDate || _todayIsoLocal_();
