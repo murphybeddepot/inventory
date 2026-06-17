@@ -10376,6 +10376,38 @@ function closePackPlanner_() {
   _packPlannerCache = null;
 }
 
+// v10.653 (Zac 2026-06-17) — windowed planner. Default view = today
+// + 4 biz days (5 columns). Previous/Next buttons walk the window
+// ±5 biz days; Today snaps back. startDate=null means "today" so the
+// server's default kicks in.
+let _packPlannerStartDate = null;
+function _addBusinessDaysClient_(startIso, n) {
+  let d = new Date(startIso + 'T00:00:00');
+  let added = 0;
+  const dir = n >= 0 ? 1 : -1;
+  const target = Math.abs(n);
+  while (added < target) {
+    d.setDate(d.getDate() + dir);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) added++;
+  }
+  return d.toISOString().slice(0, 10);
+}
+function _plannerGoToToday_() {
+  _packPlannerStartDate = null;
+  refreshPackPlanner_();
+}
+function _plannerGoPrev_() {
+  const cur = _packPlannerStartDate || new Date().toISOString().slice(0, 10);
+  _packPlannerStartDate = _addBusinessDaysClient_(cur, -5);
+  refreshPackPlanner_();
+}
+function _plannerGoNext_() {
+  const cur = _packPlannerStartDate || new Date().toISOString().slice(0, 10);
+  _packPlannerStartDate = _addBusinessDaysClient_(cur, 5);
+  refreshPackPlanner_();
+}
+
 async function refreshPackPlanner_() {
   // v10.612 (Zac 2026-06-16) — Apps Script cold-start retries.
   // Planner is a fresh code path that often hits a cold runtime
@@ -10384,7 +10416,9 @@ async function refreshPackPlanner_() {
   const body = document.getElementById('packPlannerBody');
   if (body) body.innerHTML = _plannerFishingLoader_('Reeling in your planner…');
   async function attempt() {
-    return await groundApi('listPackPlannerData', { days: 5 });
+    const payload = { days: 5 };
+    if (_packPlannerStartDate) payload.startDate = _packPlannerStartDate;
+    return await groundApi('listPackPlannerData', payload);
   }
   let res;
   try {
@@ -10444,41 +10478,44 @@ function _renderPackPlanner_(data) {
       + '</div>'
       + rows;
   }).join('');
-  // v10.616 — past-due disclosure. Hidden by default; click to
-  // expand. These are cabinet orders whose ship_date was before
-  // today but never got walked to a terminal state (almost
-  // certainly already shipped — bad data — but possible CS
-  // attention needed).
+  // v10.653 (Zac 2026-06-17) — past-due rows are pinned to the TOP of
+  // the To-Be-Scheduled list with red labels. v10.616's hidden details
+  // disclosure was wrong; if an order's past its ship date and not yet
+  // shipped, Seth needs to see it first thing — and either drop it on
+  // a future day (Zac's customer asked for Monday) or chase it.
+  const todayIsoForBadge = new Date().toISOString().slice(0, 10);
   const pastDue = Array.isArray(data.past_due) ? data.past_due : [];
-  const pastDueGroups = {};
-  const pastDueOrder = [];
-  pastDue.forEach(o => {
-    const key = (o.ship_date || '').slice(0, 10) || 'no-date';
-    if (!pastDueGroups[key]) { pastDueGroups[key] = []; pastDueOrder.push(key); }
-    pastDueGroups[key].push(o);
-  });
-  const pastDueBody = pastDueOrder.map(k => {
-    const rows = pastDueGroups[k].map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('');
-    return ''
-      + '<div style="position:sticky;top:0;background:#181818;padding:6px 6px;margin:8px -8px 4px;border-bottom:1px solid rgba(255,82,82,.35);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;color:#FF8A65 !important;-webkit-text-fill-color:#FF8A65 !important;text-transform:uppercase">'
-      +   _fmtGroupHdr_(k) + ' · ' + pastDueGroups[k].length
-      + '</div>'
-      + rows;
+  function _pastDueDays_(iso) {
+    if (!iso) return 0;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+    if (!m) return 0;
+    const ship = new Date(m[0] + 'T00:00:00');
+    const today = new Date(todayIsoForBadge + 'T00:00:00');
+    return Math.max(0, Math.round((today.getTime() - ship.getTime()) / 86400000));
+  }
+  // Sort past-due by ship_date ASC (most overdue first).
+  const pastDueSorted = pastDue.slice().sort((a, b) =>
+    String(a.ship_date || '').localeCompare(String(b.ship_date || ''))
+  );
+  const pastDueBody = pastDueSorted.map(o => {
+    const days = _pastDueDays_(o.ship_date);
+    const badge = days > 0
+      ? '<div style="background:#7A1212 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;display:inline-block">⚠ Past Due · ' + days + 'd</div>'
+      : '<div style="background:#7A1212 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;display:inline-block">⚠ Past Due</div>';
+    return badge + _renderPlannerOrderCard_(o, 'unscheduled');
   }).join('');
-  const pastDueDisclosure = pastDue.length === 0 ? '' : ''
-    + '<details style="margin-top:14px;padding:8px;border:1px dashed rgba(255,82,82,.45);border-radius:6px;background:rgba(255,82,82,.06)">'
-    +   '<summary style="cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;letter-spacing:1px;color:#FF8A65 !important;-webkit-text-fill-color:#FF8A65 !important;text-transform:uppercase;list-style:none">⚠ ' + pastDue.length + ' Past-Due (hidden) ›</summary>'
-    +   '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;font-style:italic;margin:6px 0 8px;line-height:1.4">Ship date was before today + never walked to shipped. Most are stale data (already gone). Click to review.</div>'
-    +   pastDueBody
-    + '</details>';
+  const pastDueHeader = pastDueSorted.length === 0 ? '' : ''
+    + '<div style="position:sticky;top:0;background:#181818;padding:6px 6px;margin:0 -8px 6px;border-bottom:2px solid #FF5252;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;letter-spacing:1px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;text-transform:uppercase">🔥 ' + pastDueSorted.length + ' Past Due — needs reschedule</div>';
 
-  // Left sidebar: unscheduled orders, grouped by ship_date.
+  // Left sidebar: past-due pinned to top, then To-Be-Scheduled grouped
+  // by ship_date.
   const sidebar = ''
-    + '<div id="packPlannerSidebar" style="flex:0 0 240px;background:#111;border-right:1px solid rgba(255,255,255,.12);overflow-y:auto;padding:10px 8px">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;padding:4px 6px;margin-bottom:8px;border-bottom:1.5px solid rgba(255,179,0,.45)">📥 Unscheduled · ' + (data.unscheduled || []).length + '</div>'
+    + '<div id="packPlannerSidebar" style="flex:0 0 260px;background:#111;border-right:1px solid rgba(255,255,255,.12);overflow-y:auto;padding:10px 8px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;padding:4px 6px;margin-bottom:8px;border-bottom:1.5px solid rgba(255,179,0,.45)">📥 To Be Scheduled · ' + ((data.unscheduled || []).length + pastDueSorted.length) + '</div>'
+    +   pastDueHeader
+    +   pastDueBody
     +   sidebarBody
-    +   ((data.unscheduled || []).length === 0 ? '<div style="padding:14px 8px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:11px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
-    +   pastDueDisclosure
+    +   ((data.unscheduled || []).length === 0 && pastDueSorted.length === 0 ? '<div style="padding:14px 8px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:11px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
     + '</div>';
   // Day columns.
   const today = new Date();
@@ -10505,8 +10542,35 @@ function _renderPackPlanner_(data) {
       +   '</div>'
       + '</div>';
   }).join('');
+  // v10.653 — prev/today/next nav strip above the day columns.
+  // Lets Seth scroll back to history OR forward 5 biz days at a time.
+  // The "today" button is highlighted when we're on the default
+  // window (startDate=null).
+  const onToday = !_packPlannerStartDate;
+  const firstVisible = (data.days && data.days[0]) || todayIso;
+  const lastVisible = (data.days && data.days[data.days.length - 1]) || todayIso;
+  function _fmtNavDate_(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    if (!m) return String(iso || '');
+    const d = new Date(m[0] + 'T00:00:00');
+    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+    return dow + ' ' + (d.getMonth() + 1) + '/' + d.getDate();
+  }
+  const navStrip = ''
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;background:#0e0e10;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0">'
+    +   '<button onclick="_plannerGoPrev_()" style="background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.4px">‹ Prev 5</button>'
+    +   '<div style="display:flex;align-items:center;gap:8px">'
+    +     '<button onclick="_plannerGoToToday_()" style="background:' + (onToday ? '#003087' : 'transparent') + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid ' + (onToday ? '#42a5f5' : 'rgba(255,255,255,.18)') + ';border-radius:6px;padding:6px 14px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.4px">' + (onToday ? '● TODAY' : '↺ Today') + '</button>'
+    +     '<div style="font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;letter-spacing:.4px">' + _fmtNavDate_(firstVisible) + ' → ' + _fmtNavDate_(lastVisible) + '</div>'
+    +   '</div>'
+    +   '<button onclick="_plannerGoNext_()" style="background:#1a1a1a;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.4px">Next 5 ›</button>'
+    + '</div>';
+
   body.innerHTML = sidebar
-    + '<div style="flex:1;display:flex;overflow-x:auto" id="packPlannerDays">' + days + '</div>';
+    + '<div style="flex:1;display:flex;flex-direction:column;overflow:hidden">'
+    +   navStrip
+    +   '<div style="flex:1;display:flex;overflow-x:auto" id="packPlannerDays">' + days + '</div>'
+    + '</div>';
   // Wire selectable orders + drop targets.
   _wirePlannerInteractions_();
 }
@@ -10522,6 +10586,24 @@ function _renderPlannerOrderCard_(o, source) {
   const ship = String(o.ship_date || '').slice(5, 10); // mm-dd
   const isPriority = !!o.priority;
   const isSelected = _packPlannerSelectedOrder && _packPlannerSelectedOrder.order_number === on;
+  // v10.653 (Zac 2026-06-17) — "delayed Nd" badge for orders sitting
+  // on a planner day AFTER their original ship_date (e.g., customer
+  // asked Friday to ship Monday instead). source carries the target
+  // date as "date:YYYY-MM-DD:bucket" when rendered inside a day bucket;
+  // parse it out + diff against the original ship_date.
+  let delayDays = 0;
+  const sourceMatch = /^date:(\d{4}-\d{2}-\d{2}):/.exec(String(source || ''));
+  if (sourceMatch && o.ship_date) {
+    const shipMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(o.ship_date));
+    if (shipMatch) {
+      const ms = new Date(sourceMatch[1] + 'T00:00:00').getTime()
+        - new Date(shipMatch[0] + 'T00:00:00').getTime();
+      delayDays = Math.round(ms / 86400000);
+    }
+  }
+  const delayBadge = delayDays > 0
+    ? '<span style="background:#7A3A12 !important;color:#FFD27A !important;-webkit-text-fill-color:#FFD27A !important;font-size:9px;font-weight:900;padding:2px 5px;border-radius:3px;letter-spacing:.4px;text-transform:uppercase;margin-left:4px">↓ ' + delayDays + 'd late</span>'
+    : '';
   const bgColor = isSelected ? 'rgba(124,58,237,.35)' : (isPriority ? 'rgba(255,82,82,.10)' : 'rgba(255,255,255,.04)');
   const borderColor = isSelected ? '#7C3AED' : (isPriority ? 'rgba(255,82,82,.55)' : 'rgba(255,255,255,.12)');
   return ''
@@ -10541,6 +10623,7 @@ function _renderPlannerOrderCard_(o, source) {
     //   propagation stopped so it doesn't trigger select/drop.
     +       '<button onclick="event.stopPropagation();_jumpFromPlannerToLookup_(\'' + esc(on) + '\')" title="Open in Lookup" style="background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18);border-radius:4px;width:22px;height:22px;font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;cursor:pointer;padding:0;line-height:1">🔍</button>'
     +       (ship ? '<span style="font-size:11px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(ship) + '</span>' : '')
+    +       delayBadge
     +     '</span>'
     +   '</div>'
     +   (details ? '<div style="font-size:13px;line-height:1.32;color:#E8EDF4 !important;-webkit-text-fill-color:#E8EDF4 !important;font-weight:600;word-wrap:break-word">' + esc(details) + '</div>' : '')
