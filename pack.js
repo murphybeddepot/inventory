@@ -10361,7 +10361,7 @@ async function openPackPlanner() {
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0">'
     +   '<div>'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:1px;color:#fff;-webkit-text-fill-color:#fff;line-height:1">MAKE TODAY / PACK TODAY</div>'
-    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">5-day planner · drag unscheduled orders into a day · tap-and-tap also works</div>'
+    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">5-day planner · tap an order, then tap a day · ⊘ on a card sends it back to To Be Scheduled</div>'
     +   '</div>'
     +   '<div style="display:flex;gap:8px">'
     +     '<button onclick="refreshPackPlanner_()" style="background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer">↻</button>'
@@ -10728,11 +10728,12 @@ function _renderPlannerOrderCard_(o, source) {
     // v10.632 (Seth navigation) — 🔍 quick-jump to Lookup. Click
     //   propagation stopped so it doesn't trigger select/drop.
     +       '<button onclick="event.stopPropagation();_jumpFromPlannerToLookup_(\'' + esc(on) + '\')" title="Open in Lookup" style="background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18);border-radius:4px;width:22px;height:22px;font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;cursor:pointer;padding:0;line-height:1">🔍</button>'
-    // v10.662 — unschedule. Only on cards in a day bucket (source
-    //   starts with "date:..."); puts the order back into "To Be
-    //   Scheduled" by clearing pack_target_date server-side.
+    // v10.662 — unschedule. Only on cards in a day bucket. v10.663
+    //   bumped from 22px ⊘ to a labeled pill "↩ Unsched" so it's
+    //   visually obvious it's tappable + what it does. Tap target
+    //   is also bigger now (32px tall).
     +       (/^date:/.test(String(source || ''))
-        ? '<button onclick="event.stopPropagation();_plannerUnschedule_(\'' + esc(on) + '\')" title="Back to To Be Scheduled" style="background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18);border-radius:4px;width:22px;height:22px;font-size:12px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;cursor:pointer;padding:0;line-height:1">⊘</button>'
+        ? '<button onclick="event.stopPropagation();_plannerUnschedule_(\'' + esc(on) + '\')" title="Back to To Be Scheduled" style="background:rgba(255,179,0,.18) !important;border:1.5px solid #FFB300 !important;border-radius:5px;height:24px;padding:0 8px;font-size:11px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;cursor:pointer;line-height:1;letter-spacing:.4px">↩ UNSCHED</button>'
         : '')
     +       (ship ? '<span style="font-size:11px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(ship) + '</span>' : '')
     +       delayBadge
@@ -10948,8 +10949,15 @@ function _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket) {
 // the "To Be Scheduled" sidebar. Optimistic: splice locally + re-render,
 // then setPackTargetDate('') server-side. On failure, roll back.
 async function _plannerUnschedule_(orderNumber) {
+  // v10.663 — immediate tap feedback so user knows the click registered
+  // even before the optimistic move renders.
+  showToast('Unscheduling ' + orderNumber + '…');
+  console.log('DIAG-V10.663-UNSCHED tap', orderNumber);
   const pin = getCachedManagerPin_() || promptManagerPin_('unschedule');
-  if (!pin) return;
+  if (!pin) {
+    console.log('DIAG-V10.663-UNSCHED no PIN, bailing');
+    return;
+  }
   if (!_scheduleLock_(orderNumber)) {
     showToast('Already moving #' + orderNumber + '…');
     return;
@@ -10978,7 +10986,13 @@ async function _plannerUnschedule_(orderNumber) {
       cache.unscheduled_count = cache.unscheduled.length;
       _renderPackPlanner_(cache);
       showToast('↩ ' + orderNumber + ' → To Be Scheduled');
+    } else {
+      console.log('DIAG-V10.663-UNSCHED order not found in cache', orderNumber, Object.keys(cache.orders_by_date || {}));
+      showToast('Could not find ' + orderNumber + ' in planner cache — try refresh');
     }
+  } else {
+    console.log('DIAG-V10.663-UNSCHED _packPlannerCache is null!');
+    showToast('Planner cache empty — try refresh');
   }
   try {
     const r = await groundApi('setPackTargetDate', {
