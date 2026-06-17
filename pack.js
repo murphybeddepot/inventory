@@ -10515,11 +10515,15 @@ function _renderPackPlanner_(data) {
       return dow + ' ' + (dt.getMonth() + 1) + '/' + dt.getDate();
     } catch (e) { return isoMatch[0]; }
   }
+  // v10.657 (Zac 2026-06-17) — date group headers in the sidebar are
+  // actual headers now (18px Barlow Condensed) instead of 11px chips.
+  // Makes the date jump out as a section divider Seth can scan, not
+  // a faint label glued to the rows.
   const sidebarBody = groupOrder.map(k => {
     const rows = groups[k].map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('');
     return ''
-      + '<div style="position:sticky;top:0;background:#181818;padding:6px 6px;margin:8px -8px 4px;border-bottom:1px solid rgba(255,179,0,.35);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;text-transform:uppercase">'
-      +   _fmtGroupHdr_(k) + ' · ' + groups[k].length
+      + '<div style="position:sticky;top:0;background:#181818;padding:8px 6px 6px;margin:10px -8px 6px;border-bottom:2px solid rgba(255,179,0,.55);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;text-transform:uppercase;line-height:1">'
+      +   _fmtGroupHdr_(k) + ' <span style="font-size:13px;opacity:.7">· ' + groups[k].length + '</span>'
       + '</div>'
       + rows;
   }).join('');
@@ -10550,7 +10554,7 @@ function _renderPackPlanner_(data) {
     return badge + _renderPlannerOrderCard_(o, 'unscheduled');
   }).join('');
   const pastDueHeader = pastDueSorted.length === 0 ? '' : ''
-    + '<div style="position:sticky;top:0;background:#181818;padding:6px 6px;margin:0 -8px 6px;border-bottom:2px solid #FF5252;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;letter-spacing:1px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;text-transform:uppercase">🔥 ' + pastDueSorted.length + ' Past Due — needs reschedule</div>';
+    + '<div style="position:sticky;top:0;background:#181818;padding:8px 6px 6px;margin:0 -8px 6px;border-bottom:2px solid #FF5252;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;text-transform:uppercase;line-height:1">🔥 ' + pastDueSorted.length + ' Past Due <span style="font-size:13px;opacity:.7">· needs reschedule</span></div>';
 
   // Left sidebar: past-due pinned to top, then To-Be-Scheduled grouped
   // by ship_date.
@@ -10675,7 +10679,7 @@ function _renderPlannerOrderCard_(o, source) {
     +   'onclick="event.stopPropagation();_plannerSelectOrder_(\'' + esc(on) + '\',\'' + esc(source) + '\')" '
     +   'style="display:block;padding:10px 11px;margin-bottom:6px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;cursor:pointer;user-select:none">'
     +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px">'
-    +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">#' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
+    +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
     +     '<span style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
     // v10.632 (Seth navigation) — 🔍 quick-jump to Lookup. Click
     //   propagation stopped so it doesn't trigger select/drop.
