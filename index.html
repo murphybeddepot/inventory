@@ -18090,13 +18090,26 @@ function renderGroundHoldsBanner_(holds) {
       : 'openHoldsPanel({kind:\'' + (h.kind || 'orderpack_hold') + '\'})';
     return ''
       + '<button onclick="' + onclick + '" '
-      +    'style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;'
+      +    'style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;text-align:left;'
       +    'background:rgba(156,39,176,.10) !important;color:#E1BEE7 !important;'
       +    '-webkit-text-fill-color:#E1BEE7 !important;'
       +    'border:1px solid ' + (canConfigure ? 'rgba(124,58,237,.65)' : 'rgba(156,39,176,.45)') + ' !important;border-radius:8px;'
       +    'padding:10px 12px;font-family:inherit;cursor:pointer">'
+      // v10.648 (Jonah persona check) — Playwright snap on iPhone 14
+      // (375px) showed the SMALL-MAGNETS SKU chip was being clipped
+      // when nested inside the customer-name span (the whole span ran
+      // `nowrap+ellipsis`, so anything past the row's flex limit got
+      // trimmed — and the SKU chip is exactly what Jonah needs to see
+      // to know which rule to add). Pull the SKU chip out as its own
+      // `flex:0 0 auto` child so it stays full-width while the
+      // customer name takes whatever's left. Also flex-wrap:wrap on
+      // the outer button so the action pill drops to a second line
+      // before getting clipped.
       +   '<span style="flex:0 0 auto;font-size:13px;font-weight:800;color:#CE93D8 !important;-webkit-text-fill-color:#CE93D8 !important">' + kindLabel + '</span>'
-      +   '<span style="flex:1;min-width:0;font-weight:800;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + esc(on) + (cust ? ' · ' + esc(cust) : '') + (unknownSku ? ' · <span style="font-family:\'JetBrains Mono\',monospace;color:#FFD54F !important;-webkit-text-fill-color:#FFD54F !important;background:rgba(255,213,79,.12);padding:1px 5px;border-radius:3px;font-size:12px">' + esc(unknownSku) + '</span>' : '') + '</span>'
+      +   '<span style="flex:1;min-width:0;font-weight:800;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#' + esc(on) + (cust ? ' · ' + esc(cust) : '') + '</span>'
+      +   (unknownSku
+        ? '<span style="flex:0 0 auto;font-family:\'JetBrains Mono\',monospace;color:#FFD54F !important;-webkit-text-fill-color:#FFD54F !important;background:rgba(255,213,79,.12);padding:1px 5px;border-radius:3px;font-size:12px">' + esc(unknownSku) + '</span>'
+        : '')
       +   (reason && !canConfigure
         ? '<span style="flex:0 1 auto;min-width:0;font-size:11px;color:#E1BEE7 !important;-webkit-text-fill-color:#E1BEE7 !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%">' + esc(reason) + '</span>'
         : '')
@@ -20661,7 +20674,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.647"></script>
+<script src="./pack.js?v=10.648"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20672,7 +20685,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.647<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.648<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
