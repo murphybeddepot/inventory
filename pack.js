@@ -10740,7 +10740,54 @@ function _renderPlannerOrderCard_(o, source) {
     +     '</span>'
     +   '</div>'
     +   (details ? '<div style="font-size:13px;line-height:1.32;color:#E8EDF4 !important;-webkit-text-fill-color:#E8EDF4 !important;font-weight:600;word-wrap:break-word">' + esc(details) + '</div>' : '')
+    // v10.664 (Zac 2026-06-17) — "📋 Pick date" button on To-Be-
+    //   Scheduled cards. Alternative to tap-and-tap: tap → reveals
+    //   inline 5-day grid with Make/Pack sub-buttons. One tap = drop.
+    +   (source === 'unscheduled'
+        ? '<button onclick="event.stopPropagation();_plannerOpenInlinePicker_(\'' + esc(on) + '\')" style="margin-top:7px;width:100%;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5 !important;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer">📋 Pick date</button>'
+        + '<div id="plannerInlinePicker_' + esc(on) + '" style="display:none;margin-top:7px"></div>'
+        : '')
     + '</div>';
+}
+
+// v10.664 — Inline date+bucket picker beneath a To-Be-Scheduled card.
+// Mirrors the Lookup "📋 Schedule…" pattern (v10.626) but operates
+// inline on the planner instead of opening a modal. The 5 columns
+// reuse data.days from the current window. Each cell has Make + Pack
+// sub-buttons; tapping one fires _plannerDropOnDay_ as if the user
+// had tapped the order then tapped that day.
+function _plannerOpenInlinePicker_(orderNumber) {
+  const holder = document.getElementById('plannerInlinePicker_' + orderNumber);
+  if (!holder) return;
+  if (holder.style.display === 'block') {
+    holder.style.display = 'none'; holder.innerHTML = ''; return;
+  }
+  const days = (_packPlannerCache && _packPlannerCache.days) || [];
+  if (!days.length) { showToast('Planner data not loaded yet'); return; }
+  const cells = days.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
+    const mdy = (dt.getMonth() + 1) + '/' + dt.getDate();
+    return ''
+      + '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-items:stretch">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;letter-spacing:1px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-transform:uppercase;text-align:center">' + dow + ' ' + mdy + '</div>'
+      +   '<button onclick="event.stopPropagation();_plannerInlinePickerFire_(\'' + esc(orderNumber) + '\',\'' + esc(d) + '\',\'make\')" style="background:rgba(255,145,0,.18) !important;color:#FF9100 !important;-webkit-text-fill-color:#FF9100 !important;border:1px solid #FF9100 !important;border-radius:4px;padding:5px 0;font-size:10px;font-weight:900;letter-spacing:.5px;cursor:pointer">🔨 MAKE</button>'
+      +   '<button onclick="event.stopPropagation();_plannerInlinePickerFire_(\'' + esc(orderNumber) + '\',\'' + esc(d) + '\',\'pack\')" style="background:rgba(0,230,118,.18) !important;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border:1px solid #00E676 !important;border-radius:4px;padding:5px 0;font-size:10px;font-weight:900;letter-spacing:.5px;cursor:pointer">📦 PACK</button>'
+      + '</div>';
+  }).join('');
+  holder.innerHTML = ''
+    + '<div style="display:flex;gap:6px;align-items:stretch;padding:8px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.45);border-radius:6px">'
+    +   cells
+    + '</div>';
+  holder.style.display = 'block';
+}
+function _plannerInlinePickerFire_(orderNumber, date, bucket) {
+  // Pre-select the order so _plannerDropOnDay_'s gate ("Tap an order
+  // first") passes, then call drop.
+  _packPlannerSelectedOrder = { order_number: orderNumber, source: 'unscheduled' };
+  const holder = document.getElementById('plannerInlinePicker_' + orderNumber);
+  if (holder) { holder.style.display = 'none'; holder.innerHTML = ''; }
+  _plannerDropOnDay_(date, bucket);
 }
 
 function _renderPlannerBucket_(date, bucket, orders) {
