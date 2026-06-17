@@ -1586,11 +1586,7 @@ async function togglePackFillMode_() {
   try { setBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
   try {
     const res = await groundApi('setPackListFillMode', { mode: nextMode, manager_pin: pin, set_by: setBy });
-    if (!res || !res.ok) {
-      if (/pin/i.test(String((res && res.error) || ''))) (typeof clearManagerPin_ === 'function') && clearManagerPin_();
-      showToast('Mode change failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
+    if (_handleApiErrorWithPin_(res, 'Mode change failed')) return;
     showToast('✓ Pack Today fill mode: ' + nextMode.toUpperCase());
     await refreshPackQueue();
   } catch (e) {
@@ -10627,11 +10623,7 @@ async function _plannerAddTask_(targetDate) {
       created_by: localStorage.getItem('mbd_ground_packer') || '',
       manager_pin: pin,
     });
-    if (!res || !res.ok) {
-      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
-      showToast('Add task failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
+    if (_handleApiErrorWithPin_(res, 'Add task failed')) return;
     showToast('✓ Task added');
     await refreshPackPlanner_();
   } catch (e) { showToast('Network error: ' + e.message); }
@@ -10645,11 +10637,7 @@ async function _plannerToggleTask_(taskId, newStatus) {
       task_id: taskId, status: newStatus, manager_pin: pin,
       completed_by: localStorage.getItem('mbd_ground_packer') || '',
     });
-    if (!res || !res.ok) {
-      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
-      showToast('Update failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
+    if (_handleApiErrorWithPin_(res, 'Update failed')) return;
     await refreshPackPlanner_();
   } catch (e) { showToast('Network error: ' + e.message); }
 }
@@ -10660,11 +10648,7 @@ async function _plannerDeleteTask_(taskId) {
   if (!pin) return;
   try {
     const res = await groundApi('deletePackTask', { task_id: taskId, manager_pin: pin });
-    if (!res || !res.ok) {
-      if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
-      showToast('Delete failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
+    if (_handleApiErrorWithPin_(res, 'Delete failed')) return;
     showToast('✓ Task deleted');
     await refreshPackPlanner_();
   } catch (e) { showToast('Network error: ' + e.message); }
@@ -11083,11 +11067,7 @@ async function _savePackerOverride(sku, orderId, orderNumber, pin) {
           width_in: customWid || undefined,
           height_in: customHgt || undefined,
         });
-        if (!res || !res.ok) {
-          if (/pin/i.test(String((res && res.error) || ''))) clearManagerPin_();
-          showToast('Save failed: ' + ((res && res.error) || 'unknown'));
-          return;
-        }
+        if (_handleApiErrorWithPin_(res, 'Save failed')) return;
         try {
           const rr = await groundApi('resumeOrderFromHold', { orderId: Number(orderId) });
           if (rr && rr.ok) showToast('✓ Override saved + #' + orderNumber + ' resumed (' + (scope === 'oneshot' ? 'one-shot' : 'up to ' + maxQty + 'x') + ')');
