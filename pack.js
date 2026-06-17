@@ -10952,7 +10952,35 @@ async function _runFedexRatePreview_(packages) {
 // between "just this order" (saves with max_qty=current qty, will
 // satisfy this order only) and "save for up to N qty" (becomes a
 // reusable rule via the packer_overrides rulebook tab).
+// v10.637 (Indigo) — Persist packer-override boxes list in
+// localStorage with a 1-hour TTL. The rulebook's box list rarely
+// changes during a session, so re-fetching on every modal open
+// (each costs ~600ms Apps Script round-trip) is wasted latency.
+// On cold start, the in-memory cache rehydrates from localStorage
+// if the entry is fresh enough; expired entries fall through to
+// the network fetch and refresh both caches.
 let _packerOverrideBoxesCache = null;
+const PACKER_OVERRIDE_BOXES_LS_KEY = 'mbd_packer_override_boxes_v1';
+const PACKER_OVERRIDE_BOXES_TTL_MS = 60 * 60 * 1000; // 1 hour
+function _packerOverrideBoxesLsLoad_() {
+  try {
+    const raw = localStorage.getItem(PACKER_OVERRIDE_BOXES_LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.boxes)) return null;
+    if (Date.now() - Number(parsed.cached_at_ms || 0) > PACKER_OVERRIDE_BOXES_TTL_MS) return null;
+    return parsed.boxes;
+  } catch (e) { return null; }
+}
+function _packerOverrideBoxesLsSave_(boxes) {
+  try {
+    localStorage.setItem(PACKER_OVERRIDE_BOXES_LS_KEY, JSON.stringify({
+      cached_at_ms: Date.now(),
+      boxes: boxes || [],
+    }));
+  } catch (e) { /* localStorage full or denied — silent */ }
+}
+
 async function openPackerOverrideModal(sku, orderId, orderNumber) {
   const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('configure box for ' + sku) : null;
   if (!pin) return;
@@ -10972,11 +11000,18 @@ async function openPackerOverrideModal(sku, orderId, orderNumber) {
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   document.body.appendChild(ov);
 
-  // Load boxes if not cached.
+  // v10.637 — hydrate from localStorage if available + fresh.
+  if (!_packerOverrideBoxesCache) {
+    _packerOverrideBoxesCache = _packerOverrideBoxesLsLoad_();
+  }
+  // Fetch only if still empty (no fresh LS entry).
   if (!_packerOverrideBoxesCache) {
     try {
       const r = await groundApi('listBoxesForOverride', {});
-      if (r && r.ok) _packerOverrideBoxesCache = r.boxes || [];
+      if (r && r.ok) {
+        _packerOverrideBoxesCache = r.boxes || [];
+        _packerOverrideBoxesLsSave_(_packerOverrideBoxesCache);
+      }
     } catch (e) {
       document.getElementById('packerOverrideBody').innerHTML = '<div style="color:#c62828 !important;-webkit-text-fill-color:#c62828 !important;padding:20px">Failed to load boxes: ' + esc(String(e.message || e)) + '</div>';
       return;
