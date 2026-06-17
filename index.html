@@ -1759,48 +1759,53 @@ input::placeholder, textarea::placeholder {
   <div id="cabRecent" style="margin-top:8px;margin-bottom:18px"></div>
 
   <!-- ── ADMIN TOOLS ─────────────────────────────────────────────── -->
-  <div style="border-top:2px solid #e0e0e0;padding-top:14px;margin-top:18px">
-    <button onclick="toggleAdminTools()" id="adminToolsToggle" style="width:100%;background:none;border:none;color:#666;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center;gap:6px">
+  <!-- v10.680 — dark-themed throughout. Was bright white sync card +
+       bright white team/map/clear buttons on dark theme; jarring
+       block of light at the bottom of the tab. Now subtle tinted
+       tiles matching the cabRecent section. Hierarchy preserved
+       (sync card retains primary blue accent; danger zone red). -->
+  <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:18px">
+    <button onclick="toggleAdminTools()" id="adminToolsToggle" style="width:100%;background:none;border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center;gap:6px">
       <span id="adminToolsCaret">▶</span> Admin Tools
     </button>
 
     <div id="adminToolsBody" style="display:none;margin-top:8px">
 
       <!-- SYNC CARD -->
-      <div style="background:#fff;border:2px solid #003087;border-radius:12px;padding:14px;margin-bottom:10px">
+      <div style="background:rgba(0,48,135,.10);border:1px solid #003087;border-radius:10px;padding:12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
-          <div style="font-size:13px;font-weight:800;color:#003087;text-transform:uppercase;letter-spacing:1px">☁ Sync</div>
-          <div id="cabSyncStatus" style="font-size:11px;color:#666;font-weight:600"></div>
+          <div style="font-size:12px;font-weight:800;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;text-transform:uppercase;letter-spacing:1px">☁ Sync</div>
+          <div id="cabSyncStatus" style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:600"></div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button onclick="syncCabinetsNow()" id="cabSyncBtn" style="flex:1;min-width:120px;background:#003087;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">⟳ Sync Now</button>
-          <button onclick="openSyncSettings()" style="background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:12px 14px;font-size:13px;font-weight:700;cursor:pointer">⚙ Settings</button>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <button onclick="syncCabinetsNow()" id="cabSyncBtn" style="flex:1;min-width:120px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;padding:11px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">⟳ Sync Now</button>
+          <button onclick="openSyncSettings()" style="background:transparent !important;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1px solid #42a5f5;border-radius:6px;padding:11px 13px;font-size:12px;font-weight:700;cursor:pointer">⚙ Settings</button>
         </div>
-        <!-- v10.321 — pending-commits badge. Hidden when queue is empty. Click to inspect. -->
-        <button onclick="openPendingCommitsModal_()" id="cabPendingCommitsBadge" style="display:none;align-items:center;gap:6px;margin-top:8px;width:100%;background:#FFF3CC;color:#7A3E00;border:1.5px solid #FF9100;border-radius:8px;padding:10px 14px;font-size:12px;font-weight:800;letter-spacing:.4px;cursor:pointer;justify-content:center"></button>
+        <!-- v10.321 — pending-commits badge. Hidden when queue is empty. -->
+        <button onclick="openPendingCommitsModal_()" id="cabPendingCommitsBadge" style="display:none;align-items:center;gap:6px;margin-top:8px;width:100%;background:rgba(255,145,0,.12) !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1px solid #FF9100;border-radius:6px;padding:9px 14px;font-size:11px;font-weight:800;letter-spacing:.4px;cursor:pointer;justify-content:center"></button>
       </div>
 
       <!-- IMPORT / EXPORT / CLEAR / TEAM -->
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
         <label class="map-io-btn import" style="flex:1;min-width:140px">
           ⬆ Upload Spreadsheet
           <input type="file" accept=".xlsx,.xls,.csv" id="cabImportInput" style="display:none">
         </label>
         <button class="map-io-btn export" style="flex:1;min-width:140px" onclick="exportCabinets()">⬇ Export Current</button>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button onclick="manageCabTeam()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">👥 Manage Team</button>
-        <button onclick="editWarehouseLayout()" style="flex:1;min-width:140px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:8px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">🗺 Edit Map</button>
-        <button class="map-io-btn" style="flex:1;min-width:140px;background:#fff;color:#8B0000;border:2px solid #8B0000" onclick="clearCabinets()">✕ Clear All</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="manageCabTeam()" style="flex:1;min-width:120px;background:rgba(0,0,0,.18) !important;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1px solid rgba(66,165,245,.40);border-radius:6px;padding:10px;font-size:12px;font-weight:700;cursor:pointer">👥 Team</button>
+        <button onclick="editWarehouseLayout()" style="flex:1;min-width:120px;background:rgba(0,0,0,.18) !important;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1px solid rgba(66,165,245,.40);border-radius:6px;padding:10px;font-size:12px;font-weight:700;cursor:pointer">🗺 Map</button>
+        <button onclick="clearCabinets()" style="flex:1;min-width:120px;background:rgba(139,0,0,.10) !important;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1px solid rgba(139,0,0,.45);border-radius:6px;padding:10px;font-size:12px;font-weight:700;cursor:pointer">✕ Clear All</button>
       </div>
 
       <!-- DANGER ZONE — hard wipe the cloud sheet entirely -->
-      <details style="margin-top:14px;padding:8px;background:#FFF3F0;border:1.5px solid #8B0000;border-radius:8px">
-        <summary style="font-size:12px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:1px;cursor:pointer;padding:4px">⚠ Danger Zone</summary>
-        <div style="margin-top:8px;font-size:12px;color:#444;line-height:1.5">
+      <details style="margin-top:12px;padding:8px;background:rgba(139,0,0,.10);border:1px solid rgba(139,0,0,.45);border-radius:8px">
+        <summary style="font-size:11px;font-weight:800;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;text-transform:uppercase;letter-spacing:1px;cursor:pointer;padding:4px">⚠ Danger Zone</summary>
+        <div style="margin-top:8px;font-size:11px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;line-height:1.5">
           <strong>Wipe Sheet</strong> permanently empties the Google Sheet of ALL cabinet records — both active and deleted tombstones — and clears them from this device. Use only when starting fresh after testing. Other connected devices will need to sync once to also clear.
         </div>
-        <button onclick="wipeCabinetSheet()" style="width:100%;margin-top:10px;padding:11px;background:#8B0000;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🗑 Wipe Cloud Sheet + Local Data</button>
+        <button onclick="wipeCabinetSheet()" style="width:100%;margin-top:10px;padding:10px;background:#8B0000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">🗑 Wipe Cloud Sheet + Local Data</button>
       </details>
 
     </div>
@@ -20773,7 +20778,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.679"></script>
+<script src="./pack.js?v=10.680"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20784,7 +20789,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.679<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.680<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
