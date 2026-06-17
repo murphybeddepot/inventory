@@ -10361,7 +10361,7 @@ async function openPackPlanner() {
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0">'
     +   '<div>'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:1px;color:#fff;-webkit-text-fill-color:#fff;line-height:1">MAKE TODAY / PACK TODAY</div>'
-    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">5-day planner · tap an order, then tap a day · ⊘ on a card sends it back to To Be Scheduled</div>'
+    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">tap an order, then tap a day · ⊘ Move Back removes from a day · 📅 Reschedule changes the day · ‹/› to walk the week</div>'
     +   '</div>'
     +   '<div style="display:flex;gap:8px">'
     +     '<button onclick="refreshPackPlanner_()" style="background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer">↻</button>'
@@ -10631,7 +10631,17 @@ function _renderPackPlanner_(data) {
       +       '</div>'
       +       (pillLabel ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1.3px;color:#fff !important;-webkit-text-fill-color:#fff !important;background:' + pillColor + ' !important;padding:2px 7px;border-radius:999px;align-self:flex-start;margin-top:2px">' + pillLabel + '</div>' : '')
       +     '</div>'
-      +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:4px">' + (makeOrders.length + packOrders.length) + ' order(s) · ' + tasks.length + ' task(s)</div>'
+      // v10.670 — Seth wants the workload mix at a glance, not just a
+      //   total. Split into make · pack · tasks. Hides zero buckets so
+      //   "3 pack · 1 task" doesn't drown in "0 make".
+      +     (function () {
+            const segs = [];
+            if (makeOrders.length) segs.push('<span style="color:#FF9100 !important;-webkit-text-fill-color:#FF9100 !important;font-weight:800">' + makeOrders.length + ' make</span>');
+            if (packOrders.length) segs.push('<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;font-weight:800">' + packOrders.length + ' pack</span>');
+            if (tasks.length)     segs.push('<span>' + tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + '</span>');
+            if (!segs.length)     segs.push('<span style="font-style:italic">empty</span>');
+            return '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:4px">' + segs.join(' · ') + '</div>';
+          })()
       +   '</div>'
       +   '<div style="flex:1;overflow-y:auto;padding:8px">'
       +     _renderPlannerBucket_(d, 'make', makeOrders)
@@ -10982,7 +10992,7 @@ function _openPlannerOverlayShell_() {
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0">'
     +   '<div>'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:1px;color:#fff;-webkit-text-fill-color:#fff;line-height:1">MAKE TODAY / PACK TODAY</div>'
-    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">5-day planner · tap an order, then tap a day · ⊘ on a card sends it back to To Be Scheduled</div>'
+    +     '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">tap an order, then tap a day · ⊘ Move Back removes from a day · 📅 Reschedule changes the day · ‹/› to walk the week</div>'
     +   '</div>'
     +   '<div style="display:flex;gap:8px">'
     +     '<button onclick="refreshPackPlanner_()" style="background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:800;cursor:pointer">↻</button>'
