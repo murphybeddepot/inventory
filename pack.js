@@ -10579,9 +10579,21 @@ async function refreshPackPlanner_() {
   _preloadAdjacentWindows_();
 }
 
+// v10.685 (Zac 2026-06-17 — "Make a truly mobile friendly layout
+// version of planner. Currently it's almost impossible to use on
+// phone"). At < 700px, render a stacked single-day view with day
+// chips at the top + a drawer for the sidebar. Tap day chip → switch
+// active day. Tap "📥 N to schedule" → drawer slides up with the
+// To-Be-Scheduled list. All planner interactions (select order,
+// drop, reschedule, mark shipped) work the same.
+function _plannerIsMobile_() {
+  try { return window.innerWidth < 700; } catch (e) { return false; }
+}
+let _packPlannerMobileDay = null; // selected day in mobile view
 function _renderPackPlanner_(data) {
   const body = document.getElementById('packPlannerBody');
   if (!body) return;
+  if (_plannerIsMobile_()) return _renderPackPlannerMobile_(data);
   // v10.613 — Group unscheduled by ship_date. Sticky date headers
   // so manager scans a 1500-row backlog by date instead of by order.
   const groups = {};
@@ -10744,6 +10756,161 @@ function _renderPackPlanner_(data) {
     +   '<div style="flex:1;display:flex;overflow-x:auto" id="packPlannerDays">' + days + '</div>'
     + '</div>';
   // Wire selectable orders + drop targets.
+  _wirePlannerInteractions_();
+}
+
+// v10.685 — Mobile-friendly stacked render. Sidebar → drawer, day
+// columns → tabs with one active day shown vertically. Same card
+// renderer, same interactions; just a different layout shell.
+function _renderPackPlannerMobile_(data) {
+  const body = document.getElementById('packPlannerBody');
+  if (!body) return;
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const tomorrowIso = tomorrow.toISOString().slice(0, 10);
+  // Determine which day is active. Default = today (or first day in
+  // window if not present).
+  const daysList = data.days || [];
+  if (!_packPlannerMobileDay || !daysList.includes(_packPlannerMobileDay)) {
+    _packPlannerMobileDay = daysList.includes(todayIso) ? todayIso : (daysList[0] || todayIso);
+  }
+  const activeDay = _packPlannerMobileDay;
+  // Sidebar (to-be-scheduled) counts for the drawer button.
+  const pastDue = Array.isArray(data.past_due) ? data.past_due : [];
+  const sidebarCount = (data.unscheduled || []).length + pastDue.length;
+  // Top nav strip — same prev/today/next as desktop, but compacter.
+  const onToday = !_packPlannerStartDate;
+  const navStrip = ''
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;background:#0e0e10;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0">'
+    +   '<button onclick="_plannerGoPrev_()" style="background:#1a1a1a;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 9px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px">‹</button>'
+    +   '<button onclick="_plannerGoToToday_()" style="background:' + (onToday ? '#003087' : 'transparent') + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid ' + (onToday ? '#42a5f5' : 'rgba(255,255,255,.18)') + ';border-radius:6px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.4px;flex:1">' + (onToday ? '● TODAY' : '↺ Today') + '</button>'
+    +   '<button onclick="_plannerGoNext_()" style="background:#1a1a1a;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 9px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px">›</button>'
+    + '</div>';
+  // Day chips strip — tap to switch active day.
+  const dayChips = daysList.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
+    const mm = dt.getMonth() + 1;
+    const dd = dt.getDate();
+    const isActive = d === activeDay;
+    const isToday = d === todayIso;
+    const isTomorrow = d === tomorrowIso;
+    const obd = data.orders_by_date[d] || {};
+    const tasks = data.tasks_by_date[d] || [];
+    const isPacked = o => String((o || {}).status || '').toLowerCase() === 'packed';
+    const makeOpen = ((obd.make || []).filter(o => !isPacked(o))).length;
+    const packOpen = ((obd.pack || []).filter(o => !isPacked(o))).length;
+    const taskCount = tasks.length;
+    const loadCount = makeOpen + packOpen + taskCount;
+    const bgColor = isActive ? '#003087' : (isToday ? 'rgba(124,58,237,.20)' : 'rgba(255,255,255,.06)');
+    const borderColor = isActive ? '#42a5f5' : (isToday ? '#7C3AED' : 'rgba(255,255,255,.18)');
+    const labelColor = isActive ? '#fff' : (isToday ? '#C4B5FD' : '#fff');
+    return ''
+      + '<button data-mobile-day="' + esc(d) + '" onclick="_plannerSelectMobileDay_(\'' + esc(d) + '\')" style="background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;padding:8px 10px;color:' + labelColor + ' !important;-webkit-text-fill-color:' + labelColor + ' !important;font-family:\'Barlow Condensed\',Arial,sans-serif;font-weight:900;cursor:pointer;flex-shrink:0;text-align:center;line-height:1.05;min-width:56px">'
+      +   '<div style="font-size:9px;letter-spacing:1.2px;opacity:.8;text-transform:uppercase">' + dow + '</div>'
+      +   '<div style="font-size:18px;margin-top:2px">' + mm + '/' + dd + '</div>'
+      +   (isToday ? '<div style="font-size:8px;letter-spacing:1px;opacity:.85;margin-top:1px">TODAY</div>' : (isTomorrow ? '<div style="font-size:8px;letter-spacing:1px;opacity:.85;margin-top:1px">TMRW</div>' : ''))
+      +   (loadCount > 0 ? '<div style="font-size:9px;margin-top:2px;color:' + (isActive ? '#C4B5FD' : '#9AAAC0') + ' !important;-webkit-text-fill-color:' + (isActive ? '#C4B5FD' : '#9AAAC0') + ' !important">' + loadCount + ' to do</div>' : '<div style="font-size:9px;margin-top:2px;opacity:.5">empty</div>')
+      + '</button>';
+  }).join('');
+  // Active day content.
+  const obd = data.orders_by_date[activeDay] || {};
+  const makeOrders = obd.make || [];
+  const packOrders = obd.pack || [];
+  const tasks = data.tasks_by_date[activeDay] || [];
+  const isPackedFn = o => String((o || {}).status || '').toLowerCase() === 'packed';
+  const makeOpen = makeOrders.filter(o => !isPackedFn(o)).length;
+  const makeDone = makeOrders.filter(isPackedFn).length;
+  const packOpen = packOrders.filter(o => !isPackedFn(o)).length;
+  const packDone = packOrders.filter(isPackedFn).length;
+  const segs = [];
+  if (makeOpen) segs.push('<span style="color:#FF9100 !important;-webkit-text-fill-color:#FF9100 !important;font-weight:800">' + makeOpen + ' make</span>');
+  if (packOpen) segs.push('<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;font-weight:800">' + packOpen + ' pack</span>');
+  const doneTotal = makeDone + packDone;
+  if (doneTotal) segs.push('<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">✓ ' + doneTotal + ' done</span>');
+  if (tasks.length) segs.push('<span>' + tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + '</span>');
+  if (!segs.length) segs.push('<span style="font-style:italic;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important">nothing scheduled — tap a card in the drawer to drop here</span>');
+  const activeDt = new Date(activeDay + 'T00:00:00');
+  const dowFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][activeDt.getDay()];
+  const dateBig = (activeDt.getMonth() + 1) + '/' + activeDt.getDate();
+  // To-Be-Scheduled drawer button — sticky bottom on mobile.
+  const drawerBtn = '<button onclick="_plannerOpenMobileDrawer_()" style="position:sticky;bottom:0;left:0;right:0;width:100%;background:linear-gradient(180deg,#FF9100,#B36C00) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-top:1.5px solid #FF9100;padding:14px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;box-shadow:0 -4px 12px rgba(0,0,0,.5);margin-top:auto">📥 ' + sidebarCount + ' to schedule' + (pastDue.length ? ' · 🔥 ' + pastDue.length + ' past due' : '') + ' ↑</button>';
+
+  body.innerHTML = ''
+    + '<div style="flex:1;display:flex;flex-direction:column;overflow:hidden">'
+    +   navStrip
+    +   '<div id="packPlannerDayChips" style="display:flex;gap:6px;overflow-x:auto;padding:8px;background:#0e0e10;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0">' + dayChips + '</div>'
+    +   '<div style="flex:1;overflow-y:auto;padding:12px" data-planner-day="' + esc(activeDay) + '">'
+    +     '<div style="margin-bottom:10px">'
+    +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-transform:uppercase">' + dowFull + '</div>'
+    +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:34px;font-weight:900;line-height:1;color:#fff !important;-webkit-text-fill-color:#fff !important;margin-top:1px">' + dateBig + '</div>'
+    +       '<div style="font-size:12px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;margin-top:6px">' + segs.join(' · ') + '</div>'
+    +     '</div>'
+    +     _renderPlannerBucket_(activeDay, 'make', makeOrders)
+    +     _renderPlannerBucket_(activeDay, 'pack', packOrders)
+    +     _renderPlannerTasks_(activeDay, tasks)
+    +   '</div>'
+    +   drawerBtn
+    + '</div>';
+  _wirePlannerInteractions_();
+}
+// v10.685 — switch which day is shown in mobile view + re-render.
+function _plannerSelectMobileDay_(d) {
+  _packPlannerMobileDay = d;
+  if (_packPlannerCache) _renderPackPlanner_(_packPlannerCache);
+}
+// v10.685 — mobile drawer with To-Be-Scheduled list. Sliding sheet
+// from the bottom. Tapping an order card selects it; tapping ✕
+// closes; tapping a day chip back in the planner drops the order.
+function _plannerOpenMobileDrawer_() {
+  const data = _packPlannerCache;
+  if (!data) return;
+  const prior = document.getElementById('plannerMobileDrawer');
+  if (prior) prior.remove();
+  // Reuse the desktop sidebar rendering logic. Group + past-due + cards.
+  const groups = {};
+  const groupOrder = [];
+  (data.unscheduled || []).forEach(o => {
+    const key = (o.ship_date || '').slice(0, 10) || 'no-date';
+    if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+    groups[key].push(o);
+  });
+  function fmt(iso) {
+    if (iso === 'no-date' || !iso) return 'No ship date';
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+    if (!m) return String(iso);
+    const dt = new Date(m[0] + 'T00:00:00');
+    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
+    return dow + ' ' + (dt.getMonth() + 1) + '/' + dt.getDate();
+  }
+  const pastDue = Array.isArray(data.past_due) ? data.past_due : [];
+  const pastDueSorted = pastDue.slice().sort((a, b) => String(a.ship_date || '').localeCompare(String(b.ship_date || '')));
+  const pastDueBody = pastDueSorted.map(o => '<div style="background:#7A1212 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;display:inline-block">⚠ Past Due</div>' + _renderPlannerOrderCard_(o, 'past_due')).join('');
+  const sidebarBody = groupOrder.map(k => {
+    const rows = groups[k].map(o => _renderPlannerOrderCard_(o, 'unscheduled')).join('');
+    return ''
+      + '<div style="padding:8px 6px 6px;margin:10px -4px 6px;border-bottom:1.5px solid rgba(255,179,0,.55);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;text-transform:uppercase;line-height:1">'
+      +   fmt(k) + ' <span style="font-size:12px;opacity:.7">· ' + groups[k].length + '</span>'
+      + '</div>'
+      + rows;
+  }).join('');
+  const drawer = document.createElement('div');
+  drawer.id = 'plannerMobileDrawer';
+  drawer.style.cssText = 'position:fixed;left:0;right:0;bottom:0;top:10vh;background:#111;z-index:9999;border-top:2px solid #FFB300;border-radius:18px 18px 0 0;display:flex;flex-direction:column;box-shadow:0 -8px 32px rgba(0,0,0,.6)';
+  drawer.innerHTML = ''
+    + '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;text-transform:uppercase">📥 To Be Scheduled</div>'
+    +   '<button onclick="document.getElementById(\'plannerMobileDrawer\').remove()" style="background:none;border:none;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:24px;cursor:pointer;padding:0 6px">✕</button>'
+    + '</div>'
+    + '<div style="flex:1;overflow-y:auto;padding:10px 12px">'
+    +   (pastDueSorted.length ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">🔥 ' + pastDueSorted.length + ' Past Due</div>' + pastDueBody : '')
+    +   sidebarBody
+    +   ((data.unscheduled || []).length === 0 && pastDueSorted.length === 0 ? '<div style="padding:24px 8px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;font-size:13px;font-style:italic;text-align:center">All in-flight orders are scheduled</div>' : '')
+    + '</div>'
+    + '<div style="padding:10px 14px;border-top:1px solid rgba(255,255,255,.12);font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-align:center">Tap an order, close this drawer, then tap a day chip to schedule</div>';
+  document.body.appendChild(drawer);
+  // Re-wire interactions for the new DOM.
   _wirePlannerInteractions_();
 }
 
@@ -11117,6 +11284,26 @@ function _plannerSelectOrder_(orderNumber, source) {
     _packPlannerSelectedOrder = { order_number: orderNumber, source };
   }
   if (_packPlannerCache) _renderPackPlanner_(_packPlannerCache);
+  // v10.685 — on mobile, when an order is selected from inside the
+  // drawer, close it + flash a banner so the user knows to pick a
+  // day next. Cleaner flow than wondering "where do I tap now?"
+  if (_packPlannerSelectedOrder && _plannerIsMobile_()) {
+    const drawer = document.getElementById('plannerMobileDrawer');
+    if (drawer) {
+      drawer.remove();
+      _plannerShowMobileSelectedBanner_(_packPlannerSelectedOrder.order_number);
+    }
+  }
+}
+function _plannerShowMobileSelectedBanner_(orderNumber) {
+  const prior = document.getElementById('plannerMobileSelBanner');
+  if (prior) prior.remove();
+  const b = document.createElement('div');
+  b.id = 'plannerMobileSelBanner';
+  b.style.cssText = 'position:fixed;left:8px;right:8px;top:60px;background:linear-gradient(180deg,#003087,#1A4FB0);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5;border-radius:10px;padding:11px 14px;z-index:10000;box-shadow:0 4px 16px rgba(0,0,0,.5);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;text-align:center';
+  b.textContent = 'SELECTED #' + orderNumber + ' — tap a day above to drop';
+  document.body.appendChild(b);
+  setTimeout(() => { try { b.remove(); } catch (e) {} }, 5000);
 }
 
 // v10.652 (Zac 2026-06-17) — Optimistic UI. Previously every drop +
@@ -15462,6 +15649,17 @@ window.addEventListener('resize', () => {
   const panel = document.getElementById('tab-schedule');
   if (!panel || !panel.classList.contains('active')) return;
   paintSchedule_(_scheduleCache);
+});
+// v10.685 — re-render planner on viewport boundary cross (mobile ↔
+// desktop) so rotating an iPhone or resizing a window swaps the
+// layout cleanly. Throttled so resize storms don't thrash.
+let _plannerResizeTimer = 0;
+window.addEventListener('resize', () => {
+  if (!_packPlannerCache) return;
+  const ov = document.getElementById('packPlannerOverlay');
+  if (!ov) return;
+  clearTimeout(_plannerResizeTimer);
+  _plannerResizeTimer = setTimeout(() => _renderPackPlanner_(_packPlannerCache), 150);
 });
 
 
