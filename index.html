@@ -14842,12 +14842,23 @@ async function openReceiveShipment() {
   // un-finished lists from previous weeks then this week's list right
   // below that as another bar." Switched from single-session
   // getActiveReceiveSession to multi-session listOpenReceiveSessions.
-  // Last Friday's incomplete session AND this week's session both
-  // render as stacked cards; tap any card to switch the active session.
+  // v10.673 (Zac 2026-06-17) — open the modal IMMEDIATELY with a
+  // spinner instead of waiting for the slow listOpenReceiveSessions
+  // round-trip. Zac flagged: "i hate how long it takes to load the
+  // receiving shipment popup each time, with no indicator that it's
+  // loading either!" The subsequent renderReceiveSession or
+  // showReceiveSetup overwrites the spinner with the real content.
+  openCabModal('📥 Receive Shipment', ''
+    + '<div style="text-align:center;padding:54px 20px">'
+    +   '<div style="display:inline-block;width:52px;height:52px;border:5px solid rgba(0,48,135,.15);border-top-color:#003087;border-radius:50%;animation:rcvSpin 0.85s linear infinite"></div>'
+    +   '<div style="margin-top:20px;font-size:15px;font-weight:800;color:#1a1a1a">Loading shipments…</div>'
+    +   '<div style="margin-top:6px;font-size:12px;color:#666">Pulling open lists across devices</div>'
+    + '</div>'
+    + '<style>@keyframes rcvSpin{to{transform:rotate(360deg)}}</style>'
+  );
   const existing = getActiveSession();
   let serverSessions = [];
   if (GROUND_ORCH_URL) {
-    showToast('Syncing receive lists across devices…');
     try {
       const resp = await groundApi('listOpenReceiveSessions', { window_days: 21 });
       if (resp && resp.ok && Array.isArray(resp.sessions) && resp.sessions.length > 0) {
@@ -20695,7 +20706,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.672"></script>
+<script src="./pack.js?v=10.673"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20706,7 +20717,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.672<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.673<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
