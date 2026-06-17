@@ -15065,6 +15065,21 @@ function _lkFld(label, value, opts) {
   const copyBtn = wantCopy
     ? '<button onclick="_lkCopy_(this,\'' + esc(strVal.replace(/'/g, '\\\'')) + '\')" title="Copy" style="background:transparent;border:1px solid rgba(255,255,255,.15);color:var(--text-dim);font-size:10px;padding:1px 7px;border-radius:5px;cursor:pointer;margin-left:6px;font-weight:700">📋</button>'
     : '';
+  // v10.646 (Mira) — opts.accent='green' for fields the CS/ops persona
+  // needs to spot at a glance. Currently used by the Scheduled field
+  // (the v10.621 planner-placement readout) because Jessica's #1 ask
+  // mid-call is "when does this ship?" and that row was previously
+  // visually identical to Status / Carrier / Task line. Subtle green
+  // gradient + left border + LED-green bold value + 📅 icon prefix
+  // sits on the existing Lookup-card dark surface without disrupting
+  // surrounding-row geometry.
+  var accentGreen = opts && opts.accent === 'green';
+  if (accentGreen) {
+    return '<div style="display:flex;gap:10px;padding:5px 0 5px 10px;margin-left:-13px;background:linear-gradient(90deg,rgba(0,230,118,.14) 0%,rgba(0,230,118,0) 70%);border-left:3px solid #00e676;border-bottom:1px dashed rgba(0,230,118,.18)">'
+      + '<div style="flex:0 0 130px;font-size:10px;color:#00e676;-webkit-text-fill-color:#00e676;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;padding-top:1px">' + label + '</div>'
+      + '<div style="flex:1;font-size:14px;color:#00e676;-webkit-text-fill-color:#00e676;font-weight:700;text-shadow:0 0 8px rgba(0,230,118,.25);' + mono + 'word-break:break-word;display:flex;align-items:flex-start">' + '<span style="flex:1">📅 ' + link + '</span>' + copyBtn + '</div>'
+      + '</div>';
+  }
   return '<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06)">'
     + '<div style="flex:0 0 130px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;padding-top:1px">' + label + '</div>'
     + '<div style="flex:1;font-size:13px;color:var(--text);' + mono + 'word-break:break-word;display:flex;align-items:flex-start">' + '<span style="flex:1">' + link + '</span>' + copyBtn + '</div>'
@@ -15130,7 +15145,7 @@ function renderLookupCabinet_(h) {
               const bucket = h.pack_bucket && h.pack_bucket.toLowerCase()==='make' ? 'Make' : 'Pack';
               return dow + ' ' + (d.getMonth()+1) + '/' + d.getDate() + ' · ' + bucket;
             } catch(e) { return String(h.pack_target_date); }
-          })())
+          })(), { accent: 'green' })
         : '')
     + _lkFld('Carrier', h.carrier || 'TBD')
     + _lkFld('Status', h.status)
