@@ -10534,8 +10534,28 @@ function _renderPlannerBucket_(date, bucket, orders) {
     + '</div>';
 }
 
+// v10.630 (Roo edge-case + small Mira tweak) — hide-done toggle for
+// the planner Tasks section. Recurring per-day tasks ("Receive ARCH
+// pallet", "Daily Slack standup") pile up as Jonah ticks them off
+// during the day; by EOD the section becomes a strikethrough wall.
+// Default OFF (= done items hidden). localStorage'd per device.
+function _togglePlannerHideDone_() {
+  try {
+    const cur = localStorage.getItem('mbd_planner_show_done_tasks') === '1';
+    localStorage.setItem('mbd_planner_show_done_tasks', cur ? '0' : '1');
+  } catch (e) {}
+  if (_packPlannerCache) _renderPackPlanner_(_packPlannerCache);
+}
+function _plannerShouldShowDone_() {
+  try { return localStorage.getItem('mbd_planner_show_done_tasks') === '1'; }
+  catch (e) { return false; }
+}
+
 function _renderPlannerTasks_(date, tasks) {
-  const rows = tasks.map(t => {
+  const showDone = _plannerShouldShowDone_();
+  const doneCount = tasks.filter(t => t.status === 'done').length;
+  const visibleTasks = showDone ? tasks : tasks.filter(t => t.status !== 'done');
+  const rows = visibleTasks.map(t => {
     const priColor = t.priority === 'high' ? '#FF5252' : (t.priority === 'low' ? '#9AAAC0' : '#FFB300');
     const isDone = t.status === 'done';
     return ''
@@ -10550,13 +10570,17 @@ function _renderPlannerTasks_(date, tasks) {
   }).join('');
   return ''
     + '<div style="margin-top:6px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">'
-    +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
-    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important">✓ TASKS</div>'
-    +     '<button onclick="_plannerAddTask_(\'' + esc(date) + '\')" style="background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer">+</button>'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important">✓ TASKS' + (doneCount && !showDone ? ' <span style="opacity:.6">(+' + doneCount + ' done hidden)</span>' : '') + '</div>'
+    +     '<div style="display:flex;gap:4px;align-items:center">'
+    // v10.630 — hide-done toggle (eye icon).
+    +       (doneCount > 0 ? '<button onclick="_togglePlannerHideDone_()" title="' + (showDone ? 'Hide done' : 'Show done') + '" style="background:transparent;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;border:1px solid rgba(154,170,192,.55);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;cursor:pointer">' + (showDone ? '◉' : '○') + '</button>' : '')
+    +       '<button onclick="_plannerAddTask_(\'' + esc(date) + '\')" style="background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer">+</button>'
+    +     '</div>'
     +   '</div>'
     +   rows
     // v10.620 (Mira UX) — bumped contrast on "no tasks" placeholder.
-    +   (tasks.length === 0 ? '<div style="font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-align:center;padding:6px 4px;font-style:italic;opacity:.85">no tasks · tap + to add</div>' : '')
+    +   (visibleTasks.length === 0 ? '<div style="font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-align:center;padding:6px 4px;font-style:italic;opacity:.85">' + (tasks.length === 0 ? 'no tasks · tap + to add' : 'all ' + tasks.length + ' done — tap ○ to show') + '</div>' : '')
     + '</div>';
 }
 
