@@ -10587,7 +10587,9 @@ function _renderPackPlanner_(data) {
     const badge = days > 0
       ? '<div style="background:#7A1212 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;display:inline-block">⚠ Past Due · ' + days + 'd</div>'
       : '<div style="background:#7A1212 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;display:inline-block">⚠ Past Due</div>';
-    return badge + _renderPlannerOrderCard_(o, 'unscheduled');
+    // v10.671 — past_due source so the card render can offer a
+    // "✓ MARK SHIPPED" button for one-tap chase-pile cleanup.
+    return badge + _renderPlannerOrderCard_(o, 'past_due');
   }).join('');
   const pastDueHeader = pastDueSorted.length === 0 ? '' : ''
     + '<div style="position:sticky;top:0;background:#181818;padding:8px 6px 6px;margin:0 -8px 6px;border-bottom:2px solid #FF5252;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;text-transform:uppercase;line-height:1">🔥 ' + pastDueSorted.length + ' Past Due <span style="font-size:13px;opacity:.7">· needs reschedule</span></div>';
@@ -10761,7 +10763,13 @@ function _renderPlannerOrderCard_(o, source) {
     //   hunt in sidebar → tap new day. The handler reuses
     //   _plannerOpenInlinePicker_; the day-bucket caller pre-fills
     //   the date input with the current pack_target_date.
-    +   (source === 'unscheduled'
+    // v10.671 — past_due cards get a "✓ MARK SHIPPED" green button
+    //   alongside the Pick date / Move Back actions. Seth can clean
+    //   up the chase pile from the planner without bouncing to JS2.
+    +   (source === 'past_due'
+        ? '<button onclick="event.stopPropagation();_plannerMarkShipped_(\'' + esc(on) + '\')" style="margin-top:7px;width:100%;background:linear-gradient(135deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676 !important;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer">✓ Mark Shipped</button>'
+        : '')
+    +   (source === 'unscheduled' || source === 'past_due'
         ? '<button onclick="event.stopPropagation();_plannerOpenInlinePicker_(\'' + esc(on) + '\',\'\')" style="margin-top:7px;width:100%;background:linear-gradient(135deg,#1A4FB0,#003087) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5 !important;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer">📋 Pick date</button>'
         + '<div id="plannerInlinePicker_' + esc(on) + '" style="display:none;margin-top:7px"></div>'
         : (sourceMatch
@@ -11112,6 +11120,54 @@ function _plannerLocalRollbackDrop_(rb) {
 // v10.662 (Zac 2026-06-17) — unschedule a day-bucket order back into
 // the "To Be Scheduled" sidebar. Optimistic: splice locally + re-render,
 // then setPackTargetDate('') server-side. On failure, roll back.
+// v10.671 — Mark a past-due cabinet order as shipped from the planner.
+// Optimistic: splice from past_due locally, then call server endpoint
+// markPackJobShipped. Same per-op rollback pattern as v10.667.
+async function _plannerMarkShipped_(orderNumber) {
+  showToast('Marking ' + orderNumber + ' shipped…');
+  const pin = getCachedManagerPin_() || promptManagerPin_('mark shipped');
+  if (!pin) return;
+  if (!_scheduleLock_(orderNumber)) {
+    showToast('Already moving #' + orderNumber + '…');
+    return;
+  }
+  let removed = null;
+  if (_packPlannerCache && Array.isArray(_packPlannerCache.past_due)) {
+    const ix = _packPlannerCache.past_due.findIndex(o => String(o.order_number) === String(orderNumber));
+    if (ix >= 0) {
+      removed = _packPlannerCache.past_due.splice(ix, 1)[0];
+      _packPlannerCache.past_due_count = _packPlannerCache.past_due.length;
+      _renderPackPlanner_(_packPlannerCache);
+      showToast('✓ ' + orderNumber + ' marked shipped');
+    }
+  }
+  try {
+    const r = await groundApi('markPackJobShipped', {
+      orderNumber, manager_pin: pin,
+    });
+    if (r && !r.ok) {
+      // Roll back: re-insert + re-render.
+      if (removed && _packPlannerCache) {
+        _packPlannerCache.past_due = _packPlannerCache.past_due || [];
+        _packPlannerCache.past_due.push(removed);
+        _packPlannerCache.past_due_count = _packPlannerCache.past_due.length;
+        _renderPackPlanner_(_packPlannerCache);
+      }
+      _handleApiErrorWithPin_(r, 'Mark shipped failed (rolled back)');
+    }
+  } catch (e) {
+    if (removed && _packPlannerCache) {
+      _packPlannerCache.past_due = _packPlannerCache.past_due || [];
+      _packPlannerCache.past_due.push(removed);
+      _packPlannerCache.past_due_count = _packPlannerCache.past_due.length;
+      _renderPackPlanner_(_packPlannerCache);
+    }
+    showToast('Network error (rolled back): ' + e.message);
+  } finally {
+    _scheduleUnlock_(orderNumber);
+  }
+}
+
 async function _plannerUnschedule_(orderNumber) {
   showToast('Moving ' + orderNumber + ' back…');
   console.log('DIAG-V10.667-UNSCHED tap', orderNumber);
