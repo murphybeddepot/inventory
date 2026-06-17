@@ -10633,15 +10633,22 @@ function _renderPackPlanner_(data) {
       +       '</div>'
       +       (pillLabel ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:10px;font-weight:900;letter-spacing:1.3px;color:#fff !important;-webkit-text-fill-color:#fff !important;background:' + pillColor + ' !important;padding:2px 7px;border-radius:999px;align-self:flex-start;margin-top:2px">' + pillLabel + '</div>' : '')
       +     '</div>'
-      // v10.670 — Seth wants the workload mix at a glance, not just a
-      //   total. Split into make · pack · tasks. Hides zero buckets so
-      //   "3 pack · 1 task" doesn't drown in "0 make".
+      // v10.670 — make · pack · task mix; v10.672 — split packed
+      //   ("✓ done") from in-flight so Seth sees "what's left" not
+      //   the total day load.
       +     (function () {
+            const isPacked = o => String((o || {}).status || '').toLowerCase() === 'packed';
+            const makeOpen = makeOrders.filter(o => !isPacked(o)).length;
+            const makeDone = makeOrders.filter(isPacked).length;
+            const packOpen = packOrders.filter(o => !isPacked(o)).length;
+            const packDone = packOrders.filter(isPacked).length;
             const segs = [];
-            if (makeOrders.length) segs.push('<span style="color:#FF9100 !important;-webkit-text-fill-color:#FF9100 !important;font-weight:800">' + makeOrders.length + ' make</span>');
-            if (packOrders.length) segs.push('<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;font-weight:800">' + packOrders.length + ' pack</span>');
-            if (tasks.length)     segs.push('<span>' + tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + '</span>');
-            if (!segs.length)     segs.push('<span style="font-style:italic">empty</span>');
+            if (makeOpen) segs.push('<span style="color:#FF9100 !important;-webkit-text-fill-color:#FF9100 !important;font-weight:800">' + makeOpen + ' make</span>');
+            if (packOpen) segs.push('<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;font-weight:800">' + packOpen + ' pack</span>');
+            const doneTotal = makeDone + packDone;
+            if (doneTotal) segs.push('<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">✓ ' + doneTotal + ' done</span>');
+            if (tasks.length) segs.push('<span>' + tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + '</span>');
+            if (!segs.length) segs.push('<span style="font-style:italic">empty</span>');
             return '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:4px">' + segs.join(' · ') + '</div>';
           })()
       +   '</div>'
@@ -10722,8 +10729,17 @@ function _renderPlannerOrderCard_(o, source) {
   const delayBadge = delayDays > 0
     ? '<span style="background:#7A3A12 !important;color:#FFD27A !important;-webkit-text-fill-color:#FFD27A !important;font-size:9px;font-weight:900;padding:2px 5px;border-radius:3px;letter-spacing:.4px;text-transform:uppercase;margin-left:4px">↓ ' + delayDays + 'd late</span>'
     : '';
-  const bgColor = isSelected ? 'rgba(124,58,237,.35)' : (isPriority ? 'rgba(255,82,82,.10)' : 'rgba(255,255,255,.04)');
-  const borderColor = isSelected ? '#7C3AED' : (isPriority ? 'rgba(255,82,82,.55)' : 'rgba(255,255,255,.12)');
+  // v10.672 — packed cards get the "done" treatment so Seth can see
+  //   what's already complete in each day. Dimmed background, green
+  //   checkmark badge, struck-through details, lower opacity.
+  const isPacked = String(o.status || '').toLowerCase() === 'packed';
+  const bgColor = isSelected ? 'rgba(124,58,237,.35)' : (isPriority ? 'rgba(255,82,82,.10)' : (isPacked ? 'rgba(0,230,118,.06)' : 'rgba(255,255,255,.04)'));
+  const borderColor = isSelected ? '#7C3AED' : (isPriority ? 'rgba(255,82,82,.55)' : (isPacked ? 'rgba(0,230,118,.35)' : 'rgba(255,255,255,.12)'));
+  const packedOpacity = isPacked ? 'opacity:.65;' : '';
+  const packedStrike = isPacked ? 'text-decoration:line-through;' : '';
+  const packedBadge = isPacked
+    ? '<span style="background:#1A5C1A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase;margin-right:4px">✓ PACKED</span>'
+    : '';
   return ''
     + '<div data-planner-order="' + esc(on) + '" data-planner-source="' + esc(source) + '" data-planner-bucket="' + esc(o.pack_bucket || 'pack') + '" '
     // v10.619 (Zac 2026-06-16) — Playwright walkthrough revealed
@@ -10733,9 +10749,9 @@ function _renderPlannerOrderCard_(o, source) {
     // the next tap on a different bucket failed with "Tap an order
     // first." stopPropagation kills the bubble.
     +   'onclick="event.stopPropagation();_plannerSelectOrder_(\'' + esc(on) + '\',\'' + esc(source) + '\')" '
-    +   'style="display:block;padding:10px 11px;margin-bottom:6px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;cursor:pointer;user-select:none">'
+    +   'style="display:block;padding:10px 11px;margin-bottom:6px;background:' + bgColor + ' !important;border:1.5px solid ' + borderColor + ' !important;border-radius:8px;cursor:pointer;user-select:none;' + packedOpacity + '">'
     +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px">'
-    +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important">' + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
+    +     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;' + packedStrike + '">' + packedBadge + esc(on) + (isPriority ? ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-size:11px">★</span>' : '') + '</span>'
     // v10.667 — flex-wrap so the delay badge / UNSCHED button don't
     //   push the row off-screen on narrow cards. min-width:0 lets the
     //   span shrink past its children's intrinsic size.
