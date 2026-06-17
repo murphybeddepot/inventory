@@ -10889,11 +10889,27 @@ function _renderPlannerTasks_(date, tasks) {
     const priColor = t.priority === 'high' ? '#FF5252' : (t.priority === 'low' ? '#9AAAC0' : '#FFB300');
     const isDone = t.status === 'done';
     return ''
+      // v10.675 — assignee chip front-and-center (rendered inside the
+      //   title div below) so Seth/Jonah/Shane spot "their" tasks at
+      //   a glance. Color per-person from a stable name-hash so Jonah
+      //   is always one color and Shane is always another.
       + '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(255,255,255,.04);border-left:3px solid ' + priColor + ';border-radius:5px;margin-bottom:4px;' + (isDone ? 'opacity:.55' : '') + '">'
       +   '<button onclick="_plannerToggleTask_(\'' + esc(t.task_id) + '\',\'' + (isDone ? 'open' : 'done') + '\')" style="background:transparent;color:' + (isDone ? '#00E676' : '#9AAAC0') + ' !important;-webkit-text-fill-color:' + (isDone ? '#00E676' : '#9AAAC0') + ' !important;border:1.5px solid currentColor;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:12px;padding:0;flex-shrink:0">' + (isDone ? '✓' : '') + '</button>'
       +   '<div style="flex:1;min-width:0">'
-      +     '<div style="font-size:12px;font-weight:700;color:#fff !important;-webkit-text-fill-color:#fff !important;' + (isDone ? 'text-decoration:line-through' : '') + '">' + esc(t.title) + '</div>'
-      +     '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important">' + (t.assignee ? esc(t.assignee) : 'unassigned') + ' · ' + esc(t.priority) + '</div>'
+      +     '<div style="font-size:12px;font-weight:700;color:#fff !important;-webkit-text-fill-color:#fff !important;' + (isDone ? 'text-decoration:line-through' : '') + ';display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+      +       (function () {
+              const aRaw = String(t.assignee || '').trim();
+              if (!aRaw) {
+                return '<span style="background:rgba(154,170,192,.18);color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;font-size:9px;font-weight:900;letter-spacing:.6px;padding:1px 5px;border-radius:3px;text-transform:uppercase">unassigned</span>';
+              }
+              let h = 0;
+              for (let i = 0; i < aRaw.length; i++) h = (h * 31 + aRaw.toUpperCase().charCodeAt(i)) >>> 0;
+              const hue = h % 360;
+              return '<span style="background:hsl(' + hue + ',60%,30%) !important;color:hsl(' + hue + ',80%,80%) !important;-webkit-text-fill-color:hsl(' + hue + ',80%,80%) !important;font-size:9px;font-weight:900;letter-spacing:.6px;padding:1px 5px;border-radius:3px;text-transform:uppercase;border:1px solid hsl(' + hue + ',60%,45%)">' + esc(aRaw) + '</span>';
+            })()
+      +       '<span>' + esc(t.title) + '</span>'
+      +     '</div>'
+      +     '<div style="font-size:10px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;margin-top:2px">priority: ' + esc(t.priority) + '</div>'
       +   '</div>'
       +   '<button onclick="_plannerDeleteTask_(\'' + esc(t.task_id) + '\')" style="background:transparent;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:none;font-size:14px;cursor:pointer;padding:0 4px">✕</button>'
       + '</div>';
