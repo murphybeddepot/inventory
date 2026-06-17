@@ -10203,6 +10203,41 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 // size_confirmed_at on OrderPack so the breakdown skips that hold on
 // next pack attempt. Without this, Resume + Start Pack just re-triggers
 // the same hold infinitely.
+// v10.628 (Tav second-pass) — error-handler helper, used by all
+// PIN-gated client-side actions. Pattern was copy-pasted in 7+
+// sites with subtle variants; some checked typeof clearManagerPin_
+// and others didn't, some passed (r1 && r1.error) and others
+// (res && res.error). One bug per variant. Centralized here.
+//
+// Usage:
+//   const res = await groundApi('foo', payload);
+//   if (_handleApiErrorWithPin_(res, 'Drop failed')) return;
+//   // success path continues
+function _handleApiErrorWithPin_(res, prefix) {
+  if (res && res.ok) return false;
+  const errMsg = String((res && res.error) || 'unknown');
+  if (/pin/i.test(errMsg) && typeof clearManagerPin_ === 'function') {
+    clearManagerPin_();
+  }
+  showToast(prefix + ': ' + errMsg);
+  return true;
+}
+
+// v10.628 (Indigo + safety) — In-flight guard for planner schedule
+// drops + Lookup picker drops. Prevents double-tap producing two
+// parallel writes (server is mostly idempotent but the second can
+// race with the first's local cache update + cause the order to
+// briefly appear in two buckets visually). Keyed by orderNumber.
+const _scheduleInFlight = new Set();
+function _scheduleLock_(orderNumber) {
+  if (_scheduleInFlight.has(orderNumber)) return false;
+  _scheduleInFlight.add(orderNumber);
+  return true;
+}
+function _scheduleUnlock_(orderNumber) {
+  _scheduleInFlight.delete(orderNumber);
+}
+
 // v10.609 (Seth survey r2 2026-06-16) — Make Today / Pack Today
 // multi-day planner. Manager-only view. Touch-DnD (with tap-to-
 // move accessibility fallback) to schedule orders across days.
@@ -10552,27 +10587,27 @@ async function _plannerDropOnDay_(targetDate, targetBucket) {
   const pin = getCachedManagerPin_() || promptManagerPin_('drop on day');
   if (!pin) return;
   const orderNumber = _packPlannerSelectedOrder.order_number;
-  // Two server calls: set target date + set bucket.
+  // v10.628 — debounce double-taps.
+  if (!_scheduleLock_(orderNumber)) {
+    showToast('Already moving #' + orderNumber + '…');
+    return;
+  }
   try {
     const r1 = await groundApi('setPackTargetDate', {
       orderNumber, targetDate, manager_pin: pin, set_by: localStorage.getItem('mbd_ground_packer') || ''
     });
-    if (!r1 || !r1.ok) {
-      if (/pin/i.test(String((r1 && r1.error) || ''))) clearManagerPin_();
-      showToast('Drop failed: ' + ((r1 && r1.error) || 'unknown'));
-      return;
-    }
+    if (_handleApiErrorWithPin_(r1, 'Drop failed')) return;
     const r2 = await groundApi('setOrderPackBucket', {
       order_number: orderNumber, bucket: targetBucket, manager_pin: pin
     });
-    if (!r2 || !r2.ok) {
-      showToast('Bucket update failed: ' + ((r2 && r2.error) || 'unknown'));
-    }
+    if (r2 && !r2.ok) showToast('Bucket update failed: ' + (r2.error || 'unknown'));
     _packPlannerSelectedOrder = null;
     showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + targetBucket + ')');
     await refreshPackPlanner_();
   } catch (e) {
     showToast('Network error: ' + e.message);
+  } finally {
+    _scheduleUnlock_(orderNumber);
   }
 }
 
@@ -15094,27 +15129,28 @@ function _lookupToggleSchedule_(orderNumber) {
 async function _lookupScheduleOrder_(orderNumber, targetDate, bucket) {
   const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('schedule ' + orderNumber) : null;
   if (!pin) return;
+  // v10.628 — share the same in-flight guard the planner drop uses.
+  if (!_scheduleLock_(orderNumber)) {
+    showToast('Already scheduling #' + orderNumber + '…');
+    return;
+  }
   try {
     const r1 = await groundApi('setPackTargetDate', {
       orderNumber: orderNumber, targetDate: targetDate, manager_pin: pin,
       set_by: localStorage.getItem('mbd_ground_packer') || '',
     });
-    if (!r1 || !r1.ok) {
-      if (/pin/i.test(String((r1 && r1.error) || ''))) (typeof clearManagerPin_ === 'function') && clearManagerPin_();
-      showToast('Schedule failed: ' + ((r1 && r1.error) || 'unknown'));
-      return;
-    }
+    if (_handleApiErrorWithPin_(r1, 'Schedule failed')) return;
     const r2 = await groundApi('setOrderPackBucket', {
       order_number: orderNumber, bucket: bucket, manager_pin: pin,
     });
-    if (!r2 || !r2.ok) {
-      showToast('Bucket update failed: ' + ((r2 && r2.error) || 'unknown'));
-    }
+    if (r2 && !r2.ok) showToast('Bucket update failed: ' + (r2.error || 'unknown'));
     showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + bucket + ')');
     const host = document.getElementById('lkSched_' + orderNumber);
     if (host) { host.style.display = 'none'; host.innerHTML = ''; }
   } catch (e) {
     showToast('Network error: ' + e.message);
+  } finally {
+    _scheduleUnlock_(orderNumber);
   }
 }
 
