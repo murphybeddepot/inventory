@@ -15075,9 +15075,13 @@ function _lkFld(label, value, opts) {
   // surrounding-row geometry.
   var accentGreen = opts && opts.accent === 'green';
   if (accentGreen) {
+    // v10.647 — icon prefix configurable per call so Packed/Shipped
+    // don't accidentally render a calendar emoji. Sensible default
+    // for the original Scheduled use case is 📅.
+    var accentIcon = (opts && opts.icon) || '📅';
     return '<div style="display:flex;gap:10px;padding:5px 0 5px 10px;margin-left:-13px;background:linear-gradient(90deg,rgba(0,230,118,.14) 0%,rgba(0,230,118,0) 70%);border-left:3px solid #00e676;border-bottom:1px dashed rgba(0,230,118,.18)">'
       + '<div style="flex:0 0 130px;font-size:10px;color:#00e676;-webkit-text-fill-color:#00e676;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;padding-top:1px">' + label + '</div>'
-      + '<div style="flex:1;font-size:14px;color:#00e676;-webkit-text-fill-color:#00e676;font-weight:700;text-shadow:0 0 8px rgba(0,230,118,.25);' + mono + 'word-break:break-word;display:flex;align-items:flex-start">' + '<span style="flex:1">📅 ' + link + '</span>' + copyBtn + '</div>'
+      + '<div style="flex:1;font-size:14px;color:#00e676;-webkit-text-fill-color:#00e676;font-weight:700;text-shadow:0 0 8px rgba(0,230,118,.25);' + mono + 'word-break:break-word;display:flex;align-items:flex-start">' + '<span style="flex:1">' + accentIcon + ' ' + link + '</span>' + copyBtn + '</div>'
       + '</div>';
   }
   return '<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06)">'
@@ -15151,8 +15155,13 @@ function renderLookupCabinet_(h) {
     + _lkFld('Status', h.status)
     + _lkFld('Task line', h.task_line)
     + _lkFld('HW packed', h.hardware_packed_at ? (h.hardware_packed_at.slice(0, 16) + ' by ' + (h.hardware_packed_by || '?')) : '—')
-    + _lkFld('Packed', h.packed_at ? (h.packed_at.slice(0, 16) + ' by ' + (h.packed_by || '?')) : '—')
-    + _lkFld('Shipped', h.shipped_at ? h.shipped_at.slice(0, 16) : '—')
+    // v10.647 (Mira pass 2) — Packed + Shipped get the accent='green'
+    // treatment ONLY when there's data. Blank dashes stay muted so
+    // they don't compete for attention. Same CS-persona logic as
+    // v10.646's Scheduled: "did this order complete a milestone?"
+    // is a primary question Jessica asks mid-call.
+    + _lkFld('Packed', h.packed_at ? (h.packed_at.slice(0, 16) + ' by ' + (h.packed_by || '?')) : '—', h.packed_at ? { accent: 'green', icon: '📦' } : {})
+    + _lkFld('Shipped', h.shipped_at ? h.shipped_at.slice(0, 16) : '—', h.shipped_at ? { accent: 'green', icon: '🚚' } : {})
     + _lkFld('Pick list', h.pick_list_pdf_url, { link: true })
     + _lkFld('Instructions', h.instructions_pdf_url, { link: true })
     + _lkFld('Shopify', h.shopify_admin_url, { link: true })
