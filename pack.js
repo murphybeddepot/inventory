@@ -10199,6 +10199,30 @@ async function resumeHoldFromPanel_(orderId, orderNumber) {
 // size_confirmed_at on OrderPack so the breakdown skips that hold on
 // next pack attempt. Without this, Resume + Start Pack just re-triggers
 // the same hold infinitely.
+// v10.636 (Tav third-pass) — PIN-acquire + try/catch wrapper.
+// Every PIN-gated planner action did the same dance:
+//   const pin = getCachedManagerPin_() || promptManagerPin_(reason);
+//   if (!pin) return;
+//   try { /* action(pin) */ }
+//   catch (e) { showToast('Network error: ' + e.message); }
+//
+// Now: `await _plannerAuthedCall_(reason, async (pin) => {...})`.
+// Returns whatever the action returns (or null on PIN cancel /
+// network error). The action still handles its own server-error
+// response via _handleApiErrorWithPin_ — this wrapper only owns
+// the PIN acquire + network try/catch.
+async function _plannerAuthedCall_(reason, action) {
+  const pin = (typeof getCachedManagerPin_ === 'function' ? getCachedManagerPin_() : null)
+    || (typeof promptManagerPin_ === 'function' ? promptManagerPin_(reason) : null);
+  if (!pin) return null;
+  try {
+    return await action(pin);
+  } catch (e) {
+    showToast('Network error: ' + e.message);
+    return null;
+  }
+}
+
 // v10.628 (Tav second-pass) — error-handler helper, used by all
 // PIN-gated client-side actions. Pattern was copy-pasted in 7+
 // sites with subtle variants; some checked typeof clearManagerPin_
@@ -10650,9 +10674,7 @@ async function _plannerAddTask_(targetDate) {
   if (!title || !title.trim()) return;
   const assignee = prompt('Assignee (optional — Jonah, Shane, etc.):') || '';
   const priority = prompt('Priority? low / normal / high (default normal):') || 'normal';
-  const pin = getCachedManagerPin_() || promptManagerPin_('add task');
-  if (!pin) return;
-  try {
+  return _plannerAuthedCall_('add task', async (pin) => {
     const res = await groundApi('addPackTask', {
       title: title.trim(),
       assignee: assignee.trim(),
@@ -10664,32 +10686,28 @@ async function _plannerAddTask_(targetDate) {
     if (_handleApiErrorWithPin_(res, 'Add task failed')) return;
     showToast('✓ Task added');
     await refreshPackPlanner_();
-  } catch (e) { showToast('Network error: ' + e.message); }
+  });
 }
 
 async function _plannerToggleTask_(taskId, newStatus) {
-  const pin = getCachedManagerPin_() || promptManagerPin_('toggle task');
-  if (!pin) return;
-  try {
+  return _plannerAuthedCall_('toggle task', async (pin) => {
     const res = await groundApi('updatePackTask', {
       task_id: taskId, status: newStatus, manager_pin: pin,
       completed_by: localStorage.getItem('mbd_ground_packer') || '',
     });
     if (_handleApiErrorWithPin_(res, 'Update failed')) return;
     await refreshPackPlanner_();
-  } catch (e) { showToast('Network error: ' + e.message); }
+  });
 }
 
 async function _plannerDeleteTask_(taskId) {
   if (!confirm('Delete this task?')) return;
-  const pin = getCachedManagerPin_() || promptManagerPin_('delete task');
-  if (!pin) return;
-  try {
+  return _plannerAuthedCall_('delete task', async (pin) => {
     const res = await groundApi('deletePackTask', { task_id: taskId, manager_pin: pin });
     if (_handleApiErrorWithPin_(res, 'Delete failed')) return;
     showToast('✓ Task deleted');
     await refreshPackPlanner_();
-  } catch (e) { showToast('Network error: ' + e.message); }
+  });
 }
 
 // v10.606 (Zac 2026-06-16) — Interactive survey overlay. Lets
