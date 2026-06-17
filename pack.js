@@ -10342,9 +10342,15 @@ function _plannerFishingLoader_(message) {
     + '</div>';
 }
 
+// v10.662 (Zac 2026-06-17) — planner stickiness localStorage keys.
+const PLANNER_OPEN_LS_KEY = 'mbd_planner_open';
+const PLANNER_START_LS_KEY = 'mbd_planner_start';
+const PLANNER_RESUME_AFTER_LOOKUP_LS_KEY = 'mbd_planner_resume_after_lookup';
+
 async function openPackPlanner() {
   const pin = promptManagerPin_('open planner');
   if (!pin) return;
+  try { localStorage.setItem(PLANNER_OPEN_LS_KEY, '1'); } catch (e) { /* silent */ }
   // Render the overlay shell + fetch.
   const prior = document.getElementById('packPlannerOverlay');
   if (prior) prior.remove();
@@ -10374,6 +10380,27 @@ function closePackPlanner_() {
   if (ov) ov.remove();
   _packPlannerSelectedOrder = null;
   _packPlannerCache = null;
+  // v10.662 — only clear the "open" flag when CLOSING via the ✕
+  // button (deliberate close). Browser refresh / Lookup jump both
+  // remove the overlay without going through this; they set their
+  // own resume flags first.
+  try { localStorage.removeItem(PLANNER_OPEN_LS_KEY); } catch (e) {}
+  try { localStorage.removeItem(PLANNER_START_LS_KEY); } catch (e) {}
+}
+
+// v10.662 — called on PWA boot. If the user had the planner open
+// when they refreshed (browser reload, app re-launch, service worker
+// re-init), re-open it pointed at the same window so they don't lose
+// their place. PIN is cached; if not cached the prompt fires once.
+function _maybeRestorePackPlanner_() {
+  let wasOpen = false;
+  try { wasOpen = localStorage.getItem(PLANNER_OPEN_LS_KEY) === '1'; } catch (e) {}
+  if (!wasOpen) return;
+  let savedStart = null;
+  try { savedStart = localStorage.getItem(PLANNER_START_LS_KEY); } catch (e) {}
+  _packPlannerStartDate = savedStart || null;
+  // Defer so the rest of the app has a chance to wire up.
+  setTimeout(() => { try { openPackPlanner(); } catch (e) {} }, 80);
 }
 
 // v10.653 (Zac 2026-06-17) — windowed planner. Default view = today
@@ -10482,6 +10509,15 @@ async function refreshPackPlanner_() {
   // back to this window).
   const myStart = (res.days && res.days[0]) || _todayIsoLocal_();
   _packPlannerCacheByStart.set(myStart, res);
+  // v10.662 — persist the current window so browser refresh restores
+  // here. Null start = today (default); store actual start otherwise.
+  try {
+    if (_packPlannerStartDate) {
+      localStorage.setItem(PLANNER_START_LS_KEY, _packPlannerStartDate);
+    } else {
+      localStorage.removeItem(PLANNER_START_LS_KEY);
+    }
+  } catch (e) {}
   _renderPackPlanner_(res);
   // Kick off preloads for the adjacent windows so the next prev/next
   // click is instant. Fire-and-forget.
@@ -10692,6 +10728,12 @@ function _renderPlannerOrderCard_(o, source) {
     // v10.632 (Seth navigation) — 🔍 quick-jump to Lookup. Click
     //   propagation stopped so it doesn't trigger select/drop.
     +       '<button onclick="event.stopPropagation();_jumpFromPlannerToLookup_(\'' + esc(on) + '\')" title="Open in Lookup" style="background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18);border-radius:4px;width:22px;height:22px;font-size:11px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;cursor:pointer;padding:0;line-height:1">🔍</button>'
+    // v10.662 — unschedule. Only on cards in a day bucket (source
+    //   starts with "date:..."); puts the order back into "To Be
+    //   Scheduled" by clearing pack_target_date server-side.
+    +       (/^date:/.test(String(source || ''))
+        ? '<button onclick="event.stopPropagation();_plannerUnschedule_(\'' + esc(on) + '\')" title="Back to To Be Scheduled" style="background:rgba(255,255,255,.06) !important;border:1px solid rgba(255,255,255,.18);border-radius:4px;width:22px;height:22px;font-size:12px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;cursor:pointer;padding:0;line-height:1">⊘</button>'
+        : '')
     +       (ship ? '<span style="font-size:11px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(ship) + '</span>' : '')
     +       delayBadge
     +     '</span>'
@@ -10780,8 +10822,62 @@ function _wirePlannerInteractions_() {
 // jumpToLookup_ helper so behavior matches Tracking's deep-link
 // pattern.
 function _jumpFromPlannerToLookup_(orderNumber) {
-  closePackPlanner_();
+  // v10.662 — remember we came from the planner so we can offer a
+  // "← Back to planner" affordance + auto-restore the window state.
+  try {
+    localStorage.setItem(PLANNER_RESUME_AFTER_LOOKUP_LS_KEY, '1');
+    if (_packPlannerStartDate) {
+      localStorage.setItem(PLANNER_START_LS_KEY, _packPlannerStartDate);
+    } else {
+      localStorage.removeItem(PLANNER_START_LS_KEY);
+    }
+    // Don't clear PLANNER_OPEN_LS_KEY — we want the boot restore to
+    // bring it back too if Seth reloads from the Lookup tab. The
+    // Back button below does the same thing explicitly via tap.
+  } catch (e) {}
+  closePackPlannerOverlayKeepFlags_();
   if (typeof jumpToLookup_ === 'function') jumpToLookup_(orderNumber);
+  // Inject the banner once Lookup tab is visible.
+  setTimeout(_renderBackToPlannerBanner_, 200);
+}
+
+// v10.662 — close the planner overlay but PRESERVE the LS flags so
+// the boot path / Back button can restore it. (closePackPlanner_
+// clears the flags for an intentional close via the ✕ button.)
+function closePackPlannerOverlayKeepFlags_() {
+  const ov = document.getElementById('packPlannerOverlay');
+  if (ov) ov.remove();
+  _packPlannerSelectedOrder = null;
+  _packPlannerCache = null;
+}
+
+function _renderBackToPlannerBanner_() {
+  let shouldShow = false;
+  try { shouldShow = localStorage.getItem(PLANNER_RESUME_AFTER_LOOKUP_LS_KEY) === '1'; } catch (e) {}
+  if (!shouldShow) return;
+  // Remove any prior banner; insert at the top of the lookup tab.
+  const existing = document.getElementById('plannerBackBanner');
+  if (existing) existing.remove();
+  const host = document.getElementById('tab-lookup') || document.body;
+  const bn = document.createElement('div');
+  bn.id = 'plannerBackBanner';
+  bn.style.cssText = 'position:sticky;top:0;z-index:50;background:linear-gradient(90deg,rgba(0,48,135,.32),rgba(124,58,237,.22));border-bottom:1px solid rgba(124,58,237,.55);padding:8px 12px;display:flex;align-items:center;gap:10px;font-family:\'Barlow Condensed\',Arial,sans-serif';
+  bn.innerHTML = ''
+    + '<button onclick="_backToPlannerFromLookup_()" style="background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #42a5f5;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:900;letter-spacing:.4px;cursor:pointer">← Back to planner</button>'
+    + '<div style="font-size:12px;color:#C4B5FD !important;-webkit-text-fill-color:#C4B5FD !important;letter-spacing:.4px">opened from planner card</div>';
+  host.insertBefore(bn, host.firstChild);
+}
+
+function _backToPlannerFromLookup_() {
+  try { localStorage.removeItem(PLANNER_RESUME_AFTER_LOOKUP_LS_KEY); } catch (e) {}
+  const bn = document.getElementById('plannerBackBanner');
+  if (bn) bn.remove();
+  // Restore startDate from LS if present.
+  try {
+    const saved = localStorage.getItem(PLANNER_START_LS_KEY);
+    _packPlannerStartDate = saved || null;
+  } catch (e) { _packPlannerStartDate = null; }
+  openPackPlanner();
 }
 
 function _plannerSelectOrder_(orderNumber, source) {
@@ -10846,6 +10942,59 @@ function _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket) {
   cache.unscheduled_count = (cache.unscheduled || []).length;
   cache.past_due_count = (cache.past_due || []).length;
   return true;
+}
+
+// v10.662 (Zac 2026-06-17) — unschedule a day-bucket order back into
+// the "To Be Scheduled" sidebar. Optimistic: splice locally + re-render,
+// then setPackTargetDate('') server-side. On failure, roll back.
+async function _plannerUnschedule_(orderNumber) {
+  const pin = getCachedManagerPin_() || promptManagerPin_('unschedule');
+  if (!pin) return;
+  if (!_scheduleLock_(orderNumber)) {
+    showToast('Already moving #' + orderNumber + '…');
+    return;
+  }
+  const snapshot = _plannerSnapshotCache_();
+  // Splice from any day bucket / past_due, push into unscheduled.
+  let moved = null;
+  if (_packPlannerCache) {
+    const cache = _packPlannerCache;
+    if (cache.orders_by_date) {
+      Object.keys(cache.orders_by_date).forEach(d => {
+        ['make', 'pack'].forEach(b => {
+          const arr = (cache.orders_by_date[d] || {})[b] || [];
+          const ix = arr.findIndex(o => String(o.order_number) === String(orderNumber));
+          if (ix >= 0 && !moved) moved = arr.splice(ix, 1)[0];
+        });
+      });
+    }
+    if (!moved && Array.isArray(cache.past_due)) {
+      const ix = cache.past_due.findIndex(o => String(o.order_number) === String(orderNumber));
+      if (ix >= 0) moved = cache.past_due.splice(ix, 1)[0];
+    }
+    if (moved) {
+      cache.unscheduled = cache.unscheduled || [];
+      cache.unscheduled.push(moved);
+      cache.unscheduled_count = cache.unscheduled.length;
+      _renderPackPlanner_(cache);
+      showToast('↩ ' + orderNumber + ' → To Be Scheduled');
+    }
+  }
+  try {
+    const r = await groundApi('setPackTargetDate', {
+      orderNumber, targetDate: '', manager_pin: pin,
+      set_by: localStorage.getItem('mbd_ground_packer') || '',
+    });
+    if (r && !r.ok) {
+      _plannerRestoreCache_(snapshot);
+      _handleApiErrorWithPin_(r, 'Unschedule failed (rolled back)');
+    }
+  } catch (e) {
+    _plannerRestoreCache_(snapshot);
+    showToast('Network error (rolled back): ' + e.message);
+  } finally {
+    _scheduleUnlock_(orderNumber);
+  }
 }
 
 async function _plannerDropOnDay_(targetDate, targetBucket) {
