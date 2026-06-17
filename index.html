@@ -14843,19 +14843,41 @@ async function openReceiveShipment() {
   // below that as another bar." Switched from single-session
   // getActiveReceiveSession to multi-session listOpenReceiveSessions.
   // v10.673 (Zac 2026-06-17) — open the modal IMMEDIATELY with a
-  // spinner instead of waiting for the slow listOpenReceiveSessions
-  // round-trip. Zac flagged: "i hate how long it takes to load the
-  // receiving shipment popup each time, with no indicator that it's
-  // loading either!" The subsequent renderReceiveSession or
-  // showReceiveSetup overwrites the spinner with the real content.
-  openCabModal('📥 Receive Shipment', ''
-    + '<div style="text-align:center;padding:54px 20px">'
-    +   '<div style="display:inline-block;width:52px;height:52px;border:5px solid rgba(0,48,135,.15);border-top-color:#003087;border-radius:50%;animation:rcvSpin 0.85s linear infinite"></div>'
-    +   '<div style="margin-top:20px;font-size:15px;font-weight:800;color:#1a1a1a">Loading shipments…</div>'
-    +   '<div style="margin-top:6px;font-size:12px;color:#666">Pulling open lists across devices</div>'
-    + '</div>'
-    + '<style>@keyframes rcvSpin{to{transform:rotate(360deg)}}</style>'
-  );
+  // spinner. v10.674 — stale-while-revalidate: if we have a recent
+  // (≤90s) cached response in localStorage, paint from it instantly
+  // and fire a background fetch to update. The common Seth flow
+  // (open, glance, close, reopen within a minute) becomes truly
+  // instant; only the very first open of the day pays the cold-
+  // start tax.
+  const RECEIVE_CACHE_KEY = 'mbd_receive_open_sessions_v1';
+  const CACHE_FRESH_MS = 90 * 1000;
+  let cachedSessions = null;
+  let cachedAt = 0;
+  try {
+    const raw = localStorage.getItem(RECEIVE_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.sessions)) {
+        cachedSessions = parsed.sessions;
+        cachedAt = Number(parsed.cached_at_ms || 0);
+      }
+    }
+  } catch (e) { /* silent */ }
+  const cacheFresh = cachedSessions && (Date.now() - cachedAt < CACHE_FRESH_MS);
+  if (cacheFresh && cachedSessions.length > 0) {
+    // Instant paint from cache. Background refresh below.
+    _mergeServerReceiveSessions_(cachedSessions);
+    renderReceiveSession();
+  } else {
+    openCabModal('📥 Receive Shipment', ''
+      + '<div style="text-align:center;padding:54px 20px">'
+      +   '<div style="display:inline-block;width:52px;height:52px;border:5px solid rgba(0,48,135,.15);border-top-color:#003087;border-radius:50%;animation:rcvSpin 0.85s linear infinite"></div>'
+      +   '<div style="margin-top:20px;font-size:15px;font-weight:800;color:#1a1a1a">Loading shipments…</div>'
+      +   '<div style="margin-top:6px;font-size:12px;color:#666">Pulling open lists across devices</div>'
+      + '</div>'
+      + '<style>@keyframes rcvSpin{to{transform:rotate(360deg)}}</style>'
+    );
+  }
   const existing = getActiveSession();
   let serverSessions = [];
   if (GROUND_ORCH_URL) {
@@ -14863,19 +14885,28 @@ async function openReceiveShipment() {
       const resp = await groundApi('listOpenReceiveSessions', { window_days: 21 });
       if (resp && resp.ok && Array.isArray(resp.sessions) && resp.sessions.length > 0) {
         serverSessions = resp.sessions;
+        // v10.674 — persist for the next stale-while-revalidate open.
+        try {
+          localStorage.setItem(RECEIVE_CACHE_KEY, JSON.stringify({
+            cached_at_ms: Date.now(),
+            sessions: serverSessions,
+          }));
+        } catch (e) { /* silent */ }
       } else if (resp && !resp.ok) {
         const err = String(resp.error || '');
         if (/unauthor/i.test(err)) {
-          showToast('⚠ Unauthorized — set Shared Secret in Ground Settings');
+          if (!cacheFresh) showToast('⚠ Unauthorized — set Shared Secret in Ground Settings');
         } else {
-          showToast('⚠ ' + (err || 'Auto-load failed — manual setup'));
+          if (!cacheFresh) showToast('⚠ ' + (err || 'Auto-load failed — manual setup'));
         }
       } else if (resp && resp.ok && (!resp.sessions || resp.sessions.length === 0)) {
-        showToast('No open shipments — manual setup');
+        if (!cacheFresh) showToast('No open shipments — manual setup');
+        // Empty response is authoritative — clear stale cache.
+        try { localStorage.removeItem(RECEIVE_CACHE_KEY); } catch (e) {}
       }
     } catch (e) {
       console.warn('listOpenReceiveSessions failed:', e);
-      showToast('⚠ Could not reach server — using local cache');
+      if (!cacheFresh) showToast('⚠ Could not reach server — using local cache');
     }
   }
 
@@ -20706,7 +20737,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.673"></script>
+<script src="./pack.js?v=10.674"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20717,7 +20748,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.673<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.674<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
