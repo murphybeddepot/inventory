@@ -8016,7 +8016,10 @@ function _stockV2SessionItemHtml_(it) {
     +   '</div>'
     +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:8px">System says: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(onHand) + '</strong> on hand' + ropLine + (it.last_counted_by ? ' · last by ' + esc(it.last_counted_by) : '') + '</div>'
     +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
-    +     '<button onclick="_stockV2ConfirmItem_(\'' + esc(sku).replace(/\'/g, "\\\'") + '\')" style="padding:10px;background:rgba(0,200,83,.12) !important;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:1.5px solid #00C853 !important;border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✓ Confirm ' + esc(onHand) + '</button>'
+    +     '<div style="display:flex;gap:0;border-radius:8px;overflow:hidden;border:1.5px solid #00C853;background:rgba(0,200,83,.12)">'
+    +       '<button onclick="_stockV2ConfirmItem_(\'' + esc(sku).replace(/\'/g, "\\\'") + '\')" style="flex:1;padding:10px 6px;background:transparent !important;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:none;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✓ Confirm ' + esc(onHand) + '</button>'
+    +       '<button onclick="_stockV2OpenInlineCount_(\'' + esc(sku).replace(/\'/g, "\\\'") + '\')" title="Override quantity" style="padding:10px 8px;background:rgba(0,200,83,.20) !important;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:none;border-left:1px solid rgba(0,200,83,.45);font-size:14px;font-weight:900;cursor:pointer;line-height:1">▾</button>'
+    +     '</div>'
     +     '<button onclick="_stockV2AdjustItem_(\'' + esc(sku).replace(/\'/g, "\\\'") + '\')" style="padding:10px;background:rgba(255,179,0,.10) !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1.5px solid #FFB300 !important;border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✏ Adjust</button>'
     +   '</div>'
     + '</div>';
@@ -8080,9 +8083,163 @@ async function _stockV2ConfirmItem_(sku) {
     if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error');
   }
 }
+// v10.694 (Phase 1C) — delta keypad modal. Per Jonah's design-meeting
+// spec: big on-screen number pad (no iOS keyboard), SET / DELTA modes,
+// system-current pre-shown for trust, Save & next auto-advances to
+// the next ⚪ item.
+let _stockV2KeypadState_ = null;
 function _stockV2AdjustItem_(sku) {
-  // Phase 1C placeholder — delta keypad lands there.
-  alert('✏ Adjust ' + sku + '\n\nDelta keypad lands in Phase 1C with optimistic save to inventory_transactions.');
+  if (!_stockV2SessionState_) return;
+  const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
+  if (!it) return;
+  _stockV2KeypadState_ = {
+    sku: sku,
+    system_qty: (it.on_hand == null) ? 0 : Number(it.on_hand),
+    mode: 'set', // 'set' or 'delta'
+    buffer: '', // raw digit string
+    sign: 1, // for delta mode
+  };
+  _stockV2RenderKeypad_();
+}
+function _stockV2OpenInlineCount_(sku) {
+  // Quick override of Confirm's value via a tiny modal. Same keypad
+  // as Adjust. Just labeled differently.
+  _stockV2AdjustItem_(sku);
+}
+function _stockV2RenderKeypad_() {
+  const prior = document.getElementById('stockV2Keypad');
+  if (prior) prior.remove();
+  const s = _stockV2KeypadState_;
+  if (!s) return;
+  const it = (_stockV2SessionState_ && _stockV2SessionState_.items.find(x => x.item_sku === s.sku)) || {};
+  const name = it.name || '';
+  const modeIsDelta = s.mode === 'delta';
+  // Compute the result.
+  let result;
+  const bufNum = s.buffer === '' ? 0 : Number(s.buffer);
+  if (modeIsDelta) {
+    result = s.system_qty + (s.sign * bufNum);
+  } else {
+    result = s.buffer === '' ? s.system_qty : bufNum;
+  }
+  if (result < 0) result = 0;
+  const verbColor = (_stockV2SessionState_ && _stockV2SessionState_.verb === 'receive') ? '#00C853' : '#42a5f5';
+  const ov = document.createElement('div');
+  ov.id = 'stockV2Keypad';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:center;justify-content:center;padding:8px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  function btn(label, action, opts) {
+    opts = opts || {};
+    const bg = opts.bg || 'rgba(255,255,255,.08)';
+    const fg = opts.fg || '#fff';
+    const grow = opts.grow ? 'grid-column:span 2;' : '';
+    return '<button onclick="' + action + '" style="' + grow + 'padding:18px 0;background:' + bg + ' !important;color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border:1.5px solid rgba(255,255,255,.20);border-radius:10px;font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;cursor:pointer">' + label + '</button>';
+  }
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#0a0a0a;border:1.5px solid ' + verbColor + ';border-radius:14px;padding:14px;width:100%;max-width:380px;box-shadow:0 10px 32px rgba(0,0,0,.7)">'
+    +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px">'
+    +     '<div style="min-width:0;flex:1">'
+    +       '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff !important;word-break:break-all">' + esc(s.sku) + (name ? ' <span style="font-weight:500;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">' + esc(name) + '</span>' : '') + '</div>'
+    +       '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">System says: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + s.system_qty + '</strong></div>'
+    +     '</div>'
+    +     '<button onclick="_stockV2CloseKeypad_()" style="background:transparent;border:none;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:22px;cursor:pointer;padding:0 4px">✕</button>'
+    +   '</div>'
+    +   '<div style="display:flex;gap:4px;margin-bottom:10px;padding:3px;background:rgba(0,0,0,.30);border-radius:8px;border:1px solid var(--border)">'
+    +     '<button onclick="_stockV2KeypadMode_(\'set\')" style="flex:1;padding:8px;background:' + (modeIsDelta ? 'transparent' : verbColor) + ' !important;color:' + (modeIsDelta ? 'var(--text-dim)' : '#fff') + ' !important;-webkit-text-fill-color:' + (modeIsDelta ? 'var(--text-dim)' : '#fff') + ' !important;border:none;border-radius:5px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer">SET</button>'
+    +     '<button onclick="_stockV2KeypadMode_(\'delta\')" style="flex:1;padding:8px;background:' + (modeIsDelta ? verbColor : 'transparent') + ' !important;color:' + (modeIsDelta ? '#fff' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (modeIsDelta ? '#fff' : 'var(--text-dim)') + ' !important;border:none;border-radius:5px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer">DELTA ±</button>'
+    +   '</div>'
+    +   '<div style="background:rgba(0,0,0,.40);border:1.5px solid ' + verbColor + ';border-radius:8px;padding:14px;margin-bottom:10px;text-align:center">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:1.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;text-transform:uppercase">' + (modeIsDelta ? 'Result: ' + s.system_qty + ' ' + (s.sign > 0 ? '+' : '−') + ' ' + (s.buffer || '0') + ' =' : 'New count') + '</div>'
+    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:44px;font-weight:900;color:' + verbColor + ' !important;-webkit-text-fill-color:' + verbColor + ' !important;margin-top:2px;line-height:1">' + result + '</div>'
+    +   '</div>'
+    +   '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">'
+    +     btn('7', '_stockV2KeypadDigit_(\'7\')')
+    +     btn('8', '_stockV2KeypadDigit_(\'8\')')
+    +     btn('9', '_stockV2KeypadDigit_(\'9\')')
+    +     btn('4', '_stockV2KeypadDigit_(\'4\')')
+    +     btn('5', '_stockV2KeypadDigit_(\'5\')')
+    +     btn('6', '_stockV2KeypadDigit_(\'6\')')
+    +     btn('1', '_stockV2KeypadDigit_(\'1\')')
+    +     btn('2', '_stockV2KeypadDigit_(\'2\')')
+    +     btn('3', '_stockV2KeypadDigit_(\'3\')')
+    +     btn(modeIsDelta ? (s.sign > 0 ? '+' : '−') : '⌫', modeIsDelta ? '_stockV2KeypadFlipSign_()' : '_stockV2KeypadBackspace_()', { fg: modeIsDelta ? verbColor : '#FFB300' })
+    +     btn('0', '_stockV2KeypadDigit_(\'0\')')
+    +     btn('⌫', '_stockV2KeypadBackspace_()', { fg: '#FFB300' })
+    +   '</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+    +     '<button onclick="_stockV2CloseKeypad_()" style="padding:14px;background:rgba(255,255,255,.06) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">Cancel</button>'
+    +     '<button onclick="_stockV2KeypadSave_(' + result + ')" style="padding:14px;background:linear-gradient(135deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">✓ Save & next</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+function _stockV2KeypadDigit_(d) {
+  if (!_stockV2KeypadState_) return;
+  // Cap at 5 digits to keep counts reasonable.
+  if (_stockV2KeypadState_.buffer.length >= 5) return;
+  _stockV2KeypadState_.buffer = (_stockV2KeypadState_.buffer + d).replace(/^0+(?=\d)/, '');
+  _stockV2RenderKeypad_();
+}
+function _stockV2KeypadBackspace_() {
+  if (!_stockV2KeypadState_) return;
+  _stockV2KeypadState_.buffer = _stockV2KeypadState_.buffer.slice(0, -1);
+  _stockV2RenderKeypad_();
+}
+function _stockV2KeypadMode_(m) {
+  if (!_stockV2KeypadState_) return;
+  _stockV2KeypadState_.mode = (m === 'delta') ? 'delta' : 'set';
+  _stockV2KeypadState_.buffer = '';
+  _stockV2KeypadState_.sign = 1;
+  _stockV2RenderKeypad_();
+}
+function _stockV2KeypadFlipSign_() {
+  if (!_stockV2KeypadState_) return;
+  _stockV2KeypadState_.sign = (_stockV2KeypadState_.sign > 0) ? -1 : 1;
+  _stockV2RenderKeypad_();
+}
+function _stockV2CloseKeypad_() {
+  const ov = document.getElementById('stockV2Keypad');
+  if (ov) ov.remove();
+  _stockV2KeypadState_ = null;
+}
+async function _stockV2KeypadSave_(newQty) {
+  if (!_stockV2KeypadState_ || !_stockV2SessionState_) return;
+  const sku = _stockV2KeypadState_.sku;
+  const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
+  if (!it) { _stockV2CloseKeypad_(); return; }
+  _stockV2CloseKeypad_();
+  // Optimistic flip.
+  it._status = 'adjusted';
+  it._confirmed_at = new Date().toISOString();
+  it.on_hand = Number(newQty);
+  _stockV2RenderSessionView_();
+  // Auto-scroll to next ⚪.
+  setTimeout(() => {
+    const body = document.getElementById('stockV2SessionBody');
+    if (!body) return;
+    const nextOpen = body.querySelector('[data-stockv2-item]');
+    if (nextOpen) nextOpen.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 100);
+  const by = (function () {
+    try { return localStorage.getItem('mbd_ground_packer') || ''; } catch (e) { return ''; }
+  })();
+  try {
+    const res = await groundApi('recordInventoryCount', {
+      itemSku: sku,
+      countedQty: Number(newQty),
+      by: by,
+    });
+    if (res && res.ok) {
+      it._server_saved = true;
+      if (typeof showToast === 'function') showToast('✓ ' + sku + ' saved · ' + res.prior + ' → ' + res.on_hand);
+    } else {
+      it._server_error = (res && res.error) || 'save failed';
+      if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed: ' + it._server_error);
+    }
+  } catch (e) {
+    it._server_error = e.message;
+    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error');
+  }
 }
 function _stockV2CloseSessionView_() {
   const ov = document.getElementById('stockV2SessionOverlay');
@@ -21239,7 +21396,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.693"></script>
+<script src="./pack.js?v=10.694"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21250,7 +21407,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.693<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.694<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
