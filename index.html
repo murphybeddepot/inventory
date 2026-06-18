@@ -2171,7 +2171,10 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;text-transform:uppercase">📋 STOCK 2.0</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase">Phase 1B · session view live</span>
+      <!-- v10.698 — pending-sync badge. Visible only when queue >0.
+           Tappable to retry. -->
+      <button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:5px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:999px;padding:5px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;cursor:pointer" title="Tap to retry pending syncs"></button>
+      <span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase">Phase 1E · offline-safe</span>
       <button type="button" onclick="switchTab('items')" style="padding:6px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">↺ Stock 1.0</button>
     </div>
   </div>
@@ -7822,6 +7825,96 @@ function _bedrockTodayIso_() {
 // Phase 0: dashboard surface only. See #claude_bedrock for the 5-
 // persona design conversation that locked the spec. Flag-gated via
 // mbd_stock_v2_enabled — toggled from the More menu.
+//
+// Phase 1E (v10.698) — Offline-first pending queue per Indigo's
+// Meeting 2 concern + Phase 1D retro item N (Seth). When a save
+// fails (network or 5xx), the entry is appended to a localStorage
+// queue keyed by (sku, location, qty, verb, ts). Drain triggers:
+//   • next successful save (network back, try again)
+//   • window 'online' event
+//   • document visibilitychange → visible
+//   • manual tap on the 'N pending sync' badge
+// In-flight save counter (_stockV2InflightSaves_) supports the
+// 'disable End session while saves pending' guard.
+const _STOCKV2_PENDING_QUEUE_KEY = 'mbd_stock_v2_pending_queue_v1';
+let _stockV2InflightSaves_ = 0;
+let _stockV2DrainRunning_ = false;
+function _stockV2GetPendingQueue_() {
+  try {
+    const raw = localStorage.getItem(_STOCKV2_PENDING_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+function _stockV2SetPendingQueue_(queue) {
+  try {
+    if (queue && queue.length) {
+      localStorage.setItem(_STOCKV2_PENDING_QUEUE_KEY, JSON.stringify(queue));
+    } else {
+      localStorage.removeItem(_STOCKV2_PENDING_QUEUE_KEY);
+    }
+  } catch (e) { /* silent */ }
+}
+function _stockV2EnqueuePending_(entry) {
+  const q = _stockV2GetPendingQueue_();
+  // Dedup by SKU — newest write wins (operator probably re-counted).
+  const filtered = q.filter(e => e.sku !== entry.sku);
+  filtered.push(Object.assign({}, entry, { queued_at: new Date().toISOString() }));
+  // Cap to last 500 entries to avoid unbounded growth.
+  while (filtered.length > 500) filtered.shift();
+  _stockV2SetPendingQueue_(filtered);
+  _stockV2UpdatePendingBadges_();
+}
+function _stockV2PendingCount_() { return _stockV2GetPendingQueue_().length; }
+function _stockV2UpdatePendingBadges_() {
+  const n = _stockV2PendingCount_();
+  document.querySelectorAll('[data-stockv2-pending-badge]').forEach(el => {
+    if (n > 0) {
+      el.style.display = 'inline-flex';
+      el.textContent = '⟳ ' + n + ' pending sync';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+}
+async function _stockV2DrainPending_() {
+  if (_stockV2DrainRunning_) return; // re-entrant guard
+  _stockV2DrainRunning_ = true;
+  try {
+    let q = _stockV2GetPendingQueue_();
+    while (q.length > 0) {
+      const entry = q[0];
+      try {
+        const res = await groundApi('recordInventoryCount', {
+          itemSku: entry.sku,
+          countedQty: entry.qty,
+          by: entry.by || '',
+        });
+        if (res && res.ok) {
+          // Drop the head + persist + loop.
+          q.shift();
+          _stockV2SetPendingQueue_(q);
+          _stockV2UpdatePendingBadges_();
+          if (typeof showToast === 'function') showToast('✓ Synced queued count: ' + entry.sku);
+        } else {
+          // Server returned error — stop the drain to avoid hammering.
+          break;
+        }
+      } catch (e) {
+        // Network still down — stop.
+        break;
+      }
+    }
+  } finally {
+    _stockV2DrainRunning_ = false;
+  }
+}
+// Drain triggers — installed once at module load.
+window.addEventListener('online', () => { _stockV2DrainPending_(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') _stockV2DrainPending_();
+});
 function _stockV2Enabled_() {
   try { return localStorage.getItem('mbd_stock_v2_enabled') === '1'; }
   catch (e) { return false; }
@@ -7988,6 +8081,8 @@ function _stockV2RenderSessionView_() {
     +       '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:3px">' + totalCount + ' expected · ' + doneCount + ' done · ' + togoCount + ' to go' + (s.operator ? ' · ' + esc(s.operator) : '') + '</div>'
     +     '</div>'
     +   '</div>'
+    // v10.698 — pending-sync badge. Visible only when queue >0.
+    +   '<button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:6px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:5px 10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;cursor:pointer;flex-shrink:0" title="Tap to retry pending syncs"></button>'
     + '</div>'
     + '<div id="stockV2SessionBody" style="flex:1;overflow-y:auto;padding:10px 12px">'
     +   (totalCount === 0
@@ -7996,6 +8091,8 @@ function _stockV2RenderSessionView_() {
     +   (togoItems.length > 0 ? togoItems.map(it => _stockV2SessionItemHtml_(it)).join('') : '')
     +   (doneCount > 0 ? _stockV2DoneCollapseHtml_(doneItems) : '')
     + '</div>';
+  // v10.698 — sync pending-badge after paint (header has the badge).
+  if (typeof _stockV2UpdatePendingBadges_ === 'function') _stockV2UpdatePendingBadges_();
 }
 function _stockV2SessionItemHtml_(it) {
   const sku = it.item_sku || '';
@@ -8071,6 +8168,8 @@ async function _stockV2ConfirmItem_(sku) {
   const by = (function () {
     try { return localStorage.getItem('mbd_ground_packer') || ''; } catch (e) { return ''; }
   })();
+  // v10.698 — track in-flight so End session can be guarded.
+  _stockV2InflightSaves_++;
   try {
     const res = await groundApi('recordInventoryCount', {
       itemSku: sku,
@@ -8080,19 +8179,27 @@ async function _stockV2ConfirmItem_(sku) {
     if (res && res.ok) {
       it._server_saved = true;
       if (typeof showToast === 'function') showToast('✓ ' + sku + ' saved');
+      // Successful network → opportunistically drain anything queued.
+      _stockV2DrainPending_();
     } else {
-      // v10.695 punch-list I (Seth) — revert + tag error so the row
-      // re-appears in the to-go list with the inline banner.
+      // Server returned non-ok (validation, RLS, etc.) — revert UI so
+      // operator can retry. Don't queue server-rejects (would just
+      // re-fail). Show inline banner.
       it._status = 'open';
       it._server_error = (res && res.error) || 'save failed';
       _stockV2RenderSessionView_();
       if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed — re-tap to retry');
     }
   } catch (e) {
-    it._status = 'open';
-    it._server_error = e.message;
+    // v10.698 — network error: ENQUEUE for later drain instead of
+    // reverting. Operator's optimistic UI stays; sync indicator
+    // shows N pending.
+    _stockV2EnqueuePending_({ sku: sku, qty: onHand, by: by, location: _stockV2SessionState_ ? _stockV2SessionState_.location : '' });
+    it._server_queued = true;
+    if (typeof showToast === 'function') showToast('⟳ ' + sku + ' queued for sync (offline)');
     _stockV2RenderSessionView_();
-    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error — re-tap to retry');
+  } finally {
+    _stockV2InflightSaves_ = Math.max(0, _stockV2InflightSaves_ - 1);
   }
 }
 // v10.694 (Phase 1C) — delta keypad modal. Per Jonah's design-meeting
@@ -8267,6 +8374,7 @@ async function _stockV2KeypadSave_(newQty) {
   const by = (function () {
     try { return localStorage.getItem('mbd_ground_packer') || ''; } catch (e) { return ''; }
   })();
+  _stockV2InflightSaves_++;
   try {
     const res = await groundApi('recordInventoryCount', {
       itemSku: sku,
@@ -8276,19 +8384,22 @@ async function _stockV2KeypadSave_(newQty) {
     if (res && res.ok) {
       it._server_saved = true;
       if (typeof showToast === 'function') showToast('✓ ' + sku + ' saved · ' + res.prior + ' → ' + res.on_hand);
+      _stockV2DrainPending_();
     } else {
-      // v10.695 punch-list I (Seth) — revert to open + tag error so
-      // the row re-appears in the to-go list with an inline banner.
+      // Server-side reject — revert UI for manual retry.
       it._status = 'open';
       it._server_error = (res && res.error) || 'save failed';
       _stockV2RenderSessionView_();
       if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed — re-tap to retry');
     }
   } catch (e) {
-    it._status = 'open';
-    it._server_error = e.message;
+    // v10.698 — network error: enqueue for later drain.
+    _stockV2EnqueuePending_({ sku: sku, qty: qty, by: by, location: _stockV2SessionState_ ? _stockV2SessionState_.location : '' });
+    it._server_queued = true;
+    if (typeof showToast === 'function') showToast('⟳ ' + sku + ' queued for sync (offline)');
     _stockV2RenderSessionView_();
-    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error — re-tap to retry');
+  } finally {
+    _stockV2InflightSaves_ = Math.max(0, _stockV2InflightSaves_ - 1);
   }
 }
 function _stockV2CloseSessionView_() {
@@ -8390,7 +8501,13 @@ function _stockV2RenderSessionSummary_() {
     +   '</div>'
     +   '<div style="margin-top:14px;display:grid;grid-template-columns:' + (cont ? '1fr 1fr' : '1fr') + ';gap:8px">'
     +     cont
-    +     '<button onclick="_stockV2RealCloseSessionView_()" style="padding:14px;background:linear-gradient(135deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">' + (allDone ? '✓ Done — back to dashboard' : 'End session') + '</button>'
+    // v10.698 punch-list N (Seth) — disable End session while saves
+    // are in flight so the operator can't race-leave with pending
+    // writes. Pending queue is fine (will drain later); in-flight
+    // is mid-fetch and we don't yet know success/failure.
+    +     (_stockV2InflightSaves_ > 0
+        ? '<button disabled title="' + _stockV2InflightSaves_ + ' save' + (_stockV2InflightSaves_ === 1 ? '' : 's') + ' in flight — wait" style="padding:14px;background:rgba(255,255,255,.10) !important;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border:1.5px solid var(--border);border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:not-allowed">⌛ ' + _stockV2InflightSaves_ + ' saving…</button>'
+        : '<button onclick="_stockV2RealCloseSessionView_()" style="padding:14px;background:linear-gradient(135deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">' + (allDone ? '✓ Done — back to dashboard' : 'End session') + '</button>')
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
@@ -8449,6 +8566,8 @@ async function renderStockV2Dashboard_() {
       }
     }
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
+    // v10.698 — sync pending-badge after dashboard paints.
+    if (typeof _stockV2UpdatePendingBadges_ === 'function') _stockV2UpdatePendingBadges_();
   } catch (e) {
     list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Network error: ' + esc(e.message) + '</div>';
   }
@@ -21545,7 +21664,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.697"></script>
+<script src="./pack.js?v=10.698"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21556,7 +21675,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.697<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.698<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
