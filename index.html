@@ -2171,10 +2171,10 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;text-transform:uppercase">📋 STOCK 2.0</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <!-- v10.698 — pending-sync badge. Visible only when queue >0.
-           Tappable to retry. -->
-      <button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:5px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:999px;padding:5px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;cursor:pointer" title="Tap to retry pending syncs"></button>
-      <span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase">Phase 1E · offline-safe</span>
+      <!-- v10.698 — pending-sync badge. v10.699 — uppercase text. -->
+      <button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:5px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:999px;padding:5px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Tap to retry pending syncs"></button>
+      <!-- v10.699 (Mira) — phase label dropped; Stock 2.0 is now
+           feature-complete for counting. -->
       <button type="button" onclick="switchTab('items')" style="padding:6px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">↺ Stock 1.0</button>
     </div>
   </div>
@@ -5247,6 +5247,16 @@ document.addEventListener('DOMContentLoaded', () => {
       badge.style.color = on ? '#1e8e3e' : '#666';
     }
   } catch (e) {}
+  // v10.699 punch-list P (Seth) — boot-time pending-badge sync. If
+  // the queue has items from a prior session (PWA was closed before
+  // network recovered), make sure the dashboard badge populates as
+  // soon as the tab paints. Also kick a drain on boot if online.
+  try {
+    if (typeof _stockV2UpdatePendingBadges_ === 'function') _stockV2UpdatePendingBadges_();
+    if (navigator.onLine && typeof _stockV2DrainPending_ === 'function') {
+      setTimeout(_stockV2DrainPending_, 4000);
+    }
+  } catch (e) {}
 });
 
 // ── Back-button / history navigation (Zac 2026-05-17) ──────────
@@ -7896,6 +7906,17 @@ async function _stockV2DrainPending_() {
           q.shift();
           _stockV2SetPendingQueue_(q);
           _stockV2UpdatePendingBadges_();
+          // v10.699 punch-list S (Indigo) — if this SKU exists in the
+          // current session AND has a _server_error flag, clear it +
+          // re-render so the red inline banner goes away.
+          if (_stockV2SessionState_ && _stockV2SessionState_.items) {
+            const it = _stockV2SessionState_.items.find(x => x.item_sku === entry.sku);
+            if (it && it._server_error) {
+              it._server_error = null;
+              it._server_saved = true;
+              _stockV2RenderSessionView_();
+            }
+          }
           if (typeof showToast === 'function') showToast('✓ Synced queued count: ' + entry.sku);
         } else {
           // Server returned error — stop the drain to avoid hammering.
@@ -8081,8 +8102,8 @@ function _stockV2RenderSessionView_() {
     +       '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:3px">' + totalCount + ' expected · ' + doneCount + ' done · ' + togoCount + ' to go' + (s.operator ? ' · ' + esc(s.operator) : '') + '</div>'
     +     '</div>'
     +   '</div>'
-    // v10.698 — pending-sync badge. Visible only when queue >0.
-    +   '<button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:6px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:5px 10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;cursor:pointer;flex-shrink:0" title="Tap to retry pending syncs"></button>'
+    // v10.698 — pending-sync badge. v10.699 — uppercase text.
+    +   '<button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:6px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:5px 10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;flex-shrink:0" title="Tap to retry pending syncs"></button>'
     + '</div>'
     + '<div id="stockV2SessionBody" style="flex:1;overflow-y:auto;padding:10px 12px">'
     +   (totalCount === 0
@@ -21664,7 +21685,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.698"></script>
+<script src="./pack.js?v=10.699"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21675,7 +21696,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.698<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.699<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
