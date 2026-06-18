@@ -2172,7 +2172,7 @@ input::placeholder, textarea::placeholder {
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;text-transform:uppercase">📋 STOCK 2.0</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       <!-- v10.698 — pending-sync badge. v10.699 — uppercase text. -->
-      <button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:5px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:999px;padding:5px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Tap to retry pending syncs"></button>
+      <button data-stockv2-pending-badge onclick="_stockV2OpenPendingList_()" style="display:none;align-items:center;gap:5px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:999px;padding:5px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Tap to view pending syncs"></button>
       <!-- v10.699 (Mira) — phase label dropped; Stock 2.0 is now
            feature-complete for counting. -->
       <button type="button" onclick="switchTab('items')" style="padding:6px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">↺ Stock 1.0</button>
@@ -7936,6 +7936,79 @@ window.addEventListener('online', () => { _stockV2DrainPending_(); });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') _stockV2DrainPending_();
 });
+
+// v10.700 (Phase 1F · Jonah's "list queued items" ask). Tapping the
+// pending-sync badge now opens this modal showing every queued SKU,
+// its target bin, intended qty, and how long it's been queued.
+// Includes Retry all now (force drain) + Clear all (destructive,
+// with confirm) + per-item Drop buttons.
+function _stockV2OpenPendingList_() {
+  const prior = document.getElementById('stockV2PendingList');
+  if (prior) prior.remove();
+  const q = _stockV2GetPendingQueue_();
+  function rel(iso) {
+    if (!iso) return '?';
+    const dt = new Date(iso);
+    const sec = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
+    if (sec < 60) return sec + 's ago';
+    if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+    if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+    return Math.floor(sec / 86400) + 'd ago';
+  }
+  const rows = q.length === 0
+    ? '<div style="padding:24px 12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px;font-style:italic;text-align:center">No pending syncs — you\'re caught up ✨</div>'
+    : q.map((e, idx) =>
+        '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(0,0,0,.20);border:1px solid var(--border);border-radius:6px;margin-bottom:5px">'
+        + '<div style="flex:1;min-width:0">'
+        +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;word-break:break-all">' + esc(e.sku) + '</div>'
+        +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">📍 ' + esc(e.location || '—') + ' · qty: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(String(e.qty)) + '</strong> · queued ' + rel(e.queued_at) + (e.by ? ' · by ' + esc(e.by) : '') + '</div>'
+        + '</div>'
+        + '<button onclick="_stockV2DropPending_(' + idx + ')" title="Drop this entry without syncing" style="background:transparent;border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border-radius:6px;padding:6px 9px;font-size:11px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1">Drop</button>'
+        + '</div>'
+      ).join('');
+  const ov = document.createElement('div');
+  ov.id = 'stockV2PendingList';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.70);z-index:10003;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#0a0a0a;width:100%;max-width:720px;max-height:88vh;border-top:2px solid #FFB300;border-radius:18px 18px 0 0;padding:18px 20px 24px;overflow-y:auto;box-shadow:0 -8px 32px rgba(0,0,0,.7);display:flex;flex-direction:column">'
+    +   '<div style="width:40px;height:4px;background:rgba(255,255,255,.18);border-radius:999px;margin:0 auto 12px"></div>'
+    +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1px;text-transform:uppercase">⟳ ' + q.length + ' PENDING SYNC</div>'
+    +     '<button onclick="document.getElementById(\'stockV2PendingList\').remove()" style="background:transparent;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;font-size:24px;cursor:pointer;padding:0 6px">✕</button>'
+    +   '</div>'
+    +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:12px">These counts are saved locally and will sync next time the server responds. Tap Retry to force a sync attempt now.</div>'
+    +   '<div style="flex:1;overflow-y:auto;margin-bottom:12px">' + rows + '</div>'
+    +   (q.length > 0
+        ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+          + '<button onclick="_stockV2RetryAllPending_()" style="padding:13px;background:linear-gradient(135deg,#B36C00,#FF9100) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳ Retry all now</button>'
+          + '<button onclick="_stockV2ClearAllPending_()" style="padding:13px;background:transparent !important;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1.5px solid #FF5252;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚠ Clear all</button>'
+          + '</div>'
+        : '')
+    + '</div>';
+  document.body.appendChild(ov);
+}
+function _stockV2DropPending_(idx) {
+  const q = _stockV2GetPendingQueue_();
+  if (idx < 0 || idx >= q.length) return;
+  if (!confirm('Drop pending sync for ' + q[idx].sku + '? This loses the count permanently.')) return;
+  q.splice(idx, 1);
+  _stockV2SetPendingQueue_(q);
+  _stockV2UpdatePendingBadges_();
+  _stockV2OpenPendingList_(); // re-render
+}
+async function _stockV2RetryAllPending_() {
+  await _stockV2DrainPending_();
+  _stockV2OpenPendingList_(); // re-render with remaining
+}
+function _stockV2ClearAllPending_() {
+  const q = _stockV2GetPendingQueue_();
+  if (!confirm('Clear ALL ' + q.length + ' pending counts? They will be lost. This cannot be undone.')) return;
+  _stockV2SetPendingQueue_([]);
+  _stockV2UpdatePendingBadges_();
+  const ov = document.getElementById('stockV2PendingList');
+  if (ov) ov.remove();
+}
 function _stockV2Enabled_() {
   try { return localStorage.getItem('mbd_stock_v2_enabled') === '1'; }
   catch (e) { return false; }
@@ -8103,7 +8176,7 @@ function _stockV2RenderSessionView_() {
     +     '</div>'
     +   '</div>'
     // v10.698 — pending-sync badge. v10.699 — uppercase text.
-    +   '<button data-stockv2-pending-badge onclick="_stockV2DrainPending_()" style="display:none;align-items:center;gap:6px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:5px 10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;flex-shrink:0" title="Tap to retry pending syncs"></button>'
+    +   '<button data-stockv2-pending-badge onclick="_stockV2OpenPendingList_()" style="display:none;align-items:center;gap:6px;background:rgba(255,179,0,.18) !important;border:1px solid #FFB300 !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:5px 10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;flex-shrink:0" title="Tap to view pending syncs"></button>'
     + '</div>'
     + '<div id="stockV2SessionBody" style="flex:1;overflow-y:auto;padding:10px 12px">'
     +   (totalCount === 0
@@ -21685,7 +21758,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.699"></script>
+<script src="./pack.js?v=10.700"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21696,7 +21769,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.699<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.700<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
