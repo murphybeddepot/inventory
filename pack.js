@@ -16585,6 +16585,91 @@ async function voidAndRepackFromLookup_(orderId, orderNumber, btn) {
 // endpoint then surfaces per-box results in an alert (success count +
 // any failures). Uses the global loader so user knows something's
 // happening (per the existing R3 retry pattern).
+// v10.705 (2026-06-18, post UrlFetchApp quota incident) — when the
+// orchestrator's PrintNode submit fails because GAS UrlFetchApp daily
+// quota is exhausted, fall back to the Cloudflare worker /printnode
+// route which uses Cloudflare's request budget instead. Same end result
+// (PrintNode receives the job), zero GAS hops on the print step.
+//
+// Cached after first fetch so we don't re-fetch the config every reprint.
+let _printRelayConfig_ = null;
+async function _getPrintRelayConfig_() {
+  if (_printRelayConfig_ && _printRelayConfig_.worker_url) return _printRelayConfig_;
+  try {
+    const r = await groundApi('getPrintRelayConfig', {});
+    if (r && r.ok && r.worker_url && r.stamp_secret) {
+      _printRelayConfig_ = r;
+      return r;
+    }
+  } catch (e) { /* fall through */ }
+  return null;
+}
+
+// Quota-error detection. The orchestrator surfaces these strings when
+// UrlFetchApp is dead.
+function _looksLikeUrlFetchQuota_(text) {
+  const s = String(text || '').toLowerCase();
+  return s.includes('too many times for one day')
+      || s.includes('premium urlfetch')
+      || s.includes('urlfetch') && s.includes('quota');
+}
+
+// Reprint via worker. Fans out fetches to {worker_url}/printnode, one
+// per package. Returns a results-shaped object compatible with the
+// existing reprintAllLabelsForOrder UI handling.
+async function _reprintLabelsViaWorker_(orderNumber, printerId) {
+  const cfg = await _getPrintRelayConfig_();
+  if (!cfg) return { ok: false, error: 'Worker relay config unavailable' };
+  const ids = await groundApi('getPackageLabelIds', { orderNumber: orderNumber });
+  if (!ids || !ids.ok) return ids || { ok: false, error: 'getPackageLabelIds failed' };
+  const pid = Number(printerId) || Number(cfg.default_printer_id) || 0;
+  if (!pid) return { ok: false, error: 'No printer_id available' };
+  const results = [];
+  for (const pkg of (ids.packages || [])) {
+    if (!pkg.file_id) {
+      results.push({ sequence: pkg.sequence, ok: false, error: 'No Drive PDF' });
+      continue;
+    }
+    try {
+      const resp = await fetch(cfg.worker_url + '/printnode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          secret: cfg.stamp_secret,
+          printer_id: pid,
+          title: pkg.title,
+          drive_file_id: pkg.file_id,
+          source: 'Bedrock iPad via Worker'
+        })
+      });
+      const text = await resp.text();
+      const ok = resp.status >= 200 && resp.status < 300;
+      // PrintNode returns the job ID as a bare integer when successful.
+      const jobId = ok ? (Number(String(text).replace(/[^0-9]/g, '')) || 0) : 0;
+      results.push({
+        sequence: pkg.sequence,
+        ok: ok,
+        error: ok ? '' : ('Worker /printnode HTTP ' + resp.status + ': ' + text.substring(0, 200)),
+        printnode_job_id: jobId,
+        fallback_url: pkg.fallback_url
+      });
+    } catch (e) {
+      results.push({ sequence: pkg.sequence, ok: false, error: 'Worker call error: ' + e.message, fallback_url: pkg.fallback_url });
+    }
+  }
+  const okCount = results.filter(r => r.ok).length;
+  return {
+    ok: okCount > 0,
+    order_id: ids.order_id,
+    order_number: orderNumber,
+    total_packages: results.length,
+    printed_count: okCount,
+    failed_count: results.length - okCount,
+    results: results,
+    via: 'worker'
+  };
+}
+
 async function reprintAllLabelsFromLookup_(orderNumber, btn) {
   if (!orderNumber) return;
   const ok = confirm('Reprint all labels for order #' + orderNumber + '?\n\nThis re-submits each label PDF to PrintNode. No ShipStation calls, no charges.');
@@ -16592,7 +16677,25 @@ async function reprintAllLabelsFromLookup_(orderNumber, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Reprinting…'; }
   const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('Reprinting labels…') : null;
   try {
-    const res = await groundApi('reprintAllLabelsForOrder', { orderNumber: orderNumber });
+    let res = await groundApi('reprintAllLabelsForOrder', { orderNumber: orderNumber });
+    // v10.705 — auto-fallback: if the orchestrator's PrintNode submit
+    // failed because GAS UrlFetchApp daily quota is exhausted, retry via
+    // the Cloudflare worker which bypasses GAS entirely on the print step.
+    if (res && !res.ok && _looksLikeUrlFetchQuota_(res.error || JSON.stringify(res.results || []))) {
+      console.log('DIAG-V10.705 quota-detected, retrying via worker');
+      if (loader && loader.setText) loader.setText('GAS quota — relaying via Cloudflare…');
+      res = await _reprintLabelsViaWorker_(orderNumber);
+    } else if (res && res.results && res.results.length) {
+      // Per-box quota errors with overall ok=true is possible if some
+      // boxes printed before the quota tripped. Still try worker for
+      // failed boxes.
+      const failedQuota = res.results.filter(r => !r.ok && _looksLikeUrlFetchQuota_(r.error));
+      if (failedQuota.length > 0 && failedQuota.length === res.results.filter(r => !r.ok).length) {
+        console.log('DIAG-V10.705 partial-quota-fail, retrying via worker');
+        if (loader && loader.setText) loader.setText('GAS quota — relaying via Cloudflare…');
+        res = await _reprintLabelsViaWorker_(orderNumber);
+      }
+    }
     if (loader && loader.stop) loader.stop();
     if (btn) btn.disabled = false;
     // v10.202 — Seth persona: when reprint returns ok=false but has
