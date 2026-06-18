@@ -10436,9 +10436,11 @@ function closePackPlanner_() {
   if (ov) ov.remove();
   _packPlannerSelectedOrder = null;
   _packPlannerCache = null;
-  // v10.683 (Indigo) — re-prewarm in the background so the NEXT
-  // planner open is also instant. Same 8s delay as boot-time.
-  if (typeof _schedulePlannerPrewarm_ === 'function') _schedulePlannerPrewarm_();
+  // v10.704 (URLFetchApp quota incident, 2026-06-18) — DROPPED the
+  // re-prewarm. v10.683's per-close prewarm × every iPad/phone close
+  // × every operator action added up to material UrlFetchApp volume.
+  // Boot-time prewarm + 30-min throttle (see _plannerPrewarm_) is
+  // enough; cold opens cost the fishing animation, which is fine.
   // v10.662 — only clear the "open" flag when CLOSING via the ✕
   // button (deliberate close). Browser refresh / Lookup jump both
   // remove the overlay without going through this; they set their
@@ -10520,19 +10522,30 @@ async function _preloadWindow_(startDate) {
 // _packPlannerPrewarmAt. openPackPlanner reads both to decide
 // whether to use the cache or fall through to a live fetch.
 async function _plannerPrewarm_() {
+  // v10.704 (2026-06-18 ~10:30am EDT) — GAS UrlFetchApp daily quota
+  // hit prod. Prewarm was multiplying baseline fetches per app boot
+  // + per planner close across ~5-10 iPads + Zac's overnight Stock
+  // 2.0 testing. Throttle to once-per-30min minimum interval, AND
+  // only on boot — drop the re-prewarm from closePackPlanner_. The
+  // fishing animation on cold open is the price we pay back.
   try {
     if (typeof getCachedManagerPin_ === 'function' && !getCachedManagerPin_()) return;
+    // Honor the 30-min throttle.
+    const last = Number(localStorage.getItem('mbd_planner_prewarm_last_ms') || 0);
+    if (last && (Date.now() - last) < 30 * 60 * 1000) return;
     const res = await groundApi('listPackPlannerData', { days: 5 });
     if (res && res.ok) {
       const firstDay = (res.days && res.days[0]) || _todayIsoLocal_();
       _packPlannerCacheByStart.set(firstDay, res);
       _packPlannerPrewarmAt = Date.now();
+      try { localStorage.setItem('mbd_planner_prewarm_last_ms', String(Date.now())); } catch (e) {}
     }
   } catch (e) { /* silent — prewarm is best-effort */ }
 }
 function _schedulePlannerPrewarm_() {
-  // 8s after boot — gives critical fetches priority. Re-fires after
-  // every planner close so the NEXT open is also instant.
+  // v10.704 — formerly 'fires on boot + after every close'. Now boot-
+  // only + 30-min interval lock (in _plannerPrewarm_). Major fetch-
+  // volume reduction during heavy-test days.
   setTimeout(_plannerPrewarm_, 8000);
 }
 function _preloadAdjacentWindows_() {
