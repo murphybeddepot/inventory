@@ -8008,8 +8008,14 @@ function _stockV2SessionItemHtml_(it) {
   else if (days >= 7) { dot = '#FFB300'; tag = days + 'd ago'; }
   else { dot = '#00C853'; tag = days + 'd ago'; }
   const ropLine = (it.reorder_point != null) ? ' · ROP ' + it.reorder_point : '';
+  // v10.695 punch-list I (Seth) — inline error banner if a prior
+  // save attempt failed; persists until retry succeeds.
+  const errorBanner = it._server_error
+    ? '<div style="margin:0 0 7px;padding:7px 9px;background:rgba(255,82,82,.10);border:1px solid #FF5252;border-radius:6px;font-size:11px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-weight:700">⚠ Last save failed: ' + esc(String(it._server_error).slice(0, 80)) + ' — tap Confirm or ✏ Adjust to retry</div>'
+    : '';
   return ''
-    + '<div data-stockv2-item="' + esc(sku) + '" style="padding:11px 12px;background:rgba(0,0,0,.20);border:1px solid var(--border);border-left:4px solid ' + dot + ';border-radius:8px;margin-bottom:7px">'
+    + '<div data-stockv2-item="' + esc(sku) + '" style="padding:11px 12px;background:rgba(0,0,0,.20);border:1px solid ' + (it._server_error ? '#FF5252' : 'var(--border)') + ';border-left:4px solid ' + (it._server_error ? '#FF5252' : dot) + ';border-radius:8px;margin-bottom:7px">'
+    +   errorBanner
     +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">'
     +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;flex:1;min-width:0;word-break:break-all">' + esc(sku) + (name ? ' <span style="font-family:inherit;font-weight:500;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">· ' + esc(name) + '</span>' : '') + '</div>'
     +     '<div style="font-size:10px;font-weight:800;color:' + dot + ' !important;-webkit-text-fill-color:' + dot + ' !important;letter-spacing:.5px;text-transform:uppercase">' + tag + '</div>'
@@ -8075,12 +8081,18 @@ async function _stockV2ConfirmItem_(sku) {
       it._server_saved = true;
       if (typeof showToast === 'function') showToast('✓ ' + sku + ' saved');
     } else {
+      // v10.695 punch-list I (Seth) — revert + tag error so the row
+      // re-appears in the to-go list with the inline banner.
+      it._status = 'open';
       it._server_error = (res && res.error) || 'save failed';
-      if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed: ' + it._server_error);
+      _stockV2RenderSessionView_();
+      if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed — re-tap to retry');
     }
   } catch (e) {
+    it._status = 'open';
     it._server_error = e.message;
-    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error');
+    _stockV2RenderSessionView_();
+    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error — re-tap to retry');
   }
 }
 // v10.694 (Phase 1C) — delta keypad modal. Per Jonah's design-meeting
@@ -8135,6 +8147,14 @@ function _stockV2RenderKeypad_() {
     const grow = opts.grow ? 'grid-column:span 2;' : '';
     return '<button onclick="' + action + '" style="' + grow + 'padding:18px 0;background:' + bg + ' !important;color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border:1.5px solid rgba(255,255,255,.20);border-radius:10px;font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;cursor:pointer">' + label + '</button>';
   }
+  // v10.695 — punch list items F + G fixes.
+  // G: when buffer is empty, show '—' placeholder instead of the
+  // system value (Jonah said the system value looked pre-typed).
+  const isEmpty = s.buffer === '';
+  const resultDisplay = (modeIsDelta || !isEmpty) ? String(result) : '—';
+  const resultLabel = modeIsDelta
+    ? 'Result: ' + s.system_qty + ' ' + (s.sign > 0 ? '+' : '−') + ' ' + (s.buffer || '0') + ' ='
+    : (isEmpty ? 'Type the new count' : 'New count');
   ov.innerHTML = ''
     + '<div onclick="event.stopPropagation()" style="background:#0a0a0a;border:1.5px solid ' + verbColor + ';border-radius:14px;padding:14px;width:100%;max-width:380px;box-shadow:0 10px 32px rgba(0,0,0,.7)">'
     +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px">'
@@ -8149,8 +8169,8 @@ function _stockV2RenderKeypad_() {
     +     '<button onclick="_stockV2KeypadMode_(\'delta\')" style="flex:1;padding:8px;background:' + (modeIsDelta ? verbColor : 'transparent') + ' !important;color:' + (modeIsDelta ? '#fff' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (modeIsDelta ? '#fff' : 'var(--text-dim)') + ' !important;border:none;border-radius:5px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer">DELTA ±</button>'
     +   '</div>'
     +   '<div style="background:rgba(0,0,0,.40);border:1.5px solid ' + verbColor + ';border-radius:8px;padding:14px;margin-bottom:10px;text-align:center">'
-    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:1.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;text-transform:uppercase">' + (modeIsDelta ? 'Result: ' + s.system_qty + ' ' + (s.sign > 0 ? '+' : '−') + ' ' + (s.buffer || '0') + ' =' : 'New count') + '</div>'
-    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:44px;font-weight:900;color:' + verbColor + ' !important;-webkit-text-fill-color:' + verbColor + ' !important;margin-top:2px;line-height:1">' + result + '</div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:1.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;text-transform:uppercase">' + resultLabel + '</div>'
+    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:44px;font-weight:900;color:' + verbColor + ' !important;-webkit-text-fill-color:' + verbColor + ' !important;margin-top:2px;line-height:1">' + resultDisplay + '</div>'
     +   '</div>'
     +   '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">'
     +     btn('7', '_stockV2KeypadDigit_(\'7\')')
@@ -8162,7 +8182,9 @@ function _stockV2RenderKeypad_() {
     +     btn('1', '_stockV2KeypadDigit_(\'1\')')
     +     btn('2', '_stockV2KeypadDigit_(\'2\')')
     +     btn('3', '_stockV2KeypadDigit_(\'3\')')
-    +     btn(modeIsDelta ? (s.sign > 0 ? '+' : '−') : '⌫', modeIsDelta ? '_stockV2KeypadFlipSign_()' : '_stockV2KeypadBackspace_()', { fg: modeIsDelta ? verbColor : '#FFB300' })
+    // v10.695 punch-list F (Mira) — bottom-left was duplicate ⌫ in SET
+    // mode. Now: SET = 'C' clear; DELTA = ± sign-flip.
+    +     btn(modeIsDelta ? (s.sign > 0 ? '+' : '−') : 'C', modeIsDelta ? '_stockV2KeypadFlipSign_()' : '_stockV2KeypadClear_()', { fg: modeIsDelta ? verbColor : '#FFB300' })
     +     btn('0', '_stockV2KeypadDigit_(\'0\')')
     +     btn('⌫', '_stockV2KeypadBackspace_()', { fg: '#FFB300' })
     +   '</div>'
@@ -8185,6 +8207,12 @@ function _stockV2KeypadBackspace_() {
   _stockV2KeypadState_.buffer = _stockV2KeypadState_.buffer.slice(0, -1);
   _stockV2RenderKeypad_();
 }
+// v10.695 punch-list F (Mira) — C clear button for SET mode.
+function _stockV2KeypadClear_() {
+  if (!_stockV2KeypadState_) return;
+  _stockV2KeypadState_.buffer = '';
+  _stockV2RenderKeypad_();
+}
 function _stockV2KeypadMode_(m) {
   if (!_stockV2KeypadState_) return;
   _stockV2KeypadState_.mode = (m === 'delta') ? 'delta' : 'set';
@@ -8204,6 +8232,10 @@ function _stockV2CloseKeypad_() {
 }
 async function _stockV2KeypadSave_(newQty) {
   if (!_stockV2KeypadState_ || !_stockV2SessionState_) return;
+  // v10.695 punch-list J (Seth) — clamp negative on the save path
+  // (already clamped in display, but defensive on what we send).
+  let qty = Number(newQty);
+  if (!isFinite(qty) || qty < 0) qty = 0;
   const sku = _stockV2KeypadState_.sku;
   const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
   if (!it) { _stockV2CloseKeypad_(); return; }
@@ -8211,7 +8243,8 @@ async function _stockV2KeypadSave_(newQty) {
   // Optimistic flip.
   it._status = 'adjusted';
   it._confirmed_at = new Date().toISOString();
-  it.on_hand = Number(newQty);
+  it.on_hand = qty;
+  it._server_error = null;
   _stockV2RenderSessionView_();
   // Auto-scroll to next ⚪.
   setTimeout(() => {
@@ -8226,19 +8259,25 @@ async function _stockV2KeypadSave_(newQty) {
   try {
     const res = await groundApi('recordInventoryCount', {
       itemSku: sku,
-      countedQty: Number(newQty),
+      countedQty: qty,
       by: by,
     });
     if (res && res.ok) {
       it._server_saved = true;
       if (typeof showToast === 'function') showToast('✓ ' + sku + ' saved · ' + res.prior + ' → ' + res.on_hand);
     } else {
+      // v10.695 punch-list I (Seth) — revert to open + tag error so
+      // the row re-appears in the to-go list with an inline banner.
+      it._status = 'open';
       it._server_error = (res && res.error) || 'save failed';
-      if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed: ' + it._server_error);
+      _stockV2RenderSessionView_();
+      if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed — re-tap to retry');
     }
   } catch (e) {
+    it._status = 'open';
     it._server_error = e.message;
-    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error');
+    _stockV2RenderSessionView_();
+    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error — re-tap to retry');
   }
 }
 function _stockV2CloseSessionView_() {
@@ -21396,7 +21435,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.694"></script>
+<script src="./pack.js?v=10.695"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21407,7 +21446,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.694<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.695<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
