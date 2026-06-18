@@ -8104,12 +8104,18 @@ function _stockV2AdjustItem_(sku) {
   if (!_stockV2SessionState_) return;
   const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
   if (!it) return;
+  // v10.696 punch-list H (Jonah) — remember the last-used DELTA sign
+  // per session so repeated negative deltas don't make the operator
+  // flip ± each time.
+  const rememberedSign = (typeof _stockV2SessionState_._lastDeltaSign === 'number')
+    ? _stockV2SessionState_._lastDeltaSign
+    : 1;
   _stockV2KeypadState_ = {
     sku: sku,
     system_qty: (it.on_hand == null) ? 0 : Number(it.on_hand),
     mode: 'set', // 'set' or 'delta'
     buffer: '', // raw digit string
-    sign: 1, // for delta mode
+    sign: rememberedSign,
   };
   _stockV2RenderKeypad_();
 }
@@ -8223,6 +8229,11 @@ function _stockV2KeypadMode_(m) {
 function _stockV2KeypadFlipSign_() {
   if (!_stockV2KeypadState_) return;
   _stockV2KeypadState_.sign = (_stockV2KeypadState_.sign > 0) ? -1 : 1;
+  // v10.696 punch-list H — remember the flip in the session so the
+  // next keypad open uses the same sign as default.
+  if (_stockV2SessionState_) {
+    _stockV2SessionState_._lastDeltaSign = _stockV2KeypadState_.sign;
+  }
   _stockV2RenderKeypad_();
 }
 function _stockV2CloseKeypad_() {
@@ -8281,9 +8292,93 @@ async function _stockV2KeypadSave_(newQty) {
   }
 }
 function _stockV2CloseSessionView_() {
+  // v10.696 (Phase 1D · punch-list K) — intercept the close to show a
+  // session summary card instead of dropping the operator straight
+  // back to dashboard. Per Norm's "finish-line feeling" ask in the
+  // Phase 1C retro. If the operator has 0 done + 0 adjusted (opened
+  // the bin and bailed without touching anything), skip the summary
+  // — nothing to celebrate.
+  if (!_stockV2SessionState_) {
+    const ov = document.getElementById('stockV2SessionOverlay');
+    if (ov) ov.remove();
+    return;
+  }
+  const s = _stockV2SessionState_;
+  const doneCount = s.items.filter(it => it._status === 'confirmed').length;
+  const adjustedCount = s.items.filter(it => it._status === 'adjusted').length;
+  const totalTouched = doneCount + adjustedCount;
+  if (totalTouched === 0) {
+    // Empty bail — no summary needed.
+    const ov = document.getElementById('stockV2SessionOverlay');
+    if (ov) ov.remove();
+    _stockV2SessionState_ = null;
+    return;
+  }
+  _stockV2RenderSessionSummary_();
+}
+function _stockV2RealCloseSessionView_() {
   const ov = document.getElementById('stockV2SessionOverlay');
   if (ov) ov.remove();
+  const summary = document.getElementById('stockV2SessionSummary');
+  if (summary) summary.remove();
   _stockV2SessionState_ = null;
+}
+function _stockV2DismissSummary_() {
+  // Operator chose "Keep going" — drop the summary card, stay in session.
+  const summary = document.getElementById('stockV2SessionSummary');
+  if (summary) summary.remove();
+}
+function _stockV2RenderSessionSummary_() {
+  const prior = document.getElementById('stockV2SessionSummary');
+  if (prior) prior.remove();
+  const s = _stockV2SessionState_;
+  if (!s) return;
+  const doneCount = s.items.filter(it => it._status === 'confirmed').length;
+  const adjustedCount = s.items.filter(it => it._status === 'adjusted').length;
+  const togoCount = s.items.filter(it => it._status === 'open').length;
+  const failedCount = s.items.filter(it => it._server_error).length;
+  const totalTouched = doneCount + adjustedCount;
+  const verbColor = (s.verb === 'receive') ? '#00C853' : '#42a5f5';
+  // Elapsed time.
+  const startMs = new Date(s.started_at).getTime();
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+  const mm = Math.floor(elapsedSec / 60);
+  const ss = elapsedSec % 60;
+  const timeLabel = mm + 'm ' + ss + 's';
+  const allDone = togoCount === 0;
+  const headline = allDone ? '🎉 Bin complete' : '✅ Progress saved';
+  const cont = togoCount > 0
+    ? '<button onclick="_stockV2DismissSummary_()" style="padding:14px;background:' + verbColor + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">Keep going · ' + togoCount + ' left</button>'
+    : '';
+  const ov = document.createElement('div');
+  ov.id = 'stockV2SessionSummary';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10002;display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.innerHTML = ''
+    + '<div style="background:#0a0a0a;border:1.5px solid ' + verbColor + ';border-radius:14px;padding:18px;width:100%;max-width:380px;box-shadow:0 10px 32px rgba(0,0,0,.7)">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;color:' + verbColor + ' !important;-webkit-text-fill-color:' + verbColor + ' !important;text-transform:uppercase">Session summary · 📍 ' + esc(s.location) + '</div>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;line-height:1.1;margin-top:4px">' + headline + '</div>'
+    +   '<div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    +     '<div style="padding:10px;background:rgba(0,200,83,.10);border:1px solid rgba(0,200,83,.40);border-radius:8px">'
+    +       '<div style="font-size:10px;font-weight:800;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;letter-spacing:1px;text-transform:uppercase">Confirmed as-is</div>'
+    +       '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;line-height:1;margin-top:3px">' + doneCount + '</div>'
+    +     '</div>'
+    +     '<div style="padding:10px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.40);border-radius:8px">'
+    +       '<div style="font-size:10px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1px;text-transform:uppercase">Adjusted</div>'
+    +       '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;line-height:1;margin-top:3px">' + adjustedCount + '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="margin-top:10px;padding:10px 12px;background:rgba(0,0,0,.30);border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">'
+    +     'Time: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + timeLabel + '</strong>'
+    +     ' · Items in bin: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + s.items.length + '</strong>'
+    +     (togoCount > 0 ? ' · To-go: <strong style="color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important">' + togoCount + '</strong>' : '')
+    +     (failedCount > 0 ? ' · <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">⚠ ' + failedCount + ' failed</span>' : '')
+    +   '</div>'
+    +   '<div style="margin-top:14px;display:grid;grid-template-columns:' + (cont ? '1fr 1fr' : '1fr') + ';gap:8px">'
+    +     cont
+    +     '<button onclick="_stockV2RealCloseSessionView_()" style="padding:14px;background:linear-gradient(135deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">' + (allDone ? '✓ Done — back to dashboard' : 'End session') + '</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
 }
 async function renderStockV2Dashboard_() {
   const list = document.getElementById('stockV2List');
@@ -21435,7 +21530,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.695"></script>
+<script src="./pack.js?v=10.696"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21446,7 +21541,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.695<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.696<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
