@@ -10258,17 +10258,53 @@ function _scheduleUnlock_(orderNumber) {
   _scheduleInFlight.delete(orderNumber);
 }
 
-// v10.609 (Seth survey r2 2026-06-16) — Make Today / Pack Today
-// multi-day planner. Manager-only view. Touch-DnD (with tap-to-
-// move accessibility fallback) to schedule orders across days.
-// PIN cached for the session (30min via cacheManagerPin_).
+// ════════════════════════════════════════════════════════════════
+// MODULE: planner (Make Today / Pack Today multi-day view)
+// ────────────────────────────────────────────────────────────────
+// v10.609 (Seth survey r2 2026-06-16). Manager-only modal overlay.
+// PIN cached for the session (30min via cacheManagerPin_). Two
+// layouts: desktop side-by-side (sidebar + 5 day columns), mobile
+// stacked single-day with chips strip + drawer (v10.685).
 //
-// Layout (Seth-locked):
-//   ┌────────────┬───────────┬───────────┬─── 5 day columns
-//   │ Unscheduled│ Today     │ Tomorrow  │ ...
-//   │ (sidebar)  │ Make:     │ Make:     │
-//   │            │ Pack:     │ Pack:     │
-//   │            │ Tasks:    │ Tasks:    │
+// State machine (all module-level globals — keep `let` types so
+// vm-load smoke tests can override safely):
+//
+//   _packPlannerCache        : last fetched window response. Cleared
+//                              on close (✕). Source-of-truth for
+//                              re-renders + optimistic local mutations.
+//   _packPlannerCacheByStart : Map<startDateIso → window response>.
+//                              Adjacent windows preloaded (v10.655)
+//                              + boot prewarm (v10.683) cache here.
+//   _packPlannerStartDate    : null = today's window (default). Non-
+//                              null = navigated to a non-today window
+//                              via prev/next. Persists via PLANNER_
+//                              START_LS_KEY for browser-refresh.
+//   _packPlannerPrewarmAt    : ms timestamp of last boot-time prewarm.
+//                              openPackPlanner uses (Date.now() - this
+//                              < PLANNER_PREWARM_FRESH_MS) to decide
+//                              whether to short-circuit the fetch.
+//   _packPlannerSelectedOrder: { order_number, source } when an order
+//                              is tapped (acts as a "carry"). Tapping
+//                              a day's Make or Pack bucket fires
+//                              _plannerDropOnDay_ using this.
+//   _packPlannerMobileDay    : (mobile only) which day chip is active.
+//                              Defaults to today; falls back to first
+//                              day in window if today isn't in the
+//                              current 5-day pane.
+//
+// Render entry: _renderPackPlanner_(data) → branches on
+// _plannerIsMobile_() to _renderPackPlannerMobile_. Both ultimately
+// build the body via _renderPlannerOrderCard_, _renderPlannerBucket_,
+// _renderPlannerTasks_ — shared between layouts. Interactions
+// (select, drop, reschedule, mark shipped) live in pack.js globals
+// (_plannerSelectOrder_, _plannerDropOnDay_, etc.) and work the
+// same across both layouts.
+//
+// Persistence: PLANNER_OPEN_LS_KEY (overlay open? for boot
+// restore), PLANNER_START_LS_KEY (current window start), PLANNER_
+// RESUME_AFTER_LOOKUP_LS_KEY (came from planner → Lookup, banner
+// "← Back to planner" affordance).
+// ════════════════════════════════════════════════════════════════
 let _packPlannerSelectedOrder = null; // { order_number, source: 'unscheduled' | 'date' }
 let _packPlannerCache = null;
 
