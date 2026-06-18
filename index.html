@@ -7854,6 +7854,7 @@ async function _stockV2StartSession_(verb) {
     +   '<div style="display:flex;gap:6px;margin-bottom:14px">'
     +     '<input id="stockV2BinInput" type="text" placeholder="Bin code (e.g. 001.005 or STAGING)" autocomplete="off" autocorrect="off" autocapitalize="characters" '
     +       'style="flex:1;padding:11px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid ' + verbColor + ' !important;border-radius:6px;font-size:14px;font-family:\'JetBrains Mono\',monospace;font-weight:700;outline:none">'
+    +     '<button onclick="_stockV2BinCameraScan_(\'' + verb + '\')" title="Scan with camera" style="padding:11px 12px;background:rgba(0,0,0,.30) !important;color:' + verbColor + ' !important;-webkit-text-fill-color:' + verbColor + ' !important;border:1.5px solid ' + verbColor + ' !important;border-radius:6px;font-size:18px;cursor:pointer;line-height:1">📷</button>'
     +     '<button onclick="_stockV2BinGo_(\'' + verb + '\')" style="padding:11px 14px;background:' + verbColor + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">Go ›</button>'
     +   '</div>'
     +   '<div id="stockV2BinList" style="display:flex;flex-direction:column;gap:4px">'
@@ -7900,6 +7901,24 @@ function _stockV2BinGo_(verb) {
   const loc = String(inp.value || '').trim();
   if (!loc) { inp.focus(); return; }
   _stockV2BinPick_(loc, verb);
+}
+// v10.691 (Zac 23:08 EDT: "Bin barcode qty should all have option to
+// use camera to scan"). Reuses the existing ZXing camera scanner
+// infrastructure. Sets camCallback so the next decoded barcode fires
+// our handler instead of the default handleBarcode route.
+async function _stockV2BinCameraScan_(verb) {
+  try {
+    camCallback = function (code) {
+      const inp = document.getElementById('stockV2BinInput');
+      if (inp) inp.value = String(code || '').trim();
+      _stockV2BinPick_(String(code || '').trim(), verb);
+    };
+    const footText = document.getElementById('camFootText');
+    if (footText) footText.textContent = 'Scan a bin barcode…';
+    await startCamera();
+  } catch (e) {
+    alert('Camera error: ' + e.message);
+  }
 }
 async function _stockV2BinPick_(location, verb) {
   // Fetch worklist + open the session view (Phase 1B placeholder
@@ -21046,7 +21065,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.690"></script>
+<script src="./pack.js?v=10.691"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21057,7 +21076,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.690<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.691<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
