@@ -1141,6 +1141,9 @@ input::placeholder, textarea::placeholder {
   <button class="tab-btn" id="tab-pack-btn" onclick="switchTab('pack')" style="display:none">Pack</button>
   <button class="tab-btn" id="tab-schedule-btn" onclick="switchTab('schedule')" style="display:none">Schedule</button>
   <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')" style="display:none">Stock</button>
+  <!-- v10.689 — Stock 2.0 (Phase 0 dashboard). Flag-gated via the
+       mbd_stock_v2_enabled localStorage key. More menu has a toggle. -->
+  <button class="tab-btn" id="tab-items-v2-btn" onclick="switchTab('items-v2')" style="display:none">Stock 2</button>
   <button class="tab-btn" id="tab-cycle-btn" onclick="switchTab('cycle')" style="display:none">Count</button>
   <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')" style="display:none">Inventory</button>
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')" style="display:none">Barcodes</button>
@@ -1372,6 +1375,17 @@ input::placeholder, textarea::placeholder {
       <div style="flex:1">
         <div>Freight Defaults</div>
         <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Per-SKU weight / dims / class — search, edit, bulk-apply (manager PIN)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
+    <!-- v10.689 — Stock 2.0 preview toggle. Tap to enable; "Stock 2"
+         appears in the More menu / nav. Disable to hide. -->
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px;border-top:2px solid #f0f0f0;padding-top:14px">Preview features</div>
+    <button onclick="closeMoreMenu();_stockV2Toggle_()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📋</span>
+      <div style="flex:1">
+        <div>Stock 2.0 <span id="stockV2StatusBadge" style="margin-left:6px;font-size:10px;font-weight:900;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px">Off</span></div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Phase 0 dashboard preview — see stale items first. Tap to toggle.</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
@@ -2147,6 +2161,29 @@ input::placeholder, textarea::placeholder {
     <button onclick="leaveGroundPack()" style="margin-top:14px;width:100%;padding:14px;background:#1a1a1a;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">Back to Queue</button>
   </div>
 
+</div>
+
+<!-- v10.689 — Stock 2.0 (Phase 0). Flag-gated dashboard surface. The
+     mounted panel is empty until renderStockV2Dashboard_() paints it
+     from listStockDashboardV2 server data. Persona-meeting design;
+     see #claude_bedrock for the full design conversation. -->
+<div id="tab-items-v2" class="panel">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;text-transform:uppercase">📋 STOCK 2.0</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase">Phase 0 · dashboard only</span>
+      <button type="button" onclick="switchTab('items')" style="padding:6px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">↺ Stock 1.0</button>
+    </div>
+  </div>
+  <div style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;line-height:1.5;margin-bottom:10px">The list below is your "needs attention" — items sorted by how stale their last count is. Tap any row to start a count session (Phase 1 — coming).</div>
+  <!-- Session-start buttons. Phase 0: opens placeholder modals. -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+    <button onclick="_stockV2StartSession_('count')" style="padding:14px 10px;background:linear-gradient(180deg,#003087,#1A4FB0) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📋 Start Counting</button>
+    <button onclick="_stockV2StartSession_('receive')" style="padding:14px 10px;background:linear-gradient(180deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📥 Start Receiving</button>
+  </div>
+  <div id="stockV2Stats" style="display:none;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:8px 12px;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:8px;margin-bottom:10px"></div>
+  <div id="stockV2List" style="display:flex;flex-direction:column;gap:6px"></div>
+  <div id="stockV2Empty" style="display:none;padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px;font-style:italic;border:1px dashed var(--border);border-radius:10px"></div>
 </div>
 
 <div id="tab-cycle" class="panel">
@@ -2978,12 +3015,16 @@ function switchTab(name) {
     setPackTabMode('prepack');
     return;
   }
-  ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export','orders','recount'].forEach(t => {
+  ['scan','prepack','pack','schedule','lookup','cabinets','items','items-v2','ground','cycle','barcodes','log','export','orders','recount'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
     if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
+  // v10.689 — Stock 2.0: when tab opens, paint the dashboard.
+  if (name === 'items-v2' && typeof renderStockV2Dashboard_ === 'function') {
+    renderStockV2Dashboard_();
+  }
   // v10.143: persist active tab so refresh / re-open stays on the
   // same screen instead of bouncing back to the default (Zac ask).
   try { localStorage.setItem('mbd_active_tab', name); } catch (e) {}
@@ -5185,6 +5226,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // open per session is instant. Fires 8s after boot; gated on PIN
   // being cached so anonymous boots stay quiet.
   try { if (typeof _schedulePlannerPrewarm_ === 'function') _schedulePlannerPrewarm_(); } catch (e) {}
+  // v10.689 — Stock 2.0 nav visibility + status badge sync.
+  try {
+    if (typeof _stockV2SyncTabVisibility_ === 'function') _stockV2SyncTabVisibility_();
+    const badge = document.getElementById('stockV2StatusBadge');
+    if (badge) {
+      const on = (typeof _stockV2Enabled_ === 'function') && _stockV2Enabled_();
+      badge.textContent = on ? 'On' : 'Off';
+      badge.style.background = on ? '#e6f4ea' : '#f0f0f0';
+      badge.style.color = on ? '#1e8e3e' : '#666';
+    }
+  } catch (e) {}
 });
 
 // ── Back-button / history navigation (Zac 2026-05-17) ──────────
@@ -7757,6 +7809,90 @@ function _bedrockTodayIso_() {
     // Fallback: UTC. Worse but never throws.
     return _bedrockTodayIso_();
   }
+}
+
+// ── Stock 2.0 (v10.689) ───────────────────────────────────────
+// Phase 0: dashboard surface only. See #claude_bedrock for the 5-
+// persona design conversation that locked the spec. Flag-gated via
+// mbd_stock_v2_enabled — toggled from the More menu.
+function _stockV2Enabled_() {
+  try { return localStorage.getItem('mbd_stock_v2_enabled') === '1'; }
+  catch (e) { return false; }
+}
+function _stockV2Toggle_() {
+  const on = !_stockV2Enabled_();
+  try { localStorage.setItem('mbd_stock_v2_enabled', on ? '1' : '0'); } catch (e) {}
+  _stockV2SyncTabVisibility_();
+  if (typeof showToast === 'function') {
+    showToast(on ? '✓ Stock 2.0 enabled — tap "Stock 2" in More menu' : 'Stock 2.0 hidden');
+  }
+}
+function _stockV2SyncTabVisibility_() {
+  const btn = document.getElementById('tab-items-v2-btn');
+  if (btn) btn.style.display = _stockV2Enabled_() ? '' : 'none';
+}
+function _stockV2StartSession_(verb) {
+  // Phase 0 placeholder — session flow lands in Phase 1.
+  alert('Stock 2.0 session flow (verb: ' + verb + ') ships in Phase 1.\n\nFor Phase 0, the dashboard above shows your "needs attention" list. Tap any row to see what the session will look like (placeholder for now).');
+}
+async function renderStockV2Dashboard_() {
+  const list = document.getElementById('stockV2List');
+  const stats = document.getElementById('stockV2Stats');
+  const empty = document.getElementById('stockV2Empty');
+  if (!list) return;
+  list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px">Loading…</div>';
+  if (empty) empty.style.display = 'none';
+  if (stats) stats.style.display = 'none';
+  try {
+    const res = await groundApi('listStockDashboardV2', { limit: 50 });
+    if (!res || !res.ok) {
+      list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Load failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    const items = res.items || [];
+    if (items.length === 0) {
+      list.innerHTML = '';
+      if (empty) {
+        empty.style.display = 'block';
+        empty.textContent = 'Nothing in the "needs attention" list — counts are fresh. ✨';
+      }
+      return;
+    }
+    if (stats) {
+      stats.style.display = 'block';
+      stats.textContent = res.returned + ' shown · ' + res.total_items + ' total items · phase ' + res.velocity_phase + ' sort';
+    }
+    list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
+  } catch (e) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Network error: ' + esc(e.message) + '</div>';
+  }
+}
+function _stockV2RowHtml_(it) {
+  const sku = it.item_sku || '';
+  const name = it.name || '';
+  const loc = it.location || '—';
+  const onHand = (it.on_hand == null) ? '—' : String(it.on_hand);
+  const days = (typeof it.staleness_days === 'number') ? it.staleness_days : -1;
+  // Freshness coloring per persona Meeting 2: <7 green, 7-14 amber,
+  // >14 red. -1 sentinel = uncounted (purple).
+  let dot = '#9AAAC0', tag = '?';
+  if (days === -1) { dot = '#7C3AED'; tag = 'NEVER'; }
+  else if (days >= 14) { dot = '#FF5252'; tag = days + 'd'; }
+  else if (days >= 7) { dot = '#FFB300'; tag = days + 'd'; }
+  else { dot = '#00C853'; tag = days + 'd'; }
+  return ''
+    + '<div onclick="_stockV2OpenItem_(\'' + esc(sku).replace(/'/g, "\\'") + '\')" style="display:flex;align-items:center;gap:10px;padding:11px 12px;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:8px;cursor:pointer">'
+    +   '<div style="width:10px;height:10px;border-radius:50%;background:' + dot + ';flex-shrink:0;box-shadow:0 0 8px ' + dot + '"></div>'
+    +   '<div style="flex:1;min-width:0">'
+    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(sku) + (name ? ' · <span style="font-family:inherit;font-weight:500;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">' + esc(name) + '</span>' : '') + '</div>'
+    +     '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">📍 ' + esc(loc) + ' · on hand: ' + esc(onHand) + (it.reorder_point != null ? ' · ROP ' + it.reorder_point : '') + '</div>'
+    +   '</div>'
+    +   '<div style="font-size:10px;font-weight:800;color:' + dot + ' !important;-webkit-text-fill-color:' + dot + ' !important;letter-spacing:.5px;text-transform:uppercase;flex-shrink:0">' + tag + '</div>'
+    + '</div>';
+}
+function _stockV2OpenItem_(sku) {
+  // Phase 0 placeholder — session flow ships in Phase 1.
+  alert('Stock 2.0 item drilldown ships in Phase 1.\n\nSKU: ' + sku);
 }
 
 // Normalize a search term: uppercase, strip non-alphanumeric except hyphen
@@ -20823,7 +20959,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.688"></script>
+<script src="./pack.js?v=10.689"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20834,7 +20970,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.688<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.689<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
