@@ -7745,7 +7745,7 @@ function nowStamp() {
 }
 
 // v10.455 — Zac flagged Schedule was showing "today" as Friday at
-// 10pm EDT Thursday — `new Date().toISOString().slice(0,10)` returns
+// 10pm EDT Thursday — `_bedrockTodayIso_()` returns
 // UTC, which had already crossed midnight. All date-math in the
 // PWA should resolve to the warehouse's local day (America/New_York).
 // en-CA locale formats as YYYY-MM-DD, so this returns the right
@@ -7896,7 +7896,9 @@ function findCabById(id) {
 let recentSearches = [];
 try {
   const saved = JSON.parse(localStorage.getItem('mbd_recent_cab_searches') || '{}');
-  if (saved.day === new Date().toISOString().slice(0,10)) {
+  // v10.688 — _bedrockTodayIso_ instead of UTC toISOString (recent
+  // searches were vanishing 5 hours early at the day boundary).
+  if (saved.day === _bedrockTodayIso_()) {
     recentSearches = saved.list || [];
   }
 } catch(e) {}
@@ -7904,7 +7906,7 @@ try {
 function saveRecentSearches() {
   try {
     localStorage.setItem('mbd_recent_cab_searches', JSON.stringify({
-      day: new Date().toISOString().slice(0,10),
+      day: _bedrockTodayIso_(),
       list: recentSearches
     }));
   } catch(e) {}
@@ -9738,7 +9740,7 @@ function openPrintKanbanInstructions() {
     + '<div class="sheet">'
     +   '<div class="brand">'
     +     '<h1>Inventory Kanban<span class="sub">How to keep stock flowing</span></h1>'
-    +     '<div class="vrs">MBD · ' + new Date().toISOString().slice(0,10) + '</div>'
+    +     '<div class="vrs">MBD · ' + _bedrockTodayIso_() + '</div>'
     +   '</div>'
     +   '<div class="lead">Every bin has a card. The card tells you which lane the bin is in, what to do, and how to reorder if you\'re running out — just scan it with your phone.</div>'
     +   '<div class="lanes">'
@@ -10857,7 +10859,7 @@ function exportItems() {
     }
     ws['!cols'] = [{wch:22},{wch:30},{wch:12},{wch:14},{wch:36},{wch:14},{wch:12},{wch:20},{wch:18},{wch:18}];
     XLSX.utils.book_append_sheet(wb, ws, 'Items');
-    XLSX.writeFile(wb, 'MBD_Items_' + new Date().toISOString().slice(0,10) + '.xlsx');
+    XLSX.writeFile(wb, 'MBD_Items_' + _bedrockTodayIso_() + '.xlsx');
     showToast('Downloaded!');
   } catch(e) { showToast('Export error: ' + e.message); }
 }
@@ -13290,7 +13292,7 @@ function exportCabinets() {
     }
     ws['!cols'] = [{wch:18},{wch:18},{wch:12},{wch:18},{wch:14},{wch:18},{wch:14},{wch:16},{wch:18},{wch:14}];
     XLSX.utils.book_append_sheet(wb, ws, 'Cabinet Locations');
-    XLSX.writeFile(wb, 'MBD_Cabinet_Locations_' + new Date().toISOString().slice(0,10) + '.xlsx');
+    XLSX.writeFile(wb, 'MBD_Cabinet_Locations_' + _bedrockTodayIso_() + '.xlsx');
     showToast('Downloaded!');
   } catch(e) { showToast('Export error: '+e.message); }
 }
@@ -16927,7 +16929,7 @@ function exportBarcodeMap() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'MBD_Barcode_Map_' + new Date().toISOString().slice(0,10) + '.json';
+  a.download = 'MBD_Barcode_Map_' + _bedrockTodayIso_() + '.json';
   a.click();
   URL.revokeObjectURL(url);
   showToast('Exported ' + entries.length + ' mapping' + (entries.length!==1?'s':''));
@@ -17075,7 +17077,7 @@ function exportXLSX() {
       bws['!cols']=[{wch:24},{wch:40}];
       XLSX.utils.book_append_sheet(wb,bws,'Barcode Map');
     }
-    XLSX.writeFile(wb,'MBD_Inventory_'+new Date().toISOString().slice(0,10)+'.xlsx');
+    XLSX.writeFile(wb,'MBD_Inventory_'+_bedrockTodayIso_()+'.xlsx');
     showToast('Downloaded!');
   } catch(e){ showToast('Export error: '+e.message); }
 }
@@ -20821,7 +20823,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.687"></script>
+<script src="./pack.js?v=10.688"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -20832,7 +20834,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.687<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.688<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
