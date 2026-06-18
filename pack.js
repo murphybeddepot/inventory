@@ -10487,10 +10487,21 @@ function _addBusinessDaysClient_(startIso, n) {
     const dow = d.getDay();
     if (dow !== 0 && dow !== 6) added++;
   }
-  return d.toISOString().slice(0, 10);
+  // v10.687 — _dateToLocalIso_ instead of toISOString (UTC drift bug).
+  return _dateToLocalIso_(d);
+}
+// v10.687 (Zac 2026-06-17 8:35pm EDT: "It shows 6/18 as today but
+// it's still 6/17 8:35pm. Why?"). Bug: toISOString returns UTC.
+// At 8:35pm EDT, UTC is past midnight = next day. Fix: build the
+// ISO date from local-timezone components.
+function _dateToLocalIso_(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
 }
 function _todayIsoLocal_() {
-  return new Date().toISOString().slice(0, 10);
+  return _dateToLocalIso_(new Date());
 }
 async function _preloadWindow_(startDate) {
   if (_packPlannerCacheByStart.has(startDate)) return;
@@ -10671,7 +10682,7 @@ function _renderPackPlanner_(data) {
   // disclosure was wrong; if an order's past its ship date and not yet
   // shipped, Seth needs to see it first thing — and either drop it on
   // a future day (Zac's customer asked for Monday) or chase it.
-  const todayIsoForBadge = new Date().toISOString().slice(0, 10);
+  const todayIsoForBadge = _todayIsoLocal_();
   const pastDue = Array.isArray(data.past_due) ? data.past_due : [];
   function _pastDueDays_(iso) {
     if (!iso) return 0;
@@ -10712,9 +10723,9 @@ function _renderPackPlanner_(data) {
   // flagged that v10.653 was hardcoding TODAY on the leftmost column
   // even when navigating to a non-today window).
   const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = _dateToLocalIso_(today);
   const tomorrow = new Date(today.getTime() + 86400000);
-  const tomorrowIso = tomorrow.toISOString().slice(0, 10);
+  const tomorrowIso = _dateToLocalIso_(tomorrow);
   const days = data.days.map((d, i) => {
     const date = new Date(d + 'T00:00:00');
     const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
@@ -10802,9 +10813,9 @@ function _renderPackPlannerMobile_(data) {
   const body = document.getElementById('packPlannerBody');
   if (!body) return;
   const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = _dateToLocalIso_(today);
   const tomorrow = new Date(today.getTime() + 86400000);
-  const tomorrowIso = tomorrow.toISOString().slice(0, 10);
+  const tomorrowIso = _dateToLocalIso_(tomorrow);
   // Determine which day is active. Default = today (or first day in
   // window if not present).
   const daysList = data.days || [];
@@ -10892,9 +10903,44 @@ function _renderPackPlannerMobile_(data) {
   _wirePlannerInteractions_();
 }
 // v10.685 — switch which day is shown in mobile view + re-render.
+// v10.687 (Zac 2026-06-17: "tried to schedule a bunch and nothing
+// happened"). Bug: tapping a day chip just switched the view; user
+// expected it to drop the selected order. Fix: if an order is
+// selected, tap day chip → open quick Make/Pack picker over that
+// day. Tap one → drop. Otherwise (no selection) → switch view.
 function _plannerSelectMobileDay_(d) {
+  if (_packPlannerSelectedOrder) {
+    return _plannerMobileQuickDrop_(d);
+  }
   _packPlannerMobileDay = d;
   if (_packPlannerCache) _renderPackPlanner_(_packPlannerCache);
+}
+function _plannerMobileQuickDrop_(targetDate) {
+  const sel = _packPlannerSelectedOrder;
+  if (!sel) return;
+  const prior = document.getElementById('plannerMobileQuickDrop');
+  if (prior) prior.remove();
+  // Format target date for display.
+  const dt = new Date(targetDate + 'T12:00:00');
+  const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
+  const dateLabel = dow + ' ' + (dt.getMonth() + 1) + '/' + dt.getDate();
+  const modal = document.createElement('div');
+  modal.id = 'plannerMobileQuickDrop';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#111;border:1.5px solid #FFB300;border-radius:14px;padding:18px;width:100%;max-width:340px;box-shadow:0 10px 32px rgba(0,0,0,.7)">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:1.5px;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;text-transform:uppercase;margin-bottom:4px">Drop #' + esc(sel.order_number) + ' onto</div>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;margin-bottom:14px">' + esc(dateLabel) + '</div>'
+    +   '<button onclick="document.getElementById(\'plannerMobileQuickDrop\').remove();_plannerMobileQuickDropFire_(\'' + esc(targetDate) + '\',\'make\')" style="display:block;width:100%;padding:14px;margin-bottom:8px;background:linear-gradient(135deg,#FF9100,#B36C00) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer">🔨 Make this day</button>'
+    +   '<button onclick="document.getElementById(\'plannerMobileQuickDrop\').remove();_plannerMobileQuickDropFire_(\'' + esc(targetDate) + '\',\'pack\')" style="display:block;width:100%;padding:14px;margin-bottom:8px;background:linear-gradient(135deg,#00C853,#1A5C1A) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer">📦 Pack this day</button>'
+    +   '<button onclick="document.getElementById(\'plannerMobileQuickDrop\').remove()" style="display:block;width:100%;padding:10px;background:transparent;color:#9AAAC0 !important;-webkit-text-fill-color:#9AAAC0 !important;border:1px solid rgba(255,255,255,.18);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>';
+  document.body.appendChild(modal);
+}
+function _plannerMobileQuickDropFire_(date, bucket) {
+  // Fires the same drop logic as desktop bucket tap.
+  _plannerDropOnDay_(date, bucket);
 }
 // v10.685 — mobile drawer with To-Be-Scheduled list. Sliding sheet
 // from the bottom. Tapping an order card selects it; tapping ✕
@@ -11323,23 +11369,35 @@ function _plannerSelectOrder_(orderNumber, source) {
   // v10.685 — on mobile, when an order is selected from inside the
   // drawer, close it + flash a banner so the user knows to pick a
   // day next. Cleaner flow than wondering "where do I tap now?"
-  if (_packPlannerSelectedOrder && _plannerIsMobile_()) {
+  // v10.687 — banner persists until selection cleared (was 5s, too
+  // short for Zac to find a day to tap). Cleared on drop or
+  // deselect via banner ✕.
+  if (_plannerIsMobile_()) {
     const drawer = document.getElementById('plannerMobileDrawer');
-    if (drawer) {
-      drawer.remove();
+    if (drawer && _packPlannerSelectedOrder) drawer.remove();
+    if (_packPlannerSelectedOrder) {
       _plannerShowMobileSelectedBanner_(_packPlannerSelectedOrder.order_number);
+    } else {
+      _plannerHideMobileSelectedBanner_();
     }
   }
 }
 function _plannerShowMobileSelectedBanner_(orderNumber) {
   const prior = document.getElementById('plannerMobileSelBanner');
   if (prior) prior.remove();
+  // v10.687 — banner persists until selection cleared (was 5s
+  // timeout; Zac couldn't get a scheduling action off in time and
+  // thought the feature was broken). Tap × on banner = clear sel.
   const b = document.createElement('div');
   b.id = 'plannerMobileSelBanner';
-  b.style.cssText = 'position:fixed;left:8px;right:8px;top:60px;background:linear-gradient(180deg,#003087,#1A4FB0);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5;border-radius:10px;padding:11px 14px;z-index:10000;box-shadow:0 4px 16px rgba(0,0,0,.5);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;text-align:center';
-  b.textContent = 'SELECTED #' + orderNumber + ' — tap a day above to drop';
+  b.style.cssText = 'position:fixed;left:8px;right:8px;top:60px;background:linear-gradient(180deg,#003087,#1A4FB0);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5;border-radius:10px;padding:11px 14px;z-index:10000;box-shadow:0 4px 16px rgba(0,0,0,.5);font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;text-align:center;display:flex;align-items:center;justify-content:space-between;gap:10px';
+  b.innerHTML = '<div style="flex:1;text-align:left">SELECTED #' + esc(orderNumber) + ' — tap a day to drop</div>'
+    + '<button onclick="_packPlannerSelectedOrder=null;document.getElementById(\'plannerMobileSelBanner\').remove();if(_packPlannerCache)_renderPackPlanner_(_packPlannerCache)" style="background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:6px;padding:4px 9px;font-size:13px;font-weight:700;cursor:pointer">✕</button>';
   document.body.appendChild(b);
-  setTimeout(() => { try { b.remove(); } catch (e) {} }, 5000);
+}
+function _plannerHideMobileSelectedBanner_() {
+  const b = document.getElementById('plannerMobileSelBanner');
+  if (b) b.remove();
 }
 
 // v10.652 (Zac 2026-06-17) — Optimistic UI. Previously every drop +
@@ -11602,6 +11660,8 @@ async function _plannerDropOnDay_(targetDate, targetBucket) {
   // concurrent drops/unschedules don't clobber each other.
   const rollback = _plannerMoveOrderInCache_(orderNumber, targetDate, targetBucket);
   _packPlannerSelectedOrder = null;
+  // v10.687 — clear mobile selected-banner now that drop is in flight.
+  if (typeof _plannerHideMobileSelectedBanner_ === 'function') _plannerHideMobileSelectedBanner_();
   if (rollback) {
     _renderPackPlanner_(_packPlannerCache);
     showToast('✓ #' + orderNumber + ' → ' + targetDate + ' (' + targetBucket + ')');
