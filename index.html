@@ -2171,11 +2171,18 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;text-transform:uppercase">📋 STOCK 2.0</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase">Phase 0 · dashboard only</span>
+      <span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase">Phase 1B · session view live</span>
       <button type="button" onclick="switchTab('items')" style="padding:6px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">↺ Stock 1.0</button>
     </div>
   </div>
-  <div style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;line-height:1.5;margin-bottom:10px">The list below is your "needs attention" — items sorted by how stale their last count is. Tap any row to start a count session (Phase 1 — coming).</div>
+  <!-- v10.693 — Norm's headline ROI metric. Big number at the top.
+       Populated by renderStockV2Dashboard_ after fetch. -->
+  <div id="stockV2Headline" style="display:none;margin-bottom:12px;padding:14px;background:linear-gradient(135deg,rgba(255,82,82,.10),rgba(255,82,82,.04));border:1.5px solid rgba(255,82,82,.45);border-radius:10px">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:10px;font-weight:800;letter-spacing:2px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;text-transform:uppercase">⏰ Stock health</div>
+    <div id="stockV2HeadlineMain" style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:32px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;line-height:1.1;margin-top:2px"></div>
+    <div id="stockV2HeadlineSub" style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:4px"></div>
+  </div>
+  <div style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;line-height:1.5;margin-bottom:10px">The list below is your "needs attention" — items sorted by how stale their last count is. Tap any row → preview the bin's worklist; tap Start Counting to open a real session.</div>
   <!-- Session-start buttons. Phase 0: opens placeholder modals. -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
     <button onclick="_stockV2StartSession_('count')" style="padding:14px 10px;background:linear-gradient(180deg,#003087,#1A4FB0) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📋 Start Counting</button>
@@ -8029,16 +8036,49 @@ function _stockV2ToggleDone_() {
   const list = document.getElementById('stockV2DoneList');
   if (list) list.style.display = (list.style.display === 'none') ? 'block' : 'none';
 }
-function _stockV2ConfirmItem_(sku) {
+async function _stockV2ConfirmItem_(sku) {
   if (!_stockV2SessionState_) return;
   const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
   if (!it) return;
+  // v10.693 (Seth's punch-list item B) — optimistic UI flip first,
+  // then fire the server save in the background. Reuses the existing
+  // recordInventoryCount endpoint which writes BOTH items.on_hand +
+  // last_counted_at AND a CYCLE_COUNT row to inventory_transactions.
+  // Confirm-as-is = countedQty equals the system's current on_hand;
+  // delta will be 0 so no stock movement, but the audit row + last_
+  // counted_at refresh land.
   it._status = 'confirmed';
   it._confirmed_at = new Date().toISOString();
-  // Phase 1B: optimistic local update only. Phase 1C wires the real
-  // inventory_transactions write via a recordStockConfirm endpoint.
   _stockV2RenderSessionView_();
-  if (typeof showToast === 'function') showToast('✓ ' + sku + ' confirmed (local only — Phase 1C will sync to server)');
+  // Auto-scroll to the next ⚪ item (Jonah's punch-list item C).
+  setTimeout(() => {
+    const body = document.getElementById('stockV2SessionBody');
+    if (!body) return;
+    const nextOpen = body.querySelector('[data-stockv2-item]');
+    if (nextOpen) nextOpen.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 100);
+  // Fire server save in the background.
+  const onHand = (it.on_hand == null) ? 0 : Number(it.on_hand);
+  const by = (function () {
+    try { return localStorage.getItem('mbd_ground_packer') || ''; } catch (e) { return ''; }
+  })();
+  try {
+    const res = await groundApi('recordInventoryCount', {
+      itemSku: sku,
+      countedQty: onHand,
+      by: by,
+    });
+    if (res && res.ok) {
+      it._server_saved = true;
+      if (typeof showToast === 'function') showToast('✓ ' + sku + ' saved');
+    } else {
+      it._server_error = (res && res.error) || 'save failed';
+      if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed: ' + it._server_error);
+    }
+  } catch (e) {
+    it._server_error = e.message;
+    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' network error');
+  }
 }
 function _stockV2AdjustItem_(sku) {
   // Phase 1C placeholder — delta keypad lands there.
@@ -8075,6 +8115,32 @@ async function renderStockV2Dashboard_() {
     if (stats) {
       stats.style.display = 'block';
       stats.textContent = res.returned + ' shown · ' + res.total_items + ' total items · phase ' + res.velocity_phase + ' sort';
+    }
+    // v10.693 (Norm) — headline ROI metric. Count of items ≥14d
+    // stale OR never counted; that's the "needs attention" number.
+    const headline = document.getElementById('stockV2Headline');
+    const main = document.getElementById('stockV2HeadlineMain');
+    const sub = document.getElementById('stockV2HeadlineSub');
+    if (headline && main && sub) {
+      const veryStale = items.filter(it => (it.staleness_days >= 14) || (it.staleness_days === -1)).length;
+      const neverCounted = items.filter(it => it.staleness_days === -1).length;
+      const totalShown = items.length;
+      headline.style.display = 'block';
+      main.textContent = veryStale + ' items past 14 days';
+      const bits = [];
+      if (neverCounted > 0) bits.push(neverCounted + ' never counted');
+      if (totalShown > 0) bits.push('of ' + res.total_items + ' total in inventory');
+      sub.textContent = bits.join(' · ') || 'inventory health';
+      // Border color cue: red if >20, amber if 5-20, green if <5.
+      const borderColor = (veryStale > 20) ? '#FF5252' : (veryStale >= 5 ? '#FFB300' : '#00C853');
+      headline.style.borderColor = borderColor + '73';
+      const fade = borderColor === '#FF5252' ? 'rgba(255,82,82' : (borderColor === '#FFB300' ? 'rgba(255,179,0' : 'rgba(0,200,83');
+      headline.style.background = 'linear-gradient(135deg, ' + fade + ',.10), ' + fade + ',.04))';
+      const label = headline.querySelector('div'); // first child = label row
+      if (label) {
+        label.style.color = borderColor;
+        label.style.webkitTextFillColor = borderColor;
+      }
     }
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
   } catch (e) {
@@ -21173,7 +21239,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.692"></script>
+<script src="./pack.js?v=10.693"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21184,7 +21250,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.692<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.693<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
