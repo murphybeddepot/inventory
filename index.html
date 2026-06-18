@@ -7921,8 +7921,10 @@ async function _stockV2BinCameraScan_(verb) {
   }
 }
 async function _stockV2BinPick_(location, verb) {
-  // Fetch worklist + open the session view (Phase 1B placeholder
-  // alert for now — Phase 1B lands the worklist render).
+  // v10.692 (Phase 1B) — open the session view overlay with the
+  // fetched worklist. Each item gets ✓ Confirm + ✏ Adjust buttons.
+  // Confirm is optimistic-local for Phase 1B (no server save yet —
+  // Phase 1C wires the inventory_transactions write + delta keypad).
   try {
     const res = await groundApi('listStockSessionWorklist', { location, verb });
     if (!res || !res.ok) {
@@ -7931,15 +7933,121 @@ async function _stockV2BinPick_(location, verb) {
     }
     const picker = document.getElementById('stockV2BinPicker');
     if (picker) picker.remove();
-    // Phase 1A placeholder: just toast the result. The session-view
-    // worklist render lands in Phase 1B.
-    alert(verb.toUpperCase() + ' session\n\nBin: ' + res.location
-      + '\nItems expected: ' + res.count
-      + '\n\nNote: ' + res.note
-      + '\n\nPhase 1B will render the worklist + delta keypad on this screen.');
+    _stockV2OpenSessionView_(res, verb);
   } catch (e) {
     alert('Network error: ' + e.message);
   }
+}
+// v10.692 — session-scoped state. Cleared on close.
+let _stockV2SessionState_ = null;
+function _stockV2OpenSessionView_(worklist, verb) {
+  const prior = document.getElementById('stockV2SessionOverlay');
+  if (prior) prior.remove();
+  // Build session state: each item gets a `status` (open|confirmed|
+  // adjusted). Phase 1B only confirms locally; Phase 1C handles
+  // adjustments + server saves.
+  _stockV2SessionState_ = {
+    location: worklist.location,
+    verb: verb,
+    started_at: new Date().toISOString(),
+    operator: (function () {
+      try { return localStorage.getItem('mbd_ground_packer') || ''; } catch (e) { return ''; }
+    })(),
+    items: (worklist.items || []).map(it => Object.assign({}, it, { _status: 'open' })),
+  };
+  const ov = document.createElement('div');
+  ov.id = 'stockV2SessionOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:#0a0a0a;z-index:9998;display:flex;flex-direction:column;overflow:hidden';
+  document.body.appendChild(ov);
+  _stockV2RenderSessionView_();
+}
+function _stockV2RenderSessionView_() {
+  const ov = document.getElementById('stockV2SessionOverlay');
+  if (!ov || !_stockV2SessionState_) return;
+  const s = _stockV2SessionState_;
+  const verbLabel = s.verb === 'receive' ? '📥 RECEIVING' : '📋 COUNTING';
+  const verbColor = s.verb === 'receive' ? '#00C853' : '#42a5f5';
+  const totalCount = s.items.length;
+  const doneCount = s.items.filter(it => it._status !== 'open').length;
+  const togoCount = totalCount - doneCount;
+  const togoItems = s.items.filter(it => it._status === 'open');
+  const doneItems = s.items.filter(it => it._status !== 'open');
+  ov.innerHTML = ''
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:2px solid ' + verbColor + ';flex-shrink:0">'
+    +   '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">'
+    +     '<button onclick="_stockV2CloseSessionView_()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:800;cursor:pointer;flex-shrink:0">←</button>'
+    +     '<div style="min-width:0">'
+    +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;letter-spacing:1px;text-transform:uppercase;line-height:1">' + verbLabel + ' · 📍 ' + esc(s.location) + '</div>'
+    +       '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:3px">' + totalCount + ' expected · ' + doneCount + ' done · ' + togoCount + ' to go' + (s.operator ? ' · ' + esc(s.operator) : '') + '</div>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="stockV2SessionBody" style="flex:1;overflow-y:auto;padding:10px 12px">'
+    +   (totalCount === 0
+        ? '<div style="padding:34px 14px;text-align:center;color:var(--text-dim);font-size:13px;font-style:italic;border:1px dashed var(--border);border-radius:10px">No items at this bin. Either it\'s empty, the bin code is wrong, or the location field needs to be cleaned via runLocationNormalizeBackfill.</div>'
+        : '')
+    +   (togoItems.length > 0 ? togoItems.map(it => _stockV2SessionItemHtml_(it)).join('') : '')
+    +   (doneCount > 0 ? _stockV2DoneCollapseHtml_(doneItems) : '')
+    + '</div>';
+}
+function _stockV2SessionItemHtml_(it) {
+  const sku = it.item_sku || '';
+  const name = it.name || '';
+  const days = (typeof it.staleness_days === 'number') ? it.staleness_days : -1;
+  const onHand = (it.on_hand == null) ? '—' : String(it.on_hand);
+  let dot = '#9AAAC0', tag = '?';
+  if (days === -1) { dot = '#7C3AED'; tag = 'NEVER COUNTED'; }
+  else if (days >= 14) { dot = '#FF5252'; tag = days + 'd ago'; }
+  else if (days >= 7) { dot = '#FFB300'; tag = days + 'd ago'; }
+  else { dot = '#00C853'; tag = days + 'd ago'; }
+  const ropLine = (it.reorder_point != null) ? ' · ROP ' + it.reorder_point : '';
+  return ''
+    + '<div data-stockv2-item="' + esc(sku) + '" style="padding:11px 12px;background:rgba(0,0,0,.20);border:1px solid var(--border);border-left:4px solid ' + dot + ';border-radius:8px;margin-bottom:7px">'
+    +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">'
+    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;flex:1;min-width:0;word-break:break-all">' + esc(sku) + (name ? ' <span style="font-family:inherit;font-weight:500;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">· ' + esc(name) + '</span>' : '') + '</div>'
+    +     '<div style="font-size:10px;font-weight:800;color:' + dot + ' !important;-webkit-text-fill-color:' + dot + ' !important;letter-spacing:.5px;text-transform:uppercase">' + tag + '</div>'
+    +   '</div>'
+    +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:8px">System says: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(onHand) + '</strong> on hand' + ropLine + (it.last_counted_by ? ' · last by ' + esc(it.last_counted_by) : '') + '</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+    +     '<button onclick="_stockV2ConfirmItem_(\'' + esc(sku).replace(/\'/g, "\\\'") + '\')" style="padding:10px;background:rgba(0,200,83,.12) !important;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:1.5px solid #00C853 !important;border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✓ Confirm ' + esc(onHand) + '</button>'
+    +     '<button onclick="_stockV2AdjustItem_(\'' + esc(sku).replace(/\'/g, "\\\'") + '\')" style="padding:10px;background:rgba(255,179,0,.10) !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1.5px solid #FFB300 !important;border-radius:8px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">✏ Adjust</button>'
+    +   '</div>'
+    + '</div>';
+}
+function _stockV2DoneCollapseHtml_(doneItems) {
+  const count = doneItems.length;
+  return ''
+    + '<div onclick="_stockV2ToggleDone_()" id="stockV2DoneBar" style="margin-top:10px;padding:10px 14px;background:rgba(0,200,83,.10);border:1px solid #00C853;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:space-between">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;letter-spacing:.5px;text-transform:uppercase">✓ ' + count + ' confirmed</div>'
+    +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">tap to expand</div>'
+    + '</div>'
+    + '<div id="stockV2DoneList" style="display:none;margin-top:6px">'
+    +   doneItems.map(it => '<div style="padding:7px 10px;background:rgba(0,200,83,.05);border:1px solid rgba(0,200,83,.25);border-radius:6px;margin-bottom:4px;font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important"><span style="font-family:\'JetBrains Mono\',monospace;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(it.item_sku) + '</span> · ' + (it._status === 'confirmed' ? '✓ confirmed' : it._status) + '</div>').join('')
+    + '</div>';
+}
+function _stockV2ToggleDone_() {
+  const list = document.getElementById('stockV2DoneList');
+  if (list) list.style.display = (list.style.display === 'none') ? 'block' : 'none';
+}
+function _stockV2ConfirmItem_(sku) {
+  if (!_stockV2SessionState_) return;
+  const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
+  if (!it) return;
+  it._status = 'confirmed';
+  it._confirmed_at = new Date().toISOString();
+  // Phase 1B: optimistic local update only. Phase 1C wires the real
+  // inventory_transactions write via a recordStockConfirm endpoint.
+  _stockV2RenderSessionView_();
+  if (typeof showToast === 'function') showToast('✓ ' + sku + ' confirmed (local only — Phase 1C will sync to server)');
+}
+function _stockV2AdjustItem_(sku) {
+  // Phase 1C placeholder — delta keypad lands there.
+  alert('✏ Adjust ' + sku + '\n\nDelta keypad lands in Phase 1C with optimistic save to inventory_transactions.');
+}
+function _stockV2CloseSessionView_() {
+  const ov = document.getElementById('stockV2SessionOverlay');
+  if (ov) ov.remove();
+  _stockV2SessionState_ = null;
 }
 async function renderStockV2Dashboard_() {
   const list = document.getElementById('stockV2List');
@@ -21065,7 +21173,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.691"></script>
+<script src="./pack.js?v=10.692"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21076,7 +21184,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.691<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.692<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
