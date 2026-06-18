@@ -8331,8 +8331,18 @@ function _stockV2DismissSummary_() {
 function _stockV2RenderSessionSummary_() {
   const prior = document.getElementById('stockV2SessionSummary');
   if (prior) prior.remove();
+  // v10.697 punch-list L (Mira) — defensively close any lingering
+  // keypad so it can't bleed through under the summary card. In
+  // production this almost can't happen, but the snap fixture proved
+  // it's possible.
+  if (typeof _stockV2CloseKeypad_ === 'function') _stockV2CloseKeypad_();
   const s = _stockV2SessionState_;
   if (!s) return;
+  // v10.697 punch-list O (Jonah) — DOCUMENT: open items in this
+  // session NEVER had a recordInventoryCount fire. items.last_
+  // counted_at stays whatever it was. So they remain in the
+  // dashboard's stale-by-age sort exactly as they were before the
+  // operator opened this bin. No silent drop.
   const doneCount = s.items.filter(it => it._status === 'confirmed').length;
   const adjustedCount = s.items.filter(it => it._status === 'adjusted').length;
   const togoCount = s.items.filter(it => it._status === 'open').length;
@@ -8347,8 +8357,13 @@ function _stockV2RenderSessionSummary_() {
   const timeLabel = mm + 'm ' + ss + 's';
   const allDone = togoCount === 0;
   const headline = allDone ? '🎉 Bin complete' : '✅ Progress saved';
+  // v10.697 punch-list M (Mira) — 'Keep going · N left' wraps on
+  // iPhone 375px when in a 2-button grid. Compact: bare 'Keep going'
+  // when N is single-digit (the to-go count already shows in the
+  // stats line above), '(N)' when 10+.
+  const contLabel = togoCount >= 10 ? 'Keep going (' + togoCount + ')' : 'Keep going';
   const cont = togoCount > 0
-    ? '<button onclick="_stockV2DismissSummary_()" style="padding:14px;background:' + verbColor + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">Keep going · ' + togoCount + ' left</button>'
+    ? '<button onclick="_stockV2DismissSummary_()" style="padding:14px;background:' + verbColor + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;white-space:nowrap">' + contLabel + '</button>'
     : '';
   const ov = document.createElement('div');
   ov.id = 'stockV2SessionSummary';
@@ -21530,7 +21545,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.696"></script>
+<script src="./pack.js?v=10.697"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21541,7 +21556,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.696<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.697<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
