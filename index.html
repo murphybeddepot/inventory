@@ -7950,6 +7950,9 @@ function _stockV2OpenPendingList_() {
     if (!iso) return '?';
     const dt = new Date(iso);
     const sec = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
+    // v10.701 punch-list V (Indigo) — 'just now' for <5s avoids the
+    // jumpy '0s ago / 1m ago' near zero. Subtle but feels right.
+    if (sec < 5) return 'just now';
     if (sec < 60) return sec + 's ago';
     if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
     if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
@@ -7977,7 +7980,7 @@ function _stockV2OpenPendingList_() {
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1px;text-transform:uppercase">⟳ ' + q.length + ' PENDING SYNC</div>'
     +     '<button onclick="document.getElementById(\'stockV2PendingList\').remove()" style="background:transparent;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;font-size:24px;cursor:pointer;padding:0 6px">✕</button>'
     +   '</div>'
-    +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:12px">These counts are saved locally and will sync next time the server responds. Tap Retry to force a sync attempt now.</div>'
+    +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:12px">Saved locally — will sync when server responds. Retry to force now.</div>'
     +   '<div style="flex:1;overflow-y:auto;margin-bottom:12px">' + rows + '</div>'
     +   (q.length > 0
         ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
@@ -7998,8 +8001,21 @@ function _stockV2DropPending_(idx) {
   _stockV2OpenPendingList_(); // re-render
 }
 async function _stockV2RetryAllPending_() {
-  await _stockV2DrainPending_();
-  _stockV2OpenPendingList_(); // re-render with remaining
+  // v10.701 punch-list T (Jonah) — visible 'Syncing…' state on the
+  // Retry button while drain is running. Otherwise an operator with
+  // no network sees no UI change for up to a few seconds.
+  const btn = document.querySelector('#stockV2PendingList button[onclick="_stockV2RetryAllPending_()"]');
+  if (btn) {
+    btn.dataset.origText = btn.textContent;
+    btn.textContent = '⟳ Syncing…';
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+  }
+  try {
+    await _stockV2DrainPending_();
+  } finally {
+    _stockV2OpenPendingList_(); // re-render with remaining
+  }
 }
 function _stockV2ClearAllPending_() {
   const q = _stockV2GetPendingQueue_();
@@ -21758,7 +21774,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.700"></script>
+<script src="./pack.js?v=10.701"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21769,7 +21785,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.700<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.701<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
