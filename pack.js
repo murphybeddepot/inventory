@@ -16592,17 +16592,76 @@ async function voidAndRepackFromLookup_(orderId, orderNumber, btn) {
 // (PrintNode receives the job), zero GAS hops on the print step.
 //
 // Cached after first fetch so we don't re-fetch the config every reprint.
+// v10.720 — also persist to localStorage so subsequent loads work
+// even when the orchestrator is dead (GAS UrlFetchApp quota burned).
+// Without this, every time orch quota dies, the worker bypass dies
+// with it because the iPad has no idea what the worker URL/secret is.
+const PRINT_RELAY_LS_KEY = 'mbd_print_relay_config';
 let _printRelayConfig_ = null;
 async function _getPrintRelayConfig_() {
   if (_printRelayConfig_ && _printRelayConfig_.worker_url) return _printRelayConfig_;
+  // Try localStorage first — survives quota outages.
+  try {
+    const stored = localStorage.getItem(PRINT_RELAY_LS_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && parsed.worker_url && parsed.stamp_secret) {
+        _printRelayConfig_ = parsed;
+        // Fire a background refresh to keep stored copy fresh, but
+        // return the cached value immediately so the caller doesn't
+        // wait on the network.
+        setTimeout(() => { _refreshPrintRelayConfig_(); }, 1500);
+        return _printRelayConfig_;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return await _refreshPrintRelayConfig_();
+}
+async function _refreshPrintRelayConfig_() {
   try {
     const r = await groundApi('getPrintRelayConfig', {});
     if (r && r.ok && r.worker_url && r.stamp_secret) {
       _printRelayConfig_ = r;
+      try { localStorage.setItem(PRINT_RELAY_LS_KEY, JSON.stringify({
+        worker_url: r.worker_url,
+        stamp_secret: r.stamp_secret,
+        default_printer_id: r.default_printer_id
+      })); } catch (e) { /* quota / private mode */ }
       return r;
     }
   } catch (e) { /* fall through */ }
   return null;
+}
+
+// v10.720 — Frame Runway via worker direct. Called when orchestrator
+// is quota-dead. Hits worker /inventory/dashboard with the cached
+// stamp_secret from localStorage; returns the dashboard payload in
+// the same shape as listFrameRunwayDashboard.
+async function _frameRunwayLoadViaWorker_(velocityWindow) {
+  const cfg = await _getPrintRelayConfig_();
+  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+    return { ok: false, error: 'Worker config not in localStorage — orchestrator quota dead + no cached relay config. Open Bedrock once after the next quota reset (~3am EDT) to seed the cache.' };
+  }
+  try {
+    const resp = await fetch(cfg.worker_url + '/inventory/dashboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: cfg.stamp_secret,
+        velocity_days: velocityWindow
+      })
+    });
+    const text = await resp.text();
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { return { ok: false, error: 'Worker non-JSON: ' + text.substring(0, 200) }; }
+    if (resp.status !== 200 || !parsed.ok) {
+      return { ok: false, error: 'Worker HTTP ' + resp.status + ': ' + (parsed.error || text.substring(0, 200)) };
+    }
+    return parsed;
+  } catch (e) {
+    return { ok: false, error: 'Worker fetch error: ' + e.message };
+  }
 }
 
 // Quota-error detection. The orchestrator surfaces these strings when
