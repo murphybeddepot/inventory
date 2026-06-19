@@ -16614,6 +16614,93 @@ function _looksLikeUrlFetchQuota_(text) {
       || s.includes('urlfetch') && s.includes('quota');
 }
 
+// v10.706 (2026-06-19) — recover labels from ShipStation V1 via worker.
+// When the existing reprint flow fails with "No Drive PDF" for all boxes
+// (the MGR-bypass / mid-quota-blow pattern), we ask the worker to:
+//   1. GET /shipments?orderNumber=X from ShipStation V1 directly (worker
+//      has its own budget; doesn't burn GAS).
+//   2. Download each labelPdfUrl + base64-encode.
+//   3. Return one PDF per shipment.
+// We then submit each base64 PDF to /printnode for actual printing.
+//
+// Dormant until SHIPSTATION_API_KEY + SHIPSTATION_API_SECRET are set as
+// Cloudflare worker secrets. Before that, worker returns "missing creds"
+// and we fall through to the existing ShipStation-web-UI workaround.
+async function _recoverLabelsViaWorker_(orderNumber, printerId) {
+  const cfg = await _getPrintRelayConfig_();
+  if (!cfg) return { ok: false, error: 'Worker relay config unavailable' };
+  const pid = Number(printerId) || Number(cfg.default_printer_id) || 0;
+  if (!pid) return { ok: false, error: 'No printer_id available' };
+  let recovered;
+  try {
+    const resp = await fetch(cfg.worker_url + '/shipstation/recoverlabels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: cfg.stamp_secret, order_number: orderNumber }),
+    });
+    const text = await resp.text();
+    try {
+      recovered = JSON.parse(text);
+    } catch (e) {
+      return { ok: false, error: 'Worker returned non-JSON: ' + text.substring(0, 200) };
+    }
+    if (!resp.ok && resp.status !== 200) {
+      return { ok: false, error: 'Worker recoverlabels HTTP ' + resp.status + ': ' + (recovered && recovered.error || text.substring(0, 200)) };
+    }
+  } catch (e) {
+    return { ok: false, error: 'Worker recoverlabels call error: ' + e.message };
+  }
+  if (!recovered || !recovered.shipments || recovered.shipments.length === 0) {
+    return { ok: false, error: (recovered && recovered.error) || 'No shipments found in ShipStation' };
+  }
+  // For each recovered shipment, submit base64 PDF to /printnode.
+  const results = [];
+  let seq = 0;
+  for (const ship of recovered.shipments) {
+    seq += 1;
+    if (!ship.label_pdf_base64) {
+      results.push({ sequence: seq, ok: false, error: 'Recovery: ' + (ship.error || 'no PDF in response'), fallback_url: ship.label_pdf_url });
+      continue;
+    }
+    try {
+      const resp = await fetch(cfg.worker_url + '/printnode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          secret: cfg.stamp_secret,
+          printer_id: pid,
+          title: 'MBD-RECOVERED-' + orderNumber + '-ship' + ship.shipment_id,
+          content_base64: ship.label_pdf_base64,
+          source: 'Bedrock recovery via ShipStation'
+        }),
+      });
+      const text = await resp.text();
+      const ok = resp.status >= 200 && resp.status < 300;
+      const jobId = ok ? (Number(String(text).replace(/[^0-9]/g, '')) || 0) : 0;
+      results.push({
+        sequence: seq,
+        ok: ok,
+        error: ok ? '' : ('Worker /printnode HTTP ' + resp.status + ': ' + text.substring(0, 200)),
+        printnode_job_id: jobId,
+        fallback_url: ship.label_pdf_url,
+        tracking_number: ship.tracking_number,
+      });
+    } catch (e) {
+      results.push({ sequence: seq, ok: false, error: 'Worker /printnode error: ' + e.message, fallback_url: ship.label_pdf_url });
+    }
+  }
+  const okCount = results.filter(r => r.ok).length;
+  return {
+    ok: okCount > 0,
+    order_number: orderNumber,
+    total_packages: results.length,
+    printed_count: okCount,
+    failed_count: results.length - okCount,
+    results: results,
+    via: 'worker-recovery'
+  };
+}
+
 // Reprint via worker. Fans out fetches to {worker_url}/printnode, one
 // per package. Returns a results-shaped object compatible with the
 // existing reprintAllLabelsForOrder UI handling.
@@ -16709,9 +16796,44 @@ async function reprintAllLabelsFromLookup_(orderNumber, btn) {
         const failures = res.results.filter(r => !r.ok);
         const noPdfCount = failures.filter(r => /no drive pdf|missing.*pdf/i.test(String(r.error || ''))).length;
         if (noPdfCount === failures.length && failures.length > 0) {
-          // ALL boxes failed with No Drive PDF — classic MGR-bypass
+          // ALL boxes failed with No Drive PDF — classic MGR-bypass.
+          // v10.706 — auto-attempt recovery via the Cloudflare worker:
+          // worker calls ShipStation V1 GET /shipments + downloads each
+          // labelPdfUrl + base64s + we print via worker /printnode.
+          // Bypasses GAS UrlFetchApp entirely. Dormant until worker
+          // SHIPSTATION_API_KEY/SECRET set; falls through to the manual
+          // ShipStation-UI message if recovery isn't available.
+          if (loader && loader.start) loader.start('Recovering labels from ShipStation…');
+          else if (loader && loader.setText) loader.setText('Recovering labels from ShipStation…');
+          console.log('DIAG-V10.706 attempting ShipStation recovery for #' + orderNumber);
+          const recRes = await _recoverLabelsViaWorker_(orderNumber);
+          if (recRes && recRes.ok) {
+            if (loader && loader.stop) loader.stop();
+            const lines = [
+              '✓ Recovered + reprinted #' + orderNumber + ' from ShipStation',
+              '',
+              'Printed: ' + recRes.printed_count + '/' + recRes.total_packages,
+            ];
+            if (recRes.failed_count > 0) {
+              lines.push('');
+              lines.push('Failures:');
+              (recRes.results || []).filter(r => !r.ok).forEach(r => {
+                lines.push('  Shipment ' + r.sequence + ': ' + (r.error || 'unknown'));
+              });
+            }
+            alert(lines.join('\n'));
+            showToast('✓ Recovered + reprinted from ShipStation');
+            if (btn) btn.textContent = '🖨 Reprint All Labels';
+            return;
+          }
+          // Recovery itself failed (worker creds unset, ShipStation has
+          // no shipments, etc.) — fall through to the existing
+          // ShipStation-UI workaround alert.
+          if (loader && loader.stop) loader.stop();
+          console.log('DIAG-V10.706 recovery unavailable: ' + (recRes && recRes.error));
           alert('⚠ No stored label PDFs for order #' + orderNumber + '.\n\n'
             + 'This usually means the order was shipped via MGR-bypass before label-PDF capture was wired up. Reprint can\'t recover labels that were never saved to Drive.\n\n'
+            + 'Auto-recovery via Cloudflare/ShipStation also failed: ' + (recRes && recRes.error || 'unknown') + '\n\n'
             + 'Workaround: open ShipStation directly + reprint from there.\n\n'
             + 'Box failures (' + failures.length + '):\n'
             + failures.map(r => '  Box ' + r.sequence + ': ' + (r.error || 'No Drive PDF')).join('\n'));
