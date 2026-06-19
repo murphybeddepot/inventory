@@ -7976,8 +7976,16 @@ function _frameRunwayOpen_() {
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1.5px;text-transform:uppercase;line-height:1">📊 Frame Runway</div>'
     +     '<div id="frameRunwaySub" style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:3px">Loading inventory…</div>'
     +   '</div>'
-    +   '<button onclick="_frameRunwayComputeVelocity_()" id="frameRunwayVelBtn" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 11px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡ Compute velocity (30d)</button>'
-    +   '<button onclick="_frameRunwayReload_()" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 11px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳ Reload</button>'
+    +   '<select id="frameRunwayWindowSel" onchange="_frameRunwayChangeWindow_(this.value)" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border-radius:6px;padding:5px 7px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">'
+    +     '<option value="30">Show 30d</option>'
+    +     '<option value="60">Show 60d</option>'
+    +     '<option value="90">Show 90d</option>'
+    +     '<option value="180">Show 180d</option>'
+    +     '<option value="360">Show 360d</option>'
+    +   '</select>'
+    +   '<button onclick="_frameRunwayComputeVelocity_()" id="frameRunwayVelBtn" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡ 30d</button>'
+    +   '<button onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡⚡ All windows</button>'
+    +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     + '</div>'
     + '<div id="frameRunwayBody" style="flex:1;overflow-y:auto;padding:12px 14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">'
     +   '<div style="padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px">Loading…</div>'
@@ -7990,6 +7998,35 @@ function _frameRunwayClose_() {
   if (ov) ov.remove();
 }
 async function _frameRunwayReload_() { _frameRunwayLoad_(); }
+// v10.716 — operator changes the displayed window. Cheap reload (no
+// re-sweep) because all windows that were computed are cached.
+async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(); }
+// v10.716 — one Shopify pass over the longest window (360d), credits
+// each line item to every window it qualifies for. Populates all 5
+// cache slots so the operator can flip the dropdown without re-fetch.
+async function _frameRunwayComputeAllWindows_() {
+  const btn = document.getElementById('frameRunwayVelAllBtn');
+  const sub = document.getElementById('frameRunwaySub');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sweeping 360d… (~3-6 min)'; }
+  if (sub) sub.textContent = 'Sweeping 360 days of Shopify (covers all 5 windows)…';
+  try {
+    const res = await groundApi('computeVelocityMultiWindow', { maxSeconds: 540 });
+    if (!res || !res.ok) {
+      alert('⚠ Multi-window sweep failed: ' + (res && res.error ? res.error : 'unknown'));
+      if (sub) sub.textContent = 'Multi-window sweep failed';
+      return;
+    }
+    const stats = res.stats || {};
+    const w = res.per_window || {};
+    showToast('✓ All windows ready: 30d=' + (w[30]&&w[30].sku_count) + ' 60d=' + (w[60]&&w[60].sku_count) + ' 90d=' + (w[90]&&w[90].sku_count) + ' 180d=' + (w[180]&&w[180].sku_count) + ' 360d=' + (w[360]&&w[360].sku_count) + ' SKUs (' + stats.orders_scanned + ' orders, ' + res.elapsed_seconds + 's)');
+    await _frameRunwayLoad_();
+  } catch (e) {
+    alert('⚠ Multi-window sweep error: ' + e.message);
+    if (sub) sub.textContent = 'Sweep error';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⚡⚡ All windows'; }
+  }
+}
 // v10.709 — Phase 1: compute real velocity from Shopify orders.
 // Sweeps last 30d, decomposes each line item's parent SKU via
 // Rulebook box_1..4, returns units/day per box SKU. Cached server-
@@ -8023,8 +8060,12 @@ async function _frameRunwayLoad_() {
   const sub = document.getElementById('frameRunwaySub');
   const body = document.getElementById('frameRunwayBody');
   if (sub) sub.textContent = 'Loading…';
+  // v10.716 — pull window selection from the dropdown so the dashboard
+  // reads from whichever cached snapshot the operator chose.
+  const sel = document.getElementById('frameRunwayWindowSel');
+  const windowDays = Number((sel && sel.value) || 30);
   try {
-    const res = await groundApi('listFrameRunwayDashboard', {});
+    const res = await groundApi('listFrameRunwayDashboard', { velocity_days: windowDays });
     if (!res || !res.ok) {
       body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#FF5252;font-size:13px">' + esc((res && res.error) || 'load failed') + '</div>';
       if (sub) sub.textContent = 'Failed';
@@ -22018,7 +22059,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.715"></script>
+<script src="./pack.js?v=10.716"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22029,7 +22070,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.715<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.716<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
