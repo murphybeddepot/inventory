@@ -2187,9 +2187,16 @@ input::placeholder, textarea::placeholder {
   </div>
   <div style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;line-height:1.5;margin-bottom:10px">The list below is your "needs attention" — items sorted by how stale their last count is. Tap any row → preview the bin's worklist; tap Start Counting to open a real session.</div>
   <!-- Session-start buttons. Phase 0: opens placeholder modals. -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
     <button onclick="_stockV2StartSession_('count')" style="padding:14px 10px;background:linear-gradient(180deg,#003087,#1A4FB0) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📋 Start Counting</button>
     <button onclick="_stockV2StartSession_('receive')" style="padding:14px 10px;background:linear-gradient(180deg,#1A5C1A,#00C853) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📥 Start Receiving</button>
+  </div>
+  <!-- v10.707 — Frame Runway view (Boaz inventory rollout). Opens an
+       overlay panel listing all SKUs with on_hand + on_order (C24) +
+       runway days. Phase 0 has placeholder velocity; Phase 1 will wire
+       Shopify bundle decomposition. -->
+  <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px">
+    <button onclick="_frameRunwayOpen_()" style="padding:11px 10px;background:linear-gradient(180deg,#3a2d00,#7a5a00) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📊 Frame Runway</button>
   </div>
   <div id="stockV2Stats" style="display:none;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:8px 12px;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:8px;margin-bottom:10px"></div>
   <div id="stockV2List" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -7942,6 +7949,110 @@ document.addEventListener('visibilitychange', () => {
 // its target bin, intended qty, and how long it's been queued.
 // Includes Retry all now (force drain) + Clear all (destructive,
 // with confirm) + per-item Drop buttons.
+// v10.707 (2026-06-19) — Frame Runway overlay. Opens a full-screen
+// panel listing each SKU with on_hand (Boaz's count), on_order (C24
+// + future containers), and days_of_runway based on Shopify-driven
+// velocity. Phase 0 ships with velocity placeholders ("pending");
+// Phase 1 wires the real Shopify bundle decomposition. Initial source
+// of inventory truth is Boaz's 2026-06-18 paper count.
+function _frameRunwayOpen_() {
+  const prior = document.getElementById('frameRunwayOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'frameRunwayOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;flex-direction:column';
+  ov.innerHTML = ''
+    + '<div style="background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:2px solid #FFB300;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0">'
+    +   '<button onclick="_frameRunwayClose_()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:800;cursor:pointer">←</button>'
+    +   '<div style="flex:1;min-width:0">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1.5px;text-transform:uppercase;line-height:1">📊 Frame Runway</div>'
+    +     '<div id="frameRunwaySub" style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:3px">Loading inventory…</div>'
+    +   '</div>'
+    +   '<button onclick="_frameRunwayReload_()" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 11px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳ Reload</button>'
+    + '</div>'
+    + '<div id="frameRunwayBody" style="flex:1;overflow-y:auto;padding:12px 14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">'
+    +   '<div style="padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  _frameRunwayLoad_();
+}
+function _frameRunwayClose_() {
+  const ov = document.getElementById('frameRunwayOverlay');
+  if (ov) ov.remove();
+}
+async function _frameRunwayReload_() { _frameRunwayLoad_(); }
+async function _frameRunwayLoad_() {
+  const sub = document.getElementById('frameRunwaySub');
+  const body = document.getElementById('frameRunwayBody');
+  if (sub) sub.textContent = 'Loading…';
+  try {
+    const res = await groundApi('listFrameRunwayDashboard', {});
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#FF5252;font-size:13px">' + esc((res && res.error) || 'load failed') + '</div>';
+      if (sub) sub.textContent = 'Failed';
+      return;
+    }
+    const items = res.items || [];
+    // Roll up container ETAs across all SKUs to build a one-line banner.
+    const etaSet = {};
+    items.forEach(it => {
+      (it.on_order_etas || []).forEach(e => {
+        if (e.container_id && e.eta_warehouse) {
+          etaSet[e.container_id] = etaSet[e.container_id] || { eta: e.eta_warehouse, qty: 0 };
+          etaSet[e.container_id].qty += Number(e.qty) || 0;
+        }
+      });
+    });
+    const containerBanner = Object.keys(etaSet).length
+      ? '🚢 ' + Object.keys(etaSet).map(c => c + ' (' + etaSet[c].qty + ' units) ETA ' + etaSet[c].eta).join(' · ')
+      : '';
+    if (sub) sub.textContent = items.length + ' SKUs' + (containerBanner ? ' · ' + containerBanner : '') + ' · ' + (res.note || '');
+    body.innerHTML = _frameRunwayRender_(items, containerBanner);
+  } catch (e) {
+    body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#FF5252;font-size:13px">Network error: ' + esc(e.message) + '</div>';
+    if (sub) sub.textContent = 'Error';
+  }
+}
+function _frameRunwayRender_(items, containerBanner) {
+  let html = '';
+  if (containerBanner) {
+    html += '<div style="padding:10px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.45);border-radius:8px;margin-bottom:12px;font-size:12px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(containerBanner) + '</div>';
+  }
+  if (!items.length) {
+    html += '<div style="padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px;font-style:italic">No SKUs yet. Run the Boaz seed SQL first.</div>';
+    return html;
+  }
+  // Header row + table
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr style="border-bottom:2px solid var(--border);text-align:left">'
+       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px">SKU</th>'
+       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">On Hand</th>'
+       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">On Order</th>'
+       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">Velocity/day</th>'
+       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">Runway</th>'
+       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px">Location</th>'
+       + '</tr></thead><tbody>';
+  for (const it of items) {
+    const onHandDisp = (it.on_hand == null) ? '—' : String(it.on_hand);
+    const onOrderDisp = (it.on_order > 0) ? String(it.on_order) : '—';
+    const velDisp = (it.velocity_per_day == null) ? '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">pending</span>' : (Math.round(it.velocity_per_day * 10) / 10);
+    const runDisp = (it.days_of_runway == null) ? '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">pending</span>' : Math.round(it.days_of_runway) + 'd';
+    const dnuChip = (it.dnu_qty > 0)
+      ? ' <span style="background:rgba(255,82,82,.18);border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">DNU ' + it.dnu_qty + '</span>'
+      : '';
+    html += '<tr style="border-bottom:1px solid var(--border)">'
+         +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px">' + esc(it.sku) + dnuChip + '</td>'
+         +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900">' + onHandDisp + '</td>'
+         +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important">' + onOrderDisp + '</td>'
+         +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + velDisp + '</td>'
+         +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + runDisp + '</td>'
+         +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">' + esc(it.location || '') + '</td>'
+         + '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
 function _stockV2OpenPendingList_() {
   const prior = document.getElementById('stockV2PendingList');
   if (prior) prior.remove();
@@ -21804,7 +21915,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.706"></script>
+<script src="./pack.js?v=10.707"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -21815,7 +21926,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.706<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.707<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
