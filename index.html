@@ -8009,6 +8009,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayComputeVelocity_()" id="frameRunwayVelBtn" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡ 30d</button>'
     +   '<button onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡⚡ All windows</button>'
     +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
+    +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
     + '</div>'
     + '<div id="frameRunwayBody" style="flex:1;overflow-y:auto;padding:12px 14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">'
     +   '<div style="padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px">Loading…</div>'
@@ -8117,6 +8118,74 @@ async function _frameRunwayComputeVelocity_() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '⚡ 30d'; }
   }
+}
+
+// v10.724 — Receive Container UI. Multi-step:
+//   1. Open container picker (if multiple on-order containers).
+//   2. Fetch preview via worker (returns SKU list + qtys).
+//   3. Show confirmation dialog with SKUs/qtys.
+//   4. On confirm: fire worker with confirm:'RECEIVE-CONFIRMED'.
+//   5. Worker writes +RECV txns + deletes on_order rows.
+//   6. Reload dashboard.
+async function _frameRunwayOpenReceive_() {
+  const containers = window._frameRunwayContainerIds || [];
+  if (!containers.length) { alert('No on-order containers to receive.'); return; }
+  const cid = containers.length === 1
+    ? containers[0]
+    : prompt('Which container did you receive?\nOptions: ' + containers.join(', '));
+  if (!cid) return;
+  // 1. Preview (no confirm token).
+  const cfg = await _getPrintRelayConfig_();
+  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+    alert('⚠ Worker config not in localStorage.'); return;
+  }
+  let preview;
+  try {
+    const resp = await fetch(cfg.worker_url + '/inventory/receive-container', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: cfg.stamp_secret, container_id: cid })
+    });
+    const text = await resp.text();
+    try { preview = JSON.parse(text); }
+    catch (e) { alert('⚠ Worker preview non-JSON: ' + text.substring(0, 150)); return; }
+  } catch (e) { alert('⚠ Worker preview fetch error: ' + e.message); return; }
+  if (!preview || !preview.ok) {
+    alert('⚠ Preview failed: ' + (preview && preview.error || 'unknown')); return;
+  }
+  const skuList = (preview.preview_rows || []).map(r => '  ' + r.sku + ' × ' + r.qty).join('\n');
+  const confirmed = confirm(
+    'Mark ' + cid + ' as received?\n\n' +
+    preview.sku_count + ' SKUs · ' + preview.total_units + ' total units\n\n' +
+    skuList + '\n\n' +
+    'This will:\n' +
+    '  • Write +' + preview.total_units + ' units across ' + preview.sku_count + ' SKUs to inventory_transactions\n' +
+    '  • Remove the ' + cid + ' rows from inventory_on_order\n' +
+    '  • Dashboard reloads showing the new on_hand.'
+  );
+  if (!confirmed) return;
+  // 2. Commit.
+  let result;
+  try {
+    const resp = await fetch(cfg.worker_url + '/inventory/receive-container', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: cfg.stamp_secret,
+        container_id: cid,
+        confirm: 'RECEIVE-CONFIRMED',
+        received_by: 'operator'
+      })
+    });
+    const text = await resp.text();
+    try { result = JSON.parse(text); }
+    catch (e) { alert('⚠ Worker commit non-JSON: ' + text.substring(0, 150)); return; }
+  } catch (e) { alert('⚠ Worker commit fetch error: ' + e.message); return; }
+  if (!result || !result.ok) {
+    alert('⚠ Commit failed: ' + (result && result.error || 'unknown')); return;
+  }
+  showToast('✓ ' + cid + ' received · ' + result.total_units + ' units across ' + result.sku_count + ' SKUs');
+  await _frameRunwayLoad_(true);
 }
 
 // v10.722 — merge localStorage velocity stash into the dashboard
@@ -8251,6 +8320,10 @@ async function _frameRunwayLoad_(forceRefresh) {
     const containerBanner = Object.keys(etaSet).length
       ? '🚢 ' + Object.keys(etaSet).map(c => c + ' (' + etaSet[c].qty + ' units) ETA ' + etaSet[c].eta).join(' · ')
       : '';
+    // v10.724 — Reveal Receive button when containers are pending.
+    window._frameRunwayContainerIds = Object.keys(etaSet);
+    const receiveBtn = document.getElementById('frameRunwayReceiveBtn');
+    if (receiveBtn) receiveBtn.style.display = Object.keys(etaSet).length ? '' : 'none';
     if (sub) sub.textContent = items.length + ' SKUs' + (containerBanner ? ' · ' + containerBanner : '') + ' · ' + (res.note || '');
     body.innerHTML = _frameRunwayRender_(items, containerBanner);
   } catch (e) {
@@ -22223,7 +22296,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.722"></script>
+<script src="./pack.js?v=10.724"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22234,7 +22307,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.722<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.724<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
