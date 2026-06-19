@@ -8045,6 +8045,23 @@ async function _frameRunwayComputeAllWindows_() {
       if (sub) sub.textContent = 'Worker path failed (' + fb + ') — falling back…';
       res = await groundApi('computeVelocityMultiWindow', { maxSeconds: 540 });
     }
+    // v10.722 — orchestrator dead from quota? Call worker directly.
+    if (!res || !res.ok) {
+      const fb = (res && res.error) || '';
+      if (_looksLikeUrlFetchQuota_(fb) || /shopifyRequest_ threw|bundle_bom empty|fetchAll threw|Worker call threw/i.test(fb)) {
+        if (sub) sub.textContent = 'Orch quota dead — sweeping via worker direct…';
+        const wRes = await _frameRunwayFullVelocityViaWorker_([30, 60, 90, 180, 360]);
+        if (wRes && wRes.ok) {
+          const perWindow = {};
+          for (const w of Object.keys(wRes.per_window || {})) {
+            perWindow[w] = { sku_count: Object.keys(wRes.per_window[w] || {}).length };
+          }
+          res = { ok: true, via: 'cloudflare_worker_full', per_window: perWindow, stats: wRes.stats || {}, elapsed_seconds: wRes.elapsed_seconds };
+        } else {
+          res = { ok: false, error: (wRes && wRes.error) || 'worker velocity failed' };
+        }
+      }
+    }
     if (!res || !res.ok) {
       alert('⚠ Multi-window sweep failed: ' + (res && res.error ? res.error : 'unknown'));
       if (sub) sub.textContent = 'Multi-window sweep failed';
@@ -8070,10 +8087,20 @@ async function _frameRunwayComputeAllWindows_() {
 async function _frameRunwayComputeVelocity_() {
   const btn = document.getElementById('frameRunwayVelBtn');
   const sub = document.getElementById('frameRunwaySub');
-  if (btn) { btn.disabled = true; btn.textContent = 'Computing… (~30-60s)'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Computing…'; }
   if (sub) sub.textContent = 'Computing velocity from Shopify…';
   try {
-    const res = await groundApi('computeVelocity30d', { maxSeconds: 270 });
+    let res = await groundApi('computeVelocity30d', { maxSeconds: 270 });
+    // v10.722 — orch quota dead? Use worker /inventory/full-velocity.
+    if (!res || !res.ok) {
+      const errStr = (res && res.error) || '';
+      if (_looksLikeUrlFetchQuota_(errStr) || /shopifyRequest_ threw|bundle_bom empty|fetchAll threw|Worker call threw/i.test(errStr)) {
+        if (sub) sub.textContent = 'Orch quota — sweeping via Cloudflare worker…';
+        const wRes = await _frameRunwayFullVelocityViaWorker_([30]);
+        if (wRes && wRes.ok) res = { ok: true, boxes: wRes.per_window[30] || {}, stats: wRes.stats || {}, elapsed_seconds: wRes.elapsed_seconds };
+        else res = { ok: false, error: (wRes && wRes.error) || 'worker velocity failed' };
+      }
+    }
     if (!res || !res.ok) {
       alert('⚠ Velocity compute failed: ' + (res && res.error ? res.error : 'unknown error'));
       if (sub) sub.textContent = 'Velocity compute failed';
@@ -8082,13 +8109,94 @@ async function _frameRunwayComputeVelocity_() {
     const stats = res.stats || {};
     const boxCount = Object.keys(res.boxes || {}).length;
     const elapsed = res.elapsed_seconds || 0;
-    showToast('✓ Velocity computed (' + boxCount + ' box SKUs, ' + stats.orders_scanned + ' orders, ' + elapsed + 's)');
-    await _frameRunwayLoad_();
+    showToast('✓ Velocity computed (' + boxCount + ' SKUs, ' + (stats.orders_scanned || '?') + ' orders, ' + elapsed + 's)');
+    await _frameRunwayLoad_(true);
   } catch (e) {
     alert('⚠ Velocity compute error: ' + e.message);
     if (sub) sub.textContent = 'Velocity compute error';
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Compute velocity (30d)'; }
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ 30d'; }
+  }
+}
+
+// v10.722 — merge localStorage velocity stash into the dashboard
+// items array. Used when the dashboard came from the worker-direct
+// path (which has no velocity) so the operator's prior compute
+// still drives the runway numbers.
+function _frameRunwayApplyVelocity_(items, windowDays) {
+  if (!items || !items.length) return items;
+  // Already populated from server? Don't overwrite.
+  if (items.some(it => it.velocity_per_day != null)) return items;
+  let stash = null;
+  try {
+    const raw = localStorage.getItem('mbd_frame_runway_velocity');
+    if (raw) stash = JSON.parse(raw);
+  } catch (e) { return items; }
+  if (!stash || !stash.per_window || !stash.per_window[windowDays]) return items;
+  const velMap = stash.per_window[windowDays];
+  const ITEM_TO_BOM_ALIAS = {
+    'SBF-KING':'SBF-K','SBF-QUEEN':'SBF-Q','SBF-DOUBLE':'SBF-D',
+    'SBF-SINGLE':'SBF-S','SBF-SINGLEXL':'SBF-SXL',
+    'STU-B':'STUDIO-BLACK','STU-W':'STUDIO-WHITE','MB-WMB-L':'MB-WMB'
+  };
+  return items.map(it => {
+    const v = velMap[it.sku] || velMap[ITEM_TO_BOM_ALIAS[it.sku]];
+    if (!v) return it;
+    const vpd = Number(v.units_per_day) || 0;
+    const oh = it.on_hand;
+    const oo = it.on_order || 0;
+    let dor = null, dorWith = null;
+    if (vpd > 0 && oh != null) {
+      dor = oh / vpd;
+      dorWith = (oh + oo) / vpd;
+    } else if (vpd === 0 && oh != null && oh > 0) {
+      dor = 999; dorWith = 999;
+    }
+    return {
+      ...it,
+      velocity_per_day: vpd,
+      days_of_runway: dor,
+      days_of_runway_with_on_order: dorWith,
+      velocity_window_days: windowDays,
+      _velocity_status: 'phase1_worker_direct'
+    };
+  });
+}
+
+// v10.722 — call worker /inventory/full-velocity. Caches result in
+// localStorage so subsequent dashboard renders pick it up (since worker
+// /inventory/dashboard doesn't know to merge velocity yet, the client
+// does the merge in _frameRunwayRender_ via _frameRunwayApplyVelocity_).
+async function _frameRunwayFullVelocityViaWorker_(windows) {
+  const cfg = await _getPrintRelayConfig_();
+  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+    return { ok: false, error: 'Worker relay config not in localStorage' };
+  }
+  try {
+    const resp = await fetch(cfg.worker_url + '/inventory/full-velocity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: cfg.stamp_secret,
+        windows: windows || [30, 60, 90, 180, 360],
+        max_seconds: 270
+      })
+    });
+    const text = await resp.text();
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { return { ok: false, error: 'Worker non-JSON: ' + text.substring(0, 200) }; }
+    if (resp.status !== 200 || !parsed.ok) {
+      return { ok: false, error: 'Worker HTTP ' + resp.status + ': ' + (parsed.error || text.substring(0, 200)) };
+    }
+    // Persist all returned windows in localStorage; render merges them.
+    try {
+      const stamp = { computed_at: parsed.computed_at, stats: parsed.stats, per_window: parsed.per_window };
+      localStorage.setItem('mbd_frame_runway_velocity', JSON.stringify(stamp));
+    } catch (e) { /* quota / private mode */ }
+    return parsed;
+  } catch (e) {
+    return { ok: false, error: 'Worker fetch error: ' + e.message };
   }
 }
 async function _frameRunwayLoad_(forceRefresh) {
@@ -8123,7 +8231,11 @@ async function _frameRunwayLoad_(forceRefresh) {
       if (sub) sub.textContent = 'Failed';
       return;
     }
-    const items = res.items || [];
+    let items = res.items || [];
+    // v10.722 — when orchestrator was dead, dashboard came from worker
+    // /inventory/dashboard which has no velocity yet. Merge from
+    // localStorage (populated by _frameRunwayFullVelocityViaWorker_).
+    items = _frameRunwayApplyVelocity_(items, windowDays);
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
     // Roll up container ETAs across all SKUs to build a one-line banner.
@@ -22111,7 +22223,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.721"></script>
+<script src="./pack.js?v=10.722"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22122,7 +22234,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.721<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.722<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
