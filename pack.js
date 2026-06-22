@@ -12132,15 +12132,24 @@ function _renderPackerOverrideForm(sku, orderId, orderNumber, pin) {
   // v10.599 — CUSTOM option first (Zac 2026-06-16). Reveals inline
   // length/width/height inputs; saving auto-creates a CUSTOM-<L>x<W>x<H>
   // boxes-tab row via the server.
-  const boxOptions = '<option value="">— pick a box —</option>'
-    + '<option value="CUSTOM">✎ Custom size (enter dimensions)</option>'
-    + boxes.map(b => '<option value="' + esc(b.box_sku) + '" data-len="' + b.length_in + '" data-wid="' + b.width_in + '" data-hgt="' + b.height_in + '" data-wt="' + b.weight_lb + '" data-svc="' + esc(b.service_hint) + '" data-car="' + esc(b.carrier_hint) + '">'
-        + esc(b.box_sku) + ' · ' + b.length_in + '×' + b.width_in + '×' + b.height_in + '" / ' + b.weight_lb + 'lb' + (b.carrier_hint ? ' / ' + esc(b.carrier_hint) : '') + '</option>').join('');
+  // v10.734 — mode-aware box list. The "FedEx One Rate" checkbox
+  // calls _packerOverrideRebuildBoxes_() which re-renders the box
+  // select using only FEDEX-ONE-RATE-* boxes. Default mode shows
+  // everything EXCEPT the One Rate boxes (they only appear in
+  // One Rate mode — the carrier+service requirements differ).
+  window._packerOverrideBoxesAll = boxes;
+  window._packerOverrideMode = 'standard';
+  const boxOptions = _packerOverrideBuildBoxOptions_('standard', boxes);
   const inputStyle = 'width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box';
   const labelStyle = 'display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px';
   const smallInputStyle = 'flex:1;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;min-width:0';
   body.innerHTML =
-      '<label style="' + labelStyle + '">Box</label>'
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:14px;margin-bottom:4px">'
+    +   '<label style="' + labelStyle + ';margin-top:0;margin-bottom:0">Box</label>'
+    +   '<label style="font-size:11px;font-weight:700;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;display:flex;align-items:center;gap:6px;cursor:pointer;letter-spacing:.3px">'
+    +     '<input type="checkbox" id="poOneRateToggle" onchange="_packerOverrideOneRateToggle_(this.checked)" style="margin:0;width:14px;height:14px"> 📦 FedEx One Rate'
+    +   '</label>'
+    + '</div>'
     + '<select id="poBoxSku" style="' + inputStyle + '" onchange="_packerOverrideBoxChanged()">' + boxOptions + '</select>'
     + '<div id="poDims" style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px"></div>'
     // v10.599 — inline dim inputs, hidden until CUSTOM selected.
@@ -12211,32 +12220,72 @@ function _packerOverrideBoxChanged() {
 function _packerOverrideCarrierChanged() {
   const car = document.getElementById('poCarrier').value;
   const svc = document.getElementById('poService');
-  // v10.732 — FedEx One Rate services added per Zac's ask. These are
-  // flat-rate services paired with the FEDEX-ONE-RATE-* box SKUs in
-  // the rulebook; selecting a One Rate box auto-fills the matching
-  // service via the dropdown's data-svc.
+  // v10.734 — services depend on mode. Standard mode = regular
+  // carrier services. One Rate mode = only fedex_one_rate_* services
+  // (carrier locked to fedex).
   const SERVICES = {
     usps: ['usps_ground_advantage', 'usps_priority_mail', 'usps_priority_mail_express', 'usps_media_mail', 'usps_parcel_select_ground'],
-    fedex: [
-      'fedex_home_delivery',
-      'fedex_ground',
-      'fedex_2day',
-      'fedex_express_saver',
-      'fedex_standard_overnight',
-      'fedex_one_rate_envelope',
-      'fedex_one_rate_pak',
-      'fedex_one_rate_tube',
-      'fedex_one_rate_small_box',
-      'fedex_one_rate_medium_box',
-      'fedex_one_rate_large_box',
-      'fedex_one_rate_extra_large_box',
-    ],
+    fedex: ['fedex_home_delivery', 'fedex_ground', 'fedex_2day', 'fedex_express_saver', 'fedex_standard_overnight'],
     ups: ['ups_ground', 'ups_3_day_select', 'ups_2nd_day_air', 'ups_next_day_air_saver', 'ups_next_day_air'],
   };
-  const opts = SERVICES[car] || [];
+  const ONE_RATE = [
+    'fedex_one_rate_envelope', 'fedex_one_rate_pak', 'fedex_one_rate_tube',
+    'fedex_one_rate_small_box', 'fedex_one_rate_medium_box',
+    'fedex_one_rate_large_box', 'fedex_one_rate_extra_large_box',
+  ];
+  const mode = window._packerOverrideMode || 'standard';
+  const opts = (mode === 'one_rate' && car === 'fedex') ? ONE_RATE : (SERVICES[car] || []);
   svc.innerHTML = opts.length
     ? '<option value="">— pick a service —</option>' + opts.map(s => '<option value="' + s + '">' + s + '</option>').join('')
     : '<option value="">— pick a carrier first —</option>';
+}
+
+// v10.734 — build the box-select options for the current mode.
+//   standard: all rulebook boxes + CUSTOM, EXCLUDES the One Rate ones
+//             (they only appear in one_rate mode).
+//   one_rate: ONLY the FEDEX-ONE-RATE-* boxes. No CUSTOM (One Rate has
+//             fixed sizes — custom dims aren't a thing for it).
+function _packerOverrideBuildBoxOptions_(mode, boxes) {
+  const list = boxes || window._packerOverrideBoxesAll || [];
+  if (mode === 'one_rate') {
+    const oneRate = list.filter(b => /^FEDEX-ONE-RATE-/.test(b.box_sku));
+    if (!oneRate.length) return '<option value="">(no One Rate boxes — run seedFedexOneRateBoxes)</option>';
+    return '<option value="">— pick a One Rate box —</option>'
+      + oneRate.map(b => '<option value="' + esc(b.box_sku) + '" data-len="' + b.length_in + '" data-wid="' + b.width_in + '" data-hgt="' + b.height_in + '" data-wt="' + b.weight_lb + '" data-svc="' + esc(b.service_hint) + '" data-car="' + esc(b.carrier_hint) + '">'
+        + esc(b.box_sku) + ' · ' + b.length_in + '×' + b.width_in + '×' + b.height_in + '"</option>').join('');
+  }
+  const standard = list.filter(b => !/^FEDEX-ONE-RATE-/.test(b.box_sku));
+  return '<option value="">— pick a box —</option>'
+    + '<option value="CUSTOM">✎ Custom size (enter dimensions)</option>'
+    + standard.map(b => '<option value="' + esc(b.box_sku) + '" data-len="' + b.length_in + '" data-wid="' + b.width_in + '" data-hgt="' + b.height_in + '" data-wt="' + b.weight_lb + '" data-svc="' + esc(b.service_hint) + '" data-car="' + esc(b.carrier_hint) + '">'
+        + esc(b.box_sku) + ' · ' + b.length_in + '×' + b.width_in + '×' + b.height_in + '" / ' + b.weight_lb + 'lb' + (b.carrier_hint ? ' / ' + esc(b.carrier_hint) : '') + '</option>').join('');
+}
+
+// v10.734 — toggle One Rate mode. Re-renders the box dropdown, locks
+// carrier to fedex (or unlocks it), and re-runs the carrier-changed
+// handler so the service dropdown matches.
+function _packerOverrideOneRateToggle_(checked) {
+  window._packerOverrideMode = checked ? 'one_rate' : 'standard';
+  const boxSel = document.getElementById('poBoxSku');
+  const carSel = document.getElementById('poCarrier');
+  const dims = document.getElementById('poDims');
+  const customWrap = document.getElementById('poCustomDims');
+  if (boxSel) boxSel.innerHTML = _packerOverrideBuildBoxOptions_(window._packerOverrideMode);
+  if (dims) dims.textContent = '';
+  if (customWrap) customWrap.style.display = 'none';
+  if (carSel) {
+    if (checked) {
+      carSel.value = 'fedex';
+      carSel.disabled = true;
+      carSel.style.opacity = '0.6';
+      carSel.style.cursor = 'not-allowed';
+    } else {
+      carSel.disabled = false;
+      carSel.style.opacity = '';
+      carSel.style.cursor = '';
+    }
+  }
+  _packerOverrideCarrierChanged();
 }
 
 async function _savePackerOverride(sku, orderId, orderNumber, pin) {
