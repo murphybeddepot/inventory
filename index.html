@@ -2079,6 +2079,12 @@ input::placeholder, textarea::placeholder {
     <!-- v10.592 — ground-source holds banner (Zac 2026-06-16: held
          orders only appeared on Cabinets tab; they were missed daily). -->
     <div id="groundHoldsBanner" style="display:none;margin-bottom:10px"></div>
+    <!-- v10.733 — search box. Filters cards client-side by order#, customer, company, state, or SKU. -->
+    <div style="position:relative;margin-bottom:10px">
+      <input type="search" id="groundSearchInput" placeholder="🔍 Search by order#, customer, or SKU…" oninput="_groundSearchFilter_(this.value)" style="width:100%;padding:12px 38px 12px 14px;background:var(--surface-2) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;box-sizing:border-box" autocomplete="off">
+      <button type="button" id="groundSearchClearBtn" onclick="_groundSearchClear_()" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer" title="Clear search">✕</button>
+    </div>
+    <div id="groundSearchEmpty" style="display:none;padding:18px 14px;background:var(--surface-2);border:1.5px dashed var(--border);border-radius:10px;text-align:center;color:var(--text-dim);font-size:13px"></div>
     <div id="groundQueueList" style="display:flex;flex-direction:column;gap:8px"></div>
     <div id="groundQueueEmpty" style="display:none;background:#fff;border:1.5px dashed #d0d0d0;border-radius:10px;padding:24px 18px;text-align:center;color:#666;font-size:14px;line-height:1.5">
       <div style="font-size:32px;margin-bottom:8px">📦</div>
@@ -19651,6 +19657,48 @@ function showGroundView(name) {
 // regardless, so the cached view is safe to act on.
 const GROUND_QUEUE_CACHE_KEY = 'mbd_ground_queue_cache';
 
+// v10.733 — Ground tab search filter. Hides rows whose data-search-haystack
+// doesn't match the current input. Also re-runs after any queue repaint
+// so the filter survives refresh/cache-paint.
+function _groundSearchFilter_(rawQuery) {
+  const q = String(rawQuery || '').trim().toLowerCase();
+  const list = document.getElementById('groundQueueList');
+  const emptyState = document.getElementById('groundQueueEmpty');
+  const searchEmpty = document.getElementById('groundSearchEmpty');
+  const clearBtn = document.getElementById('groundSearchClearBtn');
+  if (!list) return;
+  if (clearBtn) clearBtn.style.display = q ? '' : 'none';
+  let visible = 0;
+  Array.from(list.children).forEach(card => {
+    if (!q) { card.style.display = ''; visible += 1; return; }
+    const hay = (card.getAttribute('data-search-haystack') || '').toLowerCase();
+    const show = hay.indexOf(q) !== -1;
+    card.style.display = show ? '' : 'none';
+    if (show) visible += 1;
+  });
+  // Toggle "no match" empty state.
+  if (searchEmpty) {
+    if (q && visible === 0) {
+      searchEmpty.style.display = 'block';
+      searchEmpty.textContent = 'No orders match "' + q + '". Tap ✕ to clear.';
+    } else {
+      searchEmpty.style.display = 'none';
+    }
+  }
+  // Hide the regular "0 awaiting" empty state if user is searching
+  // (it conflicts with the search empty state and feels wrong).
+  if (emptyState && q) emptyState.style.display = 'none';
+}
+function _groundSearchClear_() {
+  const inp = document.getElementById('groundSearchInput');
+  if (inp) inp.value = '';
+  _groundSearchFilter_('');
+}
+function _groundSearchReapply_() {
+  const inp = document.getElementById('groundSearchInput');
+  if (inp && inp.value) _groundSearchFilter_(inp.value);
+}
+
 function paintGroundQueue_(queue, list, empty) {
   list.innerHTML = '';
   // v63 issue #3: priority first, then newest-first within each bucket.
@@ -19666,6 +19714,9 @@ function paintGroundQueue_(queue, list, empty) {
     empty.style.display = 'none';
     queue.forEach(o => list.appendChild(buildGroundQueueRow(o)));
   }
+  // v10.733 — re-apply the search filter if the operator had one
+  // active before refresh. Otherwise refreshing wipes their filter.
+  _groundSearchReapply_();
   return queue;
 }
 
@@ -19944,6 +19995,19 @@ function buildGroundQueueRow(order) {
   const row = document.createElement('button');
   row.className = 'no-dark keep-dark-text'; // opt out of generic light-card overrides
   const orderNumKey = String(order.order_number || '');
+  // v10.733 — search haystack so the queue search box can filter
+  // client-side. Includes order#, customer, company, state, and the
+  // box SKU labels from the V1 items so 'MB-KING' matches the King WMB
+  // order without typing the full order number.
+  const haystack = [
+    orderNumKey,
+    order.customer_name || '',
+    order.company || '',
+    order.state || '',
+    (Array.isArray(order.items) ? order.items.map(it => (it && it.sku) || '').join(' ') : ''),
+  ].join(' ').toLowerCase();
+  row.setAttribute('data-search-haystack', haystack);
+  row.setAttribute('data-order-num', orderNumKey);
   const isSelectedForBulk = groundManagerMode && groundBulkSelection.has(orderNumKey);
   // Dark card matching the rest of the app
   row.setAttribute('style',
@@ -22404,7 +22468,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.732"></script>
+<script src="./pack.js?v=10.733"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22415,7 +22479,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.732<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.733<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

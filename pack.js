@@ -16444,6 +16444,10 @@ function openRemakeCreateFromLookup(encoded) {
 
 function renderLookupGround_(h) {
   // v9.94: per-package tracking now renders as a carrier link.
+  // v10.733: per-box reprint button on each row (Zac 2026-06-22 —
+  // "build the per-box reprint" after order 32322 universal label
+  // didn't print but the other two did, so reprinting all 3 wastes
+  // 2 labels).
   const pkgRows = (h.packages || []).map(p => {
     const tn = String(p.tracking_number || '').trim();
     const tnUrl = tn ? _trackingUrlClient_(tn, p.carrier || '') : '';
@@ -16452,11 +16456,13 @@ function renderLookupGround_(h) {
           ? '<a href="' + esc(tnUrl) + '" target="_blank" onclick="event.stopPropagation()" style="font-family:\'JetBrains Mono\',monospace;color:#FFB300;font-size:11px;text-decoration:underline">' + esc(tn) + ' ↗</a>'
           : '<span style="font-family:\'JetBrains Mono\',monospace;color:#FFB300;font-size:11px">' + esc(tn) + '</span>')
       : '<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);font-size:11px">—</span>';
-    return '<div style="display:flex;gap:8px;padding:4px 0;font-size:12px">'
+    const reprintBtn = '<button onclick="_reprintOneLabelFromLookup_(\'' + esc(h.order_number) + '\',' + (p.sequence || 0) + ', this)" title="Reprint just this label" style="background:rgba(0,48,135,.20);border:1px solid #003087;color:#42a5f5;-webkit-text-fill-color:#42a5f5;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:800;cursor:pointer;line-height:1.3">🖨</button>';
+    return '<div style="display:flex;gap:8px;padding:4px 0;font-size:12px;align-items:center">'
       + '<div style="flex:0 0 40px;color:var(--text-dim);font-weight:700">#' + (p.sequence || '?') + '</div>'
       + '<div style="flex:1;color:var(--text)">' + esc(p.box_sku || '') + (p.label_text ? ' <span style="color:var(--text-dim);font-size:10px">(' + esc(p.label_text) + ')</span>' : '') + '</div>'
       + tnHtml
       + '<div style="font-size:10px;color:var(--text-dim);text-transform:uppercase">' + esc(p.scan_status || '') + '</div>'
+      + reprintBtn
       + '</div>';
   }).join('');
   // Master tracking → carrier link, opens in new tab.
@@ -16831,6 +16837,38 @@ async function _reprintLabelsViaWorker_(orderNumber, printerId) {
     results: results,
     via: 'worker'
   };
+}
+
+// v10.733 — per-box reprint from Lookup. Calls the same endpoint as
+// reprintAllLabelsFromLookup_ but with a `sequence` filter so only
+// the requested label fires. Used when a packer marked an order
+// shipped but one specific label didn't print (e.g. 32322 universal).
+async function _reprintOneLabelFromLookup_(orderNumber, sequence, btn) {
+  if (!orderNumber || !sequence) { showToast('Missing order or sequence'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    let res = await groundApi('reprintAllLabelsForOrder', { orderNumber: orderNumber, sequence: sequence });
+    // Quota / worker fallback (same pattern as the bulk reprint).
+    if (res && !res.ok && _looksLikeUrlFetchQuota_(res.error || JSON.stringify(res.results || []))) {
+      if (btn) btn.textContent = '…CF';
+      const wRes = await _reprintLabelsViaWorker_(orderNumber);
+      if (wRes && wRes.ok && wRes.results) {
+        // worker reprints all; pick the matching sequence's result.
+        const match = wRes.results.find(r => Number(r.sequence) === Number(sequence));
+        if (match) res = { ok: !!match.ok, results: [match] };
+      }
+    }
+    if (!res || !res.ok) {
+      const errStr = (res && res.error) || (res && res.results && res.results[0] && res.results[0].error) || 'unknown';
+      showToast('⚠ Reprint #' + sequence + ' failed: ' + errStr);
+      return;
+    }
+    showToast('✓ Reprinted #' + sequence + ' for order ' + orderNumber);
+  } catch (e) {
+    showToast('⚠ Reprint error: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🖨'; }
+  }
 }
 
 async function reprintAllLabelsFromLookup_(orderNumber, btn) {
