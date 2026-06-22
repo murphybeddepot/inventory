@@ -8006,8 +8006,7 @@ function _frameRunwayOpen_() {
     +     '<option value="180">Show 180d</option>'
     +     '<option value="360">Show 360d</option>'
     +   '</select>'
-    +   '<button onclick="_frameRunwayComputeVelocity_()" id="frameRunwayVelBtn" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡ 30d</button>'
-    +   '<button onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡⚡ All windows</button>'
+    +   '<button onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡ Compute velocity</button>'
     +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
     + '</div>'
@@ -8030,95 +8029,90 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
+  // v10.726 — Single-button compute via worker direct. Server-side
+  // timing: ~16s for 360-day sweep returning all 5 windows. iPad-side
+  // timeout: 90s (well past server budget). On success, all 5 windows
+  // cached in localStorage; dropdown switches between them instantly.
   const btn = document.getElementById('frameRunwayVelAllBtn');
   const sub = document.getElementById('frameRunwaySub');
-  if (btn) { btn.disabled = true; btn.textContent = 'Sweeping via Cloudflare…'; }
-  if (sub) sub.textContent = 'Sweeping 360 days of Shopify via Cloudflare worker…';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sweeping… ~15-30s'; }
+  if (sub) sub.textContent = 'Computing velocity via Cloudflare worker (all 5 windows)…';
+  const startedAt = Date.now();
+  // Tick the status every 3s so the user knows it isn't dead.
+  const ticker = setInterval(() => {
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    if (sub) sub.textContent = 'Computing velocity (' + elapsed + 's elapsed, server budget 270s)…';
+  }, 3000);
+  let res;
   try {
-    // v10.719 — worker does the full sweep; orchestrator just relays
-    // + does BOM decomposition. ONE GAS UrlFetchApp call. Falls back
-    // to the in-orchestrator multi-window pass if worker isn't
-    // reachable.
-    let res = await groundApi('computeVelocityViaWorker', { max_seconds: 270 });
-    if (!res || !res.ok) {
-      const fb = (res && res.error) || 'unknown';
-      console.log('DIAG-V10.719 worker path failed: ' + fb + ' — fallback in-orch sweep');
-      if (sub) sub.textContent = 'Worker path failed (' + fb + ') — falling back…';
-      res = await groundApi('computeVelocityMultiWindow', { maxSeconds: 540 });
-    }
-    // v10.722 — orchestrator dead from quota? Call worker directly.
-    if (!res || !res.ok) {
-      const fb = (res && res.error) || '';
-      if (_looksLikeUrlFetchQuota_(fb) || /shopifyRequest_ threw|bundle_bom empty|fetchAll threw|Worker call threw/i.test(fb)) {
-        if (sub) sub.textContent = 'Orch quota dead — sweeping via worker direct…';
-        const wRes = await _frameRunwayFullVelocityViaWorker_([30, 60, 90, 180, 360]);
-        if (wRes && wRes.ok) {
-          const perWindow = {};
-          for (const w of Object.keys(wRes.per_window || {})) {
-            perWindow[w] = { sku_count: Object.keys(wRes.per_window[w] || {}).length };
-          }
-          res = { ok: true, via: 'cloudflare_worker_full', per_window: perWindow, stats: wRes.stats || {}, elapsed_seconds: wRes.elapsed_seconds };
-        } else {
-          res = { ok: false, error: (wRes && wRes.error) || 'worker velocity failed' };
-        }
-      }
-    }
-    if (!res || !res.ok) {
-      alert('⚠ Multi-window sweep failed: ' + (res && res.error ? res.error : 'unknown'));
-      if (sub) sub.textContent = 'Multi-window sweep failed';
-      return;
-    }
-    const stats = res.stats || {};
-    const w = res.per_window || {};
-    const via = res.via === 'cloudflare_worker' ? 'CF' : 'GAS';
-    showToast('✓ All windows ready (via ' + via + '): 30d=' + (w[30]&&w[30].sku_count) + ' 60d=' + (w[60]&&w[60].sku_count) + ' 90d=' + (w[90]&&w[90].sku_count) + ' 180d=' + (w[180]&&w[180].sku_count) + ' 360d=' + (w[360]&&w[360].sku_count) + ' SKUs (' + (stats.orders_scanned||'?') + ' orders, ' + res.elapsed_seconds + 's)');
-    await _frameRunwayLoad_(true);
+    res = await _frameRunwayFullVelocityViaWorkerWithTimeout_([30, 60, 90, 180, 360], 90000);
   } catch (e) {
-    alert('⚠ Multi-window sweep error: ' + e.message);
-    if (sub) sub.textContent = 'Sweep error';
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⚡⚡ All windows'; }
+    clearInterval(ticker);
+    alert('⚠ Compute threw: ' + e.message);
+    if (sub) sub.textContent = 'Sweep error: ' + e.message;
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Compute velocity'; }
+    return;
+  }
+  clearInterval(ticker);
+  if (!res || !res.ok) {
+    alert('⚠ Velocity compute failed: ' + (res && res.error ? res.error : 'unknown'));
+    if (sub) sub.textContent = 'Failed';
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Compute velocity'; }
+    return;
+  }
+  const pw = res.per_window || {};
+  const stats = res.stats || {};
+  const counts = [30,60,90,180,360].map(w => w + 'd:' + Object.keys(pw[w]||{}).length).join(' ');
+  showToast('✓ Velocity computed via CF · ' + counts + ' SKUs · ' + (stats.orders_scanned||'?') + ' orders · ' + res.elapsed_seconds + 's');
+  if (btn) { btn.disabled = false; btn.textContent = '⚡ Compute velocity'; }
+  // Reload dashboard so velocity/runway columns paint.
+  await _frameRunwayLoad_(true);
+}
+
+// v10.726 — fetch with AbortController-driven timeout. Prevents the
+// "hung for a couple minutes" symptom Zac saw.
+async function _frameRunwayFullVelocityViaWorkerWithTimeout_(windows, timeoutMs) {
+  const cfg = await _getPrintRelayConfig_();
+  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+    return { ok: false, error: 'Worker relay config not in localStorage' };
+  }
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(cfg.worker_url + '/inventory/full-velocity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: cfg.stamp_secret,
+        windows: windows || [30, 60, 90, 180, 360],
+        max_seconds: 270
+      }),
+      signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    const text = await resp.text();
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { return { ok: false, error: 'Worker non-JSON: ' + text.substring(0, 200) }; }
+    if (resp.status !== 200 || !parsed.ok) {
+      return { ok: false, error: 'Worker HTTP ' + resp.status + ': ' + (parsed.error || text.substring(0, 200)) };
+    }
+    try {
+      const stamp = { computed_at: parsed.computed_at, stats: parsed.stats, per_window: parsed.per_window };
+      localStorage.setItem('mbd_frame_runway_velocity', JSON.stringify(stamp));
+    } catch (e) { /* quota / private mode */ }
+    return parsed;
+  } catch (e) {
+    clearTimeout(tid);
+    if (e.name === 'AbortError') return { ok: false, error: 'Aborted after ' + Math.round(timeoutMs/1000) + 's (worker took too long — try again, server-side compute is ~16s)' };
+    return { ok: false, error: 'Worker fetch error: ' + e.message };
   }
 }
-// v10.709 — Phase 1: compute real velocity from Shopify orders.
-// Sweeps last 30d, decomposes each line item's parent SKU via
-// Rulebook box_1..4, returns units/day per box SKU. Cached server-
-// side for 1h. After successful compute, dashboard reloads so the
-// velocity + runway columns populate.
-async function _frameRunwayComputeVelocity_() {
-  const btn = document.getElementById('frameRunwayVelBtn');
-  const sub = document.getElementById('frameRunwaySub');
-  if (btn) { btn.disabled = true; btn.textContent = 'Computing…'; }
-  if (sub) sub.textContent = 'Computing velocity from Shopify…';
-  try {
-    let res = await groundApi('computeVelocity30d', { maxSeconds: 270 });
-    // v10.722 — orch quota dead? Use worker /inventory/full-velocity.
-    if (!res || !res.ok) {
-      const errStr = (res && res.error) || '';
-      if (_looksLikeUrlFetchQuota_(errStr) || /shopifyRequest_ threw|bundle_bom empty|fetchAll threw|Worker call threw/i.test(errStr)) {
-        if (sub) sub.textContent = 'Orch quota — sweeping via Cloudflare worker…';
-        const wRes = await _frameRunwayFullVelocityViaWorker_([30]);
-        if (wRes && wRes.ok) res = { ok: true, boxes: wRes.per_window[30] || {}, stats: wRes.stats || {}, elapsed_seconds: wRes.elapsed_seconds };
-        else res = { ok: false, error: (wRes && wRes.error) || 'worker velocity failed' };
-      }
-    }
-    if (!res || !res.ok) {
-      alert('⚠ Velocity compute failed: ' + (res && res.error ? res.error : 'unknown error'));
-      if (sub) sub.textContent = 'Velocity compute failed';
-      return;
-    }
-    const stats = res.stats || {};
-    const boxCount = Object.keys(res.boxes || {}).length;
-    const elapsed = res.elapsed_seconds || 0;
-    showToast('✓ Velocity computed (' + boxCount + ' SKUs, ' + (stats.orders_scanned || '?') + ' orders, ' + elapsed + 's)');
-    await _frameRunwayLoad_(true);
-  } catch (e) {
-    alert('⚠ Velocity compute error: ' + e.message);
-    if (sub) sub.textContent = 'Velocity compute error';
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ 30d'; }
-  }
-}
+// v10.726 — Removed the 30d-only single-window compute button. One
+// button now ('⚡ Compute velocity') does all 5 windows via worker
+// direct. The function reference is kept as a thin alias in case
+// any deep-link or saved button references it.
+async function _frameRunwayComputeVelocity_() { return _frameRunwayComputeAllWindows_(); }
 
 // v10.724 — Receive Container UI. Multi-step:
 //   1. Open container picker (if multiple on-order containers).
@@ -22331,7 +22325,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.725"></script>
+<script src="./pack.js?v=10.726"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22342,7 +22336,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.725<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.726<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
