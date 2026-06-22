@@ -8176,6 +8176,102 @@ async function _frameRunwayComputeVelocity_() { return _frameRunwayComputeAllWin
 // Calls worker /inventory/correct-bin-count (manager PIN gated)
 // which upserts the bin row + recomputes items.on_hand + appends
 // a CYCLE_COUNT_CORRECTION transaction.
+
+// v10.741 — count a brand new leaf SKU into inventory. Opened from
+// the "+ Count" button in the Uncounted Leaves footer. Differs from
+// _frameRunwayOpenBinEdit_ in that location is editable (no existing
+// bin to anchor to) and the SKU is shown read-only as context.
+function _frameRunwayOpenCountNewLeaf_(sku, velocityPerDay, totalUnits) {
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('count new leaf ' + sku)
+    : prompt('Manager PIN:');
+  if (!pin) return;
+  const prior = document.getElementById('frameRunwayCountNewLeafOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'frameRunwayCountNewLeafOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10005;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  const velStr = velocityPerDay > 0 ? (Math.round(velocityPerDay * 100) / 100) + '/day' : 'no velocity yet';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:460px;width:100%;max-height:88vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;letter-spacing:.5px">+ Count new leaf</div>'
+    +   '<button onclick="document.getElementById(\'frameRunwayCountNewLeafOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:14px;line-height:1.4">'
+    +   'New SKU: <strong style="font-family:\'JetBrains Mono\',monospace;background:#FFF5E6 !important;padding:2px 8px;border-radius:4px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important">' + esc(sku) + '</strong>'
+    +   '<br><span style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:11px">Velocity: ' + velStr + ' &middot; 30d total: ' + totalUnits + '</span>'
+    + '</div>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px">Bin location</label>'
+    + '<input type="text" id="cnlLocation" placeholder="e.g. 4.3 or 1.13" autocapitalize="characters" autocomplete="off" style="width:100%;padding:11px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:16px;font-weight:700;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px">Qty</label>'
+    + '<input type="number" id="cnlQty" value="0" min="0" step="1" style="width:100%;padding:11px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:18px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    + '<label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:13px;font-weight:600">'
+    +   '<input type="checkbox" id="cnlIsDnu" style="width:16px;height:16px;margin:0"> Do not use (DNU lot — defective)'
+    + '</label>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px">Counted by</label>'
+    + '<input type="text" id="cnlCountedBy" placeholder="initials" value="' + esc((function(){ try { return localStorage.getItem("mbd_ground_packer") || localStorage.getItem("mbd_device_name") || ""; } catch(e){return"";} })()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    + '<div style="display:flex;gap:8px;margin-top:18px">'
+    +   '<button class="cnl-save-btn" onclick="_frameRunwayCountNewLeafSave_(\'' + esc(sku).replace(/\\/g, "\\\\").replace(/\'/g, "\\\'") + '\',\'' + esc(pin) + '\')" style="flex:1;padding:13px 18px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Save count</button>'
+    +   '<button onclick="document.getElementById(\'frameRunwayCountNewLeafOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  setTimeout(() => {
+    const inp = document.getElementById('cnlLocation');
+    if (inp) inp.focus();
+  }, 50);
+}
+
+async function _frameRunwayCountNewLeafSave_(sku, pin) {
+  const locEl = document.getElementById('cnlLocation');
+  const qtyEl = document.getElementById('cnlQty');
+  const dnuEl = document.getElementById('cnlIsDnu');
+  const byEl = document.getElementById('cnlCountedBy');
+  const saveBtn = document.querySelector('#frameRunwayCountNewLeafOverlay .cnl-save-btn');
+  const location = locEl ? locEl.value.trim() : '';
+  if (!location) { alert('Enter a bin location'); if (locEl) locEl.focus(); return; }
+  const newQty = Number(qtyEl ? qtyEl.value : 0);
+  if (isNaN(newQty) || newQty < 0) { alert('Enter a valid qty (0+)'); return; }
+  const isDnu = !!(dnuEl && dnuEl.checked);
+  const countedBy = (byEl && byEl.value.trim()) || 'operator';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving…'; }
+  try {
+    const cfg = await _getPrintRelayConfig_();
+    if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+      alert('Worker config not cached. Open Bedrock once after the next GAS quota reset (~3am EDT) to seed it.');
+      return;
+    }
+    const res = await fetch(cfg.worker_url + '/inventory/correct-bin-count', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: cfg.stamp_secret,
+        manager_pin: pin,
+        sku, location,
+        new_qty: newQty,
+        is_dnu: isDnu,
+        counted_by: countedBy + ' (new leaf)',
+      }),
+    });
+    const j = await res.json();
+    if (!res.ok || !j.ok) {
+      alert('Save failed: ' + (j.error || res.status));
+      return;
+    }
+    const overlay = document.getElementById('frameRunwayCountNewLeafOverlay');
+    if (overlay) overlay.remove();
+    if (typeof showToast === 'function') {
+      showToast('✓ Counted ' + sku + ' @ ' + location + ': ' + newQty);
+    }
+    _frameRunwayLoad_(true);
+  } catch (e) {
+    alert('Save error: ' + e.message);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '✓ Save count'; }
+  }
+}
+
 function _frameRunwayOpenBinEdit_(sku, location, currentQty, isDnu) {
   const pin = (typeof promptManagerPin_ === 'function')
     ? promptManagerPin_('edit bin ' + location + ' for ' + sku)
@@ -22864,7 +22960,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.740"></script>
+<script src="./pack.js?v=10.741"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22875,7 +22971,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.740<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.741<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
