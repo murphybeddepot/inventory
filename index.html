@@ -8172,6 +8172,97 @@ async function _frameRunwayComputeVelocity_() { return _frameRunwayComputeAllWin
 //   2. Fetch preview via worker (returns SKU list + qtys).
 //   3. Show confirmation dialog with SKUs/qtys.
 //   4. On confirm: fire worker with confirm:'RECEIVE-CONFIRMED'.
+// v10.737 — bin-edit modal. Open from any bin chip in Frame Runway.
+// Calls worker /inventory/correct-bin-count (manager PIN gated)
+// which upserts the bin row + recomputes items.on_hand + appends
+// a CYCLE_COUNT_CORRECTION transaction.
+function _frameRunwayOpenBinEdit_(sku, location, currentQty, isDnu) {
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('edit bin ' + location + ' for ' + sku)
+    : prompt('Manager PIN:');
+  if (!pin) return;
+  const prior = document.getElementById('frameRunwayBinEditOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'frameRunwayBinEditOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10005;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:440px;width:100%;max-height:88vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;letter-spacing:.5px">✎ Edit bin</div>'
+    +   '<button onclick="document.getElementById(\'frameRunwayBinEditOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:14px">'
+    +   '<strong style="font-family:\'JetBrains Mono\',monospace;background:#FFF5E6 !important;padding:2px 8px;border-radius:4px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important">' + esc(sku) + '</strong>'
+    +   ' @ <strong style="font-family:\'JetBrains Mono\',monospace">' + esc(location) + '</strong>'
+    +   ' &middot; current: <strong>' + currentQty + (isDnu ? ' ⊘' : '') + '</strong>'
+    + '</div>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px">New qty</label>'
+    + '<input type="number" id="binEditNewQty" value="' + currentQty + '" min="0" step="1" style="width:100%;padding:11px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:18px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    + '<label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:13px;font-weight:600">'
+    +   '<input type="checkbox" id="binEditIsDnu" ' + (isDnu ? 'checked' : '') + ' style="width:16px;height:16px;margin:0"> Do not use (DNU lot — defective/India bracket caps)'
+    + '</label>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px">Counted by</label>'
+    + '<input type="text" id="binEditCountedBy" placeholder="initials" value="' + esc((function(){ try { return localStorage.getItem("mbd_ground_packer") || localStorage.getItem("mbd_device_name") || ""; } catch(e){return"";} })()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    + '<div style="display:flex;gap:8px;margin-top:18px">'
+    +   '<button class="bin-edit-save-btn" onclick="_frameRunwayBinEditSave_(\'' + esc(sku).replace(/'/g, "\\'") + '\',\'' + esc(location).replace(/'/g, "\\'") + '\',\'' + esc(pin) + '\')" style="flex:1;padding:13px 18px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Save</button>'
+    +   '<button onclick="document.getElementById(\'frameRunwayBinEditOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  setTimeout(() => {
+    const inp = document.getElementById('binEditNewQty');
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+}
+
+async function _frameRunwayBinEditSave_(sku, location, pin) {
+  const newQtyEl = document.getElementById('binEditNewQty');
+  const dnuEl = document.getElementById('binEditIsDnu');
+  const byEl = document.getElementById('binEditCountedBy');
+  const saveBtn = document.querySelector('#frameRunwayBinEditOverlay .bin-edit-save-btn');
+  if (!newQtyEl) return;
+  const newQty = Number(newQtyEl.value);
+  if (isNaN(newQty) || newQty < 0) { alert('Enter a valid qty (0+)'); return; }
+  const isDnu = !!(dnuEl && dnuEl.checked);
+  const countedBy = (byEl && byEl.value.trim()) || 'operator';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving…'; }
+  try {
+    const cfgRaw = localStorage.getItem('mbd_print_relay_config') || '{}';
+    const cfg = JSON.parse(cfgRaw);
+    const workerUrl = cfg.relay_url || 'https://mbd-label-stamper.murphybeddepot.workers.dev';
+    const sharedSecret = cfg.shared_secret || '';
+    const res = await fetch(workerUrl + '/inventory/correct-bin-count', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: sharedSecret,
+        manager_pin: pin,
+        sku, location,
+        new_qty: newQty,
+        is_dnu: isDnu,
+        counted_by: countedBy,
+      }),
+    });
+    const j = await res.json();
+    if (!res.ok || !j.ok) {
+      alert('Save failed: ' + (j.error || res.status));
+      return;
+    }
+    const overlay = document.getElementById('frameRunwayBinEditOverlay');
+    if (overlay) overlay.remove();
+    // Refresh dashboard so the bin chip + on_hand show the new value.
+    if (typeof showToast === 'function') {
+      showToast('✓ ' + sku + ' @ ' + location + ': ' + (j.after && j.after.bin_qty) + ' (on_hand ' + (j.after && j.after.on_hand) + ')');
+    }
+    _frameRunwayLoad_(true);
+  } catch (e) {
+    alert('Save error: ' + e.message);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '✓ Save'; }
+  }
+}
+
 //   5. Worker writes +RECV txns + deletes on_order rows.
 //   6. Reload dashboard.
 async function _frameRunwayOpenReceive_() {
@@ -8618,12 +8709,16 @@ function _frameRunwayRender_(items, containerBanner) {
     if (bins.length === 0) {
       binsHtml = '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">no bin data</span>';
     } else {
+      // v10.737 — bin chips become tap-to-edit buttons. Tap → manager
+      // PIN prompt → modal with new qty + DNU + notes → worker writes
+      // directly to Supabase via /inventory/correct-bin-count.
       binsHtml = bins.map(b => {
         const bg = b.is_dnu ? 'rgba(255,82,82,.10)' : 'rgba(255,179,0,.10)';
         const bd = b.is_dnu ? 'rgba(255,82,82,.45)' : 'rgba(255,179,0,.35)';
         const fg = b.is_dnu ? '#FF7070' : '#fff';
         const dnuMark = b.is_dnu ? ' ⊘' : '';
-        return '<span style="display:inline-block;background:' + bg + ';border:1px solid ' + bd + ';color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(b.location) + '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:500"> · </span>' + b.qty + dnuMark + '</span>';
+        const onclickArgs = "'" + esc(it.sku).replace(/'/g, "\\'") + "','" + esc(b.location).replace(/'/g, "\\'") + "'," + Number(b.qty || 0) + ',' + (b.is_dnu ? 'true' : 'false');
+        return '<button onclick="_frameRunwayOpenBinEdit_(' + onclickArgs + ')" title="Tap to edit qty" style="display:inline-block;background:' + bg + ' !important;border:1px solid ' + bd + ';color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:700;cursor:pointer">' + esc(b.location) + '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:500"> · </span>' + b.qty + dnuMark + '</button>';
       }).join('');
     }
     // v10.735 — data-search-haystack for client-side search filter.
@@ -22679,7 +22774,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.736"></script>
+<script src="./pack.js?v=10.737"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22690,7 +22785,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.736<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.737<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
