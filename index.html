@@ -8016,6 +8016,12 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
     + '</div>'
+    // v10.735 — search bar below the header. Filters table rows by
+    // SKU, bin location, or category tag substring.
+    + '<div style="padding:8px 14px 0;position:relative">'
+    +   '<input type="search" id="frameRunwaySearchInput" placeholder="🔍 Search by SKU, bin, or tag (sbf-q, 3.7, spare…)" oninput="_frameRunwaySearchFilter_(this.value)" autocomplete="off" style="width:100%;padding:9px 36px 9px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box">'
+    +   '<button type="button" id="frameRunwaySearchClearBtn" onclick="_frameRunwaySearchClear_()" style="display:none;position:absolute;right:22px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer" title="Clear search">✕</button>'
+    + '</div>'
     + '<div id="frameRunwayBody" style="flex:1;overflow-y:auto;padding:12px 14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">'
     +   '<div style="padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px">Loading…</div>'
     + '</div>';
@@ -8026,6 +8032,42 @@ function _frameRunwayClose_() {
   const ov = document.getElementById('frameRunwayOverlay');
   if (ov) ov.remove();
 }
+// v10.735 — Frame Runway client-side row filter. Hides table rows
+// whose data-search-haystack doesn't match the input. Survives
+// dashboard reloads via _frameRunwaySearchReapply_ called from
+// _frameRunwayLoad_ after render.
+function _frameRunwaySearchFilter_(rawQuery) {
+  const q = String(rawQuery || '').trim().toLowerCase();
+  const body = document.getElementById('frameRunwayBody');
+  if (!body) return;
+  const rows = body.querySelectorAll('tr[data-search-haystack]');
+  const clearBtn = document.getElementById('frameRunwaySearchClearBtn');
+  if (clearBtn) clearBtn.style.display = q ? '' : 'none';
+  let visible = 0;
+  rows.forEach(r => {
+    if (!q) { r.style.display = ''; visible += 1; return; }
+    const hay = r.getAttribute('data-search-haystack') || '';
+    const show = hay.indexOf(q) !== -1;
+    r.style.display = show ? '' : 'none';
+    if (show) visible += 1;
+  });
+  // Update sub-header count to reflect filter.
+  const sub = document.getElementById('frameRunwaySub');
+  if (sub && q) {
+    const total = rows.length;
+    sub.textContent = visible + ' of ' + total + ' SKUs matching "' + q + '"';
+  }
+}
+function _frameRunwaySearchClear_() {
+  const inp = document.getElementById('frameRunwaySearchInput');
+  if (inp) inp.value = '';
+  _frameRunwaySearchFilter_('');
+}
+function _frameRunwaySearchReapply_() {
+  const inp = document.getElementById('frameRunwaySearchInput');
+  if (inp && inp.value) _frameRunwaySearchFilter_(inp.value);
+}
+
 // v10.717 — Reload always bypasses the response cache.
 async function _frameRunwayReload_() { _frameRunwayLoad_(true); }
 // v10.716 — operator changes the displayed window. Cheap reload (uses
@@ -8344,6 +8386,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     if (receiveBtn) receiveBtn.style.display = Object.keys(etaSet).length ? '' : 'none';
     if (sub) sub.textContent = items.length + ' SKUs' + (containerBanner ? ' · ' + containerBanner : '') + ' · ' + (res.note || '');
     body.innerHTML = _frameRunwayRender_(items, containerBanner);
+    _frameRunwaySearchReapply_();
   } catch (e) {
     // v10.725 — orchestrator threw (network / GAS quota / timeout)
     // before the in-band !res.ok fallback could check. Try worker
@@ -8373,6 +8416,7 @@ async function _frameRunwayLoad_(forceRefresh) {
         if (receiveBtn) receiveBtn.style.display = Object.keys(etaSet).length ? '' : 'none';
         if (sub) sub.textContent = items.length + ' SKUs · via Cloudflare' + (containerBanner ? ' · ' + containerBanner : '');
         body.innerHTML = _frameRunwayRender_(items, containerBanner);
+        _frameRunwaySearchReapply_();
         return;
       }
       const werr = (workerRes && workerRes.error) || 'worker fetch returned no result';
@@ -8490,7 +8534,15 @@ function _frameRunwayRender_(items, containerBanner) {
         return '<span style="display:inline-block;background:' + bg + ';border:1px solid ' + bd + ';color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(b.location) + '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:500"> · </span>' + b.qty + dnuMark + '</span>';
       }).join('');
     }
-    html += '<tr style="border-bottom:1px solid var(--border);vertical-align:top">'
+    // v10.735 — data-search-haystack for client-side search filter.
+    // Includes sku, bin locations, category tag, dnu flag.
+    const haystack = [
+      it.sku || '',
+      (it.bins || []).map(b => b.location).join(' '),
+      (it.flags && it.flags.category) || '',
+      it.dnu_qty > 0 ? 'dnu' : '',
+    ].join(' ').toLowerCase();
+    html += '<tr data-search-haystack="' + esc(haystack) + '" style="border-bottom:1px solid var(--border);vertical-align:top">'
          +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px;white-space:nowrap">' + esc(it.sku) + dnuChip + catChip + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900">' + onHandDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important">' + onOrderDisp + '</td>'
@@ -22535,7 +22587,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.734"></script>
+<script src="./pack.js?v=10.735"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22546,7 +22598,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.734<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.735<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
