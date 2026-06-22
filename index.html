@@ -8021,6 +8021,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
     +   '<button onclick="_frameRunwayOpenPoGenerator_()" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦 Generate PO</button>'
+    +   '<button onclick="_frameRunwayOpenBomDiag_()" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬 Diagnose BOMs</button>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -8878,6 +8879,131 @@ function _frameRunwayPoCopyToClipboard_() {
   } else {
     alert('Clipboard unavailable — manually copy from a long-press.');
   }
+}
+
+// v10.761 — BOM diagnostic modal. Calls worker /inventory/diagnose-bom
+// which returns last N Shopify orders + the per-line BOM expansion
+// Bedrock would compute. Lets Zac audit "is this order decomposed
+// correctly?" 5 at a time, "Older 5 ›" paginates via before_id.
+let _bomDiagBeforeId = null;
+let _bomDiagAccumulated = [];
+
+async function _frameRunwayOpenBomDiag_() {
+  _bomDiagBeforeId = null;
+  _bomDiagAccumulated = [];
+  const prior = document.getElementById('bomDiagOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'bomDiagOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:10006;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:1100px;width:100%;max-height:92vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">'
+    +   '<div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;letter-spacing:.5px">🔬 BOM Diagnostic</div>'
+    +     '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">Walk recent Shopify orders + see exactly how Bedrock decomposes each line via bundle_bom. Kits stay atomic.</div>'
+    +   '</div>'
+    +   '<button onclick="document.getElementById(\'bomDiagOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div id="bomDiagList" style="margin-top:10px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"><div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">Loading last 5 orders…</div></div>'
+    + '<div style="display:flex;gap:8px;margin-top:14px">'
+    +   '<button id="bomDiagOlderBtn" onclick="_bomDiagFetchMore_()" style="flex:1;padding:12px;background:#1A5C1A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer">+5 Older</button>'
+    +   '<button onclick="document.getElementById(\'bomDiagOverlay\').remove()" style="padding:12px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  await _bomDiagFetchMore_();
+}
+
+async function _bomDiagFetchMore_() {
+  const btn = document.getElementById('bomDiagOlderBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Fetching…'; }
+  try {
+    const cfg = await _getPrintRelayConfig_();
+    if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+      const list = document.getElementById('bomDiagList');
+      if (list) list.innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Worker config not cached.</div>';
+      return;
+    }
+    const res = await fetch(cfg.worker_url + '/inventory/diagnose-bom', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: cfg.stamp_secret, limit: 5, before_id: _bomDiagBeforeId }),
+    });
+    const j = await res.json();
+    if (!res.ok || !j.ok) {
+      const list = document.getElementById('bomDiagList');
+      if (list) list.innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Fetch failed: ' + esc(j.error || res.status) + '</div>';
+      return;
+    }
+    _bomDiagAccumulated.push.apply(_bomDiagAccumulated, j.orders || []);
+    if (j.next_before_id) _bomDiagBeforeId = j.next_before_id;
+    _renderBomDiag_();
+  } catch (e) {
+    const list = document.getElementById('bomDiagList');
+    if (list) list.innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Error: ' + esc(e.message) + '</div>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '+5 Older'; }
+  }
+}
+
+function _renderBomDiag_() {
+  const list = document.getElementById('bomDiagList');
+  if (!list) return;
+  if (!_bomDiagAccumulated.length) {
+    list.innerHTML = '<div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">No orders found.</div>';
+    return;
+  }
+  let html = '';
+  for (const o of _bomDiagAccumulated) {
+    const dt = o.created_at ? new Date(o.created_at).toISOString().slice(0, 10) : '?';
+    html += '<div style="margin-bottom:18px;padding:14px;border:2px solid #1A5C1A;border-radius:10px;background:rgba(0,200,83,.04)">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">Order ' + esc(o.order_number || o.order_id) + '</div>'
+      +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:\'JetBrains Mono\',monospace">' + esc(dt) + '</div>'
+      + '</div>';
+    if (!o.lines || !o.lines.length) {
+      html += '<div style="padding:8px;color:#999 !important;-webkit-text-fill-color:#999 !important;font-style:italic">No line items</div>';
+    } else {
+      for (const L of o.lines) {
+        let statusHtml = '';
+        if (L.status === 'no_sku') statusHtml = '<span style="background:#FFE082;color:#7A4E00;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:.4px">NO SKU</span>';
+        else if (L.status === 'no_variant_map') statusHtml = '<span style="background:#FFCDD2;color:#7A1F1F;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:.4px">NO VARIANT MAP</span>';
+        const leafKeys = Object.keys(L.leaves || {}).sort();
+        html += '<div style="margin-bottom:10px;padding:10px;background:#fff;border:1px solid #ddd;border-radius:8px">'
+          + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">'
+          +   '<div>'
+          +     '<div style="font-weight:800;font-size:14px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(L.name || L.sku) + '</div>'
+          +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(L.sku) + ' × ' + L.qty + '</div>'
+          +   '</div>'
+          +   statusHtml
+          + '</div>';
+        if (L.bundles && L.bundles.length) {
+          html += '<div style="font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:4px"><strong>Resolved bundles:</strong> ' + L.bundles.map(esc).join(' + ') + '</div>';
+        }
+        if (leafKeys.length) {
+          html += '<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px">';
+          html += '<thead><tr style="border-bottom:1px solid #ccc;color:#666 !important;-webkit-text-fill-color:#666 !important">'
+            + '<th style="text-align:left;padding:3px 6px;text-transform:uppercase;font-size:9px;letter-spacing:.5px;font-weight:800">Leaf SKU</th>'
+            + '<th style="text-align:right;padding:3px 6px;text-transform:uppercase;font-size:9px;letter-spacing:.5px;font-weight:800">Qty consumed</th>'
+            + '</tr></thead><tbody>';
+          for (const k of leafKeys) {
+            html += '<tr style="border-bottom:1px solid #f0f0f0">'
+              + '<td style="padding:3px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(k) + '</td>'
+              + '<td style="padding:3px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">' + L.leaves[k] + '</td>'
+              + '</tr>';
+          }
+          html += '</tbody></table>';
+        } else if (L.status === 'ok' && !L.bundles.length) {
+          html += '<div style="font-size:11px;color:#999 !important;-webkit-text-fill-color:#999 !important;font-style:italic">No bundle expansion</div>';
+        }
+        html += '</div>';
+      }
+    }
+    html += '</div>';
+  }
+  html += '<div style="text-align:center;padding:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:11px">' + _bomDiagAccumulated.length + ' orders loaded</div>';
+  list.innerHTML = html;
 }
 
 //   5. Worker writes +RECV txns + deletes on_order rows.
@@ -23644,7 +23770,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.760"></script>
+<script src="./pack.js?v=10.761"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23655,7 +23781,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.760<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.761<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
