@@ -8020,6 +8020,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡ Compute velocity</button>'
     +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
+    +   '<button onclick="_frameRunwayOpenPoGenerator_()" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦 Generate PO</button>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -8499,6 +8500,197 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
     alert('Save error: ' + e.message);
   } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '✓ Save'; }
+  }
+}
+
+// v10.744 — PO Generator (Stock 2.0 autopilot, ship 7). Computes
+// suggested KRY reorder lines client-side from the existing Frame
+// Runway items cache (no GAS dependency — survives quota burns).
+// Formula: target_units = target_months * 30 * velocity_per_day.
+// gap = max(0, target - on_hand - on_order). suggest = ceil(gap/10)*10.
+//
+// "📧 Open in Gmail" builds a mailto: with subject + body + To:
+// pre-filled. Operator reviews, edits, and sends from Gmail.
+const _KRY_C24_PRICES = {
+  // Mirrors apps-script/orchestrator/Velocity.js _kryC24PriceMap_.
+  // Source: Container 24 PI 2025-09-26.
+  'BC1': 32.18, 'HLR-82': 3.58, 'SBF-KING': 82.81, 'SBF-QUEEN': 60.22,
+  'SBLM': 51.91, 'SLAT-2-QE': 133.44, 'SLAT-2-QR': 67.15,
+  'SLAT-2-DE': 147.87, 'STU-B': 41.31, 'STU-W': 41.31,
+  // Same map with iPad-side warehouse SKUs (so the PO table picks
+  // up prices on either the items-table name or the BOM-leaf name).
+  'SBF-K': 82.81, 'SBF-Q': 60.22, 'STUDIO-BLACK': 41.31, 'STUDIO-WHITE': 41.31,
+};
+
+function _frameRunwayOpenPoGenerator_() {
+  const items = window._frameRunwayItemsCache || [];
+  if (!items.length) {
+    alert('Frame Runway hasn\'t loaded yet — open it first.');
+    return;
+  }
+  const hasVelocity = items.some(it => it.velocity_per_day > 0);
+  if (!hasVelocity) {
+    alert('No velocity data yet. Tap ⚡ Compute velocity first.');
+    return;
+  }
+  const prior = document.getElementById('poGeneratorOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'poGeneratorOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10006;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:920px;width:100%;max-height:92vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px">'
+    +   '<div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;letter-spacing:.5px">📦 Generate PO — KRY</div>'
+    +     '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">Lily Yan · project@qdmetalwork.com · ~165d door-to-door</div>'
+    +   '</div>'
+    +   '<button onclick="document.getElementById(\'poGeneratorOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="display:flex;gap:14px;align-items:center;margin-top:12px;padding:10px 12px;background:rgba(123,44,191,.08) !important;border:1px solid rgba(123,44,191,.30);border-radius:8px">'
+    +   '<label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important">Target months</label>'
+    +   '<input type="number" id="poTargetMonths" value="6" min="0.5" max="12" step="0.5" onchange="_frameRunwayRecomputePo_()" style="width:80px;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +   '<label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-left:14px">Round to</label>'
+    +   '<input type="number" id="poRoundTo" value="10" min="1" max="100" step="1" onchange="_frameRunwayRecomputePo_()" style="width:70px;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +   '<div id="poTotalsBadge" style="margin-left:auto;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important"></div>'
+    + '</div>'
+    + '<div id="poGeneratorTable" style="margin-top:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>'
+    + '<div style="display:flex;gap:8px;margin-top:18px">'
+    +   '<button id="poGenMailtoBtn" onclick="_frameRunwayPoEmail_()" style="flex:1;padding:13px 18px;background:#7B2CBF !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">📧 Open in Gmail</button>'
+    +   '<button onclick="_frameRunwayPoCopyToClipboard_()" style="padding:13px 18px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;letter-spacing:.4px">📋 Copy body</button>'
+    +   '<button onclick="document.getElementById(\'poGeneratorOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  _frameRunwayRecomputePo_();
+}
+
+function _frameRunwayComputePoLines_() {
+  const items = window._frameRunwayItemsCache || [];
+  const targetMonths = Math.max(0.5, Math.min(12, Number(document.getElementById('poTargetMonths').value) || 6));
+  const roundTo = Math.max(1, Number(document.getElementById('poRoundTo').value) || 10);
+  const lines = [];
+  for (const it of items) {
+    const vpd = Number(it.velocity_per_day || 0);
+    if (!vpd || vpd <= 0) continue;
+    const oh = (it.on_hand == null) ? 0 : Number(it.on_hand);
+    const oo = (it.on_order_qty == null) ? 0 : Number(it.on_order_qty);
+    const target = Math.round(targetMonths * 30 * vpd);
+    const gap = target - oh - oo;
+    if (gap <= 0) continue;
+    const suggest = Math.ceil(gap / roundTo) * roundTo;
+    const unitCost = _KRY_C24_PRICES[it.sku] != null ? _KRY_C24_PRICES[it.sku] : 0;
+    const lineTotal = Math.round(unitCost * suggest * 100) / 100;
+    lines.push({
+      sku: it.sku, on_hand: oh, on_order: oo,
+      velocity_per_day: Math.round(vpd * 100) / 100,
+      target_units: target, gap_units: gap, suggest_qty: suggest,
+      unit_cost_usd: unitCost, line_total_usd: lineTotal,
+      no_price: unitCost === 0,
+    });
+  }
+  lines.sort((a, b) => b.gap_units - a.gap_units);
+  return { lines, targetMonths, roundTo };
+}
+
+function _frameRunwayRecomputePo_() {
+  const body = document.getElementById('poGeneratorTable');
+  if (!body) return;
+  const r = _frameRunwayComputePoLines_();
+  const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
+  const totalUsd = r.lines.reduce((s, L) => s + L.line_total_usd, 0);
+  const noPriceCount = r.lines.filter(L => L.no_price).length;
+  const badge = document.getElementById('poTotalsBadge');
+  if (badge) {
+    badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString();
+  }
+  if (!r.lines.length) {
+    body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">All items currently meet the ' + r.targetMonths + '-month target. Nothing to reorder.</div>';
+    return;
+  }
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr style="background:rgba(123,44,191,.08);text-align:left">'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px">SKU</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">On hand</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">On order</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">Vel/day</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">Target</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">Gap</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">Suggest</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">Unit $</th>'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">Line $</th>'
+       + '</tr></thead><tbody>';
+  for (const L of r.lines) {
+    html += '<tr style="border-bottom:1px solid #eee">'
+         +   '<td style="padding:6px 8px;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(L.sku) + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.on_hand + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.on_order + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.velocity_per_day + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.target_units + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#C43030 !important;-webkit-text-fill-color:#C43030 !important">' + L.gap_units + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">' + L.suggest_qty + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important;-webkit-text-fill-color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important">' + (L.no_price ? '—' : '$' + L.unit_cost_usd.toFixed(2)) + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important;-webkit-text-fill-color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important">' + (L.no_price ? '—' : '$' + L.line_total_usd.toLocaleString()) + '</td>'
+         + '</tr>';
+  }
+  html += '</tbody></table>';
+  if (noPriceCount > 0) {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.40);border-radius:6px;font-size:11px;color:#7A4E00 !important;-webkit-text-fill-color:#7A4E00 !important">⚠ ' + noPriceCount + ' line' + (noPriceCount === 1 ? '' : 's') + ' missing KRY C24 prices — Lily will need to quote these. Email still includes them for the quote request.</div>';
+  }
+  body.innerHTML = html;
+}
+
+function _frameRunwayPoBuildEmailBody_() {
+  const r = _frameRunwayComputePoLines_();
+  if (!r.lines.length) return null;
+  const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
+  const totalUsd = r.lines.reduce((s, L) => s + L.line_total_usd, 0);
+  let body = 'Hi Lily,\n\n';
+  body += 'Murphy Bed Depot PO — please quote shipping + production timeline for the following:\n\n';
+  body += 'Item                        Qty      Unit$     Line$\n';
+  body += '─────────────────────────────────────────────────────\n';
+  for (const L of r.lines) {
+    const sku = L.sku.padEnd(28, ' ').slice(0, 28);
+    const qty = String(L.suggest_qty).padStart(5, ' ');
+    const unit = L.no_price ? '   (TBD)' : ('$' + L.unit_cost_usd.toFixed(2)).padStart(9, ' ');
+    const line = L.no_price ? '   (TBD)' : ('$' + L.line_total_usd.toLocaleString()).padStart(9, ' ');
+    body += sku + ' ' + qty + ' ' + unit + ' ' + line + '\n';
+  }
+  body += '─────────────────────────────────────────────────────\n';
+  body += 'Total                       ' + String(totalUnits).padStart(5, ' ') + '            $' + Math.round(totalUsd).toLocaleString() + ' (est)\n\n';
+  const tbd = r.lines.filter(L => L.no_price);
+  if (tbd.length) {
+    body += 'Items pending your quote: ' + tbd.map(L => L.sku).join(', ') + '\n\n';
+  }
+  body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + (window._frameRunwayWindow || 30) + 'd velocity.\n\n';
+  body += 'Please confirm:\n';
+  body += '  • Production lead time\n';
+  body += '  • Shipping lead time (sea freight to Norfolk)\n';
+  body += '  • Total per-unit cost\n';
+  body += '  • Container packing plan\n\n';
+  body += 'Thanks,\nZac';
+  return { subject: 'Murphy Bed Depot PO — ' + new Date().toISOString().slice(0, 10) + ' (' + totalUnits + ' units)', body };
+}
+
+function _frameRunwayPoEmail_() {
+  const e = _frameRunwayPoBuildEmailBody_();
+  if (!e) { alert('No lines to email.'); return; }
+  const url = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent('project@qdmetalwork.com')
+    + '&su=' + encodeURIComponent(e.subject)
+    + '&body=' + encodeURIComponent(e.body);
+  window.open(url, '_blank');
+}
+
+function _frameRunwayPoCopyToClipboard_() {
+  const e = _frameRunwayPoBuildEmailBody_();
+  if (!e) { alert('No lines to copy.'); return; }
+  const text = 'To: project@qdmetalwork.com\nSubject: ' + e.subject + '\n\n' + e.body;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (typeof showToast === 'function') showToast('✓ PO body copied to clipboard');
+    });
+  } else {
+    alert('Clipboard unavailable — manually copy from a long-press.');
   }
 }
 
@@ -23097,7 +23289,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.742"></script>
+<script src="./pack.js?v=10.744"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23108,7 +23300,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.742<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.744<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
