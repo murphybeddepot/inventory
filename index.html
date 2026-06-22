@@ -21027,19 +21027,29 @@ async function createLabelsForCurrentOrder() {
 // one-tap "Copy rulebook request" so Seth pastes Zac an exact,
 // fill-in-the-dims request instead of hand-transcribing.
 var _groundHoldRequests = [];
-function _renderGroundHold_(holdArr, orderNum) {
+function _renderGroundHold_(holdArr, orderNum, orderId) {
   _groundHoldRequests = [];
+  // v10.731 — accept orderId so the unknown-SKU card can offer the
+  // inline "Configure Box & Pack" flow (openPackerOverrideModal),
+  // which closes Task #48 (LEGS-PB-13-PAIR class — Seth needs to
+  // ship an unmapped SKU without leaving Bedrock to edit a sheet).
   return (holdArr || []).map(function (h) {
     if (h && typeof h === 'object' && h.kind === 'unknown_sku') {
       var sku = String(h.sku || '?');
       var nm = String(h.item_name || '');
       var qty = Number(h.quantity) || 1;
       var idx = _groundHoldRequests.push({ sku: sku, name: nm, qty: qty, order: String(orderNum || '') }) - 1;
+      // v10.731 — Configure Box button only renders when orderId
+      // is present (so old callers don't get a broken button).
+      var configBtn = orderId
+        ? '<button onclick="openPackerOverrideModal(\'' + escapeHtml(sku).replace(/\\/g, "\\\\").replace(/\'/g, "\\\'") + '\',\'' + escapeHtml(String(orderId)) + '\',\'' + escapeHtml(String(orderNum || '')) + '\')" style="margin-top:10px;margin-right:6px;padding:10px 14px;background:rgba(124,58,237,.18);color:#5B21B6;-webkit-text-fill-color:#5B21B6;border:1.5px solid #7C3AED;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;letter-spacing:.4px" title="Pick a box, weight, carrier, and service inline. Optionally save the override for future orders of this SKU.">⚙ Configure Box &amp; Pack</button>'
+        : '';
       return '<div style="background:rgba(255,255,255,.55);border:1.5px solid #C9A55B;border-radius:8px;padding:12px;margin-bottom:8px">'
         + '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;opacity:.8;margin-bottom:4px">No packaging rule for this SKU</div>'
         + '<div style="font-size:18px;font-weight:900;font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.5px">' + escapeHtml(sku) + '</div>'
         + (nm ? '<div style="font-size:13px;margin-top:2px;opacity:.85">' + escapeHtml(nm) + '</div>' : '')
         + '<div style="font-size:12px;margin-top:2px;opacity:.75">Qty ' + qty + '</div>'
+        + configBtn
         + '<button onclick="copyRulebookRequest_(' + idx + ')" style="margin-top:10px;padding:10px 14px;background:#7A4E00;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.4px">📋 Copy rulebook request</button>'
         + '</div>';
     }
@@ -21082,8 +21092,14 @@ async function callStartPackAndRender(orderRow) {
     });
 
     if (data.hold && data.hold.length > 0) {
+      // v10.731 — pass orderId so unknown-SKU holds can launch the
+      // packer-override modal inline (Task #48).
       document.getElementById('groundHoldReasons').innerHTML =
-        _renderGroundHold_(data.hold, data.orderNumber || (orderRow && orderRow.order_number) || '');
+        _renderGroundHold_(
+          data.hold,
+          data.orderNumber || (orderRow && orderRow.order_number) || '',
+          orderRow && orderRow.order_id
+        );
       showGroundView('hold');
       return;
     }
@@ -22388,7 +22404,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.729"></script>
+<script src="./pack.js?v=10.731"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22399,7 +22415,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.729<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.731<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
