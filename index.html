@@ -8078,6 +8078,17 @@ function _frameRunwaySearchReapply_() {
   const inp = document.getElementById('frameRunwaySearchInput');
   if (inp && inp.value) _frameRunwaySearchFilter_(inp.value);
 }
+// v10.757 — quick filter from the "needs attention" chip row.
+// Drops the query into the existing search box (which uses the
+// haystack that already includes 'low', 'recount', 'never', etc.).
+function _frameRunwayApplyQuickFilter_(query) {
+  const inp = document.getElementById('frameRunwaySearchInput');
+  if (inp) {
+    inp.value = query;
+    inp.focus();
+    _frameRunwaySearchFilter_(query);
+  }
+}
 
 // v10.717 — Reload always bypasses the response cache.
 async function _frameRunwayReload_() { _frameRunwayLoad_(true); }
@@ -9209,6 +9220,31 @@ function _frameRunwayRender_(items, containerBanner) {
     html += '<div style="padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px;font-style:italic">No SKUs yet. Run the Boaz seed SQL first.</div>';
     return html;
   }
+  // v10.757 — "needs attention" summary banner at the top.
+  // Counts items below threshold, items flagged for recount,
+  // items with negative runway, items never counted. Chips below
+  // are click-to-filter via the search box.
+  let belowCount = 0, recountCount = 0, neverCount = 0, urgentCount = 0;
+  for (const it of items) {
+    const fl = it.flags || {};
+    const oh = Number(it.on_hand || 0);
+    const thr = Number(fl.threshold || 0);
+    if (thr > 0 && oh < thr) belowCount++;
+    if (fl.needs_recount) recountCount++;
+    if (!it.last_counted_at && oh === 0) neverCount++;
+    if (typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14) urgentCount++;
+  }
+  if (belowCount || recountCount || neverCount || urgentCount) {
+    const chip = (label, count, color, query) =>
+      '<button onclick="_frameRunwayApplyQuickFilter_(\'' + esc(query) + '\')" style="background:rgba(255,255,255,.04);border:1.5px solid ' + color + ';color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;border-radius:6px;padding:5px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">' + count + ' ' + label + '</button>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding:8px 12px;background:rgba(0,0,0,.30);border:1px solid var(--border);border-radius:8px">'
+      + '<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-right:4px">Needs attention</span>'
+      + (urgentCount ? chip('Runway < 14d', urgentCount, '#FF5252', '< 14d urgent') : '')
+      + (belowCount  ? chip('Below threshold', belowCount, '#FF5252', 'low') : '')
+      + (recountCount ? chip('Need recount', recountCount, '#FFB300', 'recount') : '')
+      + (neverCount ? chip('Never counted', neverCount, '#7C3AED', 'never') : '')
+      + '</div>';
+  }
   // v10.727 — figure out which velocity window is active from the
   // first item that has a velocity. Used in column headers + the
   // legend so the operator can see which window's data is showing.
@@ -9345,6 +9381,10 @@ function _frameRunwayRender_(items, containerBanner) {
     }
     // v10.735 — data-search-haystack for client-side search filter.
     // Includes sku, bin locations, category tag, dnu flag.
+    // v10.757 — haystack also tags 'never' (no last_counted_at) and
+    // 'urgent' (runway < 14d) so the needs-attention chips can filter.
+    const isNeverCounted = !it.last_counted_at && Number(it.on_hand || 0) === 0;
+    const isUrgent = typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14;
     const haystack = [
       it.sku || '',
       it.name || '',
@@ -9354,6 +9394,8 @@ function _frameRunwayRender_(items, containerBanner) {
       it.dnu_qty > 0 ? 'dnu' : '',
       needsRecount ? 'recount' : '',
       belowThreshold ? 'low below threshold' : '',
+      isNeverCounted ? 'never uncounted' : '',
+      isUrgent ? 'urgent < 14d' : '',
     ].join(' ').toLowerCase();
     // v10.753 — on_hand cell colored red when below threshold; sub-line
     // shows " / threshold" so the operator sees the gap inline.
@@ -23539,7 +23581,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.756"></script>
+<script src="./pack.js?v=10.757"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23550,7 +23592,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.756<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.757<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
