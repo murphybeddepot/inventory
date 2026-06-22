@@ -8546,12 +8546,37 @@ function _frameRunwayOpenPoGenerator_() {
     +   '</div>'
     +   '<button onclick="document.getElementById(\'poGeneratorOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
     + '</div>'
-    + '<div style="display:flex;gap:14px;align-items:center;margin-top:12px;padding:10px 12px;background:rgba(123,44,191,.08) !important;border:1px solid rgba(123,44,191,.30);border-radius:8px">'
-    +   '<label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important">Target months</label>'
-    +   '<input type="number" id="poTargetMonths" value="6" min="0.5" max="12" step="0.5" onchange="_frameRunwayRecomputePo_()" style="width:80px;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
-    +   '<label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-left:14px">Round to</label>'
-    +   '<input type="number" id="poRoundTo" value="10" min="1" max="100" step="1" onchange="_frameRunwayRecomputePo_()" style="width:70px;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
-    +   '<div id="poTotalsBadge" style="margin-left:auto;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important"></div>'
+    // v10.748 — PO name + velocity window picker + include prices toggle.
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;padding:12px;background:rgba(123,44,191,.08) !important;border:1px solid rgba(123,44,191,.30);border-radius:8px">'
+    +   '<div style="grid-column:1/-1">'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">PO name</label>'
+    +     '<input type="text" id="poNameInput" placeholder="e.g. C25, Q3 restock, Spring 2026…" oninput="_frameRunwayRecomputePo_()" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:700;box-sizing:border-box">'
+    +   '</div>'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Target months</label>'
+    +     '<input type="number" id="poTargetMonths" value="6" min="0.5" max="12" step="0.5" onchange="_frameRunwayRecomputePo_()" style="width:100%;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +   '</div>'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Velocity window</label>'
+    +     '<select id="poVelocityWindow" onchange="_frameRunwayRecomputePo_()" style="width:100%;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;box-sizing:border-box">'
+    +       '<option value="30">Last 30 days</option>'
+    +       '<option value="60">Last 60 days</option>'
+    +       '<option value="90" selected>Last 90 days</option>'
+    +       '<option value="180">Last 180 days</option>'
+    +       '<option value="360">Last 360 days</option>'
+    +     '</select>'
+    +   '</div>'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Round to</label>'
+    +     '<input type="number" id="poRoundTo" value="10" min="1" max="100" step="1" onchange="_frameRunwayRecomputePo_()" style="width:100%;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +   '</div>'
+    +   '<div style="display:flex;align-items:center;gap:8px">'
+    +     '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600;color:#444 !important;-webkit-text-fill-color:#444 !important">'
+    +       '<input type="checkbox" id="poIncludePrices" checked onchange="_frameRunwayRecomputePo_()" style="width:16px;height:16px;margin:0">'
+    +       'Include prices in email'
+    +     '</label>'
+    +   '</div>'
+    +   '<div id="poTotalsBadge" style="grid-column:1/-1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-align:right"></div>'
     + '</div>'
     + '<div id="poGeneratorTable" style="margin-top:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"></div>'
     + '<div style="display:flex;gap:8px;margin-top:18px">'
@@ -8569,12 +8594,44 @@ function _frameRunwayComputePoLines_() {
   const items = window._frameRunwayItemsCache || [];
   const targetMonths = Math.max(0.5, Math.min(12, Number(document.getElementById('poTargetMonths').value) || 6));
   const roundTo = Math.max(1, Number(document.getElementById('poRoundTo').value) || 10);
+  // v10.748 — velocity window can differ from Frame Runway's active
+  // window. Pull units-per-day from the per_window stash so the PO
+  // reflects whichever rolling window the operator picked.
+  const windowDays = Math.max(1, Number(document.getElementById('poVelocityWindow').value) || 90);
+  const ITEM_TO_BOM_ALIAS = {
+    'SBF-KING':'SBF-K','SBF-QUEEN':'SBF-Q','SBF-DOUBLE':'SBF-D',
+    'SBF-SINGLE':'SBF-S','SBF-SINGLEXL':'SBF-SXL',
+    'STU-B':'STUDIO-BLACK','STU-W':'STUDIO-WHITE','MB-WMB-L':'MB-WMB',
+    'UNIVERSAL':'MB-UNIVERSAL',
+    'S-ANGLES':'MB-ANGLES-SINGLE','S-YW-HDWE':'MB-HDWE-SINGLE',
+  };
+  let velByLeaf = null;
+  try {
+    const stashRaw = localStorage.getItem('mbd_frame_runway_velocity');
+    if (stashRaw) {
+      const stash = JSON.parse(stashRaw);
+      if (stash && stash.per_window && stash.per_window[windowDays]) {
+        velByLeaf = stash.per_window[windowDays];
+      }
+    }
+  } catch (e) {}
   const lines = [];
   for (const it of items) {
-    const vpd = Number(it.velocity_per_day || 0);
+    let vpd = 0;
+    if (velByLeaf) {
+      const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
+      const totalUnits = Number(velByLeaf[leafKey] || velByLeaf[it.sku] || 0);
+      vpd = totalUnits > 0 ? (totalUnits / windowDays) : 0;
+    } else {
+      vpd = Number(it.velocity_per_day || 0);
+    }
     if (!vpd || vpd <= 0) continue;
     const oh = (it.on_hand == null) ? 0 : Number(it.on_hand);
-    const oo = (it.on_order_qty == null) ? 0 : Number(it.on_order_qty);
+    // v10.748 — field is `on_order` (already summed from on_order_etas
+    // elsewhere in Frame Runway). v10.744's `on_order_qty` was a typo
+    // that always read 0 → SLAT-2-QE and -QR looked identical even
+    // when their stock + on-order rollup differed. Zac caught this.
+    const oo = (it.on_order == null) ? 0 : Number(it.on_order);
     const target = Math.round(targetMonths * 30 * vpd);
     const gap = target - oh - oo;
     if (gap <= 0) continue;
@@ -8590,7 +8647,7 @@ function _frameRunwayComputePoLines_() {
     });
   }
   lines.sort((a, b) => b.gap_units - a.gap_units);
-  return { lines, targetMonths, roundTo };
+  return { lines, targetMonths, roundTo, windowDays };
 }
 
 function _frameRunwayRecomputePo_() {
@@ -8602,7 +8659,7 @@ function _frameRunwayRecomputePo_() {
   const noPriceCount = r.lines.filter(L => L.no_price).length;
   const badge = document.getElementById('poTotalsBadge');
   if (badge) {
-    badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString();
+    badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString() + ' · velocity from last ' + r.windowDays + 'd';
   }
   if (!r.lines.length) {
     body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">All items currently meet the ' + r.targetMonths + '-month target. Nothing to reorder.</div>';
@@ -8643,33 +8700,55 @@ function _frameRunwayRecomputePo_() {
 function _frameRunwayPoBuildEmailBody_() {
   const r = _frameRunwayComputePoLines_();
   if (!r.lines.length) return null;
+  const poNameInput = document.getElementById('poNameInput');
+  const poName = (poNameInput && poNameInput.value.trim()) || '';
+  const includePricesEl = document.getElementById('poIncludePrices');
+  const includePrices = includePricesEl ? includePricesEl.checked : true;
   const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
   const totalUsd = r.lines.reduce((s, L) => s + L.line_total_usd, 0);
+  const today = new Date().toISOString().slice(0, 10);
+  // v10.748 — line-based email body. The old ASCII-column alignment
+  // looked fine in monospace but broke in Gmail (proportional Sans
+  // Serif) — Zac caught it. Each line now stands alone, easy to
+  // scan regardless of font.
   let body = 'Hi Lily,\n\n';
-  body += 'Murphy Bed Depot PO — please quote shipping + production timeline for the following:\n\n';
-  body += 'Item                        Qty      Unit$     Line$\n';
-  body += '─────────────────────────────────────────────────────\n';
-  for (const L of r.lines) {
-    const sku = L.sku.padEnd(28, ' ').slice(0, 28);
-    const qty = String(L.suggest_qty).padStart(5, ' ');
-    const unit = L.no_price ? '   (TBD)' : ('$' + L.unit_cost_usd.toFixed(2)).padStart(9, ' ');
-    const line = L.no_price ? '   (TBD)' : ('$' + L.line_total_usd.toLocaleString()).padStart(9, ' ');
-    body += sku + ' ' + qty + ' ' + unit + ' ' + line + '\n';
+  body += 'Murphy Bed Depot ' + (poName ? '— ' + poName + ' — ' : '— ') + 'please quote production + shipping for the following:\n\n';
+  r.lines.forEach((L, idx) => {
+    const num = (idx + 1) + '.';
+    let line = num + ' ' + L.sku + '  —  ' + L.suggest_qty + ' units';
+    if (includePrices) {
+      if (L.no_price) {
+        line += '   (price TBD)';
+      } else {
+        line += '   @ $' + L.unit_cost_usd.toFixed(2) + ' = $' + L.line_total_usd.toLocaleString();
+      }
+    }
+    body += line + '\n';
+  });
+  body += '\nTotal: ' + totalUnits.toLocaleString() + ' units';
+  if (includePrices) {
+    body += '   /   ~$' + Math.round(totalUsd).toLocaleString() + ' est';
   }
-  body += '─────────────────────────────────────────────────────\n';
-  body += 'Total                       ' + String(totalUnits).padStart(5, ' ') + '            $' + Math.round(totalUsd).toLocaleString() + ' (est)\n\n';
-  const tbd = r.lines.filter(L => L.no_price);
-  if (tbd.length) {
-    body += 'Items pending your quote: ' + tbd.map(L => L.sku).join(', ') + '\n\n';
+  body += '\n\n';
+  if (includePrices) {
+    const tbd = r.lines.filter(L => L.no_price);
+    if (tbd.length) {
+      body += 'Items pending your quote: ' + tbd.map(L => L.sku).join(', ') + '\n\n';
+    }
   }
-  body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + (window._frameRunwayWindow || 30) + 'd velocity.\n\n';
+  body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
   body += 'Please confirm:\n';
   body += '  • Production lead time\n';
   body += '  • Shipping lead time (sea freight to Norfolk)\n';
+  if (!includePrices) body += '  • Per-unit pricing\n';
   body += '  • Total per-unit cost\n';
   body += '  • Container packing plan\n\n';
   body += 'Thanks,\nZac';
-  return { subject: 'Murphy Bed Depot PO — ' + new Date().toISOString().slice(0, 10) + ' (' + totalUnits + ' units)', body };
+  const subjectName = poName ? ' — ' + poName : '';
+  return {
+    subject: 'Murphy Bed Depot PO' + subjectName + ' — ' + today + ' (' + totalUnits + ' units)',
+    body,
+  };
 }
 
 function _frameRunwayPoEmail_() {
@@ -23298,7 +23377,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.747"></script>
+<script src="./pack.js?v=10.748"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23309,7 +23388,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.747<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.748<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
