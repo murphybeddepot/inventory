@@ -8892,6 +8892,43 @@ let _bomDiagBeforeId = null;       // legacy (v10.761 server)
 let _bomDiagBeforeIso = null;      // v10.764 — date cursor (v12+ worker)
 let _bomDiagAccumulated = [];
 const _BOM_DIAG_FLAGS_KEY = 'mbd_bom_diag_flags';
+// v10.766 — verified-order set: orders Zac has audited and marked OK.
+// Hidden from the diagnostic by default. Toggle to show all.
+const _BOM_DIAG_VERIFIED_KEY = 'mbd_bom_diag_verified';
+let _bomDiagShowVerified = false;
+function _bomDiagGetVerified_() {
+  try { return new Set(JSON.parse(localStorage.getItem(_BOM_DIAG_VERIFIED_KEY) || '[]')); }
+  catch (e) { return new Set(); }
+}
+function _bomDiagSetVerifiedSet_(s) {
+  try { localStorage.setItem(_BOM_DIAG_VERIFIED_KEY, JSON.stringify([...s])); }
+  catch (e) {}
+}
+function _bomDiagMarkOrderGood_(orderNum) {
+  const v = _bomDiagGetVerified_();
+  v.add(String(orderNum));
+  _bomDiagSetVerifiedSet_(v);
+  if (typeof showToast === 'function') showToast('✓ Order ' + orderNum + ' marked good · ' + v.size + ' verified');
+  _renderBomDiag_();
+}
+function _bomDiagUnmarkOrder_(orderNum) {
+  const v = _bomDiagGetVerified_();
+  v.delete(String(orderNum));
+  _bomDiagSetVerifiedSet_(v);
+  _renderBomDiag_();
+}
+function _bomDiagToggleShowVerified_() {
+  _bomDiagShowVerified = !_bomDiagShowVerified;
+  _renderBomDiag_();
+}
+function _bomDiagClearVerified_() {
+  const n = _bomDiagGetVerified_().size;
+  if (!n) return;
+  if (!confirm('Clear all ' + n + ' verified marks? They\'ll show up in the diagnostic again.')) return;
+  _bomDiagSetVerifiedSet_(new Set());
+  if (typeof showToast === 'function') showToast('Verified cleared');
+  _renderBomDiag_();
+}
 function _bomDiagGetFlags_() {
   try { return JSON.parse(localStorage.getItem(_BOM_DIAG_FLAGS_KEY) || '[]') || []; }
   catch (e) { return []; }
@@ -8963,9 +9000,11 @@ async function _frameRunwayOpenBomDiag_() {
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;letter-spacing:.5px">🔬 BOM Diagnostic</div>'
     +     '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">Walk recent Shopify orders + see exactly how Bedrock decomposes each line via bundle_bom. Kits stay atomic.</div>'
     +   '</div>'
-    +   '<div style="display:flex;gap:8px;align-items:center">'
+    +   '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">'
+    +     '<button id="bomDiagVerifiedBtn" onclick="_bomDiagToggleShowVerified_()" style="padding:8px 11px;background:#fff !important;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;border:1px solid #1A5C1A;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer" title="Toggle showing orders you\'ve already verified"></button>'
     +     '<button id="bomDiagCopyBtn" onclick="_bomDiagCopyFlags_()" disabled style="padding:8px 12px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;opacity:.5">📋 No flags</button>'
-    +     '<button onclick="_bomDiagClearFlags_()" style="padding:8px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #1a1a1a;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">🗑 Clear</button>'
+    +     '<button onclick="_bomDiagClearFlags_()" style="padding:8px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #1a1a1a;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer" title="Clear flags">🗑 Flags</button>'
+    +     '<button onclick="_bomDiagClearVerified_()" style="padding:8px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #1a1a1a;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer" title="Unverify all">🗑 Verified</button>'
     +     '<button onclick="document.getElementById(\'bomDiagOverlay\').remove()" style="padding:8px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
     +   '</div>'
     + '</div>'
@@ -9027,13 +9066,37 @@ function _renderBomDiag_() {
   // ship this time.
   const oBoxCss = 'margin-bottom:18px;padding:14px;border:2px solid #1A5C1A;border-radius:10px;background:#F5FFF8 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important';
   const liBoxCss = 'margin-bottom:10px;padding:10px;background:#FFFFFF !important;border:1px solid #ddd;border-radius:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important';
+  // v10.766 — verified filter + toggle button label.
+  const verified = _bomDiagGetVerified_();
+  const verifiedToggleBtn = document.getElementById('bomDiagVerifiedBtn');
+  if (verifiedToggleBtn) {
+    if (verified.size === 0) {
+      verifiedToggleBtn.style.display = 'none';
+    } else {
+      verifiedToggleBtn.style.display = '';
+      verifiedToggleBtn.textContent = _bomDiagShowVerified
+        ? '🙈 Hide ' + verified.size + ' verified'
+        : '👁 Show ' + verified.size + ' verified';
+    }
+  }
   let html = '';
+  let hiddenCount = 0;
   for (const o of _bomDiagAccumulated) {
+    const orderNum = String(o.order_number || o.order_id || '');
+    const isVerified = verified.has(orderNum);
+    if (isVerified && !_bomDiagShowVerified) { hiddenCount++; continue; }
     const dt = o.created_at ? new Date(o.created_at).toISOString().slice(0, 10) : '?';
-    html += '<div style="' + oBoxCss + '">'
-      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">'
-      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">Order ' + esc(o.order_number || o.order_id) + '</div>'
-      +   '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(dt) + '</div>'
+    const verifiedBg = isVerified ? ';opacity:.65' : '';
+    html += '<div style="' + oBoxCss + verifiedBg + '">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
+      +   '<div style="display:flex;align-items:baseline;gap:10px">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">Order ' + esc(orderNum) + '</div>'
+      +     '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(dt) + '</div>'
+      +     (isVerified ? '<span style="background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:.4px">✓ VERIFIED</span>' : '')
+      +   '</div>'
+      +   (isVerified
+        ? '<button onclick="_bomDiagUnmarkOrder_(\'' + esc(orderNum) + '\')" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #1a1a1a;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:800;cursor:pointer">↩ Unmark</button>'
+        : '<button onclick="_bomDiagMarkOrderGood_(\'' + esc(orderNum) + '\')" style="background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Mark good</button>')
       + '</div>';
     if (!o.lines || !o.lines.length) {
       html += '<div style="padding:8px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-style:italic;background:#fff !important;border-radius:6px">No line items</div>';
@@ -9120,7 +9183,13 @@ function _renderBomDiag_() {
     }
     html += '</div>';
   }
-  html += '<div style="text-align:center;padding:10px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:12px;font-weight:700">' + _bomDiagAccumulated.length + ' orders loaded</div>';
+  // v10.766 — show hidden count at footer
+  let footer = _bomDiagAccumulated.length + ' loaded';
+  if (hiddenCount > 0) footer += ' &middot; ' + hiddenCount + ' verified hidden';
+  if (!_bomDiagAccumulated.length || (_bomDiagAccumulated.length === hiddenCount && hiddenCount > 0)) {
+    html += '<div style="padding:20px;text-align:center;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;font-size:13px;font-weight:700;background:#F5FFF8 !important;border:1.5px dashed #1A5C1A;border-radius:8px">✓ All loaded orders verified. Tap "+5 Older" for the next batch or 👁 Show verified to review.</div>';
+  }
+  html += '<div style="text-align:center;padding:10px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:12px;font-weight:700">' + footer + '</div>';
   list.innerHTML = html;
 }
 
@@ -23959,7 +24028,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.765"></script>
+<script src="./pack.js?v=10.766"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23970,7 +24039,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.765<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.766<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
