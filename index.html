@@ -8885,8 +8885,67 @@ function _frameRunwayPoCopyToClipboard_() {
 // which returns last N Shopify orders + the per-line BOM expansion
 // Bedrock would compute. Lets Zac audit "is this order decomposed
 // correctly?" 5 at a time, "Older 5 ›" paginates via before_id.
+// v10.762 — interactive flagging: per-line 🚩 button → text input
+// → persists to localStorage. 📋 button at top copies all flags
+// as a JSON summary so Zac can paste them back for me to fix.
 let _bomDiagBeforeId = null;
 let _bomDiagAccumulated = [];
+const _BOM_DIAG_FLAGS_KEY = 'mbd_bom_diag_flags';
+function _bomDiagGetFlags_() {
+  try { return JSON.parse(localStorage.getItem(_BOM_DIAG_FLAGS_KEY) || '[]') || []; }
+  catch (e) { return []; }
+}
+function _bomDiagSetFlags_(flags) {
+  try { localStorage.setItem(_BOM_DIAG_FLAGS_KEY, JSON.stringify(flags)); }
+  catch (e) {}
+  _bomDiagUpdateCopyBtn_();
+}
+function _bomDiagUpdateCopyBtn_() {
+  const btn = document.getElementById('bomDiagCopyBtn');
+  if (!btn) return;
+  const n = _bomDiagGetFlags_().length;
+  btn.textContent = n > 0 ? '📋 Copy ' + n + ' flag' + (n === 1 ? '' : 's') : '📋 No flags';
+  btn.disabled = n === 0;
+  btn.style.opacity = n === 0 ? '0.5' : '1';
+}
+function _bomDiagFlagLine_(orderNum, sku, name, qty, expansion) {
+  const note = prompt('What\'s wrong with this line\'s decomposition?\n\nOrder ' + orderNum + ' · ' + name + ' (' + sku + ' × ' + qty + ')\n\nExamples:\n- "Missing 4× 010.72.948 from HWKIT"\n- "BOAZ-V2-BUNDLE qty should be 2 not 1"\n- "SCREW - ZINC qty wrong: 24.5 → should be 18"');
+  if (!note || !note.trim()) return;
+  const flags = _bomDiagGetFlags_();
+  flags.push({
+    order_number: orderNum,
+    sku, name, qty,
+    expansion_at_flag_time: expansion,
+    note: note.trim(),
+    ts: new Date().toISOString().slice(0, 19),
+  });
+  _bomDiagSetFlags_(flags);
+  if (typeof showToast === 'function') showToast('✓ Flagged. ' + flags.length + ' total.');
+}
+function _bomDiagCopyFlags_() {
+  const flags = _bomDiagGetFlags_();
+  if (!flags.length) return;
+  const text = 'BOM Diagnostic Flags (' + flags.length + ' issues)\n'
+    + '====================================\n\n'
+    + flags.map((f, i) =>
+        (i + 1) + '. Order ' + f.order_number + ' · ' + f.name + ' (' + f.sku + ' × ' + f.qty + ')\n'
+        + '   Note: ' + f.note + '\n'
+        + '   At-time expansion: ' + JSON.stringify(f.expansion_at_flag_time) + '\n'
+        + '   Flagged: ' + f.ts
+      ).join('\n\n');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (typeof showToast === 'function') showToast('✓ ' + flags.length + ' flags copied — paste in Slack/chat');
+    });
+  } else {
+    alert(text);
+  }
+}
+function _bomDiagClearFlags_() {
+  if (!confirm('Clear all BOM diagnostic flags?')) return;
+  _bomDiagSetFlags_([]);
+  if (typeof showToast === 'function') showToast('Flags cleared');
+}
 
 async function _frameRunwayOpenBomDiag_() {
   _bomDiagBeforeId = null;
@@ -8902,7 +8961,11 @@ async function _frameRunwayOpenBomDiag_() {
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;letter-spacing:.5px">🔬 BOM Diagnostic</div>'
     +     '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">Walk recent Shopify orders + see exactly how Bedrock decomposes each line via bundle_bom. Kits stay atomic.</div>'
     +   '</div>'
-    +   '<button onclick="document.getElementById(\'bomDiagOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    +   '<div style="display:flex;gap:8px;align-items:center">'
+    +     '<button id="bomDiagCopyBtn" onclick="_bomDiagCopyFlags_()" disabled style="padding:8px 12px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;opacity:.5">📋 No flags</button>'
+    +     '<button onclick="_bomDiagClearFlags_()" style="padding:8px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1px solid #1a1a1a;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">🗑 Clear</button>'
+    +     '<button onclick="document.getElementById(\'bomDiagOverlay\').remove()" style="padding:8px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    +   '</div>'
     + '</div>'
     + '<div id="bomDiagList" style="margin-top:10px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"><div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">Loading last 5 orders…</div></div>'
     + '<div style="display:flex;gap:8px;margin-top:14px">'
@@ -8954,55 +9017,85 @@ function _renderBomDiag_() {
     list.innerHTML = '<div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">No orders found.</div>';
     return;
   }
+  // v10.762 — every bg + color + webkit-text-fill-color now !important
+  // on EVERY element. Old version used rgba transparent backgrounds
+  // that let the dark body bleed through, making text unreadable.
+  // Per the contrast standing rule. Verified via Playwright before
+  // ship this time.
+  const oBoxCss = 'margin-bottom:18px;padding:14px;border:2px solid #1A5C1A;border-radius:10px;background:#F5FFF8 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important';
+  const liBoxCss = 'margin-bottom:10px;padding:10px;background:#FFFFFF !important;border:1px solid #ddd;border-radius:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important';
   let html = '';
   for (const o of _bomDiagAccumulated) {
     const dt = o.created_at ? new Date(o.created_at).toISOString().slice(0, 10) : '?';
-    html += '<div style="margin-bottom:18px;padding:14px;border:2px solid #1A5C1A;border-radius:10px;background:rgba(0,200,83,.04)">'
+    html += '<div style="' + oBoxCss + '">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">'
       +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">Order ' + esc(o.order_number || o.order_id) + '</div>'
-      +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:\'JetBrains Mono\',monospace">' + esc(dt) + '</div>'
+      +   '<div style="font-size:13px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(dt) + '</div>'
       + '</div>';
     if (!o.lines || !o.lines.length) {
-      html += '<div style="padding:8px;color:#999 !important;-webkit-text-fill-color:#999 !important;font-style:italic">No line items</div>';
+      html += '<div style="padding:8px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-style:italic;background:#fff !important;border-radius:6px">No line items</div>';
     } else {
       for (const L of o.lines) {
         let statusHtml = '';
-        if (L.status === 'no_sku') statusHtml = '<span style="background:#FFE082;color:#7A4E00;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:.4px">NO SKU</span>';
-        else if (L.status === 'no_variant_map') statusHtml = '<span style="background:#FFCDD2;color:#7A1F1F;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:.4px">NO VARIANT MAP</span>';
+        if (L.status === 'no_sku') statusHtml = '<span style="background:#FFE082 !important;color:#7A4E00 !important;-webkit-text-fill-color:#7A4E00 !important;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:900;letter-spacing:.4px">NO SKU</span>';
+        else if (L.status === 'no_variant_map') statusHtml = '<span style="background:#FFCDD2 !important;color:#7A1F1F !important;-webkit-text-fill-color:#7A1F1F !important;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:900;letter-spacing:.4px">NO VARIANT MAP</span>';
         const leafKeys = Object.keys(L.leaves || {}).sort();
-        html += '<div style="margin-bottom:10px;padding:10px;background:#fff;border:1px solid #ddd;border-radius:8px">'
+        html += '<div style="' + liBoxCss + '">'
           + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">'
           +   '<div>'
-          +     '<div style="font-weight:800;font-size:14px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(L.name || L.sku) + '</div>'
-          +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(L.sku) + ' × ' + L.qty + '</div>'
+          +     '<div style="font-weight:800;font-size:15px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(L.name || L.sku) + '</div>'
+          +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-weight:600">' + esc(L.sku) + ' &times; ' + L.qty + '</div>'
           +   '</div>'
           +   statusHtml
           + '</div>';
         if (L.bundles && L.bundles.length) {
-          html += '<div style="font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-bottom:4px"><strong>Resolved bundles:</strong> ' + L.bundles.map(esc).join(' + ') + '</div>';
+          html += '<div style="font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:6px;font-weight:600"><strong style="color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important">Resolved bundles:</strong> ' + L.bundles.map(esc).join(' + ') + '</div>';
         }
-        if (leafKeys.length) {
-          html += '<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px">';
-          html += '<thead><tr style="border-bottom:1px solid #ccc;color:#666 !important;-webkit-text-fill-color:#666 !important">'
-            + '<th style="text-align:left;padding:3px 6px;text-transform:uppercase;font-size:9px;letter-spacing:.5px;font-weight:800">Leaf SKU</th>'
-            + '<th style="text-align:right;padding:3px 6px;text-transform:uppercase;font-size:9px;letter-spacing:.5px;font-weight:800">Qty consumed</th>'
+        // v10.762 — use leaves_enriched when present (v11+ worker) for
+        // friendly names + element-vs-sub-bundle indicator. Fall back
+        // to bare leaves dict for older worker responses.
+        const enriched = L.leaves_enriched || leafKeys.map(k => ({sku:k, name:'', qty:L.leaves[k], in_items_table:false, is_subbundle:false}));
+        if (enriched.length) {
+          html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
+          html += '<thead><tr style="background:#EEEEEE !important">'
+            + '<th style="text-align:left;padding:6px 8px;text-transform:uppercase;font-size:10px;letter-spacing:.5px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#EEEEEE !important">Element</th>'
+            + '<th style="text-align:right;padding:6px 8px;text-transform:uppercase;font-size:10px;letter-spacing:.5px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#EEEEEE !important">Qty</th>'
+            + '<th style="padding:6px 8px;font-size:10px;background:#EEEEEE !important;width:30px"></th>'
             + '</tr></thead><tbody>';
-          for (const k of leafKeys) {
-            html += '<tr style="border-bottom:1px solid #f0f0f0">'
-              + '<td style="padding:3px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(k) + '</td>'
-              + '<td style="padding:3px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">' + L.leaves[k] + '</td>'
+          for (const e of enriched) {
+            const nameCell = e.name && e.name !== e.sku
+              ? '<div style="font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(e.name) + '</div>'
+                + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:600">' + esc(e.sku) + '</div>'
+              : '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(e.sku) + '</div>';
+            // Flag SKUs not in items table OR sub-bundles still showing as leaves (BOM data issue)
+            let warnChip = '';
+            if (e.is_subbundle) {
+              warnChip = ' <span title="Sub-bundle showing as leaf — BOM didn\'t recurse" style="background:#FFCDD2 !important;color:#7A1F1F !important;-webkit-text-fill-color:#7A1F1F !important;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:900;letter-spacing:.3px">SUB</span>';
+            } else if (!e.in_items_table) {
+              warnChip = ' <span title="Not in items table — won\'t affect inventory" style="background:#FFE082 !important;color:#7A4E00 !important;-webkit-text-fill-color:#7A4E00 !important;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:900;letter-spacing:.3px">NO ITEM</span>';
+            }
+            html += '<tr style="border-bottom:1px solid #eee;background:#fff !important">'
+              + '<td style="padding:5px 8px;background:#fff !important">' + nameCell + warnChip + '</td>'
+              + '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;background:#fff !important;vertical-align:top">' + e.qty + '</td>'
+              + '<td style="padding:5px 8px;text-align:center;background:#fff !important;vertical-align:top">'
+              +   '<button onclick="_bomDiagFlagLine_(\'' + esc(o.order_number || '') + '\',\'' + esc(L.sku) + '\',\'' + esc((L.name||L.sku).replace(/\'/g,"\\'").slice(0,50)) + '\',' + L.qty + ',' + JSON.stringify(L.leaves).replace(/"/g,'&quot;') + ')" title="Flag this decomposition" style="background:#fff !important;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1px solid #FF5252;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:900;cursor:pointer">🚩</button>'
+              + '</td>'
               + '</tr>';
           }
           html += '</tbody></table>';
         } else if (L.status === 'ok' && !L.bundles.length) {
-          html += '<div style="font-size:11px;color:#999 !important;-webkit-text-fill-color:#999 !important;font-style:italic">No bundle expansion</div>';
+          html += '<div style="font-size:12px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-style:italic">No bundle expansion</div>';
         }
+        // v10.762 — flag button under the line as well
+        html += '<div style="margin-top:6px;text-align:right">'
+          +   '<button onclick="_bomDiagFlagLine_(\'' + esc(o.order_number || '') + '\',\'' + esc(L.sku) + '\',\'' + esc((L.name||L.sku).replace(/\'/g,"\\'").slice(0,50)) + '\',' + L.qty + ',' + JSON.stringify(L.leaves).replace(/"/g,'&quot;') + ')" style="background:rgba(255,82,82,.10) !important;color:#C43030 !important;-webkit-text-fill-color:#C43030 !important;border:1px solid #C43030;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer">🚩 Flag this line</button>'
+          + '</div>';
         html += '</div>';
       }
     }
     html += '</div>';
   }
-  html += '<div style="text-align:center;padding:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:11px">' + _bomDiagAccumulated.length + ' orders loaded</div>';
+  html += '<div style="text-align:center;padding:10px;color:#444 !important;-webkit-text-fill-color:#444 !important;font-size:12px;font-weight:700">' + _bomDiagAccumulated.length + ' orders loaded</div>';
   list.innerHTML = html;
 }
 
@@ -23770,7 +23863,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.761"></script>
+<script src="./pack.js?v=10.762"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23781,7 +23874,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.761<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.762<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
