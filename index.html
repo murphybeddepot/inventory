@@ -8327,8 +8327,43 @@ async function _frameRunwayLoad_(forceRefresh) {
     if (sub) sub.textContent = items.length + ' SKUs' + (containerBanner ? ' · ' + containerBanner : '') + ' · ' + (res.note || '');
     body.innerHTML = _frameRunwayRender_(items, containerBanner);
   } catch (e) {
-    body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#FF5252;font-size:13px">Network error: ' + esc(e.message) + '</div>';
-    if (sub) sub.textContent = 'Error';
+    // v10.725 — orchestrator threw (network / GAS quota / timeout)
+    // before the in-band !res.ok fallback could check. Try worker
+    // direct here too so the dashboard still renders.
+    console.log('DIAG-V10.725 orch threw: ' + e.message + ' — trying worker direct');
+    if (sub) sub.textContent = 'Orchestrator unreachable — relaying via Cloudflare…';
+    try {
+      const workerRes = await _frameRunwayLoadViaWorker_(windowDays);
+      if (workerRes && workerRes.ok) {
+        let items = workerRes.items || [];
+        items = _frameRunwayApplyVelocity_(items, windowDays);
+        window._frameRunwayUncountedLeaves = workerRes.uncounted_leaves || [];
+        const etaSet = {};
+        items.forEach(it => {
+          (it.on_order_etas || []).forEach(e2 => {
+            if (e2.container_id && e2.eta_warehouse) {
+              etaSet[e2.container_id] = etaSet[e2.container_id] || { eta: e2.eta_warehouse, qty: 0 };
+              etaSet[e2.container_id].qty += Number(e2.qty) || 0;
+            }
+          });
+        });
+        const containerBanner = Object.keys(etaSet).length
+          ? '🚢 ' + Object.keys(etaSet).map(c => c + ' (' + etaSet[c].qty + ' units) ETA ' + etaSet[c].eta).join(' · ')
+          : '';
+        window._frameRunwayContainerIds = Object.keys(etaSet);
+        const receiveBtn = document.getElementById('frameRunwayReceiveBtn');
+        if (receiveBtn) receiveBtn.style.display = Object.keys(etaSet).length ? '' : 'none';
+        if (sub) sub.textContent = items.length + ' SKUs · via Cloudflare' + (containerBanner ? ' · ' + containerBanner : '');
+        body.innerHTML = _frameRunwayRender_(items, containerBanner);
+        return;
+      }
+      const werr = (workerRes && workerRes.error) || 'worker fetch returned no result';
+      body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#FF5252;font-size:13px">Network error: ' + esc(e.message) + '<br><br>Worker fallback also failed: ' + esc(werr) + '</div>';
+      if (sub) sub.textContent = 'Both paths failed';
+    } catch (e2) {
+      body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#FF5252;font-size:13px">Network error: ' + esc(e.message) + '<br><br>Worker fallback threw: ' + esc(e2.message) + '</div>';
+      if (sub) sub.textContent = 'Both paths threw';
+    }
   }
 }
 function _frameRunwayRender_(items, containerBanner) {
@@ -22296,7 +22331,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.724"></script>
+<script src="./pack.js?v=10.725"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22307,7 +22342,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.724<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.725<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
