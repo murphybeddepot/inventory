@@ -22153,17 +22153,68 @@ async function openSkuTagPicker_() {
 
   document.getElementById('skuTagCloseBtn').onclick = () => ov.remove();
 
-  let catalog;
-  try {
-    catalog = await groundApi('listBarcodeTagCatalog', {});
-  } catch (e) {
-    const body = document.getElementById('skuTagBody');
-    if (body) body.innerHTML = '<div style="padding:40px 20px;text-align:center;color:#d32f2f !important;-webkit-text-fill-color:#d32f2f"><div style="font-size:32px;margin-bottom:8px">⚠️</div><div style="font-weight:700;font-size:15px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Failed to load catalog</div><div style="font-size:12px;color:#888 !important;-webkit-text-fill-color:#888;margin-top:4px">' + esc(String(e)) + '</div></div>';
-    return;
+  // v10.765 — build catalog CLIENT-SIDE from items table (loaded via
+  // Inventory Runway's worker-direct fetch). Boxes + parents only
+  // come from server (orchestrator) as a secondary section. This
+  // unblocks the picker even when GAS is dead AND ensures vendor
+  // groups are always current with the items table.
+  let catalog = { ok: true, groups: [] };
+
+  // 1. Build vendor groups from items cache (or fetch directly)
+  let items = window._frameRunwayItemsCache || [];
+  if (!items.length) {
+    // Items cache empty — fetch from worker
+    try {
+      const cfg = await _getPrintRelayConfig_();
+      if (cfg && cfg.worker_url && cfg.stamp_secret) {
+        const r = await fetch(cfg.worker_url + '/inventory/dashboard', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: cfg.stamp_secret, limit: 500 }),
+        });
+        const j = await r.json();
+        if (j && j.ok && j.items) items = j.items;
+      }
+    } catch (e) { /* swallow, fall through */ }
   }
-  if (!catalog || !catalog.ok) {
+  if (items.length) {
+    const byVendor = {};
+    for (const it of items) {
+      const sku = it.sku || it.item_sku;
+      if (!sku) continue;
+      const v = (it.flags && it.flags.vendor) || '(no vendor)';
+      const label = v.split('/')[0];
+      if (!byVendor[label]) byVendor[label] = [];
+      byVendor[label].push({
+        code: sku,
+        name: it.name || sku,
+        description: '',
+      });
+    }
+    // Sort vendors by item count desc (biggest first)
+    const vendorOrder = Object.keys(byVendor).sort((a, b) => byVendor[b].length - byVendor[a].length);
+    for (const v of vendorOrder) {
+      const items_in = byVendor[v].slice().sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code));
+      catalog.groups.push({ key: 'vendor:' + v, label: v, items: items_in });
+    }
+  }
+
+  // 2. Fetch boxes + parents from server as supplementary
+  // (collapsed-by-default at the bottom). Best-effort: skip if orch dead.
+  try {
+    const srvCat = await groundApi('listBarcodeTagCatalog', {});
+    if (srvCat && srvCat.ok && srvCat.groups) {
+      // Only pull the boxes + parents groups (not duplicate vendor)
+      for (const g of srvCat.groups) {
+        if (g.key === 'boxes' || g.key === 'parents') {
+          catalog.groups.push(Object.assign({}, g, { collapsed: true }));
+        }
+      }
+    }
+  } catch (e) { /* orchestrator dead — skip boxes/parents */ }
+
+  if (!catalog.groups.length) {
     const body = document.getElementById('skuTagBody');
-    if (body) body.innerHTML = '<div style="padding:40px 20px;text-align:center;color:#d32f2f !important;-webkit-text-fill-color:#d32f2f"><div style="font-size:32px;margin-bottom:8px">⚠️</div><div style="font-weight:700;font-size:15px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Catalog load failed</div></div>';
+    if (body) body.innerHTML = '<div style="padding:40px 20px;text-align:center;color:#d32f2f !important;-webkit-text-fill-color:#d32f2f"><div style="font-size:32px;margin-bottom:8px">⚠️</div><div style="font-weight:700;font-size:15px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Catalog empty</div><div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">Open Inventory Runway first to populate the items cache.</div></div>';
     return;
   }
 
@@ -22240,7 +22291,20 @@ async function openSkuTagPicker_() {
         const codes = items.map(it => it.code);
         sectionCodes[group.key] = codes;
         visibleCodes.push.apply(visibleCodes, codes);
-        html += sectionHtml_(group.label, items, group.key);
+        // v10.765 — collapsed sections (boxes/parents) render header
+        // + 'Show N' button only; items hidden until tap. Vendor
+        // groups always expanded so the inventory items dominate.
+        const isCollapsed = !!group.collapsed && !q;  // q overrides — show all when searching
+        if (isCollapsed) {
+          const showId = 'tagCollapseShow-' + group.key.replace(/[^a-z0-9]/gi, '');
+          html += '<div style="margin:14px 0 4px;padding:8px 10px;background:#f4f4f4;border:1px dashed #c0c0c0;border-radius:6px;display:flex;justify-content:space-between;align-items:center">'
+            + '<div style="font-family:Barlow Condensed,Arial,sans-serif;font-size:12px;font-weight:800;color:#888 !important;-webkit-text-fill-color:#888;text-transform:uppercase;letter-spacing:1px">' + esc(group.label) + ' &middot; ' + items.length + '</div>'
+            + '<button onclick="document.getElementById(\'' + showId + '\').style.display=\'block\';this.style.display=\'none\'" style="padding:5px 12px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">Show</button>'
+            + '</div>'
+            + '<div id="' + showId + '" style="display:none">' + sectionHtml_(group.label, items, group.key) + '</div>';
+        } else {
+          html += sectionHtml_(group.label, items, group.key);
+        }
       }
     });
 
@@ -23895,7 +23959,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.764"></script>
+<script src="./pack.js?v=10.765"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23906,7 +23970,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.764<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.765<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
