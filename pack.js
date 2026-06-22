@@ -12211,9 +12211,26 @@ function _packerOverrideBoxChanged() {
 function _packerOverrideCarrierChanged() {
   const car = document.getElementById('poCarrier').value;
   const svc = document.getElementById('poService');
+  // v10.732 — FedEx One Rate services added per Zac's ask. These are
+  // flat-rate services paired with the FEDEX-ONE-RATE-* box SKUs in
+  // the rulebook; selecting a One Rate box auto-fills the matching
+  // service via the dropdown's data-svc.
   const SERVICES = {
     usps: ['usps_ground_advantage', 'usps_priority_mail', 'usps_priority_mail_express', 'usps_media_mail', 'usps_parcel_select_ground'],
-    fedex: ['fedex_home_delivery', 'fedex_ground', 'fedex_2day', 'fedex_express_saver', 'fedex_standard_overnight'],
+    fedex: [
+      'fedex_home_delivery',
+      'fedex_ground',
+      'fedex_2day',
+      'fedex_express_saver',
+      'fedex_standard_overnight',
+      'fedex_one_rate_envelope',
+      'fedex_one_rate_pak',
+      'fedex_one_rate_tube',
+      'fedex_one_rate_small_box',
+      'fedex_one_rate_medium_box',
+      'fedex_one_rate_large_box',
+      'fedex_one_rate_extra_large_box',
+    ],
     ups: ['ups_ground', 'ups_3_day_select', 'ups_2nd_day_air', 'ups_next_day_air_saver', 'ups_next_day_air'],
   };
   const opts = SERVICES[car] || [];
