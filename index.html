@@ -8426,8 +8426,11 @@ function _frameRunwayApplyVelocity_(items, windowDays) {
     // v10.729 — Zac confirmed: S-ANGLES (Boaz mis-wrote as 6-ANGLES)
     // + S-YW-HDWE (Boaz mis-wrote as B-YW-HDWE) are both components
     // in MB-Single bundle, 2× each in MB-King BOMs.
-    '6-ANGLES':'MB-ANGLES-SINGLE',
-    'B-YW-HDWE':'MB-HDWE-SINGLE'
+    // v10.739 — Boaz misreads corrected. Items renamed in Supabase:
+    //   6-ANGLES   → S-ANGLES   (= MB-ANGLES-SINGLE in BOM)
+    //   B-YW-HDWE  → S-YW-HDWE  (= MB-HDWE-SINGLE in BOM)
+    'S-ANGLES':'MB-ANGLES-SINGLE',
+    'S-YW-HDWE':'MB-HDWE-SINGLE'
   };
   return items.map(it => {
     const v = velMap[it.sku] || velMap[ITEM_TO_BOM_ALIAS[it.sku]];
@@ -8759,13 +8762,23 @@ function _frameRunwayRender_(items, containerBanner) {
          +   '<th style="padding:5px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:9px;text-align:right">Velocity/day</th>'
          +   '<th style="padding:5px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:9px;text-align:right">30d total</th>'
          +   '<th style="padding:5px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:9px;text-align:right">Orders</th>'
+         +   '<th style="padding:5px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:9px;text-align:right">Action</th>'
          + '</tr></thead><tbody>';
+    // v10.739 — sort uncounted by total velocity (highest mover first
+    // — biggest urgency to count). Default order was server-provided
+    // which isn't always sorted.
+    uncounted.sort((a, b) => (Number(b.total_units) || 0) - (Number(a.total_units) || 0));
     for (const u of uncounted) {
+      // v10.739 — '+ Count' button per row opens the new-leaf count
+      // modal. Tap → location + qty + manager PIN → worker upserts
+      // items row + bin row, leaf moves into the counted dashboard.
+      const countBtn = '<button onclick="_frameRunwayOpenCountNewLeaf_(\'' + esc(u.sku).replace(/\\/g, "\\\\").replace(/\'/g, "\\\'") + '\',' + Number(u.velocity_per_day || 0) + ',' + Math.round(Number(u.total_units || 0)) + ')" title="Count this SKU into inventory" style="background:rgba(66,165,245,.20);border:1px solid #42a5f5;color:#42a5f5;-webkit-text-fill-color:#42a5f5;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">+ Count</button>';
       html += '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
            +   '<td style="padding:5px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(u.sku) + '</td>'
            +   '<td style="padding:5px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important">' + (Math.round(u.velocity_per_day * 100) / 100) + '</td>'
            +   '<td style="padding:5px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + Math.round(u.total_units) + '</td>'
            +   '<td style="padding:5px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">' + u.total_orders + '</td>'
+           +   '<td style="padding:5px 6px;text-align:right">' + countBtn + '</td>'
            + '</tr>';
     }
     html += '</tbody></table>';
@@ -9494,9 +9507,74 @@ async function renderStockV2Dashboard_() {
   if (empty) empty.style.display = 'none';
   if (stats) stats.style.display = 'none';
   try {
-    const res = await groundApi('listStockDashboardV2', { limit: 50 });
+    let res = null;
+    let viaWorker = false;
+    try {
+      res = await groundApi('listStockDashboardV2', { limit: 50 });
+    } catch (orchErr) {
+      // GAS quota / network throw — fall through to worker
+      res = { ok: false, error: orchErr.message };
+    }
+    // v10.739 — worker fallback when GAS chokes. Reuses the existing
+    // /inventory/dashboard endpoint that Frame Runway already uses;
+    // we transform the items + apply the same staleness/never-counted
+    // sort the orchestrator does, client-side.
     if (!res || !res.ok) {
-      list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Load failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+      try {
+        const cfgRaw = localStorage.getItem('mbd_print_relay_config') || '{}';
+        const cfg = JSON.parse(cfgRaw);
+        const workerUrl = cfg.relay_url || 'https://mbd-label-stamper.murphybeddepot.workers.dev';
+        const sharedSecret = cfg.shared_secret || '';
+        const wRes = await fetch(workerUrl + '/inventory/dashboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: sharedSecret, limit: 500 }),
+        });
+        const wJson = await wRes.json();
+        if (wRes.ok && wJson.ok) {
+          const now = Date.now(), dayMs = 86400000;
+          const items = (wJson.items || []).map(it => {
+            let staleness = -1;
+            if (it.last_counted_at) {
+              const d = new Date(it.last_counted_at).getTime();
+              if (!isNaN(d)) staleness = Math.floor((now - d) / dayMs);
+            }
+            return {
+              item_sku: it.sku || it.item_sku,
+              name: it.name || '',
+              category: (it.flags && it.flags.category) || it.category || '',
+              unit: it.unit || 'ea',
+              location: (it.bins && it.bins[0] && it.bins[0].location) || it.location || '',
+              on_hand: it.on_hand,
+              reorder_point: it.reorder_point,
+              reorder_qty: it.reorder_qty,
+              last_counted_at: it.last_counted_at,
+              last_counted_by: it.last_counted_by,
+              staleness_days: staleness,
+              bins: it.bins || [],
+            };
+          });
+          // Sort: never-counted first (-1), then oldest stale first.
+          items.sort((a, b) => {
+            if (a.staleness_days < 0 && b.staleness_days >= 0) return -1;
+            if (a.staleness_days >= 0 && b.staleness_days < 0) return 1;
+            return (b.staleness_days || 0) - (a.staleness_days || 0);
+          });
+          // Default: hide items <7 days fresh (matches orchestrator filter).
+          const dashItems = items.filter(it => it.staleness_days < 0 || it.staleness_days >= 7).slice(0, 50);
+          res = {
+            ok: true,
+            items: dashItems,
+            returned: dashItems.length,
+            total_items: items.length,
+            velocity_phase: 'worker-fallback',
+          };
+          viaWorker = true;
+        }
+      } catch (wErr) { /* worker also dead — keep original error */ }
+    }
+    if (!res || !res.ok) {
+      list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Load failed: ' + esc((res && res.error) || 'unknown') + '<br><br><button onclick="renderStockV2Dashboard_()" style="margin-top:10px;padding:8px 14px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">↻ Retry</button></div>';
       return;
     }
     const items = res.items || [];
@@ -22778,7 +22856,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.738"></script>
+<script src="./pack.js?v=10.739"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22789,7 +22867,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.738<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.739<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
