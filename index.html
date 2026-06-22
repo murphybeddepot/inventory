@@ -21828,7 +21828,7 @@ async function openSkuTagPicker_() {
     + '<div id="skuTagLoading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:#666 !important;-webkit-text-fill-color:#666">'
     + '<div style="width:48px;height:48px;border:4px solid #e0e0e0;border-top-color:#FFB300;border-radius:50%;animation:skuTagSpin 1s linear infinite;margin-bottom:18px"></div>'
     + '<div style="font-size:15px;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Loading catalog…</div>'
-    + '<div style="font-size:12px;color:#888 !important;-webkit-text-fill-color:#888;margin-top:4px">Häfele hardware + boxes + parent SKUs</div>'
+    + '<div style="font-size:12px;color:#888 !important;-webkit-text-fill-color:#888;margin-top:4px">115+ SKUs grouped by vendor + boxes + parents</div>'
     + '<style>@keyframes skuTagSpin{to{transform:rotate(360deg)}}</style>'
     + '</div>'
     + '</div>'
@@ -21879,14 +21879,19 @@ async function openSkuTagPicker_() {
     }
     h += '<button data-section-all="' + esc(sectionKey || '') + '" style="padding:5px 10px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">+ All</button>';
     h += '</div>';
+    // v10.758 — bigger row text per Zac. Name on top (larger,
+    // operator-readable), code on bottom (mono, smaller). Was the
+    // opposite — code on top, name in tiny gray. Hard to scan.
     items.forEach(it => {
-      h += '<div data-code="' + esc(it.code) + '" style="display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:6px;cursor:pointer;border:1px solid #e8e8e8;margin-bottom:4px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">';
-      h += '<div data-check style="width:22px;height:22px;border:2px solid #1a1a1a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;flex-shrink:0;background:#fff !important"></div>';
+      h += '<div data-code="' + esc(it.code) + '" style="display:flex;align-items:center;gap:12px;padding:12px 10px;border-radius:6px;cursor:pointer;border:1px solid #e8e8e8;margin-bottom:5px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">';
+      h += '<div data-check style="width:24px;height:24px;border:2px solid #1a1a1a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;flex-shrink:0;background:#fff !important"></div>';
       h += '<div style="flex:1;min-width:0">';
-      h += '<div style="font-weight:700;font-size:14px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(it.code) + '</div>';
-      const sub = (it.name && it.name !== it.code) ? it.name : it.description;
-      if (sub) {
-        h += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(sub) + '</div>';
+      const friendly = (it.name && it.name !== it.code) ? it.name : (it.description || '');
+      if (friendly) {
+        h += '<div style="font-weight:800;font-size:16px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2">' + esc(friendly) + '</div>';
+        h += '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:700;font-size:13px;color:#666 !important;-webkit-text-fill-color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">' + esc(it.code) + '</div>';
+      } else {
+        h += '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:16px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2">' + esc(it.code) + '</div>';
       }
       h += '</div></div>';
     });
@@ -21906,13 +21911,12 @@ async function openSkuTagPicker_() {
     visibleCodes = [];
     Object.keys(sectionCodes).forEach(k => delete sectionCodes[k]);
 
-    if (recents.length && !q) {
-      const recentItems = recents.map(c => ({ code: c, name: '', description: '' }));
-      sectionCodes['recent'] = recents.slice();
-      visibleCodes.push.apply(visibleCodes, recents);
-      html += sectionHtml_('Recently Printed', recentItems, 'recent');
-    }
-
+    // v10.758 — Zac 2026-06-22: dropped 'Recently Printed' section.
+    //   (1) It only showed bare item numbers — operators couldn't tell
+    //       what they were. (2) Section's '+ All' selector was picking
+    //       up codes that ALSO appeared in vendor groups → double-
+    //       selection. Catalog groups are sufficient now that they
+    //       include vendor breakdowns.
     (catalog.groups || []).forEach(group => {
       let items = group.items || [];
       if (q) {
@@ -23581,7 +23585,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.757"></script>
+<script src="./pack.js?v=10.758"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23592,7 +23596,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.757<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.758<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
