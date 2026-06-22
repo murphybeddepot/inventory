@@ -9220,6 +9220,39 @@ function _frameRunwayRender_(items, containerBanner) {
     const catChip = (cat && CATEGORY_STYLES[cat])
       ? ' <span title="' + esc(catNote) + '" style="background:' + CATEGORY_STYLES[cat].bg + ';border:1px solid ' + CATEGORY_STYLES[cat].bd + ';color:' + CATEGORY_STYLES[cat].fg + ' !important;-webkit-text-fill-color:' + CATEGORY_STYLES[cat].fg + ' !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">' + CATEGORY_STYLES[cat].label + '</span>'
       : '';
+    // v10.753 — vendor chip (color-coded). Pulled from flags.vendor
+    // (set by the 2026-06-22 inventory sheet seed).
+    const VENDOR_STYLES = {
+      'HAFELE':         { bg: 'rgba(91,33,182,.18)', bd: '#5B21B6', fg: '#C77DFF' },
+      'KRY/wbs-india':  { bg: 'rgba(255,145,0,.18)', bd: '#FF9100', fg: '#FFB300' },
+      'KRY OLD':        { bg: 'rgba(255,145,0,.10)', bd: 'rgba(255,145,0,.40)', fg: '#FFC54F' },
+      'ULINE':          { bg: 'rgba(0,100,200,.20)', bd: '#0064C8', fg: '#42a5f5' },
+      'ALIBABA':        { bg: 'rgba(0,150,136,.18)', bd: '#009688', fg: '#26A69A' },
+      'AMAZON':         { bg: 'rgba(255,153,0,.18)', bd: '#FF9900', fg: '#FFB74D' },
+      'Amazon':         { bg: 'rgba(255,153,0,.18)', bd: '#FF9900', fg: '#FFB74D' },
+      'ROK':            { bg: 'rgba(255,200,50,.16)', bd: '#FFC832', fg: '#FFD54F' },
+      'INMARK':         { bg: 'rgba(120,140,170,.20)', bd: '#7888AA', fg: '#9EB0D0' },
+      'MANUFACTURED':   { bg: 'rgba(0,200,83,.16)', bd: '#00C853', fg: '#69F0AE' },
+      'ARCHITECTURAL':  { bg: 'rgba(160,82,45,.20)', bd: '#A0522D', fg: '#D2691E' },
+      'MWBS':           { bg: 'rgba(120,140,170,.18)', bd: '#7888AA', fg: '#9EB0D0' },
+      'RETURNS':        { bg: 'rgba(255,82,82,.10)', bd: 'rgba(255,82,82,.45)', fg: '#FF7070' },
+      'fastcap.com':    { bg: 'rgba(76,175,80,.16)', bd: '#4CAF50', fg: '#81C784' },
+      'boltdepot.com':  { bg: 'rgba(33,150,243,.16)', bd: '#2196F3', fg: '#64B5F6' },
+      'HOME DEPOT':     { bg: 'rgba(255,103,31,.18)', bd: '#FF671F', fg: '#FF8A65' },
+    };
+    const vendor = (it.flags || {}).vendor || '';
+    const venStyle = VENDOR_STYLES[vendor];
+    const vendorChip = (vendor && venStyle)
+      ? ' <span title="' + esc(vendor) + '" style="background:' + venStyle.bg + ';border:1px solid ' + venStyle.bd + ';color:' + venStyle.fg + ' !important;-webkit-text-fill-color:' + venStyle.fg + ' !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">' + esc(vendor.split('/')[0]) + '</span>'
+      : '';
+    // v10.753 — needs-recount flag (negative on_hand from sheet seed).
+    const needsRecount = (it.flags || {}).needs_recount;
+    const recountChip = needsRecount
+      ? ' <span title="Had negative on-hand in the sheet — physical recount needed" style="background:rgba(255,82,82,.16);border:1px solid #FF5252;color:#FF7070 !important;-webkit-text-fill-color:#FF7070 !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">⚠ RECOUNT</span>'
+      : '';
+    // v10.753 — threshold (reorder point) — show next to on_hand if set.
+    const threshold = Number((it.flags || {}).threshold) || 0;
+    const belowThreshold = threshold > 0 && Number(it.on_hand || 0) < threshold;
     // v10.708 — render per-bin breakdown as inline chips.
     let binsHtml = '';
     const bins = it.bins || [];
@@ -9242,13 +9275,23 @@ function _frameRunwayRender_(items, containerBanner) {
     // Includes sku, bin locations, category tag, dnu flag.
     const haystack = [
       it.sku || '',
+      it.name || '',
       (it.bins || []).map(b => b.location).join(' '),
       (it.flags && it.flags.category) || '',
+      (it.flags && it.flags.vendor) || '',
       it.dnu_qty > 0 ? 'dnu' : '',
+      needsRecount ? 'recount' : '',
+      belowThreshold ? 'low below threshold' : '',
     ].join(' ').toLowerCase();
+    // v10.753 — on_hand cell colored red when below threshold; sub-line
+    // shows " / threshold" so the operator sees the gap inline.
+    const ohColor = belowThreshold ? '#FF7070' : 'var(--text)';
+    const ohExtra = threshold > 0
+      ? '<div style="font-size:9px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:600;margin-top:1px;letter-spacing:.3px">thr ' + threshold + '</div>'
+      : '';
     html += '<tr data-search-haystack="' + esc(haystack) + '" style="border-bottom:1px solid var(--border);vertical-align:top">'
-         +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px;white-space:nowrap">' + esc(it.sku) + dnuChip + catChip + '</td>'
-         +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900">' + onHandDisp + '</td>'
+         +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px;white-space:nowrap">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + '</td>'
+         +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:' + ohColor + ' !important;-webkit-text-fill-color:' + ohColor + ' !important">' + onHandDisp + ohExtra + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important">' + onOrderDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + velDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + runDisp + '</td>'
@@ -23398,7 +23441,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.751"></script>
+<script src="./pack.js?v=10.753"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23409,7 +23452,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.751<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.753<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
