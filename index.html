@@ -8658,8 +8658,8 @@ function _frameRunwayComputePoLines_() {
   // reflects whichever rolling window the operator picked.
   const windowDays = Math.max(1, Number(document.getElementById('poVelocityWindow').value) || 90);
   const ITEM_TO_BOM_ALIAS = {
-    'SBF-KING':'SBF-K','SBF-QUEEN':'SBF-Q','SBF-DOUBLE':'SBF-D',
-    'SBF-SINGLE':'SBF-S','SBF-SINGLEXL':'SBF-SXL',
+    // v10.763 — SBF-* aliases removed. items table renamed to short
+    // form (SBF-K/Q/D/S/SXL) matching the box label + BOM-leaf SKU.
     'STU-B':'STUDIO-BLACK','STU-W':'STUDIO-WHITE','MB-WMB-L':'MB-WMB',
     'UNIVERSAL':'MB-UNIVERSAL',
     'S-ANGLES':'MB-ANGLES-SINGLE','S-YW-HDWE':'MB-HDWE-SINGLE',
@@ -9528,7 +9528,8 @@ function _frameRunwayRender_(items, containerBanner) {
        +   '<th style="' + thStyle + '">Last Counted</th>'
        + '</tr></thead><tbody>';
   for (const it of items) {
-    const onHandDisp = (it.on_hand == null) ? '—' : String(it.on_hand);
+    // v10.763 — dropship items don't track on_hand; show '—' instead of 0.
+    const onHandDisp = (it.flags && it.flags.dropship) ? '—' : ((it.on_hand == null) ? '—' : String(it.on_hand));
     const onOrderDisp = (it.on_order > 0) ? String(it.on_order) : '—';
     // v10.728 — three states:
     //   - no compute yet → "pending"
@@ -9613,8 +9614,14 @@ function _frameRunwayRender_(items, containerBanner) {
       ? ' <span title="Had negative on-hand in the sheet — physical recount needed" style="background:rgba(255,82,82,.16);border:1px solid #FF5252;color:#FF7070 !important;-webkit-text-fill-color:#FF7070 !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">⚠ RECOUNT</span>'
       : '';
     // v10.753 — threshold (reorder point) — show next to on_hand if set.
+    // v10.763 — DROPSHIP items (mattresses) skip threshold styling entirely;
+    // they have no on-hand tracking. Get a 'DROPSHIP' chip instead.
     const threshold = Number((it.flags || {}).threshold) || 0;
-    const belowThreshold = threshold > 0 && Number(it.on_hand || 0) < threshold;
+    const isDropship = !!(it.flags && it.flags.dropship);
+    const belowThreshold = !isDropship && threshold > 0 && Number(it.on_hand || 0) < threshold;
+    const dropshipChip = isDropship
+      ? ' <span title="Dropship — ships direct from supplier, not stocked here" style="background:rgba(66,165,245,.16);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">DROPSHIP</span>'
+      : '';
     // v10.708 — render per-bin breakdown as inline chips.
     let binsHtml = '';
     const bins = it.bins || [];
@@ -9677,9 +9684,9 @@ function _frameRunwayRender_(items, containerBanner) {
     // name !== sku get a 2-line cell: friendly name on top, SKU
     // mono-italic-dim below. Single-line for items where name=sku.
     const nameLine = (it.name && it.name !== it.sku)
-      ? '<div style="font-family:inherit;font-weight:800;font-size:13px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;line-height:1.2">' + esc(it.name) + dnuChip + catChip + vendorChip + recountChip + '</div>'
+      ? '<div style="font-family:inherit;font-weight:800;font-size:13px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;line-height:1.2">' + esc(it.name) + dnuChip + catChip + vendorChip + recountChip + dropshipChip + '</div>'
         + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:600;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:1px">' + esc(it.sku) + '</div>'
-      : '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:13px">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + '</div>';
+      : '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:13px">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + dropshipChip + '</div>';
     html += '<tr data-search-haystack="' + esc(haystack) + '" style="border-bottom:1px solid var(--border);vertical-align:top">'
          +   '<td style="padding:8px 6px;min-width:240px;max-width:340px">' + nameLine + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:' + ohColor + ' !important;-webkit-text-fill-color:' + ohColor + ' !important">' + onHandDisp + ohExtra + '</td>'
@@ -23863,7 +23870,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.762"></script>
+<script src="./pack.js?v=10.763"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23874,7 +23881,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.762<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.763<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
