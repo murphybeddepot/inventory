@@ -10166,6 +10166,8 @@ async function renderStockV2Dashboard_() {
               const d = new Date(it.last_counted_at).getTime();
               if (!isNaN(d)) staleness = Math.floor((now - d) / dayMs);
             }
+            // v10.756 — pass flags through so the row renderer can show
+            // vendor chip + recount flag + threshold-below color.
             return {
               item_sku: it.sku || it.item_sku,
               name: it.name || '',
@@ -10179,6 +10181,7 @@ async function renderStockV2Dashboard_() {
               last_counted_by: it.last_counted_by,
               staleness_days: staleness,
               bins: it.bins || [],
+              flags: it.flags || {},
             };
           });
           // Sort: never-counted first (-1), then oldest stale first.
@@ -10254,21 +10257,44 @@ function _stockV2RowHtml_(it) {
   const sku = it.item_sku || '';
   const name = it.name || '';
   const loc = it.location || '—';
-  const onHand = (it.on_hand == null) ? '—' : String(it.on_hand);
+  const oh = (it.on_hand == null) ? null : Number(it.on_hand);
+  const onHand = oh == null ? '—' : String(oh);
   const days = (typeof it.staleness_days === 'number') ? it.staleness_days : -1;
-  // Freshness coloring per persona Meeting 2: <7 green, 7-14 amber,
-  // >14 red. -1 sentinel = uncounted (purple).
+  // Freshness coloring: <7 green, 7-14 amber, >14 red. -1 = never counted (purple).
   let dot = '#9AAAC0', tag = '?';
   if (days === -1) { dot = '#7C3AED'; tag = 'NEVER'; }
   else if (days >= 14) { dot = '#FF5252'; tag = days + 'd'; }
   else if (days >= 7) { dot = '#FFB300'; tag = days + 'd'; }
   else { dot = '#00C853'; tag = days + 'd'; }
+  // v10.756 — surface flag-based context inline.
+  const flags = it.flags || {};
+  const vendor = flags.vendor || it.vendor || '';
+  const threshold = Number(flags.threshold || it.reorder_point || 0);
+  const belowThreshold = threshold > 0 && oh != null && oh < threshold;
+  const needsRecount = !!flags.needs_recount;
+  // Vendor chip (reuses Inventory Runway color palette).
+  const VENDOR_FG = {
+    'HAFELE': '#C77DFF', 'KRY/wbs-india': '#FFB300', 'KRY OLD': '#FFC54F',
+    'ULINE': '#42a5f5', 'ALIBABA': '#26A69A', 'AMAZON': '#FFB74D', 'Amazon': '#FFB74D',
+    'ROK': '#FFD54F', 'INMARK': '#9EB0D0', 'MANUFACTURED': '#69F0AE',
+    'ARCHITECTURAL': '#D2691E', 'MWBS': '#9EB0D0', 'RETURNS': '#FF7070',
+    'fastcap.com': '#81C784', 'boltdepot.com': '#64B5F6', 'HOME DEPOT': '#FF8A65',
+  };
+  const ven = vendor ? (VENDOR_FG[vendor] || '#9AAAC0') : null;
+  const vendorChip = ven
+    ? '<span title="' + esc(vendor) + '" style="background:rgba(255,255,255,.04);border:1px solid ' + ven + ';color:' + ven + ' !important;-webkit-text-fill-color:' + ven + ' !important;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.4px;margin-left:6px;display:inline-block">' + esc(vendor.split('/')[0]) + '</span>'
+    : '';
+  const recountChip = needsRecount
+    ? '<span title="Had negative on-hand in source sheet — physical recount needed" style="background:rgba(255,82,82,.15);border:1px solid #FF5252;color:#FF7070 !important;-webkit-text-fill-color:#FF7070 !important;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.4px;margin-left:6px;display:inline-block">⚠ RECOUNT</span>'
+    : '';
+  const ohColor = belowThreshold ? '#FF7070' : 'var(--text-dim)';
+  const ohExtra = threshold > 0 ? ' / thr ' + threshold : '';
   return ''
     + '<div onclick="_stockV2OpenItem_(\'' + esc(sku).replace(/'/g, "\\'") + '\')" style="display:flex;align-items:center;gap:10px;padding:11px 12px;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:8px;cursor:pointer">'
     +   '<div style="width:10px;height:10px;border-radius:50%;background:' + dot + ';flex-shrink:0;box-shadow:0 0 8px ' + dot + '"></div>'
     +   '<div style="flex:1;min-width:0">'
-    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(sku) + (name ? ' · <span style="font-family:inherit;font-weight:500;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">' + esc(name) + '</span>' : '') + '</div>'
-    +     '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">📍 ' + esc(loc) + ' · on hand: ' + esc(onHand) + (it.reorder_point != null ? ' · ROP ' + it.reorder_point : '') + '</div>'
+    +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(sku) + (name && name !== sku ? ' · <span style="font-family:inherit;font-weight:500;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">' + esc(name) + '</span>' : '') + vendorChip + recountChip + '</div>'
+    +     '<div style="font-size:11px;color:' + ohColor + ' !important;-webkit-text-fill-color:' + ohColor + ' !important;margin-top:2px"><span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">📍 ' + esc(loc) + ' · on hand:</span> <strong>' + esc(onHand) + '</strong>' + ohExtra + '</div>'
     +   '</div>'
     +   '<div style="font-size:10px;font-weight:800;color:' + dot + ' !important;-webkit-text-fill-color:' + dot + ' !important;letter-spacing:.5px;text-transform:uppercase;flex-shrink:0">' + tag + '</div>'
     + '</div>';
@@ -23513,7 +23539,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.755"></script>
+<script src="./pack.js?v=10.756"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23524,7 +23550,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.755<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.756<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
