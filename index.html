@@ -8511,6 +8511,45 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
 //
 // "📧 Open in Gmail" builds a mailto: with subject + body + To:
 // pre-filled. Operator reviews, edits, and sends from Gmail.
+// v10.755 — vendor → contact map for the PO Generator's mailto link.
+// Currently only KRY has a hard contact (Lily Yan). Other vendors leave
+// `to` blank so operator types the address themselves in Gmail. Add
+// contacts here as you learn them.
+const _VENDOR_CONTACTS = {
+  'KRY/wbs-india': { email: 'project@qdmetalwork.com', name: 'Lily Yan', label: 'KRY' },
+  'HAFELE':        { email: '', name: 'Hafele rep', label: 'Hafele' },
+  'ULINE':         { email: '', name: 'ULINE', label: 'ULINE' },
+  'ALIBABA':       { email: '', name: 'Alibaba supplier', label: 'Alibaba' },
+  'AMAZON':        { email: '', name: 'Amazon', label: 'Amazon' },
+  'Amazon':        { email: '', name: 'Amazon', label: 'Amazon' },
+  'ROK':           { email: '', name: 'ROK', label: 'ROK' },
+  'INMARK':        { email: '', name: 'INMARK', label: 'INMARK' },
+  'fastcap.com':   { email: '', name: 'fastcap.com', label: 'FastCap' },
+  'boltdepot.com': { email: '', name: 'boltdepot.com', label: 'Bolt Depot' },
+  'ARCHITECTURAL': { email: '', name: 'Architectural', label: 'Architectural' },
+  'MANUFACTURED':  { email: '', name: 'Manufactured (internal)', label: 'Mfg' },
+  'KRY OLD':       { email: '', name: 'KRY OLD', label: 'KRY OLD' },
+  'MWBS':          { email: '', name: 'MWBS', label: 'MWBS' },
+  'RETURNS':       { email: '', name: 'Returns', label: 'Returns' },
+  'HOME DEPOT':    { email: '', name: 'Home Depot', label: 'Home Depot' },
+};
+
+// v10.755 — build vendor filter <option> list from items in cache.
+function _frameRunwayPoVendorOptions_() {
+  const items = window._frameRunwayItemsCache || [];
+  const counts = {};
+  for (const it of items) {
+    const v = (it.flags && it.flags.vendor) || '(no vendor)';
+    counts[v] = (counts[v] || 0) + 1;
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  let html = '<option value="">All vendors (' + items.length + ')</option>';
+  for (const [v, n] of sorted) {
+    html += '<option value="' + esc(v) + '">' + esc(v) + ' (' + n + ')</option>';
+  }
+  return html;
+}
+
 const _KRY_C24_PRICES = {
   // Mirrors apps-script/orchestrator/Velocity.js _kryC24PriceMap_.
   // Source: Container 24 PI 2025-09-26.
@@ -8541,8 +8580,8 @@ function _frameRunwayOpenPoGenerator_() {
   ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:920px;width:100%;max-height:92vh;overflow-y:auto">'
     + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px">'
     +   '<div>'
-    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;letter-spacing:.5px">📦 Generate PO — KRY</div>'
-    +     '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">Lily Yan · project@qdmetalwork.com · ~165d door-to-door</div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;letter-spacing:.5px">📦 Generate PO</div>'
+    +     '<div id="poVendorSubtitle" style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">Pick a vendor from the dropdown below to scope the PO to one supplier.</div>'
     +   '</div>'
     +   '<button onclick="document.getElementById(\'poGeneratorOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
     + '</div>'
@@ -8567,10 +8606,16 @@ function _frameRunwayOpenPoGenerator_() {
     +     '</select>'
     +   '</div>'
     +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Vendor</label>'
+    +     '<select id="poVendorFilter" onchange="_frameRunwayRecomputePo_()" style="width:100%;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;box-sizing:border-box">'
+    +       _frameRunwayPoVendorOptions_()
+    +     '</select>'
+    +   '</div>'
+    +   '<div>'
     +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Round to</label>'
     +     '<input type="number" id="poRoundTo" value="10" min="1" max="100" step="1" onchange="_frameRunwayRecomputePo_()" style="width:100%;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
     +   '</div>'
-    +   '<div style="display:flex;align-items:center;gap:8px">'
+    +   '<div style="grid-column:1/-1;display:flex;align-items:center;gap:8px">'
     +     '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600;color:#444 !important;-webkit-text-fill-color:#444 !important">'
     +       '<input type="checkbox" id="poIncludePrices" checked onchange="_frameRunwayRecomputePo_()" style="width:16px;height:16px;margin:0">'
     +       'Include prices in email'
@@ -8594,6 +8639,8 @@ function _frameRunwayComputePoLines_() {
   const items = window._frameRunwayItemsCache || [];
   const targetMonths = Math.max(0.5, Math.min(12, Number(document.getElementById('poTargetMonths').value) || 6));
   const roundTo = Math.max(1, Number(document.getElementById('poRoundTo').value) || 10);
+  const venEl = document.getElementById('poVendorFilter');
+  const vendorFilter = venEl ? venEl.value : '';
   // v10.748 — velocity window can differ from Frame Runway's active
   // window. Pull units-per-day from the per_window stash so the PO
   // reflects whichever rolling window the operator picked.
@@ -8617,6 +8664,9 @@ function _frameRunwayComputePoLines_() {
   } catch (e) {}
   const lines = [];
   for (const it of items) {
+    // v10.755 — vendor filter (empty = all vendors).
+    const itemVendor = (it.flags && it.flags.vendor) || '';
+    if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8627,10 +8677,6 @@ function _frameRunwayComputePoLines_() {
     }
     if (!vpd || vpd <= 0) continue;
     const oh = (it.on_hand == null) ? 0 : Number(it.on_hand);
-    // v10.748 — field is `on_order` (already summed from on_order_etas
-    // elsewhere in Frame Runway). v10.744's `on_order_qty` was a typo
-    // that always read 0 → SLAT-2-QE and -QR looked identical even
-    // when their stock + on-order rollup differed. Zac caught this.
     const oo = (it.on_order == null) ? 0 : Number(it.on_order);
     const target = Math.round(targetMonths * 30 * vpd);
     const gap = target - oh - oo;
@@ -8639,7 +8685,8 @@ function _frameRunwayComputePoLines_() {
     const unitCost = _KRY_C24_PRICES[it.sku] != null ? _KRY_C24_PRICES[it.sku] : 0;
     const lineTotal = Math.round(unitCost * suggest * 100) / 100;
     lines.push({
-      sku: it.sku, on_hand: oh, on_order: oo,
+      sku: it.sku, name: it.name || '', vendor: itemVendor,
+      on_hand: oh, on_order: oo,
       velocity_per_day: Math.round(vpd * 100) / 100,
       target_units: target, gap_units: gap, suggest_qty: suggest,
       unit_cost_usd: unitCost, line_total_usd: lineTotal,
@@ -8647,7 +8694,7 @@ function _frameRunwayComputePoLines_() {
     });
   }
   lines.sort((a, b) => b.gap_units - a.gap_units);
-  return { lines, targetMonths, roundTo, windowDays };
+  return { lines, targetMonths, roundTo, windowDays, vendorFilter };
 }
 
 function _frameRunwayRecomputePo_() {
@@ -8659,7 +8706,24 @@ function _frameRunwayRecomputePo_() {
   const noPriceCount = r.lines.filter(L => L.no_price).length;
   const badge = document.getElementById('poTotalsBadge');
   if (badge) {
-    badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString() + ' · velocity from last ' + r.windowDays + 'd';
+    const venTag = r.vendorFilter ? ' · ' + r.vendorFilter : '';
+    badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString() + ' · velocity ' + r.windowDays + 'd' + venTag;
+  }
+  // v10.755 — vendor subtitle: shows contact info when a vendor is picked.
+  const subtitleEl = document.getElementById('poVendorSubtitle');
+  if (subtitleEl) {
+    if (r.vendorFilter) {
+      const c = _VENDOR_CONTACTS[r.vendorFilter];
+      if (c && c.email) {
+        subtitleEl.textContent = c.name + ' · ' + c.email;
+      } else if (c) {
+        subtitleEl.textContent = c.name + ' · (no email on file — fill in Gmail manually)';
+      } else {
+        subtitleEl.textContent = r.vendorFilter + ' · (no contact on file)';
+      }
+    } else {
+      subtitleEl.textContent = 'All vendors. Pick a specific vendor below to use vendor-specific email + subject.';
+    }
   }
   if (!r.lines.length) {
     body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">All items currently meet the ' + r.targetMonths + '-month target. Nothing to reorder.</div>';
@@ -8707,11 +8771,13 @@ function _frameRunwayPoBuildEmailBody_() {
   const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
   const totalUsd = r.lines.reduce((s, L) => s + L.line_total_usd, 0);
   const today = new Date().toISOString().slice(0, 10);
-  // v10.748 — line-based email body. The old ASCII-column alignment
-  // looked fine in monospace but broke in Gmail (proportional Sans
-  // Serif) — Zac caught it. Each line now stands alone, easy to
-  // scan regardless of font.
-  let body = 'Hi Lily,\n\n';
+  // v10.755 — vendor-specific greeting + contact + subject label.
+  const vendor = r.vendorFilter || '';
+  const contact = _VENDOR_CONTACTS[vendor] || null;
+  const greetName = (contact && contact.name) || 'team';
+  const vendorLabel = (contact && contact.label) || vendor || 'supplier';
+  const toEmail = (contact && contact.email) || '';
+  let body = 'Hi ' + greetName + ',\n\n';
   body += 'Murphy Bed Depot ' + (poName ? '— ' + poName + ' — ' : '— ') + 'please quote production + shipping for the following:\n\n';
   r.lines.forEach((L, idx) => {
     const num = (idx + 1) + '.';
@@ -8745,16 +8811,22 @@ function _frameRunwayPoBuildEmailBody_() {
   body += '  • Container packing plan\n\n';
   body += 'Thanks,\nZac';
   const subjectName = poName ? ' — ' + poName : '';
+  const vendorTag = vendor ? ' (' + vendorLabel + ')' : '';
   return {
-    subject: 'Murphy Bed Depot PO' + subjectName + ' — ' + today + ' (' + totalUnits + ' units)',
+    subject: 'Murphy Bed Depot PO' + vendorTag + subjectName + ' — ' + today + ' (' + totalUnits + ' units)',
     body,
+    toEmail,
+    vendor,
   };
 }
 
 function _frameRunwayPoEmail_() {
   const e = _frameRunwayPoBuildEmailBody_();
   if (!e) { alert('No lines to email.'); return; }
-  const url = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent('project@qdmetalwork.com')
+  // v10.755 — use the vendor-specific contact email when known.
+  // Empty `to` opens Gmail compose with an empty To: field for the
+  // operator to fill in.
+  const url = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(e.toEmail || '')
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
@@ -23441,7 +23513,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.754"></script>
+<script src="./pack.js?v=10.755"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23452,7 +23524,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.754<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.755<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
