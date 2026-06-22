@@ -8686,13 +8686,30 @@ function _frameRunwayComputePoLines_() {
     } else {
       vpd = Number(it.velocity_per_day || 0);
     }
-    if (!vpd || vpd <= 0) continue;
     const oh = (it.on_hand == null) ? 0 : Number(it.on_hand);
     const oo = (it.on_order == null) ? 0 : Number(it.on_order);
-    const target = Math.round(targetMonths * 30 * vpd);
-    const gap = target - oh - oo;
-    if (gap <= 0) continue;
-    const suggest = Math.ceil(gap / roundTo) * roundTo;
+    const threshold = Number((it.flags || {}).threshold) || 0;
+    const multiplier = Number((it.flags || {}).multiplier) || 1.5;
+    // v10.759 — items below threshold with 0 velocity still go in.
+    // Seth's ask: 'low-but-static items never appear otherwise.'
+    // For these, suggest qty = threshold * multiplier rounded.
+    // Tagged below_threshold_only so render can flag visually.
+    let target = 0, gap = 0, suggest = 0;
+    let belowOnly = false;
+    if (vpd > 0) {
+      target = Math.round(targetMonths * 30 * vpd);
+      gap = target - oh - oo;
+      if (gap <= 0) continue;
+      suggest = Math.ceil(gap / roundTo) * roundTo;
+    } else if (threshold > 0 && (oh + oo) < threshold) {
+      belowOnly = true;
+      target = threshold;
+      gap = threshold - oh - oo;
+      suggest = Math.ceil((threshold * multiplier - oh - oo) / roundTo) * roundTo;
+      if (suggest <= 0) suggest = Math.ceil(threshold / roundTo) * roundTo;
+    } else {
+      continue; // no velocity + no threshold trigger = skip
+    }
     const unitCost = _KRY_C24_PRICES[it.sku] != null ? _KRY_C24_PRICES[it.sku] : 0;
     const lineTotal = Math.round(unitCost * suggest * 100) / 100;
     lines.push({
@@ -8702,6 +8719,7 @@ function _frameRunwayComputePoLines_() {
       target_units: target, gap_units: gap, suggest_qty: suggest,
       unit_cost_usd: unitCost, line_total_usd: lineTotal,
       no_price: unitCost === 0,
+      below_threshold_only: belowOnly,
     });
   }
   lines.sort((a, b) => b.gap_units - a.gap_units);
@@ -8753,8 +8771,14 @@ function _frameRunwayRecomputePo_() {
        +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">Line $</th>'
        + '</tr></thead><tbody>';
   for (const L of r.lines) {
-    html += '<tr style="border-bottom:1px solid #eee">'
-         +   '<td style="padding:6px 8px;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(L.sku) + '</td>'
+    // v10.759 — visual flag for below-threshold-only lines (Seth's
+    // ask). Amber background to distinguish from velocity-based.
+    const rowBg = L.below_threshold_only ? 'background:rgba(255,179,0,.10);' : '';
+    const skuTag = L.below_threshold_only
+      ? ' <span title="Below threshold but no velocity — suggested based on reorder point only" style="background:rgba(255,179,0,.20);border:1px solid #FFB300;color:#7A4E00 !important;-webkit-text-fill-color:#7A4E00 !important;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:900;letter-spacing:.3px">THR ONLY</span>'
+      : '';
+    html += '<tr style="border-bottom:1px solid #eee;' + rowBg + '">'
+         +   '<td style="padding:6px 8px;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(L.sku) + skuTag + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.on_hand + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.on_order + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.velocity_per_day + '</td>'
@@ -9263,15 +9287,20 @@ function _frameRunwayRender_(items, containerBanner) {
        +   '<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">green ≥ 60d</span>. '
        +   '<strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">"19d → 158d"</strong> = runway today → runway after on-order container lands.'
        + '</div>';
-  // Header row + table
+  // v10.759 — Header row + table. STICKY THEAD (Sable, Mira, Zac).
+  // Column meta bumped 10pt → 12pt + thead background opaque so the
+  // table data doesn't bleed through during scroll. Last Counted
+  // column appended at the end.
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
-  html += '<thead><tr style="border-bottom:2px solid var(--border);text-align:left">'
-       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px">SKU</th>'
-       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">On Hand</th>'
-       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">On Order</th>'
-       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">Velocity ' + windowLabel + '</th>'
-       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px;text-align:right">Runway ' + windowLabel + '</th>'
-       +   '<th style="padding:8px 6px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:10px">Locations · qty</th>'
+  const thStyle = 'padding:10px 8px;color:#FFD54F !important;-webkit-text-fill-color:#FFD54F !important;font-weight:900;letter-spacing:.5px;text-transform:uppercase;font-size:12px;background:#15171c;border-bottom:2px solid #FFB300';
+  html += '<thead style="position:sticky;top:0;z-index:5"><tr style="text-align:left">'
+       +   '<th style="' + thStyle + '">SKU</th>'
+       +   '<th style="' + thStyle + ';text-align:right">On Hand</th>'
+       +   '<th style="' + thStyle + ';text-align:right">On Order</th>'
+       +   '<th style="' + thStyle + ';text-align:right">Velocity ' + windowLabel + '</th>'
+       +   '<th style="' + thStyle + ';text-align:right">Runway ' + windowLabel + '</th>'
+       +   '<th style="' + thStyle + '">Locations · qty</th>'
+       +   '<th style="' + thStyle + '">Last Counted</th>'
        + '</tr></thead><tbody>';
   for (const it of items) {
     const onHandDisp = (it.on_hand == null) ? '—' : String(it.on_hand);
@@ -9403,6 +9432,21 @@ function _frameRunwayRender_(items, containerBanner) {
     const ohExtra = threshold > 0
       ? '<div style="font-size:9px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:600;margin-top:1px;letter-spacing:.3px">thr ' + threshold + '</div>'
       : '';
+    // v10.759 — Last Counted cell. Green if <7d, amber 7-30d, red >30d
+    // or never, purple if never counted at all.
+    let lastCountedHtml = '<span style="color:#7C3AED !important;-webkit-text-fill-color:#7C3AED !important;font-size:11px;font-weight:800">never</span>';
+    if (it.last_counted_at) {
+      const lcDate = new Date(it.last_counted_at);
+      if (!isNaN(lcDate.getTime())) {
+        const daysAgo = Math.floor((Date.now() - lcDate.getTime()) / 86400000);
+        let lcColor = '#00C853'; // <7d green
+        if (daysAgo > 30) lcColor = '#FF5252';
+        else if (daysAgo > 7) lcColor = '#FFB300';
+        const isoDate = lcDate.toISOString().slice(0, 10);
+        lastCountedHtml = '<div style="font-size:11px;color:' + lcColor + ' !important;-webkit-text-fill-color:' + lcColor + ' !important;font-weight:800">' + daysAgo + 'd ago</div>'
+          + '<div style="font-size:9px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-family:\'JetBrains Mono\',monospace">' + isoDate + '</div>';
+      }
+    }
     html += '<tr data-search-haystack="' + esc(haystack) + '" style="border-bottom:1px solid var(--border);vertical-align:top">'
          +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px;white-space:nowrap">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:' + ohColor + ' !important;-webkit-text-fill-color:' + ohColor + ' !important">' + onHandDisp + ohExtra + '</td>'
@@ -9410,6 +9454,7 @@ function _frameRunwayRender_(items, containerBanner) {
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + velDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + runDisp + '</td>'
          +   '<td style="padding:8px 6px;line-height:1.7">' + binsHtml + '</td>'
+         +   '<td style="padding:8px 6px;white-space:nowrap">' + lastCountedHtml + '</td>'
          + '</tr>';
   }
   html += '</tbody></table>';
@@ -23585,7 +23630,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.758"></script>
+<script src="./pack.js?v=10.759"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23596,7 +23641,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.758<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.759<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
