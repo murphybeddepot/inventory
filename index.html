@@ -8201,7 +8201,12 @@ function _frameRunwayApplyVelocity_(items, windowDays) {
     'SBF-KING':'SBF-K','SBF-QUEEN':'SBF-Q','SBF-DOUBLE':'SBF-D',
     'SBF-SINGLE':'SBF-S','SBF-SINGLEXL':'SBF-SXL',
     'STU-B':'STUDIO-BLACK','STU-W':'STUDIO-WHITE','MB-WMB-L':'MB-WMB',
-    'UNIVERSAL':'MB-UNIVERSAL'
+    'UNIVERSAL':'MB-UNIVERSAL',
+    // v10.729 — Zac confirmed: S-ANGLES (Boaz mis-wrote as 6-ANGLES)
+    // + S-YW-HDWE (Boaz mis-wrote as B-YW-HDWE) are both components
+    // in MB-Single bundle, 2× each in MB-King BOMs.
+    '6-ANGLES':'MB-ANGLES-SINGLE',
+    'B-YW-HDWE':'MB-HDWE-SINGLE'
   };
   return items.map(it => {
     const v = velMap[it.sku] || velMap[ITEM_TO_BOM_ALIAS[it.sku]];
@@ -8449,6 +8454,22 @@ function _frameRunwayRender_(items, containerBanner) {
     const dnuChip = (it.dnu_qty > 0)
       ? ' <span style="background:rgba(255,82,82,.18);border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">DNU ' + it.dnu_qty + '</span>'
       : '';
+    // v10.729 — category chip. Read items.flags.category written
+    // by the categorization pass. Color-coded by category so the
+    // operator can see at a glance why an item is at "—".
+    const CATEGORY_STYLES = {
+      'discontinued':  { bg: 'rgba(255,82,82,.14)',  bd: '#FF5252', fg: '#FF7070', label: 'DISCONTINUED' },
+      'kit_blocked':   { bg: 'rgba(255,179,0,.16)',  bd: '#FFB300', fg: '#FFB300', label: 'KIT BLOCKED' },
+      'rare':          { bg: 'rgba(255,179,0,.14)',  bd: 'rgba(255,179,0,.55)', fg: '#FFC54F', label: 'RARE' },
+      'spare_parts':   { bg: 'rgba(120,140,170,.16)', bd: 'rgba(120,140,170,.55)', fg: '#9EB0D0', label: 'SPARE' },
+      'consumable':    { bg: 'rgba(120,140,170,.16)', bd: 'rgba(120,140,170,.55)', fg: '#9EB0D0', label: 'CONSUMABLE' },
+      'sample':        { bg: 'rgba(120,140,170,.16)', bd: 'rgba(120,140,170,.55)', fg: '#9EB0D0', label: 'SAMPLE' }
+    };
+    const cat = (it.flags || {}).category;
+    const catNote = (it.flags || {}).note || '';
+    const catChip = (cat && CATEGORY_STYLES[cat])
+      ? ' <span title="' + esc(catNote) + '" style="background:' + CATEGORY_STYLES[cat].bg + ';border:1px solid ' + CATEGORY_STYLES[cat].bd + ';color:' + CATEGORY_STYLES[cat].fg + ' !important;-webkit-text-fill-color:' + CATEGORY_STYLES[cat].fg + ' !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px">' + CATEGORY_STYLES[cat].label + '</span>'
+      : '';
     // v10.708 — render per-bin breakdown as inline chips.
     let binsHtml = '';
     const bins = it.bins || [];
@@ -8464,7 +8485,7 @@ function _frameRunwayRender_(items, containerBanner) {
       }).join('');
     }
     html += '<tr style="border-bottom:1px solid var(--border);vertical-align:top">'
-         +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px;white-space:nowrap">' + esc(it.sku) + dnuChip + '</td>'
+         +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px;white-space:nowrap">' + esc(it.sku) + dnuChip + catChip + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900">' + onHandDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important">' + onOrderDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + velDisp + '</td>'
@@ -22367,7 +22388,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.728"></script>
+<script src="./pack.js?v=10.729"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22378,7 +22399,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.728<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.729<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
