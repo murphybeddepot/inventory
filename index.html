@@ -8228,15 +8228,21 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
   const countedBy = (byEl && byEl.value.trim()) || 'operator';
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving…'; }
   try {
-    const cfgRaw = localStorage.getItem('mbd_print_relay_config') || '{}';
-    const cfg = JSON.parse(cfgRaw);
-    const workerUrl = cfg.relay_url || 'https://mbd-label-stamper.murphybeddepot.workers.dev';
-    const sharedSecret = cfg.shared_secret || '';
-    const res = await fetch(workerUrl + '/inventory/correct-bin-count', {
+    // v10.740 — use the canonical _getPrintRelayConfig_ helper.
+    // v10.737 incorrectly read 'relay_url' / 'shared_secret' which
+    // don't exist in the cache (real keys are 'worker_url' /
+    // 'stamp_secret'). That meant every bin-edit got Unauthorized
+    // from the worker. Same bug as Stock 2 fallback in v10.739.
+    const cfg = await _getPrintRelayConfig_();
+    if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+      alert('Worker config not cached. Open Bedrock once after the next GAS quota reset (~3am EDT) to seed it.');
+      return;
+    }
+    const res = await fetch(cfg.worker_url + '/inventory/correct-bin-count', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        secret: sharedSecret,
+        secret: cfg.stamp_secret,
         manager_pin: pin,
         sku, location,
         new_qty: newQty,
@@ -9515,20 +9521,22 @@ async function renderStockV2Dashboard_() {
       // GAS quota / network throw — fall through to worker
       res = { ok: false, error: orchErr.message };
     }
-    // v10.739 — worker fallback when GAS chokes. Reuses the existing
-    // /inventory/dashboard endpoint that Frame Runway already uses;
-    // we transform the items + apply the same staleness/never-counted
-    // sort the orchestrator does, client-side.
+    // v10.740 — worker fallback when GAS chokes. Reuses the same
+    // _getPrintRelayConfig_ helper that Frame Runway uses (correct
+    // field names: worker_url + stamp_secret — NOT relay_url +
+    // shared_secret which were a v10.739 typo that always returned
+    // 'Unauthorized' from the worker so the fallback silently bailed).
     if (!res || !res.ok) {
       try {
-        const cfgRaw = localStorage.getItem('mbd_print_relay_config') || '{}';
-        const cfg = JSON.parse(cfgRaw);
-        const workerUrl = cfg.relay_url || 'https://mbd-label-stamper.murphybeddepot.workers.dev';
-        const sharedSecret = cfg.shared_secret || '';
-        const wRes = await fetch(workerUrl + '/inventory/dashboard', {
+        const cfg = await _getPrintRelayConfig_();
+        if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+          list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Worker config not cached. Open Bedrock once after the next GAS quota reset (~3am EDT) to seed it, then retry.<br><br><button onclick="renderStockV2Dashboard_()" style="margin-top:10px;padding:8px 14px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">↻ Retry</button></div>';
+          return;
+        }
+        const wRes = await fetch(cfg.worker_url + '/inventory/dashboard', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ secret: sharedSecret, limit: 500 }),
+          body: JSON.stringify({ secret: cfg.stamp_secret, limit: 500 }),
         });
         const wJson = await wRes.json();
         if (wRes.ok && wJson.ok) {
@@ -22856,7 +22864,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.739"></script>
+<script src="./pack.js?v=10.740"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22867,7 +22875,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.739<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.740<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
