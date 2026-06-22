@@ -8018,7 +8018,12 @@ function _frameRunwayOpen_() {
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
-    + '<div style="padding:8px 14px 0;position:relative">'
+    // v10.736 — sort-mode chips row right above the search box.
+    + '<div style="padding:8px 14px 4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+    +   '<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-right:4px">Sort</span>'
+    +   '<div id="frameRunwaySortChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>'
+    + '</div>'
+    + '<div style="padding:4px 14px 0;position:relative">'
     +   '<input type="search" id="frameRunwaySearchInput" placeholder="🔍 Search by SKU, bin, or tag (sbf-q, 3.7, spare…)" oninput="_frameRunwaySearchFilter_(this.value)" autocomplete="off" style="width:100%;padding:9px 36px 9px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box">'
     +   '<button type="button" id="frameRunwaySearchClearBtn" onclick="_frameRunwaySearchClear_()" style="display:none;position:absolute;right:22px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer" title="Clear search">✕</button>'
     + '</div>'
@@ -8230,6 +8235,83 @@ async function _frameRunwayOpenReceive_() {
   await _frameRunwayLoad_(true);
 }
 
+// v10.736 — sortable dashboard. Operator picks a sort mode from
+// chip buttons; default is alphabetical (groups SBF-* / SLAT-2-* /
+// etc. naturally). Persisted in localStorage so the dashboard
+// remembers the choice between sessions.
+//   sku     → alphabetical, default (family-grouped via prefix)
+//   runway  → most urgent first (low runway days first)
+//   onhand  → lowest on_hand first (find empties)
+//   velocity → fastest movers first
+function _frameRunwayGetSortMode_() {
+  try { return localStorage.getItem('mbd_frame_runway_sort') || 'sku'; }
+  catch (e) { return 'sku'; }
+}
+function _frameRunwaySetSortMode_(mode) {
+  try { localStorage.setItem('mbd_frame_runway_sort', mode); } catch (e) {}
+  if (window._frameRunwayItemsCache) {
+    const sorted = _frameRunwaySortItems_(window._frameRunwayItemsCache, mode);
+    const body = document.getElementById('frameRunwayBody');
+    if (body) {
+      body.innerHTML = _frameRunwayRender_(sorted, window._frameRunwayContainerBanner || '');
+      _frameRunwaySearchReapply_();
+    }
+  }
+  // Repaint the chip group so the active state highlights.
+  _frameRunwayPaintSortChips_();
+}
+function _frameRunwaySortItems_(items, mode) {
+  mode = mode || _frameRunwayGetSortMode_();
+  const arr = items.slice();
+  if (mode === 'runway') {
+    return arr.sort((a, b) => {
+      const aR = (a.days_of_runway == null) ? Infinity : a.days_of_runway;
+      const bR = (b.days_of_runway == null) ? Infinity : b.days_of_runway;
+      if (aR !== bR) return aR - bR;
+      const aHasVel = a.velocity_per_day != null;
+      const bHasVel = b.velocity_per_day != null;
+      if (aHasVel !== bHasVel) return aHasVel ? -1 : 1;
+      return String(a.sku).localeCompare(String(b.sku));
+    });
+  }
+  if (mode === 'onhand') {
+    return arr.sort((a, b) => {
+      const aO = (a.on_hand == null) ? Infinity : a.on_hand;
+      const bO = (b.on_hand == null) ? Infinity : b.on_hand;
+      if (aO !== bO) return aO - bO;
+      return String(a.sku).localeCompare(String(b.sku));
+    });
+  }
+  if (mode === 'velocity') {
+    return arr.sort((a, b) => {
+      const aV = (a.velocity_per_day == null) ? -1 : a.velocity_per_day;
+      const bV = (b.velocity_per_day == null) ? -1 : b.velocity_per_day;
+      if (aV !== bV) return bV - aV; // fastest first
+      return String(a.sku).localeCompare(String(b.sku));
+    });
+  }
+  // default sku — alphabetical groups families naturally
+  return arr.sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
+}
+function _frameRunwayPaintSortChips_() {
+  const wrap = document.getElementById('frameRunwaySortChips');
+  if (!wrap) return;
+  const cur = _frameRunwayGetSortMode_();
+  const MODES = [
+    { k: 'sku',      label: 'A→Z' },
+    { k: 'runway',   label: '🔥 Runway' },
+    { k: 'onhand',   label: '📦 On hand' },
+    { k: 'velocity', label: '⚡ Velocity' },
+  ];
+  wrap.innerHTML = MODES.map(m => {
+    const active = m.k === cur;
+    const bg = active ? 'rgba(255,179,0,.22)' : 'rgba(0,0,0,.30)';
+    const bd = active ? '#FFB300' : 'var(--border)';
+    const fg = active ? '#FFB300' : 'var(--text-dim)';
+    return '<button onclick="_frameRunwaySetSortMode_(\'' + m.k + '\')" style="background:' + bg + ' !important;border:1px solid ' + bd + ';color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border-radius:6px;padding:5px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">' + m.label + '</button>';
+  }).join('');
+}
+
 // v10.722 — merge localStorage velocity stash into the dashboard
 // items array. Used when the dashboard came from the worker-direct
 // path (which has no velocity) so the operator's prior compute
@@ -8365,6 +8447,12 @@ async function _frameRunwayLoad_(forceRefresh) {
     // /inventory/dashboard which has no velocity yet. Merge from
     // localStorage (populated by _frameRunwayFullVelocityViaWorker_).
     items = _frameRunwayApplyVelocity_(items, windowDays);
+    items = _frameRunwaySortItems_(items);
+    // v10.736 — cache + remember banner so sort-mode chips can re-render
+    // without an extra fetch.
+    window._frameRunwayItemsCache = items;
+    window._frameRunwayContainerBanner = containerBanner || '';
+    _frameRunwayPaintSortChips_();
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
     // Roll up container ETAs across all SKUs to build a one-line banner.
@@ -8398,6 +8486,10 @@ async function _frameRunwayLoad_(forceRefresh) {
       if (workerRes && workerRes.ok) {
         let items = workerRes.items || [];
         items = _frameRunwayApplyVelocity_(items, windowDays);
+        items = _frameRunwaySortItems_(items);
+        window._frameRunwayItemsCache = items;
+        window._frameRunwayContainerBanner = containerBanner || '';
+        _frameRunwayPaintSortChips_();
         window._frameRunwayUncountedLeaves = workerRes.uncounted_leaves || [];
         const etaSet = {};
         items.forEach(it => {
@@ -22587,7 +22679,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.735"></script>
+<script src="./pack.js?v=10.736"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22598,7 +22690,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.735<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.736<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
