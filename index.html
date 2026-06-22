@@ -21787,13 +21787,11 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
   const sheetPadX = isS12552 ? 0.5 : 0.25;
   const sheetPadY = isS12552 ? 0.5 : 0.25;
   const colGap = isS12552 ? 0.5 : 0;
-  // v10.745 — Zac 2026-06-22: text was too small to read across the
-  // shop. Shrink QR, push BOTH lines (friendly name + Hafele item
-  // number) up to large/readable sizes. Both get comparable weight
-  // since both are equally useful to the operator at the bin.
-  const qrPx = isS12552 ? 44 : 78;
-  const descSize = isS12552 ? 14 : 22;
-  const nameSize = isS12552 ? 15 : 26;
+  // v10.746 — vertical layout: text stacked above QR (was side-by-side).
+  // Frees full label width for big readable text; QR moves below.
+  const qrPx = isS12552 ? 38 : 70;
+  const descSize = isS12552 ? 13 : 26;
+  const nameSize = isS12552 ? 15 : 30;
 
   // Page-by-page render so blank fold-over rows render correctly.
   const sheets = [];
@@ -21807,12 +21805,14 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
           const tagIdx = (r / 2) * cols + c;
           const it = sheetTags[tagIdx];
           if (it) {
+            // v10.746 — text on top (two lines centered), QR below.
             cells.push('<div class="label">'
-              + '<img class="qr" src="' + qrUrl(it.code) + '" alt="' + escapeHtml(it.code) + '">'
               + '<div class="txt">'
               + (it.label ? '<div class="desc">' + escapeHtml(it.label) + '</div>' : '')
               + '<div class="name">' + escapeHtml(it.code) + '</div>'
-              + '</div></div>');
+              + '</div>'
+              + '<img class="qr" src="' + qrUrl(it.code) + '" alt="' + escapeHtml(it.code) + '">'
+              + '</div>');
           } else {
             cells.push('<div class="label blank"></div>');
           }
@@ -21833,16 +21833,18 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
     '.sheet{page-break-after:always;padding:' + sheetPadY + 'in ' + sheetPadX + 'in;box-sizing:border-box;width:8.5in;height:11in}',
     '.sheet:last-child{page-break-after:auto}',
     '.grid{display:grid;grid-template-columns:repeat(' + cols + ',' + cellW + 'in);grid-template-rows:repeat(' + rowsPerSheet + ',' + cellH + 'in);column-gap:' + colGap + 'in;row-gap:0;justify-content:center}',
-    '.label{width:' + cellW + 'in;height:' + cellH + 'in;box-sizing:border-box;padding:4px 6px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;border:1px dashed #ccc}',
+    // v10.746 — vertical stack: text top, QR bottom. text justifies
+    // toward top so longer two-line names don't push QR off the label.
+    '.label{width:' + cellW + 'in;height:' + cellH + 'in;box-sizing:border-box;padding:4px 6px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:4px;overflow:hidden;border:1px dashed #ccc}',
     '.label.blank{border:1px dashed #eee}',
     '.label.blank.fold{border-top:1px dashed #999;border-bottom:1px dashed #999}',
     '.qr{display:block;width:' + qrPx + 'px;height:' + qrPx + 'px;flex-shrink:0}',
-    '.txt{flex:1;min-width:0;text-align:center;line-height:1.1}',
-    // v10.745 — both lines bumped + given equal weight (both heavy).
+    '.txt{width:100%;text-align:center;line-height:1.05}',
+    // Both lines bumped + given equal weight (both heavy).
     // desc = friendly name (e.g. "OVERLAY HINGE")
     // name = Hafele/SKU code (e.g. "329.17.552")
     '.desc{font-size:' + descSize + 'px;font-weight:900;color:#1a1a1a;font-family:Helvetica,Arial,sans-serif;letter-spacing:.3px;word-break:break-word;line-height:1.05}',
-    '.name{font-size:' + nameSize + 'px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;font-family:Helvetica,Arial,sans-serif;word-break:break-all;margin-top:3px;line-height:1.05}',
+    '.name{font-size:' + nameSize + 'px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;font-family:Helvetica,Arial,sans-serif;word-break:break-all;margin-top:2px;line-height:1.0}',
     '@media print{.hint,h1{display:none}.label{border:none}.label.blank{border:none}}',
     '@page{size:letter;margin:0}',
     '</style></head><body>',
@@ -23296,7 +23298,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.745"></script>
+<script src="./pack.js?v=10.746"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23307,7 +23309,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.745<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.746<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
