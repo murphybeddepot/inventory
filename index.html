@@ -8998,8 +8998,14 @@ function _frameRunwaySortItems_(items, mode) {
       return String(a.sku).localeCompare(String(b.sku));
     });
   }
-  // default sku — alphabetical groups families naturally
-  return arr.sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
+  // v10.760 — default A→Z sorts by NAME when present (Hafele items
+  // get a friendly name from the v10.752 ingest), so '0.75 SCREW8'
+  // and '1.25 SCREW' cluster vs being scattered by Hafele code.
+  return arr.sort((a, b) => {
+    const aKey = (a.name && a.name !== a.sku) ? a.name : a.sku;
+    const bKey = (b.name && b.name !== b.sku) ? b.name : b.sku;
+    return String(aKey).localeCompare(String(bKey));
+  });
 }
 function _frameRunwayPaintSortChips_() {
   const wrap = document.getElementById('frameRunwaySortChips');
@@ -9447,8 +9453,16 @@ function _frameRunwayRender_(items, containerBanner) {
           + '<div style="font-size:9px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-family:\'JetBrains Mono\',monospace">' + isoDate + '</div>';
       }
     }
+    // v10.760 — Zac: 'Hafele items need name too not just sku. maybe
+    // even name first (works for alphabetical sort).' Items where
+    // name !== sku get a 2-line cell: friendly name on top, SKU
+    // mono-italic-dim below. Single-line for items where name=sku.
+    const nameLine = (it.name && it.name !== it.sku)
+      ? '<div style="font-family:inherit;font-weight:800;font-size:13px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;line-height:1.2">' + esc(it.name) + dnuChip + catChip + vendorChip + recountChip + '</div>'
+        + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:600;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:1px">' + esc(it.sku) + '</div>'
+      : '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:13px">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + '</div>';
     html += '<tr data-search-haystack="' + esc(haystack) + '" style="border-bottom:1px solid var(--border);vertical-align:top">'
-         +   '<td style="padding:8px 6px;font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:12px;white-space:nowrap">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + '</td>'
+         +   '<td style="padding:8px 6px;min-width:240px;max-width:340px">' + nameLine + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:' + ohColor + ' !important;-webkit-text-fill-color:' + ohColor + ' !important">' + onHandDisp + ohExtra + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important">' + onOrderDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + velDisp + '</td>'
@@ -23630,7 +23644,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.759"></script>
+<script src="./pack.js?v=10.760"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -23641,7 +23655,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.759<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.760<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
