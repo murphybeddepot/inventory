@@ -2201,8 +2201,13 @@ input::placeholder, textarea::placeholder {
        overlay panel listing all SKUs with on_hand + on_order (C24) +
        runway days. Phase 0 has placeholder velocity; Phase 1 will wire
        Shopify bundle decomposition. -->
-  <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
     <button onclick="_frameRunwayOpen_()" style="padding:11px 10px;background:linear-gradient(180deg,#3a2d00,#7a5a00) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📊 Frame Runway</button>
+    <!-- v10.742 — '+ Add new item' for off-BOM stock (consumables, samples, packaging).
+         Tap → PIN → modal asking for SKU + name + location + qty + category + unit.
+         Same worker /inventory/correct-bin-count endpoint as bin-edit (it upserts
+         items + bin), with name/unit/category passthrough. -->
+    <button onclick="_stockV2OpenAddNewItem_()" style="padding:11px 10px;background:linear-gradient(180deg,#3d1a5e,#7B2CBF) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #C77DFF;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">+ Add New Item</button>
   </div>
   <div id="stockV2Stats" style="display:none;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:8px 12px;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:8px;margin-bottom:10px"></div>
   <div id="stockV2List" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -8269,6 +8274,138 @@ async function _frameRunwayCountNewLeafSave_(sku, pin) {
     alert('Save error: ' + e.message);
   } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '✓ Save count'; }
+  }
+}
+
+// v10.742 — '+ Add New Item' for off-BOM stock. Differs from
+// _frameRunwayOpenCountNewLeaf_ because the SKU is ALSO editable
+// (operator names it themselves — e.g. SEALING-TAPE, SLAT-MATE,
+// new Hafele item). Worker upserts items + bin in one call.
+function _stockV2OpenAddNewItem_() {
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('add new inventory item')
+    : prompt('Manager PIN:');
+  if (!pin) return;
+  const prior = document.getElementById('stockV2AddItemOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'stockV2AddItemOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10005;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:480px;width:100%;max-height:88vh;overflow-y:auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;letter-spacing:.5px">+ Add new item</div>'
+    +   '<button onclick="document.getElementById(\'stockV2AddItemOverlay\').remove()" style="padding:7px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px;line-height:1.4">For off-BOM stock (consumables, samples, packaging, new Hafele items, etc.) — anything not yet in inventory.</div>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">SKU</label>'
+    + '<input type="text" id="aiSku" placeholder="e.g. SEALING-TAPE" autocapitalize="characters" autocomplete="off" style="width:100%;padding:11px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:16px;font-weight:700;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px;margin-top:14px">Name (optional)</label>'
+    + '<input type="text" id="aiName" placeholder="Friendly description" autocomplete="off" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px">'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Bin location</label>'
+    +     '<input type="text" id="aiLocation" placeholder="e.g. 4.3" autocapitalize="characters" autocomplete="off" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +   '</div>'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Qty</label>'
+    +     '<input type="number" id="aiQty" value="0" min="0" step="1" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:16px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +   '</div>'
+    + '</div>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px;margin-top:14px">Category</label>'
+    + '<select id="aiCategory" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    +   '<option value="">— pick a category —</option>'
+    +   '<option value="component">Component (in a BOM)</option>'
+    +   '<option value="sub_assembly">Sub-assembly</option>'
+    +   '<option value="packaging">Packaging</option>'
+    +   '<option value="consumable">Consumable (tape, etc.)</option>'
+    +   '<option value="spare_parts">Spare parts</option>'
+    +   '<option value="sample">Sample / display</option>'
+    +   '<option value="raw_material">Raw material</option>'
+    +   '<option value="finished_stock">Finished stock</option>'
+    +   '<option value="rare">Rare (one-off / wholesale-only)</option>'
+    +   '<option value="discontinued">Discontinued</option>'
+    + '</select>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px;margin-top:14px">Unit</label>'
+    + '<select id="aiUnit" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    +   '<option value="ea" selected>each (ea)</option>'
+    +   '<option value="pcs">pieces (pcs)</option>'
+    +   '<option value="box">box</option>'
+    +   '<option value="roll">roll</option>'
+    +   '<option value="set">set</option>'
+    +   '<option value="pair">pair</option>'
+    +   '<option value="bag">bag</option>'
+    + '</select>'
+    + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px;margin-top:14px">Counted by</label>'
+    + '<input type="text" id="aiCountedBy" placeholder="initials" value="' + esc((function(){ try { return localStorage.getItem("mbd_ground_packer") || localStorage.getItem("mbd_device_name") || ""; } catch(e){return"";} })()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    + '<div style="display:flex;gap:8px;margin-top:18px">'
+    +   '<button class="ai-save-btn" onclick="_stockV2AddNewItemSave_(\'' + esc(pin) + '\')" style="flex:1;padding:13px 18px;background:#7B2CBF !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">+ Add to inventory</button>'
+    +   '<button onclick="document.getElementById(\'stockV2AddItemOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  setTimeout(() => {
+    const inp = document.getElementById('aiSku');
+    if (inp) inp.focus();
+  }, 50);
+}
+
+async function _stockV2AddNewItemSave_(pin) {
+  const skuEl = document.getElementById('aiSku');
+  const nameEl = document.getElementById('aiName');
+  const locEl = document.getElementById('aiLocation');
+  const qtyEl = document.getElementById('aiQty');
+  const catEl = document.getElementById('aiCategory');
+  const unitEl = document.getElementById('aiUnit');
+  const byEl = document.getElementById('aiCountedBy');
+  const saveBtn = document.querySelector('#stockV2AddItemOverlay .ai-save-btn');
+  const sku = skuEl ? skuEl.value.trim().toUpperCase() : '';
+  if (!sku) { alert('Enter a SKU'); if (skuEl) skuEl.focus(); return; }
+  const location = locEl ? locEl.value.trim() : '';
+  if (!location) { alert('Enter a bin location'); if (locEl) locEl.focus(); return; }
+  const qty = Number(qtyEl ? qtyEl.value : 0);
+  if (isNaN(qty) || qty < 0) { alert('Enter a valid qty (0+)'); return; }
+  const name = nameEl ? nameEl.value.trim() : '';
+  const category = catEl ? catEl.value : '';
+  const unit = unitEl ? unitEl.value : 'ea';
+  const countedBy = (byEl && byEl.value.trim()) || 'operator';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving…'; }
+  try {
+    const cfg = await _getPrintRelayConfig_();
+    if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+      alert('Worker config not cached. Open Bedrock once after the next GAS quota reset (~3am EDT) to seed it.');
+      return;
+    }
+    const res = await fetch(cfg.worker_url + '/inventory/correct-bin-count', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: cfg.stamp_secret,
+        manager_pin: pin,
+        sku, location,
+        new_qty: qty,
+        is_dnu: false,
+        counted_by: countedBy + ' (new item)',
+        name: name || undefined,
+        category: category || undefined,
+        unit: unit || undefined,
+      }),
+    });
+    const j = await res.json();
+    if (!res.ok || !j.ok) {
+      alert('Save failed: ' + (j.error || res.status));
+      return;
+    }
+    const overlay = document.getElementById('stockV2AddItemOverlay');
+    if (overlay) overlay.remove();
+    if (typeof showToast === 'function') {
+      showToast('✓ Added ' + sku + ' @ ' + location + ': ' + qty + (category ? ' (' + category + ')' : ''));
+    }
+    if (typeof renderStockV2Dashboard_ === 'function') renderStockV2Dashboard_();
+  } catch (e) {
+    alert('Save error: ' + e.message);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '+ Add to inventory'; }
   }
 }
 
@@ -22960,7 +23097,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.741"></script>
+<script src="./pack.js?v=10.742"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -22971,7 +23108,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.741<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.742<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
