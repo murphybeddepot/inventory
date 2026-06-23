@@ -7998,6 +7998,8 @@ document.addEventListener('visibilitychange', () => {
 // Phase 1 wires the real Shopify bundle decomposition. Initial source
 // of inventory truth is Boaz's 2026-06-18 paper count.
 function _frameRunwayOpen_() {
+  // v10.776 — persist open state so refresh re-opens the overlay.
+  try { localStorage.setItem('mbd_frame_runway_open', '1'); } catch (e) {}
   const prior = document.getElementById('frameRunwayOverlay');
   if (prior) prior.remove();
   const ov = document.createElement('div');
@@ -8042,6 +8044,8 @@ function _frameRunwayOpen_() {
   _frameRunwayLoad_();
 }
 function _frameRunwayClose_() {
+  // v10.776 — clear persisted open flag so refresh doesn't re-open.
+  try { localStorage.removeItem('mbd_frame_runway_open'); } catch (e) {}
   const ov = document.getElementById('frameRunwayOverlay');
   if (ov) ov.remove();
 }
@@ -15915,7 +15919,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Falls back to Cabinets if nothing saved or saved value is invalid.
   let savedTab = '';
   try { savedTab = localStorage.getItem('mbd_active_tab') || ''; } catch (e) {}
-  const validTabs = ['scan','prepack','pack','schedule','lookup','cabinets','items','ground','cycle','barcodes','log','export'];
+  // v10.776 — added items-v2 (Stock 2.0) + orders (current home tab) so
+  // refresh keeps you where you were. Without this, Stock 2 → refresh
+  // bounced back to Cabinets.
+  const validTabs = ['scan','prepack','pack','schedule','lookup','cabinets','items','items-v2','orders','ground','cycle','barcodes','log','export'];
   if (savedTab && validTabs.indexOf(savedTab) >= 0 && savedTab !== 'cabinets') {
     if (typeof switchTab === 'function') switchTab(savedTab);
   } else {
@@ -15927,6 +15934,15 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof renderSetupNudge_ === 'function') renderSetupNudge_();
   // v9.86: paint pill badge from cached attention immediately
   if (typeof _refreshVersionPillBadge_ === 'function') _refreshVersionPillBadge_();
+  // v10.776 — re-open Inventory Runway overlay if it was open at last
+  // refresh. Delayed slightly so the underlying tab finishes painting
+  // first; the overlay's items cache loads from worker on open.
+  try {
+    if (localStorage.getItem('mbd_frame_runway_open') === '1'
+        && typeof _frameRunwayOpen_ === 'function') {
+      setTimeout(_frameRunwayOpen_, 250);
+    }
+  } catch (e) {}
   // v9.52: auto-open System Status on first launch if device isn't
   // configured. Addresses Zac's "not by digging through settings"
   // requirement — the user lands on the setup flow immediately.
@@ -24225,7 +24241,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.775"></script>
+<script src="./pack.js?v=10.776"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -24236,7 +24252,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.775<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.776<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
