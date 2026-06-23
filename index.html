@@ -8022,6 +8022,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
     +   '<button onclick="_frameRunwayOpenPoGenerator_()" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦 Generate PO</button>'
     +   '<button onclick="_frameRunwayOpenBomDiag_()" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬 Diagnose BOMs</button>'
+    +   '<button onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚙ Backfill ledger</button>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -9114,6 +9115,68 @@ async function _invTraceLeaf_(leafSku) {
   }
 
   document.getElementById('invTraceBody').innerHTML = html;
+}
+
+// v10.774 — dry-run then live backfill of BOM-leaf consumption rows
+// into inventory_transactions. Bypasses GAS entirely (UrlFetchApp
+// quota was burned today). Calls worker /inventory/backfill-ship-bom
+// twice: first dry, show counts + sample, ask to confirm, then live.
+async function _frameRunwayBackfillShipBom_() {
+  let cfg;
+  try { cfg = await _getPrintRelayConfig_(); } catch (e) { cfg = null; }
+  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+    alert('Worker config missing. Open Inventory Runway → wait for items to load → retry.');
+    return;
+  }
+  if (typeof showToast === 'function') showToast('Backfill: running dry run…');
+  let dry;
+  try {
+    const r = await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/inventory/backfill-ship-bom', {
+      method: 'POST',
+      mode: 'cors',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: cfg.stamp_secret, days: 90, dry_run: true, limit: 5000 }),
+    });
+    dry = await r.json();
+    if (!r.ok || !dry.ok) {
+      alert('Dry-run failed: ' + (dry.error || ('HTTP ' + r.status)));
+      return;
+    }
+  } catch (e) {
+    alert('Dry-run network error: ' + e.message);
+    return;
+  }
+  const msg = '90-day backfill dry-run:\n\n'
+    + '  Orders in window: ' + dry.orders_in_window + '\n'
+    + '  Orders with line items: ' + dry.orders_with_line_items + '\n'
+    + '  Orders with unmapped variants: ' + dry.orders_with_unmapped_variants + '\n'
+    + '  Inventory ledger rows to write: ' + dry.rows_would_write + '\n\n'
+    + 'Sample row:\n' + JSON.stringify((dry.sample_rows || [])[0] || {}, null, 2)
+    + '\n\nCommit?';
+  if (!confirm(msg)) return;
+  if (typeof showToast === 'function') showToast('Backfill: committing…');
+  try {
+    const r2 = await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/inventory/backfill-ship-bom', {
+      method: 'POST',
+      mode: 'cors',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: cfg.stamp_secret, days: 90, dry_run: false, limit: 5000 }),
+    });
+    const live = await r2.json();
+    if (!r2.ok || !live.ok) {
+      alert('Live run failed: ' + (live.error || ('HTTP ' + r2.status)));
+      return;
+    }
+    alert('Backfill committed.\n\n'
+      + '  Orders processed: ' + live.orders_processed + '\n'
+      + '  Ledger rows written (upserted): ' + live.rows_written + '\n\n'
+      + 'Reload Inventory Runway to see updated on_hand_live.');
+    if (typeof showToast === 'function') showToast('✓ Backfill complete — reload to see new on_hand');
+  } catch (e) {
+    alert('Live run network error: ' + e.message);
+  }
 }
 
 async function _frameRunwayOpenBomDiag_() {
@@ -24161,7 +24224,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.771"></script>
+<script src="./pack.js?v=10.774"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -24172,7 +24235,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.771<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.774<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
