@@ -9012,23 +9012,43 @@ async function _invTraceLeaf_(leafSku) {
   let cfg;
   try { cfg = await _getPrintRelayConfig_(); } catch (e) { cfg = null; }
   if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
-    document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;text-align:center;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Worker config missing</div>';
+    document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;text-align:center;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Worker config missing. Open Inventory Runway first to load worker config, then retry.</div>';
     return;
   }
+  // v10.771 — explicit cache:no-store + mode:cors. Also fallback to
+  // hardcoded URL if the service worker is intercepting the new path.
+  const url = cfg.worker_url + '/inventory/trace-leaf';
   let j;
-  try {
-    const r = await fetch(cfg.worker_url + '/inventory/trace-leaf', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+  async function _doTrace_(u) {
+    return fetch(u, {
+      method: 'POST',
+      mode: 'cors',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ secret: cfg.stamp_secret, leaf_sku: leafSku, days: 90 }),
     });
+  }
+  try {
+    const r = await _doTrace_(url);
     j = await r.json();
     if (!r.ok || !j.ok) {
-      document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace failed: ' + esc(j.error || r.status) + '</div>';
+      document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace failed (HTTP ' + r.status + '): ' + esc(j.error || 'unknown') + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:monospace;margin-top:8px">URL: ' + esc(url) + '</div></div>';
       return;
     }
   } catch (e) {
-    document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace error: ' + esc(String(e)) + '</div>';
-    return;
+    // Possibly service-worker interference. Retry with hardcoded URL.
+    try {
+      const directUrl = 'https://mbd-label-stamper.murphybeddepot.workers.dev/inventory/trace-leaf';
+      const r2 = await _doTrace_(directUrl);
+      j = await r2.json();
+      if (!r2.ok || !j.ok) {
+        document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace failed (direct ' + r2.status + '): ' + esc(j.error || 'unknown') + '</div>';
+        return;
+      }
+    } catch (e2) {
+      document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace network error: ' + esc(String(e)) + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:monospace;margin-top:8px">URL: ' + esc(url) + '<br>Direct retry: ' + esc(String(e2)) + '</div></div>';
+      return;
+    }
   }
 
   let html = '';
@@ -24141,7 +24161,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.770"></script>
+<script src="./pack.js?v=10.771"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -24152,7 +24172,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.770<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.771<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
