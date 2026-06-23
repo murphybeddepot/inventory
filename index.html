@@ -8985,6 +8985,117 @@ function _bomDiagClearFlags_() {
   if (typeof showToast === 'function') showToast('Flags cleared');
 }
 
+// v10.770 — per-item velocity trace. Opens a modal showing every
+// variant that consumes this leaf SKU + the bundle path + order
+// count in the window + computed total. Lets Zac diagnose where
+// each item's velocity comes from + which variants SHOULD reach
+// the bundle but variant_map doesn't include them.
+async function _invTraceLeaf_(leafSku) {
+  const prior = document.getElementById('invTraceOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'invTraceOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:10006;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:1100px;width:100%;max-height:92vh;overflow-y:auto" onclick="event.stopPropagation()">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px">'
+    +   '<div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;letter-spacing:.5px">🔬 Velocity Trace · ' + esc(leafSku) + '</div>'
+    +     '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">Every variant that consumes this leaf, with order count + qty per order in the last 90 days.</div>'
+    +   '</div>'
+    +   '<button onclick="document.getElementById(\'invTraceOverlay\').remove()" style="padding:8px 11px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div id="invTraceBody" style="margin-top:10px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"><div style="padding:30px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">Tracing…</div></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  let cfg;
+  try { cfg = await _getPrintRelayConfig_(); } catch (e) { cfg = null; }
+  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+    document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;text-align:center;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Worker config missing</div>';
+    return;
+  }
+  let j;
+  try {
+    const r = await fetch(cfg.worker_url + '/inventory/trace-leaf', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: cfg.stamp_secret, leaf_sku: leafSku, days: 90 }),
+    });
+    j = await r.json();
+    if (!r.ok || !j.ok) {
+      document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace failed: ' + esc(j.error || r.status) + '</div>';
+      return;
+    }
+  } catch (e) {
+    document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace error: ' + esc(String(e)) + '</div>';
+    return;
+  }
+
+  let html = '';
+  html += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">'
+    +   '<div style="flex:1;min-width:140px;padding:10px 14px;background:#F5FFF8 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #1A5C1A;border-radius:8px">'
+    +     '<div style="font-size:10px;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;font-weight:900;letter-spacing:1px;text-transform:uppercase">Per Day</div>'
+    +     '<div style="font-size:22px;font-weight:900;font-family:\'JetBrains Mono\',monospace;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">' + (j.velocity_per_day || 0).toFixed(2) + '</div>'
+    +   '</div>'
+    +   '<div style="flex:1;min-width:140px;padding:10px 14px;background:#F5FFF8 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #1A5C1A;border-radius:8px">'
+    +     '<div style="font-size:10px;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;font-weight:900;letter-spacing:1px;text-transform:uppercase">Per Month</div>'
+    +     '<div style="font-size:22px;font-weight:900;font-family:\'JetBrains Mono\',monospace;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">' + (j.velocity_per_month || 0).toFixed(1) + '</div>'
+    +   '</div>'
+    +   '<div style="flex:1;min-width:140px;padding:10px 14px;background:#FFF8E1 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #FFA000;border-radius:8px">'
+    +     '<div style="font-size:10px;color:#FFA000 !important;-webkit-text-fill-color:#FFA000 !important;font-weight:900;letter-spacing:1px;text-transform:uppercase">Window</div>'
+    +     '<div style="font-size:22px;font-weight:900;font-family:\'JetBrains Mono\',monospace;color:#FFA000 !important;-webkit-text-fill-color:#FFA000 !important">' + j.total_consumed_in_window + ' / ' + j.window_days + 'd</div>'
+    +   '</div>'
+    + '</div>';
+
+  // Direct parents — which bundles consume this leaf directly
+  if (j.direct_parents && j.direct_parents.length) {
+    html += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:1px;margin:18px 0 6px">Direct parent bundles · ' + j.direct_parents.length + '</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+    for (const p of j.direct_parents) {
+      html += '<span style="background:#EEE !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;padding:4px 9px;border-radius:6px;font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(p.parent_sku) + ' · ' + p.qty + '</span>';
+    }
+    html += '</div>';
+  }
+
+  // Contributing variants
+  if (j.contributing_variants && j.contributing_variants.length) {
+    html += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;text-transform:uppercase;letter-spacing:1px;margin:18px 0 6px">✓ Contributing variants · ' + j.contributing_variants.length + '</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
+    html += '<thead><tr style="background:#EEEEEE !important">'
+      + '<th style="text-align:left;padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#EEEEEE !important">Variant</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#EEEEEE !important">Per order</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#EEEEEE !important">Orders (90d)</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#EEEEEE !important">Total qty</th>'
+      + '<th style="text-align:left;padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#EEEEEE !important">Bundle path</th>'
+      + '</tr></thead><tbody>';
+    for (const v of j.contributing_variants) {
+      const path = (v.bundles || []).map(b => esc(b.bundle) + '×' + b.qty_per_bundle).join(' + ');
+      html += '<tr style="border-bottom:1px solid #eee;background:#fff !important">'
+        + '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important">' + esc(v.variant_sku) + '</td>'
+        + '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;background:#fff !important">' + v.per_order + '</td>'
+        + '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;background:#fff !important">' + v.orders_in_window + '</td>'
+        + '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important;background:#fff !important">' + v.total_consumed + '</td>'
+        + '<td style="padding:5px 8px;font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;background:#fff !important">' + path + '</td>'
+        + '</tr>';
+    }
+    html += '</tbody></table>';
+  } else {
+    html += '<div style="margin:18px 0;padding:14px;background:#FFCDD2 !important;border:1.5px solid #B71C1C;border-radius:8px;color:#7A1F1F !important;-webkit-text-fill-color:#7A1F1F !important;font-size:13px;font-weight:700">⚠ No variants ordered in 90d consume this leaf. Either nothing using it has sold OR variant_map is missing entries that should reach the parent bundles.</div>';
+  }
+
+  // Non-contributing variants (mapped but 0 orders) — potential gap signals
+  if (j.non_contributing_variants_count > 0) {
+    html += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:800;color:#888 !important;-webkit-text-fill-color:#888 !important;text-transform:uppercase;letter-spacing:1px;margin:18px 0 6px">Variants mapped but 0 orders · ' + j.non_contributing_variants_count + ' (showing ' + (j.non_contributing_variants_sample||[]).length + ')</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">';
+    for (const v of (j.non_contributing_variants_sample || [])) {
+      html += '<span style="background:#F0F0F0 !important;color:#666 !important;-webkit-text-fill-color:#666 !important;padding:3px 7px;border-radius:5px;font-size:10px;font-family:\'JetBrains Mono\',monospace">' + esc(v.variant_sku) + ' ×' + v.per_order + '</span>';
+    }
+    html += '</div>';
+  }
+
+  document.getElementById('invTraceBody').innerHTML = html;
+}
+
 async function _frameRunwayOpenBomDiag_() {
   _bomDiagBeforeId = null;
   _bomDiagBeforeIso = null;
@@ -9620,6 +9731,7 @@ function _frameRunwayRender_(items, containerBanner) {
        +   '<th style="' + thStyle + ';text-align:right">Runway ' + windowLabel + '</th>'
        +   '<th style="' + thStyle + '">Locations · qty</th>'
        +   '<th style="' + thStyle + '">Last Counted</th>'
+       +   '<th style="' + thStyle + ';width:36px"></th>'
        + '</tr></thead><tbody>';
   for (const it of items) {
     // v10.763 — dropship items don't track on_hand; show '—' instead of 0.
@@ -9789,6 +9901,7 @@ function _frameRunwayRender_(items, containerBanner) {
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + runDisp + '</td>'
          +   '<td style="padding:8px 6px;line-height:1.7">' + binsHtml + '</td>'
          +   '<td style="padding:8px 6px;white-space:nowrap">' + lastCountedHtml + '</td>'
+         +   '<td style="padding:8px 4px;text-align:right"><button onclick="_invTraceLeaf_(\'' + esc(it.sku) + '\')" title="See where this item is consumed (variant_map → bundles → orders)" style="background:rgba(0,230,118,.10);border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:900;cursor:pointer">🔬</button></td>'
          + '</tr>';
   }
   html += '</tbody></table>';
@@ -24028,7 +24141,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.766"></script>
+<script src="./pack.js?v=10.770"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -24039,7 +24152,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.766<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.770<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
