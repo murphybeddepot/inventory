@@ -8605,8 +8605,8 @@ function _frameRunwayOpenPoGenerator_() {
     // v10.748 — PO name + velocity window picker + include prices toggle.
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;padding:12px;background:rgba(123,44,191,.08) !important;border:1px solid rgba(123,44,191,.30);border-radius:8px">'
     +   '<div style="grid-column:1/-1">'
-    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">PO name</label>'
-    +     '<input type="text" id="poNameInput" placeholder="e.g. C25, Q3 restock, Spring 2026…" oninput="_frameRunwayRecomputePo_()" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:700;box-sizing:border-box">'
+    +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">PO name <span style="color:#C43030 !important;-webkit-text-fill-color:#C43030 !important">*</span> <span style="font-weight:600;text-transform:none;letter-spacing:0;color:#666 !important;-webkit-text-fill-color:#666 !important">required</span></label>'
+    +     '<input type="text" id="poNameInput" required placeholder="e.g. C25, Q3 restock, Spring 2026…" oninput="_frameRunwayRecomputePo_()" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:700;box-sizing:border-box">'
     +   '</div>'
     +   '<div>'
     +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Target months</label>'
@@ -8689,7 +8689,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.793 — stash entries are OBJECTS {sku, total_units,
+      // v10.794 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8818,6 +8818,18 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
+  // v10.794 — PO name now required. Zac 2026-06-24: sent a PO without
+  // a name + couldn't reconcile it later. Block send + flash the field.
+  if (!poName) {
+    if (poNameInput) {
+      poNameInput.style.borderColor = '#C43030';
+      poNameInput.style.background = '#FFF0F0';
+      poNameInput.focus();
+      setTimeout(() => { poNameInput.style.borderColor = '#ccc'; poNameInput.style.background = '#fff'; }, 3000);
+    }
+    alert('PO name is required.\n\nGive this PO a name (e.g. C25, Q3 restock) so you can find it later.');
+    return null;
+  }
   const includePricesEl = document.getElementById('poIncludePrices');
   const includePrices = includePricesEl ? includePricesEl.checked : true;
   const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
@@ -8855,7 +8867,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.793 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.794 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -9213,7 +9225,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.793 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.794 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9228,7 +9240,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.793 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.794 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9288,7 +9300,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.793 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.794 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9303,7 +9315,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.793 — pre-build unmapped section so ternary is single-expression
+    // v10.794 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -24415,7 +24427,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.793<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.794<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
