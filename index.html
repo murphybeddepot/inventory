@@ -8023,6 +8023,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
     +   '<button onclick="_frameRunwayOpenPoGenerator_()" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦 Generate PO</button>'
+    +   '<button onclick="_frameRunwayOpenPoHistory_()" style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.6);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📚 PO history</button>'
     +   '<button onclick="_frameRunwayOpenBomDiag_()" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬 Diagnose BOMs</button>'
     +   '<button id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚙ Backfill ledger</button>'
     + '</div>'
@@ -8689,7 +8690,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.795 — stash entries are OBJECTS {sku, total_units,
+      // v10.796 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8818,7 +8819,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.795 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.796 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8867,7 +8868,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.795 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.796 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8901,7 +8902,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.795 — auto-save PO to po_history so Zac never loses one again.
+  // v10.796 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8920,7 +8921,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.795 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.796 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9292,7 +9293,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.795 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.796 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9307,7 +9308,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.795 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.796 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9367,7 +9368,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.795 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.796 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9382,7 +9383,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.795 — pre-build unmapped section so ternary is single-expression
+    // v10.796 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9424,6 +9425,125 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       };
     }
   });
+}
+
+// v10.796 — PO history surface (task #71). Lists all rows from
+// po_history (newest first) with tap-to-expand line detail. Hidden by
+// default — entry is the 📚 PO history button on the runway header.
+async function _frameRunwayOpenPoHistory_() {
+  const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
+  const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
+  const prior = document.getElementById('poHistoryOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'poHistoryOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10005;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = '<div style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #C77DFF;border-radius:10px;padding:18px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +   '<div style="font-size:18px;font-weight:900;letter-spacing:.6px;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important">📚 PO History</div>'
+    +   '<button onclick="document.getElementById(\'poHistoryOverlay\').remove()" style="background:transparent;border:0;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:24px;cursor:pointer;line-height:1">×</button>'
+    + '</div>'
+    + '<div id="poHistoryStatus" style="font-size:12px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:8px">Loading…</div>'
+    + '<div id="poHistoryList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  // Fetch all PO history rows
+  let rows = [];
+  try {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/po_history?select=*&order=recorded_at.desc&limit=500', {
+      headers: { 'apikey': SUPABASE_PUB_KEY, 'Authorization': 'Bearer ' + SUPABASE_PUB_KEY },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    rows = await r.json();
+  } catch (e) {
+    document.getElementById('poHistoryStatus').textContent = 'Load failed: ' + e.message;
+    return;
+  }
+
+  const status = document.getElementById('poHistoryStatus');
+  const list = document.getElementById('poHistoryList');
+  if (!rows.length) {
+    status.textContent = 'No POs recorded yet. Generate one + tap 📧 Open in Gmail or 📋 Copy body — it\'ll save here automatically.';
+    return;
+  }
+  const totalUsd = rows.reduce((s, r) => s + (Number(r.total_usd) || 0), 0);
+  const totalUnits = rows.reduce((s, r) => s + (Number(r.total_units) || 0), 0);
+  status.innerHTML = '<span style="color:#fff !important;-webkit-text-fill-color:#fff !important">' + rows.length + ' POs</span> · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString() + ' lifetime';
+
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function fmtDate(d) {
+    if (!d) return '';
+    try { return new Date(d).toISOString().slice(0, 10); } catch (e) { return String(d); }
+  }
+  function renderCard(r) {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#1a1a1a !important;border:1px solid #333;border-radius:8px;padding:12px;cursor:pointer';
+    const status = r.arrived_at ? '✅ Arrived' : r.balance_paid_at ? '🚢 In transit' : r.deposit_paid_at ? '💰 Deposit paid' : '📝 Sent';
+    const lines = Array.isArray(r.lines_json) ? r.lines_json : (typeof r.lines_json === 'string' ? JSON.parse(r.lines_json || '[]') : []);
+    card.innerHTML = ''
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">'
+      +   '<div style="font-size:16px;font-weight:900;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important">' + esc(r.po_name || '(unnamed)') + '</div>'
+      +   '<div style="font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important">' + status + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:14px;font-size:12px;color:#ccc !important;-webkit-text-fill-color:#ccc !important;margin-top:4px;flex-wrap:wrap">'
+      +   '<span>' + esc(r.vendor || '?') + '</span>'
+      +   '<span>· sent ' + fmtDate(r.recorded_at) + '</span>'
+      +   '<span>· ' + lines.length + ' lines</span>'
+      +   '<span>· ' + (Number(r.total_units) || 0).toLocaleString() + ' units</span>'
+      +   (r.total_usd ? '<span>· $' + Math.round(Number(r.total_usd)).toLocaleString() + '</span>' : '')
+      + '</div>'
+      + '<div id="po-detail-' + r.po_id + '" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #333"></div>';
+    card.onclick = () => {
+      const detail = card.querySelector('#po-detail-' + r.po_id);
+      if (detail.style.display === 'none') {
+        // Render detail
+        let html = '<div style="font-size:12px;color:#ccc !important;-webkit-text-fill-color:#ccc !important;margin-bottom:8px">';
+        if (r.vendor_email) html += '<div>To: ' + esc(r.vendor_email) + '</div>';
+        if (r.subject) html += '<div>Subject: ' + esc(r.subject) + '</div>';
+        if (r.target_months) html += '<div>Target: ' + r.target_months + ' months · ' + (r.velocity_window_days || '?') + 'd velocity window</div>';
+        if (r.deposit_paid_at) html += '<div>Deposit paid: ' + fmtDate(r.deposit_paid_at) + '</div>';
+        if (r.balance_paid_at) html += '<div>Balance paid: ' + fmtDate(r.balance_paid_at) + '</div>';
+        if (r.eta_warehouse)   html += '<div>ETA warehouse: ' + fmtDate(r.eta_warehouse) + '</div>';
+        if (r.arrived_at)      html += '<div>Arrived: ' + fmtDate(r.arrived_at) + '</div>';
+        if (r.gmail_thread_id) html += '<div>Gmail thread: ' + esc(r.gmail_thread_id) + '</div>';
+        html += '</div>';
+        // Lines table
+        if (lines.length) {
+          html += '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#000 !important"><thead><tr style="background:#222;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important">'
+            + '<th style="padding:4px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">SKU</th>'
+            + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Qty</th>'
+            + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Unit $</th>'
+            + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Line $</th>'
+            + '<th style="padding:4px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Note</th>'
+            + '</tr></thead><tbody>';
+          for (const L of lines) {
+            html += '<tr style="border-bottom:1px solid #222;color:#fff !important;-webkit-text-fill-color:#fff !important">'
+              + '<td style="padding:4px 8px;font-family:\'JetBrains Mono\',monospace">' + esc(L.sku) + '</td>'
+              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (Number(L.qty) || 0).toLocaleString() + '</td>'
+              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (L.unit_cost != null ? '$' + Number(L.unit_cost).toFixed(2) : '—') + '</td>'
+              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (L.line_total != null ? '$' + Number(L.line_total).toFixed(2) : '—') + '</td>'
+              + '<td style="padding:4px 8px;font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important">' + esc(L.note || L.discount || '') + '</td>'
+              + '</tr>';
+          }
+          html += '</tbody></table>';
+        }
+        // Email body collapsed
+        if (r.email_body) {
+          html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;text-transform:uppercase;letter-spacing:.6px">Show email body</summary>'
+            + '<pre style="margin-top:6px;padding:10px;background:#000 !important;color:#ccc !important;-webkit-text-fill-color:#ccc !important;font-family:\'JetBrains Mono\',monospace;font-size:11px;white-space:pre-wrap;border:1px solid #222;border-radius:4px;max-height:300px;overflow-y:auto;user-select:text">' + esc(r.email_body) + '</pre>'
+            + '</details>';
+        }
+        detail.innerHTML = html;
+        detail.style.display = 'block';
+      } else {
+        detail.style.display = 'none';
+      }
+    };
+    return card;
+  }
+  for (const r of rows) list.appendChild(renderCard(r));
 }
 
 async function _frameRunwayOpenBomDiag_() {
@@ -24494,7 +24614,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.795<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.796<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
