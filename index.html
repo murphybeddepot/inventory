@@ -8106,42 +8106,75 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
-  // v10.726 — Single-button compute via worker direct. Server-side
-  // timing: ~16s for 360-day sweep returning all 5 windows. iPad-side
-  // timeout: 90s (well past server budget). On success, all 5 windows
-  // cached in localStorage; dropdown switches between them instantly.
+  // v10.798 — Visible progress banner (task #70). Zac 2026-06-24:
+  // "make more clear when compute velocity is still working — the
+  // little tiny tiny text under runway isn't super clear." Adds a
+  // bright floating banner with elapsed time + animated bar.
   const btn = document.getElementById('frameRunwayVelAllBtn');
-  const sub = document.getElementById('frameRunwaySub');
-  if (btn) { btn.disabled = true; btn.textContent = 'Sweeping… ~15-30s'; }
-  if (sub) sub.textContent = 'Computing velocity via Cloudflare worker (all 5 windows)…';
+  const origBtnText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.textContent = '⚡ Sweeping…'; }
+  // Sticky banner above the table
+  let banner = document.getElementById('frameRunwayVelocityBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'frameRunwayVelocityBanner';
+    banner.style.cssText = 'position:fixed;left:14px;right:14px;top:78px;z-index:10005;background:#1a1a1a !important;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1.5px solid #42a5f5;border-radius:8px;padding:10px 14px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:800;letter-spacing:.5px;box-shadow:0 4px 14px rgba(0,0,0,.5)';
+    document.body.appendChild(banner);
+  }
+  function _restore_() {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = origBtnText || '⚡ Compute velocity'; }
+    const b = document.getElementById('frameRunwayVelocityBanner');
+    if (b) b.remove();
+  }
   const startedAt = Date.now();
-  // Tick the status every 3s so the user knows it isn't dead.
+  function updateBanner(label, elapsedS, doneCount) {
+    const budget = 270; // server budget seconds
+    const pct = Math.min(99, Math.round((elapsedS / 30) * 100));   // assume 30s typical
+    banner.innerHTML = ''
+      + '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important">'
+      +   '<div style="text-transform:uppercase;font-size:11px;letter-spacing:1.2px">' + label + '</div>'
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important">' + elapsedS + 's elapsed</div>'
+      +   (doneCount != null ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important">' + doneCount + ' SKUs cached</div>' : '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important">sweeping 5 windows (30/60/90/180/360d)…</div>')
+      + '</div>'
+      + '<div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;margin-top:8px;overflow:hidden">'
+      +   '<div style="height:100%;width:' + pct + '%;background:#42a5f5;transition:width .4s ease"></div>'
+      + '</div>';
+  }
+  updateBanner('COMPUTING VELOCITY', 0, null);
   const ticker = setInterval(() => {
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
-    if (sub) sub.textContent = 'Computing velocity (' + elapsed + 's elapsed, server budget 270s)…';
-  }, 3000);
+    updateBanner('COMPUTING VELOCITY', elapsed, null);
+  }, 1000);
   let res;
   try {
     res = await _frameRunwayFullVelocityViaWorkerWithTimeout_([30, 60, 90, 180, 360], 90000);
   } catch (e) {
     clearInterval(ticker);
+    _restore_();
     alert('⚠ Compute threw: ' + e.message);
-    if (sub) sub.textContent = 'Sweep error: ' + e.message;
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Compute velocity'; }
     return;
   }
   clearInterval(ticker);
   if (!res || !res.ok) {
+    _restore_();
     alert('⚠ Velocity compute failed: ' + (res && res.error ? res.error : 'unknown'));
-    if (sub) sub.textContent = 'Failed';
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Compute velocity'; }
     return;
   }
   const pw = res.per_window || {};
   const stats = res.stats || {};
-  const counts = [30,60,90,180,360].map(w => w + 'd:' + Object.keys(pw[w]||{}).length).join(' ');
-  showToast('✓ Velocity computed via CF · ' + counts + ' SKUs · ' + (stats.orders_scanned||'?') + ' orders · ' + res.elapsed_seconds + 's');
-  if (btn) { btn.disabled = false; btn.textContent = '⚡ Compute velocity'; }
+  const totalCount = Object.keys(pw['90'] || pw[90] || {}).length;
+  const elapsed = res.elapsed_seconds || Math.round((Date.now() - startedAt) / 1000);
+  // Success banner — green, replaces blue
+  banner.style.borderColor = '#00E676';
+  banner.style.color = '#00E676';
+  banner.innerHTML = ''
+    + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">'
+    +   '<div style="text-transform:uppercase;font-size:12px;letter-spacing:1.2px">✓ Velocity refreshed</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;color:#fff !important;-webkit-text-fill-color:#fff !important">'
+    +     elapsed + 's · ' + totalCount + ' SKUs at 90d · ' + (stats.orders_scanned || '?') + ' orders scanned</div>'
+    + '</div>';
+  if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = '✓ Velocity refreshed'; }
+  setTimeout(() => { _restore_(); }, 5000);
   // Reload dashboard so velocity/runway columns paint.
   await _frameRunwayLoad_(true);
 }
@@ -8690,7 +8723,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.797 — stash entries are OBJECTS {sku, total_units,
+      // v10.798 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8819,7 +8852,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.797 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.798 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8868,7 +8901,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.797 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.798 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8902,7 +8935,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.797 — auto-save PO to po_history so Zac never loses one again.
+  // v10.798 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8921,7 +8954,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.797 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.798 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9293,7 +9326,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.797 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.798 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9308,7 +9341,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.797 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.798 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9368,7 +9401,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.797 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.798 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9383,7 +9416,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.797 — pre-build unmapped section so ternary is single-expression
+    // v10.798 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9427,7 +9460,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
-// v10.797 — PO history surface (task #71). Lists all rows from
+// v10.798 — PO history surface (task #71). Lists all rows from
 // po_history (newest first) with tap-to-expand line detail. Hidden by
 // default — entry is the 📚 PO history button on the runway header.
 async function _frameRunwayOpenPoHistory_() {
@@ -9546,7 +9579,7 @@ async function _frameRunwayOpenPoHistory_() {
   for (const r of rows) list.appendChild(renderCard(r));
 }
 
-// v10.797 — Vendor editor (task #73). Lists all vendors from the
+// v10.798 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
 async function _frameRunwayOpenVendorEditor_() {
@@ -24709,7 +24742,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.797<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.798<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
