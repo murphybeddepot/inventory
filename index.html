@@ -8025,7 +8025,8 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayOpenPoGenerator_()" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦 Generate PO</button>'
     +   '<button onclick="_frameRunwayOpenPoHistory_()" style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.6);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📚 PO history</button>'
     +   '<button onclick="_frameRunwayOpenBomDiag_()" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬 Diagnose BOMs</button>'
-    +   '<button id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚙ Backfill ledger</button>'
+    +   '<button id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Re-decompose last 90d of Shopify orders into BOM-leaf inventory consumption. Tap ? for full explanation.">⚙ Backfill ledger</button>'
+    +   '<button onclick="_frameRunwayShowBackfillHelp_()" title="What does Backfill ledger do?" style="background:transparent !important;border:1px solid rgba(255,193,7,.5);color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:50%;padding:0;width:26px;height:26px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center">?</button>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -8106,7 +8107,7 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
-  // v10.799 — Visible progress banner (task #70). Zac 2026-06-24:
+  // v10.800 — Visible progress banner (task #70). Zac 2026-06-24:
   // "make more clear when compute velocity is still working — the
   // little tiny tiny text under runway isn't super clear." Adds a
   // bright floating banner with elapsed time + animated bar.
@@ -8723,7 +8724,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.799 — stash entries are OBJECTS {sku, total_units,
+      // v10.800 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8852,7 +8853,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.799 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.800 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8901,7 +8902,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.799 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.800 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8935,7 +8936,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.799 — auto-save PO to po_history so Zac never loses one again.
+  // v10.800 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8954,7 +8955,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.799 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.800 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9256,6 +9257,49 @@ async function _invTraceLeaf_(leafSku) {
 // into inventory_transactions. Bypasses GAS entirely (UrlFetchApp
 // quota was burned today). Calls worker /inventory/backfill-ship-bom
 // twice: first dry, show counts + sample, ask to confirm, then live.
+// v10.800 — Backfill help modal (task #68). Explains what ⚙ Backfill
+// ledger actually does so it's not a mystery button.
+function _frameRunwayShowBackfillHelp_() {
+  const prior = document.getElementById('backfillHelpOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'backfillHelpOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10007;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = '<div style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFC107;border-radius:10px;padding:22px;max-width:700px;width:100%;max-height:92vh;overflow-y:auto;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+    +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">⚙ What does Backfill ledger do?</div>'
+    +   '<button onclick="document.getElementById(\'backfillHelpOverlay\').remove()" style="background:transparent;border:0;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:26px;cursor:pointer;line-height:1">×</button>'
+    + '</div>'
+    + '<div style="font-size:14px;line-height:1.55;color:#ddd !important;-webkit-text-fill-color:#ddd !important">'
+    +   '<p style="margin:0 0 12px"><strong style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">In one sentence:</strong> it rewrites the inventory ledger from scratch using the last 90 days of actual Shopify orders.</p>'
+    +   '<p style="margin:0 0 12px"><strong style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">What happens, step-by-step:</strong></p>'
+    +   '<ol style="margin:0 0 12px;padding-left:22px">'
+    +     '<li style="margin-bottom:6px">Cloudflare worker queries the spine for all orders in the last 90 days (~600-700 orders typically).</li>'
+    +     '<li style="margin-bottom:6px">For each order, it pulls the Shopify line items (variant SKU + qty).</li>'
+    +     '<li style="margin-bottom:6px">Each variant SKU runs through <code style="background:#222;padding:1px 4px;border-radius:3px">variant_map</code> → <code style="background:#222;padding:1px 4px;border-radius:3px">bundle_bom</code> to decompose into the actual hardware/parts consumed. (E.g. <code style="background:#222;padding:1px 4px;border-radius:3px">PBCAB-FLIPUP-…-LTB-RTB</code> → 12 of 1.25 SCREW, 24 ADJ SHELF PIN, 1 SBF-Q, 1 SBLM, etc.)</li>'
+    +     '<li style="margin-bottom:6px">A <code style="background:#222;padding:1px 4px;border-radius:3px">inventory_transactions</code> row is written per decomposed leaf SKU with reason_code <code>SHIP_BOM</code> (fulfilled) or <code>RESERVED</code> (unfulfilled).</li>'
+    +     '<li style="margin-bottom:6px">Dry-run shows you what WOULD be written (with sample row + unmapped variant SKU list) before you commit.</li>'
+    +     '<li>Commit writes ~5000-7000 ledger rows. Compute Velocity then re-aggregates them into per-day rates.</li>'
+    +   '</ol>'
+    +   '<p style="margin:0 0 12px"><strong style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">When to tap it:</strong></p>'
+    +   '<ul style="margin:0 0 12px;padding-left:22px">'
+    +     '<li style="margin-bottom:6px">After adding/editing variant_map or bundle_bom entries (the ledger is now stale)</li>'
+    +     '<li style="margin-bottom:6px">If velocity numbers look wrong vs your reorder sheet</li>'
+    +     '<li style="margin-bottom:6px">After a long stretch without running it (weekly or so)</li>'
+    +   '</ul>'
+    +   '<p style="margin:0 0 12px"><strong style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">When NOT to tap it:</strong></p>'
+    +   '<ul style="margin:0 0 12px;padding-left:22px">'
+    +     '<li style="margin-bottom:6px">Don\'t commit during a manual count session — it can briefly mismatch on_hand_live while it writes.</li>'
+    +     '<li>Don\'t commit if dry-run shows huge unmapped variants — fix the mapping first or the ledger underestimates consumption.</li>'
+    +   '</ul>'
+    +   '<p style="margin:0 0 12px"><strong style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">Cost:</strong> ~30-90 seconds (paginated over Cloudflare worker chunks).</p>'
+    +   '<p style="margin:0 0 4px"><strong style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">Auto-schedule status:</strong> manual today. <a href="#" onclick="document.getElementById(\'backfillHelpOverlay\').remove();return false;" style="color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important">Tap to dismiss</a> — see Slack for the auto-schedule discussion (task #68).</p>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
 async function _frameRunwayBackfillShipBom_() {
   let cfg;
   try { cfg = await _getPrintRelayConfig_(); } catch (e) { cfg = null; }
@@ -9326,7 +9370,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.799 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.800 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9341,7 +9385,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.799 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.800 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9401,7 +9445,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.799 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.800 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9416,7 +9460,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.799 — pre-build unmapped section so ternary is single-expression
+    // v10.800 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9460,7 +9504,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
-// v10.799 — PO history surface (task #71). Lists all rows from
+// v10.800 — PO history surface (task #71). Lists all rows from
 // po_history (newest first) with tap-to-expand line detail. Hidden by
 // default — entry is the 📚 PO history button on the runway header.
 async function _frameRunwayOpenPoHistory_() {
@@ -9579,7 +9623,7 @@ async function _frameRunwayOpenPoHistory_() {
   for (const r of rows) list.appendChild(renderCard(r));
 }
 
-// v10.799 — Vendor editor (task #73). Lists all vendors from the
+// v10.800 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
 async function _frameRunwayOpenVendorEditor_() {
@@ -10134,7 +10178,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   const body = document.getElementById('frameRunwayBody');
   const sel = document.getElementById('frameRunwayWindowSel');
   const windowDays = Number((sel && sel.value) || 30);
-  // v10.799 — Instant render from cache (task #72). Zac: "i don't
+  // v10.800 — Instant render from cache (task #72). Zac: "i don't
   // understand why everything in inventory runway takes too long to
   // load as though it's using a manual calculator by hand."
   // Strategy: paint immediately from last-good localStorage snapshot,
@@ -10195,7 +10239,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     window._frameRunwayItemsCache = items;
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
-    // v10.799 — Persist raw items + uncounted_leaves to localStorage so
+    // v10.800 — Persist raw items + uncounted_leaves to localStorage so
     // next runway open paints instantly from cache. Stripped of velocity
     // values (those get re-applied via _frameRunwayApplyVelocity_ from
     // the velocity stash on next load).
@@ -24793,7 +24837,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.799<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.800<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
