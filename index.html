@@ -8108,7 +8108,7 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
-  // v10.802 — Visible progress banner (task #70). Zac 2026-06-24:
+  // v10.803 — Visible progress banner (task #70). Zac 2026-06-24:
   // "make more clear when compute velocity is still working — the
   // little tiny tiny text under runway isn't super clear." Adds a
   // bright floating banner with elapsed time + animated bar.
@@ -8568,6 +8568,18 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
 // Currently only KRY has a hard contact (Lily Yan). Other vendors leave
 // `to` blank so operator types the address themselves in Gmail. Add
 // contacts here as you learn them.
+// v10.803 — Hoist ITEM_TO_BOM_ALIAS to module scope so both PO Gen and
+// runway render can read it without re-declaring. Canonical source of
+// truth for items.item_sku → bundle_bom leaf SKU aliases.
+const _ITEM_TO_BOM_ALIAS = {
+  'SBF-KING':'SBF-K','SBF-QUEEN':'SBF-Q','SBF-DOUBLE':'SBF-D',
+  'SBF-SINGLE':'SBF-S','SBF-SINGLEXL':'SBF-SXL',
+  'STU-B':'STUDIO-BLACK','STU-W':'STUDIO-WHITE','MB-WMB-L':'MB-WMB',
+  'UNIVERSAL':'MB-UNIVERSAL',
+  'S-ANGLES':'MB-ANGLES-SINGLE',
+  'S-YW-HDWE':'MB-HDWE-SINGLE',
+};
+
 const _VENDOR_CONTACTS = {
   'KRY/wbs-india': { email: 'project@qdmetalwork.com', name: 'Lily Yan', label: 'KRY' },
   'HAFELE':        { email: 'Greg.Burgin@hafele.us', name: 'Greg Burgin', phone: '800-423-3531', mobile: '904-612-2172', label: 'Hafele' },
@@ -8725,7 +8737,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.802 — stash entries are OBJECTS {sku, total_units,
+      // v10.803 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8854,7 +8866,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.802 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.803 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8903,7 +8915,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.802 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.803 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8937,7 +8949,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.802 — auto-save PO to po_history so Zac never loses one again.
+  // v10.803 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8956,7 +8968,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.802 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.803 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9258,8 +9270,8 @@ async function _invTraceLeaf_(leafSku) {
 // into inventory_transactions. Bypasses GAS entirely (UrlFetchApp
 // quota was burned today). Calls worker /inventory/backfill-ship-bom
 // twice: first dry, show counts + sample, ask to confirm, then live.
-// v10.802 — Save unmapped variant SKUs to the inbox table (task #69).
-// v10.802's plain upsert OVERWROTE occurrence_count. v10.802: fetch
+// v10.803 — Save unmapped variant SKUs to the inbox table (task #69).
+// v10.803's plain upsert OVERWROTE occurrence_count. v10.803: fetch
 // existing rows first → sum old + new → patch back. Preserves status
 // on re-occurrence (mapped/ignored rows don't reset to 'new'). Bumps
 // last_seen_at so Zac knows the SKU is still showing up after triage.
@@ -9306,7 +9318,7 @@ async function _frameRunwaySaveUnmappedToInbox_(unmappedList) {
   } catch (e) { console.warn('inbox save threw', e); }
 }
 
-// v10.802 — Unmapped variant inbox surface. Lists SKUs awaiting triage.
+// v10.803 — Unmapped variant inbox surface. Lists SKUs awaiting triage.
 async function _frameRunwayOpenUnmappedInbox_() {
   const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
   const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
@@ -9378,7 +9390,7 @@ async function _frameRunwayOpenUnmappedInbox_() {
   if (!rows.length) document.getElementById('unmappedInboxList').innerHTML = '<div style="padding:30px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important">Inbox is empty. Variants that aren\'t in variant_map will land here on the next backfill.</div>';
 }
 
-// v10.802 — Backfill help modal (task #68). Explains what ⚙ Backfill
+// v10.803 — Backfill help modal (task #68). Explains what ⚙ Backfill
 // ledger actually does so it's not a mystery button.
 function _frameRunwayShowBackfillHelp_() {
   const prior = document.getElementById('backfillHelpOverlay');
@@ -9491,7 +9503,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.802 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.803 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9506,7 +9518,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.802 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.803 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9514,7 +9526,7 @@ async function _frameRunwayBackfillShipBom_() {
     .map(sku => ({ sku, count: dryAgg.unmapped_skus[sku] }))
     .sort((a, b) => b.count - a.count);
   const unmappedTotal = unmappedAll.length;
-  // v10.802 — Auto-save unmapped SKUs to inbox (task #69). Fires fire-
+  // v10.803 — Auto-save unmapped SKUs to inbox (task #69). Fires fire-
   // and-forget alongside the dry-run; failure is silent. Keeps the
   // inbox fresh on every backfill even if commit doesn't happen.
   if (unmappedAll.length) {
@@ -9572,7 +9584,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.802 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.803 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9587,7 +9599,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.802 — pre-build unmapped section so ternary is single-expression
+    // v10.803 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9631,7 +9643,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
-// v10.802 — PO history surface (task #71). Lists all rows from
+// v10.803 — PO history surface (task #71). Lists all rows from
 // po_history (newest first) with tap-to-expand line detail. Hidden by
 // default — entry is the 📚 PO history button on the runway header.
 async function _frameRunwayOpenPoHistory_() {
@@ -9750,7 +9762,7 @@ async function _frameRunwayOpenPoHistory_() {
   for (const r of rows) list.appendChild(renderCard(r));
 }
 
-// v10.802 — Vendor editor (task #73). Lists all vendors from the
+// v10.803 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
 async function _frameRunwayOpenVendorEditor_() {
@@ -10305,7 +10317,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   const body = document.getElementById('frameRunwayBody');
   const sel = document.getElementById('frameRunwayWindowSel');
   const windowDays = Number((sel && sel.value) || 30);
-  // v10.802 — Instant render from cache (task #72). Zac: "i don't
+  // v10.803 — Instant render from cache (task #72). Zac: "i don't
   // understand why everything in inventory runway takes too long to
   // load as though it's using a manual calculator by hand."
   // Strategy: paint immediately from last-good localStorage snapshot,
@@ -10366,7 +10378,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     window._frameRunwayItemsCache = items;
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
-    // v10.802 — Persist raw items + uncounted_leaves to localStorage so
+    // v10.803 — Persist raw items + uncounted_leaves to localStorage so
     // next runway open paints instantly from cache. Stripped of velocity
     // values (those get re-applied via _frameRunwayApplyVelocity_ from
     // the velocity stash on next load).
@@ -10689,10 +10701,15 @@ function _frameRunwayRender_(items, containerBanner) {
     // even name first (works for alphabetical sort).' Items where
     // name !== sku get a 2-line cell: friendly name on top, SKU
     // mono-italic-dim below. Single-line for items where name=sku.
+    // v10.803 — Show BOM-leaf alias next to SKU when items.sku ≠ bom_leaf
+    const _bomAlias = (typeof _ITEM_TO_BOM_ALIAS !== 'undefined' && _ITEM_TO_BOM_ALIAS[it.sku]) || null;
+    const aliasChip = _bomAlias
+      ? '<span title="Velocity tracked under this BOM-leaf SKU. Boaz/operators may also see it under this name." style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.4);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.3px;margin-left:6px;font-family:\'JetBrains Mono\',monospace">≈ ' + esc(_bomAlias) + '</span>'
+      : '';
     const nameLine = (it.name && it.name !== it.sku)
-      ? '<div style="font-family:inherit;font-weight:800;font-size:13px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;line-height:1.2">' + esc(it.name) + dnuChip + catChip + vendorChip + recountChip + dropshipChip + '</div>'
+      ? '<div style="font-family:inherit;font-weight:800;font-size:13px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;line-height:1.2">' + esc(it.name) + dnuChip + catChip + vendorChip + recountChip + dropshipChip + aliasChip + '</div>'
         + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:600;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:1px">' + esc(it.sku) + '</div>'
-      : '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:13px">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + dropshipChip + '</div>';
+      : '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:13px">' + esc(it.sku) + dnuChip + catChip + vendorChip + recountChip + dropshipChip + aliasChip + '</div>';
     html += '<tr data-search-haystack="' + esc(haystack) + '" style="border-bottom:1px solid var(--border);vertical-align:top">'
          +   '<td style="padding:8px 6px;min-width:240px;max-width:340px">' + nameLine + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:' + ohColor + ' !important;-webkit-text-fill-color:' + ohColor + ' !important">' + onHandDisp + ohExtra + '</td>'
@@ -24964,7 +24981,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.802<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.803<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
