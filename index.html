@@ -8027,6 +8027,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayOpenBomDiag_()" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬 Diagnose BOMs</button>'
     +   '<button id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Re-decompose last 90d of Shopify orders into BOM-leaf inventory consumption. Tap ? for full explanation.">⚙ Backfill ledger</button>'
     +   '<button onclick="_frameRunwayShowBackfillHelp_()" title="What does Backfill ledger do?" style="background:transparent !important;border:1px solid rgba(255,193,7,.5);color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:50%;padding:0;width:26px;height:26px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center">?</button>'
+    +   '<button onclick="_frameRunwayOpenUnmappedInbox_()" title="Unmapped variant SKUs awaiting triage" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📥 Unmapped inbox</button>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -8107,7 +8108,7 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
-  // v10.800 — Visible progress banner (task #70). Zac 2026-06-24:
+  // v10.801 — Visible progress banner (task #70). Zac 2026-06-24:
   // "make more clear when compute velocity is still working — the
   // little tiny tiny text under runway isn't super clear." Adds a
   // bright floating banner with elapsed time + animated bar.
@@ -8724,7 +8725,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.800 — stash entries are OBJECTS {sku, total_units,
+      // v10.801 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8853,7 +8854,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.800 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.801 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8902,7 +8903,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.800 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.801 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8936,7 +8937,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.800 — auto-save PO to po_history so Zac never loses one again.
+  // v10.801 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8955,7 +8956,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.800 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.801 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9257,7 +9258,112 @@ async function _invTraceLeaf_(leafSku) {
 // into inventory_transactions. Bypasses GAS entirely (UrlFetchApp
 // quota was burned today). Calls worker /inventory/backfill-ship-bom
 // twice: first dry, show counts + sample, ask to confirm, then live.
-// v10.800 — Backfill help modal (task #68). Explains what ⚙ Backfill
+// v10.801 — Save unmapped variant SKUs to the inbox table (task #69).
+// Fire-and-forget batch upsert. Uses ON CONFLICT to merge with existing
+// rows: bumps last_seen_at + occurrence_count.
+async function _frameRunwaySaveUnmappedToInbox_(unmappedList) {
+  const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
+  const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
+  const now = new Date().toISOString();
+  // Insert-or-update via upsert (?on_conflict=variant_sku w/ merge prefer).
+  // PostgREST doesn't increment in upsert; we just set last_seen + count
+  // to the latest count from THIS run (close enough — true running sum
+  // would need a server-side RPC). Status stays 'new' for fresh, ignored
+  // for already-resolved rows.
+  const rows = unmappedList.map(u => ({
+    variant_sku: u.sku,
+    last_seen_at: now,
+    occurrence_count: u.count,
+  }));
+  try {
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/unmapped_skus_inbox?on_conflict=variant_sku', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_PUB_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_PUB_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify(rows),
+    });
+    if (resp.ok) console.log('DIAG-V10.801-INBOX saved ' + rows.length + ' unmapped SKUs');
+    else console.warn('inbox save failed', resp.status, await resp.text().catch(()=>'').then(t=>t.slice(0,160)));
+  } catch (e) { console.warn('inbox save threw', e); }
+}
+
+// v10.801 — Unmapped variant inbox surface. Lists SKUs awaiting triage.
+async function _frameRunwayOpenUnmappedInbox_() {
+  const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
+  const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
+  const prior = document.getElementById('unmappedInboxOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'unmappedInboxOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10005;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = '<div style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:10px;padding:18px;max-width:780px;width:100%;max-height:92vh;display:flex;flex-direction:column;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +   '<div style="font-size:18px;font-weight:900;letter-spacing:.6px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">📥 Unmapped SKU inbox</div>'
+    +   '<button onclick="document.getElementById(\'unmappedInboxOverlay\').remove()" style="background:transparent;border:0;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:24px;cursor:pointer;line-height:1">×</button>'
+    + '</div>'
+    + '<div id="unmappedInboxStatus" style="font-size:12px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:8px">Loading…</div>'
+    + '<div id="unmappedInboxList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  let rows = [];
+  try {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/unmapped_skus_inbox?select=*&order=last_seen_at.desc&limit=500', {
+      headers: { 'apikey': SUPABASE_PUB_KEY, 'Authorization': 'Bearer ' + SUPABASE_PUB_KEY },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    rows = await r.json();
+  } catch (e) {
+    document.getElementById('unmappedInboxStatus').textContent = 'Load failed: ' + e.message + ' (run supabase/unmapped_skus_inbox.sql first?)';
+    return;
+  }
+  const newCount = rows.filter(r => r.status === 'new').length;
+  document.getElementById('unmappedInboxStatus').innerHTML = '<span style="color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + newCount + ' awaiting review</span> · ' + rows.length + ' total. Mark "mapped" once you\'ve added the variant to variant_map.';
+  const list = document.getElementById('unmappedInboxList');
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  function fmtDate(d) { try { return d ? new Date(d).toISOString().slice(0,10) : ''; } catch (e) { return String(d); } }
+  rows.forEach(r => {
+    const card = document.createElement('div');
+    const statusColor = r.status === 'new' ? '#FFB300' : r.status === 'mapped' ? '#00E676' : r.status === 'ignored' ? '#888' : '#42a5f5';
+    card.style.cssText = 'background:#1a1a1a !important;border:1px solid #333;border-left:4px solid ' + statusColor + ';border-radius:6px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap';
+    card.innerHTML = ''
+      + '<div style="flex:1;min-width:200px">'
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:700;color:#fff !important;-webkit-text-fill-color:#fff !important;user-select:text">' + esc(r.variant_sku) + '</div>'
+      +   '<div style="font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-top:2px">×' + r.occurrence_count + ' · last seen ' + fmtDate(r.last_seen_at) + ' · status: <strong style="color:' + statusColor + ' !important;-webkit-text-fill-color:' + statusColor + ' !important;text-transform:uppercase">' + esc(r.status) + '</strong></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px">'
+      +   (r.status !== 'mapped'  ? '<button data-action="mapped"  data-sku="' + esc(r.variant_sku) + '" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:4px 10px;font-size:11px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif">✓ Mapped</button>' : '')
+      +   (r.status !== 'ignored' ? '<button data-action="ignored" data-sku="' + esc(r.variant_sku) + '" style="background:rgba(136,136,136,.18) !important;border:1px solid #888;color:#aaa !important;-webkit-text-fill-color:#aaa !important;border-radius:4px;padding:4px 10px;font-size:11px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif">⊘ Ignore</button>' : '')
+      + '</div>';
+    card.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.onclick = async (e) => {
+        const action = btn.dataset.action;
+        const sku = btn.dataset.sku;
+        btn.disabled = true; btn.textContent = '…';
+        try {
+          await fetch(SUPABASE_URL + '/rest/v1/unmapped_skus_inbox?variant_sku=eq.' + encodeURIComponent(sku), {
+            method: 'PATCH',
+            headers: { 'apikey': SUPABASE_PUB_KEY, 'Authorization': 'Bearer ' + SUPABASE_PUB_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+            body: JSON.stringify({ status: action, resolved_at: new Date().toISOString(), last_updated_at: new Date().toISOString() }),
+          });
+          // Reload the inbox
+          _frameRunwayOpenUnmappedInbox_();
+        } catch (err) {
+          alert('Update failed: ' + err.message);
+          btn.disabled = false;
+        }
+      };
+    });
+    list.appendChild(card);
+  });
+  if (!rows.length) document.getElementById('unmappedInboxList').innerHTML = '<div style="padding:30px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important">Inbox is empty. Variants that aren\'t in variant_map will land here on the next backfill.</div>';
+}
+
+// v10.801 — Backfill help modal (task #68). Explains what ⚙ Backfill
 // ledger actually does so it's not a mystery button.
 function _frameRunwayShowBackfillHelp_() {
   const prior = document.getElementById('backfillHelpOverlay');
@@ -9370,7 +9476,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.800 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.801 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9385,7 +9491,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.800 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.801 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9393,6 +9499,12 @@ async function _frameRunwayBackfillShipBom_() {
     .map(sku => ({ sku, count: dryAgg.unmapped_skus[sku] }))
     .sort((a, b) => b.count - a.count);
   const unmappedTotal = unmappedAll.length;
+  // v10.801 — Auto-save unmapped SKUs to inbox (task #69). Fires fire-
+  // and-forget alongside the dry-run; failure is silent. Keeps the
+  // inbox fresh on every backfill even if commit doesn't happen.
+  if (unmappedAll.length) {
+    _frameRunwaySaveUnmappedToInbox_(unmappedAll).catch(() => {});
+  }
   const commitOk = await _frameRunwayShowBackfillDryRunModal_({
     chunks: iter,
     total: dryAgg.total,
@@ -9445,7 +9557,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.800 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.801 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9460,7 +9572,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.800 — pre-build unmapped section so ternary is single-expression
+    // v10.801 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9504,7 +9616,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
-// v10.800 — PO history surface (task #71). Lists all rows from
+// v10.801 — PO history surface (task #71). Lists all rows from
 // po_history (newest first) with tap-to-expand line detail. Hidden by
 // default — entry is the 📚 PO history button on the runway header.
 async function _frameRunwayOpenPoHistory_() {
@@ -9623,7 +9735,7 @@ async function _frameRunwayOpenPoHistory_() {
   for (const r of rows) list.appendChild(renderCard(r));
 }
 
-// v10.800 — Vendor editor (task #73). Lists all vendors from the
+// v10.801 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
 async function _frameRunwayOpenVendorEditor_() {
@@ -10178,7 +10290,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   const body = document.getElementById('frameRunwayBody');
   const sel = document.getElementById('frameRunwayWindowSel');
   const windowDays = Number((sel && sel.value) || 30);
-  // v10.800 — Instant render from cache (task #72). Zac: "i don't
+  // v10.801 — Instant render from cache (task #72). Zac: "i don't
   // understand why everything in inventory runway takes too long to
   // load as though it's using a manual calculator by hand."
   // Strategy: paint immediately from last-good localStorage snapshot,
@@ -10239,7 +10351,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     window._frameRunwayItemsCache = items;
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
-    // v10.800 — Persist raw items + uncounted_leaves to localStorage so
+    // v10.801 — Persist raw items + uncounted_leaves to localStorage so
     // next runway open paints instantly from cache. Stripped of velocity
     // values (those get re-applied via _frameRunwayApplyVelocity_ from
     // the velocity stash on next load).
@@ -24837,7 +24949,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.800<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.801<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
