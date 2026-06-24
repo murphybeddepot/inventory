@@ -8024,7 +8024,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
     +   '<button onclick="_frameRunwayOpenPoGenerator_()" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦 Generate PO</button>'
     +   '<button onclick="_frameRunwayOpenBomDiag_()" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬 Diagnose BOMs</button>'
-    +   '<button onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚙ Backfill ledger</button>'
+    +   '<button id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚙ Backfill ledger</button>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -9132,10 +9132,45 @@ async function _frameRunwayBackfillShipBom_() {
     alert('Worker config missing. Open Inventory Runway → wait for items to load → retry.');
     return;
   }
-  // v10.777 — Chunked loop. Cloudflare Worker has a 50-subrequest cap
-  // per invocation; one fetch per order's line_items + setup queries
-  // means ~30 orders max per call. Client loops with rising offset
-  // until next_offset == null.
+
+  // v10.783 — visible progress UI. Zac 2026-06-24: "i really wish it
+  // would show that it's working." Replaces silent button + invisible
+  // toasts with: (1) button text live-updating to show chunk progress,
+  // (2) a persistent floating banner with chunk count + order count +
+  // bar fill that updates every chunk.
+  const btn = document.getElementById('frameRunwayBackfillBtn');
+  const origBtnText = btn ? btn.textContent : '';
+  const origBtnDisabled = btn ? btn.disabled : false;
+  function _restoreBtn_() {
+    if (btn) { btn.textContent = origBtnText; btn.disabled = origBtnDisabled; btn.style.opacity = ''; }
+    const b = document.getElementById('frameRunwayBackfillBanner');
+    if (b) b.remove();
+  }
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.textContent = '⚙ Starting…'; }
+  // Sticky banner above the table
+  let banner = document.getElementById('frameRunwayBackfillBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'frameRunwayBackfillBanner';
+    banner.style.cssText = 'position:fixed;left:14px;right:14px;top:78px;z-index:10005;background:#1a1a1a !important;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border:1.5px solid #FFC107;border-radius:8px;padding:10px 14px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:800;letter-spacing:.5px;box-shadow:0 4px 14px rgba(0,0,0,.5)';
+    document.body.appendChild(banner);
+  }
+  function updateProgress(phase, iter, totalChunks, ordersDone, ordersTotal, rowsSoFar) {
+    const pct = ordersTotal > 0 ? Math.min(100, Math.round(ordersDone / ordersTotal * 100)) : 0;
+    if (btn) btn.textContent = '⚙ ' + phase + ' ' + iter + (totalChunks ? '/' + totalChunks : '') + '…';
+    banner.innerHTML = ''
+      + '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">'
+      +   '<div style="text-transform:uppercase;font-size:11px;letter-spacing:1.2px;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">' + phase + '</div>'
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important">chunk ' + iter + (totalChunks ? '/' + totalChunks : '') + '</div>'
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important">orders ' + ordersDone + (ordersTotal ? '/' + ordersTotal : '') + ' (' + pct + '%)</div>'
+      +   (rowsSoFar != null ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff !important">rows ' + rowsSoFar + '</div>' : '')
+      + '</div>'
+      + '<div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;margin-top:8px;overflow:hidden">'
+      +   '<div style="height:100%;width:' + pct + '%;background:#FFC107;transition:width .25s ease"></div>'
+      + '</div>';
+  }
+  updateProgress('STARTING', 0, null, 0, 0, null);
+
   const URL = 'https://mbd-label-stamper.murphybeddepot.workers.dev/inventory/backfill-ship-bom';
   async function runChunk(dryRun, offset) {
     const r = await fetch(URL, {
@@ -9149,8 +9184,7 @@ async function _frameRunwayBackfillShipBom_() {
   }
 
   // === DRY RUN ===
-  if (typeof showToast === 'function') showToast('Backfill dry-run: chunk 1…');
-  let dryAgg = { orders: 0, rows: 0, errors: 0, unmapped: 0, sample: null, total: 0 };
+  let dryAgg = { orders: 0, rows: 0, errors: 0, unmapped: 0, sample: null, total: 0, unmapped_skus: {} };
   let off = 0, iter = 0;
   try {
     while (true) {
@@ -9161,27 +9195,47 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
+      // v10.785 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      const chunkUnmapped = j.unmapped_sku_counts || {};
+      for (const sku of Object.keys(chunkUnmapped)) {
+        dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
+      }
       if (!dryAgg.sample) dryAgg.sample = (j.sample_rows || [])[0] || null;
-      if (typeof showToast === 'function') showToast('Dry-run ' + iter + ' · ' + (off + (j.orders_this_chunk||0)) + '/' + dryAgg.total);
+      const ordersDone = off + (j.orders_this_chunk || 0);
+      const totalChunks = dryAgg.total ? Math.ceil(dryAgg.total / 30) : null;
+      updateProgress('DRY RUN', iter, totalChunks, ordersDone, dryAgg.total, dryAgg.rows);
       if (j.next_offset == null) break;
       off = j.next_offset;
       if (iter > 50) throw new Error('Aborted at >50 chunks (safety cap)');
     }
-  } catch (e) { alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
+  } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
+  // v10.785 — sort unmapped SKUs by count desc, show top 30
+  const unmappedTop = Object.keys(dryAgg.unmapped_skus)
+    .map(sku => ({ sku, count: dryAgg.unmapped_skus[sku] }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 30);
+  const unmappedTotal = Object.keys(dryAgg.unmapped_skus).length;
+  let unmappedSection = '';
+  if (unmappedTop.length > 0) {
+    unmappedSection = '\n\nTop ' + Math.min(30, unmappedTotal) + ' of ' + unmappedTotal + ' UNMAPPED variant SKUs:\n'
+      + unmappedTop.map(u => '  ' + u.count + '×  ' + u.sku).join('\n');
+  }
   const msg = '90-day backfill dry-run (' + iter + ' chunks):\n\n'
     + '  Total orders in spine: ' + dryAgg.total + '\n'
     + '  Orders with line items: ' + dryAgg.orders + '\n'
     + '  Shopify fetch errors:   ' + dryAgg.errors + '\n'
     + '  Orders w/ unmapped variants: ' + dryAgg.unmapped + '\n'
-    + '  Inventory ledger rows to write: ' + dryAgg.rows + '\n\n'
-    + 'Sample row:\n' + JSON.stringify(dryAgg.sample || {}, null, 2)
+    + '  Unique unmapped variant SKUs: ' + unmappedTotal + '\n'
+    + '  Inventory ledger rows to write: ' + dryAgg.rows
+    + unmappedSection
+    + '\n\nSample row:\n' + JSON.stringify(dryAgg.sample || {}, null, 2)
     + '\n\nCommit?';
-  if (!confirm(msg)) return;
+  if (!confirm(msg)) { _restoreBtn_(); return; }
 
   // === LIVE ===
-  if (typeof showToast === 'function') showToast('Backfill commit: chunk 1…');
-  let liveAgg = { orders: 0, rows: 0, errors: 0 };
+  updateProgress('COMMITTING', 0, dryAgg.total ? Math.ceil(dryAgg.total / 30) : null, 0, dryAgg.total, 0);
+  let liveAgg = { orders: 0, rows: 0, errors: 0, total: 0 };
   off = 0; iter = 0;
   try {
     while (true) {
@@ -9190,18 +9244,31 @@ async function _frameRunwayBackfillShipBom_() {
       liveAgg.orders += j.orders_processed || 0;
       liveAgg.rows += j.rows_written || 0;
       liveAgg.errors += j.shopify_fetch_errors || 0;
-      if (typeof showToast === 'function') showToast('Commit ' + iter + ' · ' + (off + (j.orders_this_chunk||0)) + '/' + j.total_available);
+      liveAgg.total = j.total_available || liveAgg.total;
+      const ordersDone = off + (j.orders_this_chunk || 0);
+      const totalChunks = liveAgg.total ? Math.ceil(liveAgg.total / 30) : null;
+      updateProgress('COMMITTING', iter, totalChunks, ordersDone, liveAgg.total, liveAgg.rows);
       if (j.next_offset == null) break;
       off = j.next_offset;
       if (iter > 50) throw new Error('Aborted at >50 chunks (safety cap)');
     }
-  } catch (e) { alert('Live run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
+  } catch (e) { _restoreBtn_(); alert('Live run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
+  // Final state — show success briefly then restore
+  if (btn) btn.textContent = '✓ Backfill complete';
+  banner.innerHTML = ''
+    + '<div style="display:flex;justify-content:space-between;align-items:center;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">'
+    +   '<div style="text-transform:uppercase;font-size:12px;letter-spacing:1.2px">✓ Done</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;color:#fff !important;-webkit-text-fill-color:#fff !important">'
+    +     iter + ' chunks · ' + liveAgg.orders + ' orders · ' + liveAgg.rows + ' rows · ' + liveAgg.errors + ' errors</div>'
+    + '</div>';
+  banner.style.borderColor = '#00E676';
+  banner.style.color = '#00E676';
   alert('Backfill committed (' + iter + ' chunks).\n\n'
     + '  Orders processed: ' + liveAgg.orders + '\n'
     + '  Ledger rows written: ' + liveAgg.rows + '\n'
     + '  Shopify fetch errors: ' + liveAgg.errors + '\n\n'
     + 'Reload Inventory Runway to see updated on_hand_live.');
-  if (typeof showToast === 'function') showToast('✓ Backfill complete');
+  setTimeout(_restoreBtn_, 6000);
 }
 
 async function _frameRunwayOpenBomDiag_() {
