@@ -8610,7 +8610,7 @@ function _frameRunwayOpenPoGenerator_() {
     +   '</div>'
     +   '<div>'
     +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Target months</label>'
-    +     '<input type="number" id="poTargetMonths" value="6" min="0.5" max="12" step="0.5" onchange="_frameRunwayRecomputePo_()" style="width:100%;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +     '<input type="number" id="poTargetMonths" value="6" min="0.5" max="12" step="0.5" oninput="_frameRunwayRecomputePo_()" onchange="_frameRunwayRecomputePo_()" style="width:100%;padding:7px 10px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:6px;font-size:14px;font-weight:800;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
     +   '</div>'
     +   '<div>'
     +     '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px">Velocity window</label>'
@@ -9195,7 +9195,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.787 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.789 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9210,7 +9210,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.787 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.789 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9270,7 +9270,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.787 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.789 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9285,7 +9285,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.787 — pre-build unmapped section so ternary is single-expression
+    // v10.789 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -24397,7 +24397,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.788<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.789<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
