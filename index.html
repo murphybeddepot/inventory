@@ -8534,7 +8534,7 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
 // contacts here as you learn them.
 const _VENDOR_CONTACTS = {
   'KRY/wbs-india': { email: 'project@qdmetalwork.com', name: 'Lily Yan', label: 'KRY' },
-  'HAFELE':        { email: '', name: 'Hafele rep', label: 'Hafele' },
+  'HAFELE':        { email: 'Greg.Burgin@hafele.us', name: 'Greg Burgin', phone: '800-423-3531', mobile: '904-612-2172', label: 'Hafele' },
   'ULINE':         { email: '', name: 'ULINE', label: 'ULINE' },
   'ALIBABA':       { email: '', name: 'Alibaba supplier', label: 'Alibaba' },
   'AMAZON':        { email: '', name: 'Amazon', label: 'Amazon' },
@@ -8689,7 +8689,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.794 — stash entries are OBJECTS {sku, total_units,
+      // v10.795 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8818,7 +8818,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.794 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.795 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8867,7 +8867,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.794 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.795 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8901,18 +8901,85 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
+  // v10.795 — auto-save PO to po_history so Zac never loses one again.
+  // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
+  _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
 
 function _frameRunwayPoCopyToClipboard_() {
   const e = _frameRunwayPoBuildEmailBody_();
   if (!e) { alert('No lines to copy.'); return; }
-  const text = 'To: project@qdmetalwork.com\nSubject: ' + e.subject + '\n\n' + e.body;
+  const text = 'To: ' + (e.toEmail || 'project@qdmetalwork.com') + '\nSubject: ' + e.subject + '\n\n' + e.body;
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => {
       if (typeof showToast === 'function') showToast('✓ PO body copied to clipboard');
     });
   } else {
     alert('Clipboard unavailable — manually copy from a long-press.');
+  }
+  _frameRunwaySavePoToHistory_(e, 'copy_body');
+}
+
+// v10.795 — fire-and-forget write to po_history. Doesn't block the UI
+// or alert on failure (would be too noisy if Supabase hiccups); failures
+// are logged to console + visible via subtle toast.
+async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
+  try {
+    const r = _frameRunwayComputePoLines_();
+    const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
+    const totalUsd = r.lines.reduce((s, L) => s + L.line_total_usd, 0);
+    const linesPayload = r.lines.map(L => ({
+      sku: L.sku,
+      qty: L.suggest_qty,
+      on_hand: L.on_hand,
+      on_order: L.on_order,
+      velocity_per_day: L.velocity_per_day,
+      target_units: L.target_units,
+      gap_units: L.gap_units,
+      unit_cost: L.no_price ? null : L.unit_cost_usd,
+      line_total: L.no_price ? null : L.line_total_usd,
+      below_threshold_only: !!L.below_threshold_only,
+    }));
+    const poName = (document.getElementById('poNameInput') || {}).value || '';
+    const row = {
+      po_name: poName,
+      vendor: emailObj.vendor || '',
+      vendor_email: emailObj.toEmail || '',
+      target_months: r.targetMonths,
+      velocity_window_days: r.windowDays,
+      total_units: totalUnits,
+      total_usd: Math.round(totalUsd * 100) / 100,
+      subject: emailObj.subject,
+      email_body: emailObj.body,
+      lines_json: linesPayload,
+      sent_via: sentVia,
+      recorded_by: 'bedrock-po-modal',
+    };
+    // Supabase publishable key is safe to expose client-side (designed
+    // for it). RLS policies on po_history allow anon insert via the
+    // 'po_history anon insert' policy added in po_history_followup.sql.
+    const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
+    const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
+    const resp = await fetch(SUPABASE_URL + '/rest/v1/po_history', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_PUB_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_PUB_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify(row),
+    });
+    if (resp.ok) {
+      if (typeof showToast === 'function') showToast('✓ Saved to PO history');
+      console.log('DIAG-V10.795-POHIST saved po_name=' + poName);
+    } else {
+      const t = await resp.text().catch(() => '');
+      console.warn('po_history save failed', resp.status, t.slice(0, 200));
+      if (typeof showToast === 'function') showToast('⚠ PO sent but not saved to history');
+    }
+  } catch (e) {
+    console.warn('po_history save threw', e);
   }
 }
 
@@ -9225,7 +9292,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.794 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.795 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9240,7 +9307,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.794 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.795 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9300,7 +9367,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.794 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.795 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9315,7 +9382,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.794 — pre-build unmapped section so ternary is single-expression
+    // v10.795 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -24427,7 +24494,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.794<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.795<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
