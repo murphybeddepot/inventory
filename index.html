@@ -9195,7 +9195,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.786 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.787 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9210,7 +9210,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.786 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.787 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9270,7 +9270,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.786 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.787 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9285,6 +9285,13 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
+    // v10.787 — pre-build unmapped section so ternary is single-expression
+    // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
+    // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
+    const unmappedSection = data.unmappedAll.length
+      ? '<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 6px"><div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">Unmapped SKUs (select / copy)</div><button id="bfDryCopy" style="background:#1e1e1e !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:5px;padding:4px 10px;font-size:11px;font-family:\'Barlow Condensed\',Arial,sans-serif;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">⧉ Copy all</button></div>'
+        + '<textarea readonly style="flex:1;min-height:200px;background:#000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #333;border-radius:6px;padding:10px;font-family:\'JetBrains Mono\',monospace;font-size:12px;white-space:pre;resize:vertical;user-select:text">' + skuLines.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</textarea>'
+      : '<div style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;padding:12px;text-align:center">✓ No unmapped SKUs — full coverage</div>';
     ov.innerHTML = ''
       + '<div style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFC107;border-radius:10px;padding:18px;max-width:780px;width:100%;max-height:92vh;display:flex;flex-direction:column;font-family:\'Barlow Condensed\',Arial,sans-serif">'
       +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
@@ -9299,10 +9306,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">Unique unmapped SKUs</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">' + data.unmappedTotal + '</div>'
       +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">Rows to write</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">' + data.rows + '</div>'
       +   '</div>'
-      +   (data.unmappedAll.length ? ''
-      +     '<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 6px"><div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">Unmapped SKUs (select / copy)</div><button id="bfDryCopy" style="background:#1e1e1e !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:5px;padding:4px 10px;font-size:11px;font-family:\'Barlow Condensed\',Arial,sans-serif;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">⧉ Copy all</button></div>'
-      +     '<textarea readonly style="flex:1;min-height:200px;background:#000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #333;border-radius:6px;padding:10px;font-family:\'JetBrains Mono\',monospace;font-size:12px;white-space:pre;resize:vertical;user-select:text">' + skuLines.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</textarea>'
-      +   : '<div style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;padding:12px;text-align:center">✓ No unmapped SKUs — full coverage</div>')
+      +   unmappedSection
       +   '<div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end">'
       +     '<button id="bfDryCancel" style="background:#222 !important;border:1px solid #555;color:#ccc !important;-webkit-text-fill-color:#ccc !important;border-radius:6px;padding:9px 18px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">Cancel</button>'
       +     '<button id="bfDryCommit" style="background:#00E676 !important;border:0;color:#000 !important;-webkit-text-fill-color:#000 !important;border-radius:6px;padding:9px 18px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">Commit ' + data.rows + ' rows</button>'
