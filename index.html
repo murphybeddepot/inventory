@@ -8106,7 +8106,7 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
-  // v10.798 — Visible progress banner (task #70). Zac 2026-06-24:
+  // v10.799 — Visible progress banner (task #70). Zac 2026-06-24:
   // "make more clear when compute velocity is still working — the
   // little tiny tiny text under runway isn't super clear." Adds a
   // bright floating banner with elapsed time + animated bar.
@@ -8723,7 +8723,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.798 — stash entries are OBJECTS {sku, total_units,
+      // v10.799 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8852,7 +8852,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.798 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.799 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8901,7 +8901,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.798 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.799 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8935,7 +8935,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.798 — auto-save PO to po_history so Zac never loses one again.
+  // v10.799 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8954,7 +8954,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.798 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.799 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9326,7 +9326,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.798 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.799 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9341,7 +9341,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.798 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.799 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9401,7 +9401,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.798 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.799 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9416,7 +9416,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.798 — pre-build unmapped section so ternary is single-expression
+    // v10.799 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9460,7 +9460,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
-// v10.798 — PO history surface (task #71). Lists all rows from
+// v10.799 — PO history surface (task #71). Lists all rows from
 // po_history (newest first) with tap-to-expand line detail. Hidden by
 // default — entry is the 📚 PO history button on the runway header.
 async function _frameRunwayOpenPoHistory_() {
@@ -9579,7 +9579,7 @@ async function _frameRunwayOpenPoHistory_() {
   for (const r of rows) list.appendChild(renderCard(r));
 }
 
-// v10.798 — Vendor editor (task #73). Lists all vendors from the
+// v10.799 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
 async function _frameRunwayOpenVendorEditor_() {
@@ -10132,11 +10132,35 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
 async function _frameRunwayLoad_(forceRefresh) {
   const sub = document.getElementById('frameRunwaySub');
   const body = document.getElementById('frameRunwayBody');
-  if (sub) sub.textContent = 'Loading…';
-  // v10.716 — pull window selection from the dropdown so the dashboard
-  // reads from whichever cached snapshot the operator chose.
   const sel = document.getElementById('frameRunwayWindowSel');
   const windowDays = Number((sel && sel.value) || 30);
+  // v10.799 — Instant render from cache (task #72). Zac: "i don't
+  // understand why everything in inventory runway takes too long to
+  // load as though it's using a manual calculator by hand."
+  // Strategy: paint immediately from last-good localStorage snapshot,
+  // then background-refresh in parallel. UX flips from 3-10s blank
+  // wait to <100ms render + silent refresh.
+  if (!forceRefresh) {
+    try {
+      const cacheRaw = localStorage.getItem('mbd_frame_runway_items_cache');
+      if (cacheRaw) {
+        const cache = JSON.parse(cacheRaw);
+        if (cache && Array.isArray(cache.items) && cache.items.length) {
+          let items = _frameRunwayApplyVelocity_(cache.items, windowDays);
+          items = _frameRunwaySortItems_(items);
+          window._frameRunwayItemsCache = items;
+          window._frameRunwayUncountedLeaves = cache.uncounted_leaves || [];
+          window._frameRunwayContainerBanner = cache.container_banner || '';
+          if (typeof _frameRunwayPaintSortChips_ === 'function') _frameRunwayPaintSortChips_();
+          if (body) body.innerHTML = _frameRunwayRender_(items, cache.container_banner || '');
+          const ageMin = cache.cached_at ? Math.round((Date.now() - cache.cached_at) / 60000) : null;
+          if (sub) sub.innerHTML = items.length + ' SKUs · <span style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">cached ' + (ageMin != null ? ageMin + 'm ago' : '') + ' · ↻ refreshing…</span>' + (cache.container_banner ? ' · ' + cache.container_banner : '');
+          if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();
+        }
+      }
+    } catch (e) { /* ignore corrupt cache; fall through to fresh load */ }
+  }
+  if (sub && !window._frameRunwayItemsCache) sub.textContent = 'Loading…';
   try {
     // v10.717 — forceRefresh skips the 60s server-side response cache
     // (set by the ⟳ Reload button after a count correction etc.).
@@ -10171,6 +10195,33 @@ async function _frameRunwayLoad_(forceRefresh) {
     window._frameRunwayItemsCache = items;
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
+    // v10.799 — Persist raw items + uncounted_leaves to localStorage so
+    // next runway open paints instantly from cache. Stripped of velocity
+    // values (those get re-applied via _frameRunwayApplyVelocity_ from
+    // the velocity stash on next load).
+    try {
+      const itemsForCache = (res.items || []).slice();   // pre-sort/velocity raw
+      const containerBannerForCache = (function(){
+        const eta = {};
+        itemsForCache.forEach(it => {
+          (it.on_order_etas || []).forEach(e => {
+            if (e.container_id && e.eta_warehouse) {
+              eta[e.container_id] = eta[e.container_id] || { eta: e.eta_warehouse, qty: 0 };
+              eta[e.container_id].qty += Number(e.qty) || 0;
+            }
+          });
+        });
+        return Object.keys(eta).length
+          ? '🚢 ' + Object.keys(eta).map(c => c + ' (' + eta[c].qty + ' units) ETA ' + eta[c].eta).join(' · ')
+          : '';
+      })();
+      localStorage.setItem('mbd_frame_runway_items_cache', JSON.stringify({
+        items: itemsForCache,
+        uncounted_leaves: res.uncounted_leaves || [],
+        container_banner: containerBannerForCache,
+        cached_at: Date.now(),
+      }));
+    } catch (e) { /* quota / private mode */ }
     // Roll up container ETAs across all SKUs to build a one-line banner.
     const etaSet = {};
     items.forEach(it => {
@@ -24742,7 +24793,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.798<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.799<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
