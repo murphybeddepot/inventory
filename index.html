@@ -9195,7 +9195,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.785 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.786 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9210,28 +9210,26 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.785 — sort unmapped SKUs by count desc, show top 30
-  const unmappedTop = Object.keys(dryAgg.unmapped_skus)
+  // v10.786 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // select to copy/paste." Replace native confirm() with a custom modal
+  // that scrolls the full list, has selectable monospace text, and a
+  // copy-all button.
+  const unmappedAll = Object.keys(dryAgg.unmapped_skus)
     .map(sku => ({ sku, count: dryAgg.unmapped_skus[sku] }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 30);
-  const unmappedTotal = Object.keys(dryAgg.unmapped_skus).length;
-  let unmappedSection = '';
-  if (unmappedTop.length > 0) {
-    unmappedSection = '\n\nTop ' + Math.min(30, unmappedTotal) + ' of ' + unmappedTotal + ' UNMAPPED variant SKUs:\n'
-      + unmappedTop.map(u => '  ' + u.count + '×  ' + u.sku).join('\n');
-  }
-  const msg = '90-day backfill dry-run (' + iter + ' chunks):\n\n'
-    + '  Total orders in spine: ' + dryAgg.total + '\n'
-    + '  Orders with line items: ' + dryAgg.orders + '\n'
-    + '  Shopify fetch errors:   ' + dryAgg.errors + '\n'
-    + '  Orders w/ unmapped variants: ' + dryAgg.unmapped + '\n'
-    + '  Unique unmapped variant SKUs: ' + unmappedTotal + '\n'
-    + '  Inventory ledger rows to write: ' + dryAgg.rows
-    + unmappedSection
-    + '\n\nSample row:\n' + JSON.stringify(dryAgg.sample || {}, null, 2)
-    + '\n\nCommit?';
-  if (!confirm(msg)) { _restoreBtn_(); return; }
+    .sort((a, b) => b.count - a.count);
+  const unmappedTotal = unmappedAll.length;
+  const commitOk = await _frameRunwayShowBackfillDryRunModal_({
+    chunks: iter,
+    total: dryAgg.total,
+    orders: dryAgg.orders,
+    errors: dryAgg.errors,
+    unmapped: dryAgg.unmapped,
+    unmappedTotal,
+    rows: dryAgg.rows,
+    unmappedAll,
+    sample: dryAgg.sample,
+  });
+  if (!commitOk) { _restoreBtn_(); return; }
 
   // === LIVE ===
   updateProgress('COMMITTING', 0, dryAgg.total ? Math.ceil(dryAgg.total / 30) : null, 0, dryAgg.total, 0);
@@ -9269,6 +9267,62 @@ async function _frameRunwayBackfillShipBom_() {
     + '  Shopify fetch errors: ' + liveAgg.errors + '\n\n'
     + 'Reload Inventory Runway to see updated on_hand_live.');
   setTimeout(_restoreBtn_, 6000);
+}
+
+function _frameRunwayShowBackfillDryRunModal_(data) {
+  // v10.786 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
+    const skuLines = data.unmappedAll.map(u => '  ' + String(u.count).padStart(3) + '×  ' + u.sku).join('\n');
+    const sampleJson = JSON.stringify(data.sample || {}, null, 2);
+    const fullText = '90-day backfill dry-run (' + data.chunks + ' chunks):\n\n'
+      + '  Total orders in spine: ' + data.total + '\n'
+      + '  Orders with line items: ' + data.orders + '\n'
+      + '  Shopify fetch errors:   ' + data.errors + '\n'
+      + '  Orders w/ unmapped variants: ' + data.unmapped + '\n'
+      + '  Unique unmapped variant SKUs: ' + data.unmappedTotal + '\n'
+      + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
+      + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
+      + 'Sample row:\n' + sampleJson;
+    ov.innerHTML = ''
+      + '<div style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFC107;border-radius:10px;padding:18px;max-width:780px;width:100%;max-height:92vh;display:flex;flex-direction:column;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+      +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+      +     '<div style="font-size:18px;font-weight:900;letter-spacing:.6px;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">⚙ Backfill dry-run · ' + data.unmappedTotal + ' unmapped SKUs</div>'
+      +     '<button id="bfDryClose" style="background:transparent;border:0;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:24px;cursor:pointer;line-height:1">×</button>'
+      +   '</div>'
+      +   '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px 16px;font-size:13px;margin-bottom:12px">'
+      +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">Spine orders</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important">' + data.total + '</div>'
+      +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">w/ line items</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important">' + data.orders + '</div>'
+      +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">Shopify errors</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important">' + data.errors + '</div>'
+      +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">Orders w/ unmapped</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">' + data.unmapped + '</div>'
+      +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">Unique unmapped SKUs</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">' + data.unmappedTotal + '</div>'
+      +     '<div style="color:#bbb !important;-webkit-text-fill-color:#bbb !important">Rows to write</div><div style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">' + data.rows + '</div>'
+      +   '</div>'
+      +   (data.unmappedAll.length ? ''
+      +     '<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 6px"><div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">Unmapped SKUs (select / copy)</div><button id="bfDryCopy" style="background:#1e1e1e !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:5px;padding:4px 10px;font-size:11px;font-family:\'Barlow Condensed\',Arial,sans-serif;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">⧉ Copy all</button></div>'
+      +     '<textarea readonly style="flex:1;min-height:200px;background:#000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #333;border-radius:6px;padding:10px;font-family:\'JetBrains Mono\',monospace;font-size:12px;white-space:pre;resize:vertical;user-select:text">' + skuLines.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</textarea>'
+      +   : '<div style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;padding:12px;text-align:center">✓ No unmapped SKUs — full coverage</div>')
+      +   '<div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end">'
+      +     '<button id="bfDryCancel" style="background:#222 !important;border:1px solid #555;color:#ccc !important;-webkit-text-fill-color:#ccc !important;border-radius:6px;padding:9px 18px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">Cancel</button>'
+      +     '<button id="bfDryCommit" style="background:#00E676 !important;border:0;color:#000 !important;-webkit-text-fill-color:#000 !important;border-radius:6px;padding:9px 18px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">Commit ' + data.rows + ' rows</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(ov);
+    function close(yes) { ov.remove(); resolve(yes); }
+    ov.querySelector('#bfDryClose').onclick = () => close(false);
+    ov.querySelector('#bfDryCancel').onclick = () => close(false);
+    ov.querySelector('#bfDryCommit').onclick = () => close(true);
+    const copyBtn = ov.querySelector('#bfDryCopy');
+    if (copyBtn) {
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(fullText).then(() => {
+          copyBtn.textContent = '✓ Copied';
+          setTimeout(() => { copyBtn.textContent = '⧉ Copy all'; }, 1500);
+        });
+      };
+    }
+  });
 }
 
 async function _frameRunwayOpenBomDiag_() {
