@@ -21422,6 +21422,67 @@ function showShareSetupQr() {
 }
 
 // ── System Status (v9.52) ─────────────────────────────────
+// v10.813 — URL-trigger: visiting ?recover=1 fires the recovery immediately.
+// Useful when GAS quota is dead and you need to flush spine drift without
+// digging through menus.
+try {
+  if (new URLSearchParams(location.search).get('recover') === '1') {
+    setTimeout(() => { _recoverNow_(); }, 800);
+  }
+} catch(e) {}
+
+// v10.813 — 🚑 RECOVER NOW button. Skips GAS entirely — calls worker
+// /recover/* endpoints directly from the browser. Useful when GAS
+// UrlFetchApp daily quota is exhausted and the spine is drifting from
+// reality. Runs both:
+//   1. /recover/shipped-reconcile-now — flips spine rows shipped per
+//      ShipStation V1 last 36h
+//   2. /recover/shopify-gap-backfill-now — backfills any Shopify orders
+//      that didn't land in the spine via webhook
+async function _recoverNow_() {
+  const btn = document.getElementById('recoverNowBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '🔄 Recovering…'; }
+  let status = '';
+  try {
+    const cfg = await _getPrintRelayConfig_();
+    if (!cfg || !cfg.stamp_secret) {
+      alert('Worker secret not configured (open Ground Settings to fetch).');
+      return;
+    }
+    const secret = cfg.stamp_secret;
+    // Step 1: ShippedReconcile
+    const r1 = await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/recover/shipped-reconcile-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+    });
+    const j1 = await r1.json();
+    status += '🚚 Shipped reconcile: fetched ' + (j1.fetched || 0)
+      + ', flipped ' + (j1.flipped || 0) + '\n';
+    // Step 2: Shopify gap backfill
+    const r2 = await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/recover/shopify-gap-backfill-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+    });
+    const j2 = await r2.json();
+    if (j2.ok) {
+      status += '🛒 Shopify gap backfill: fetched ' + (j2.fetched || 0)
+        + ', written ' + (j2.written || 0) + '\n';
+    } else {
+      status += '🛒 Shopify gap backfill: ' + (j2.error || 'failed') + '\n';
+    }
+    status += '\nDone. OrderPack Sheets holds will clear via the 15-min trigger after GAS quota resets tonight.';
+    alert(status);
+    // Refresh ground tab
+    if (typeof refreshGroundQueue === 'function') refreshGroundQueue();
+  } catch (e) {
+    alert('Recover Now failed: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🚑 Recover Now'; }
+  }
+}
+
 // Tap the version pill anywhere in Bedrock → see what's installed
 // and what's configured, without digging through Ground Settings.
 // Fresh devices land here with everything empty — primary CTA is
@@ -22070,7 +22131,7 @@ async function groundApi(action, payload) {
   }
   const body = Object.assign({ action: action, secret: GROUND_SECRET }, payload || {});
   let resp;
-  // v10.812 — route through Cloudflare worker's /orch-relay (added in
+  // v10.813 — route through Cloudflare worker's /orch-relay (added in
   // worker v20.13). Chrome/Edge recently tightened CORS handling on
   // the /exec→googleusercontent.com redirect chain, blocking direct
   // POSTs from the iPad PWA. Worker proxies server-side (no CORS) and
@@ -22583,7 +22644,7 @@ async function refreshGroundQueue() {
 
   try {
     let data = await groundApi('getQueue', {});
-    // v10.812 — GAS quota fallback. If /exec returns a quota-shaped
+    // v10.813 — GAS quota fallback. If /exec returns a quota-shaped
     // error, fail over to worker-direct ground/queue-direct which
     // merges SS V1 + Supabase spine holds without touching GAS.
     if (data && data.ok === false && /too many times|premium urlfetch|quota/i.test(String(data.error || ''))) {
@@ -25231,7 +25292,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.812<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.813<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
