@@ -8069,7 +8069,9 @@ function _frameRunwaySearchFilter_(rawQuery) {
   const q = String(rawQuery || '').trim().toLowerCase();
   const body = document.getElementById('frameRunwayBody');
   if (!body) return;
-  const rows = body.querySelectorAll('tr[data-search-haystack]');
+  // v10.806 — accept ANY element with data-search-haystack (was only
+  // <tr>). Mobile card view uses <div>s so search broke on phone.
+  const rows = body.querySelectorAll('[data-search-haystack]');
   const clearBtn = document.getElementById('frameRunwaySearchClearBtn');
   if (clearBtn) clearBtn.style.display = q ? '' : 'none';
   let visible = 0;
@@ -8117,7 +8119,7 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
-  // v10.805 — Visible progress banner (task #70). Zac 2026-06-24:
+  // v10.806 — Visible progress banner (task #70). Zac 2026-06-24:
   // "make more clear when compute velocity is still working — the
   // little tiny tiny text under runway isn't super clear." Adds a
   // bright floating banner with elapsed time + animated bar.
@@ -8577,7 +8579,7 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
 // Currently only KRY has a hard contact (Lily Yan). Other vendors leave
 // `to` blank so operator types the address themselves in Gmail. Add
 // contacts here as you learn them.
-// v10.805 — Hoist ITEM_TO_BOM_ALIAS to module scope so both PO Gen and
+// v10.806 — Hoist ITEM_TO_BOM_ALIAS to module scope so both PO Gen and
 // runway render can read it without re-declaring. Canonical source of
 // truth for items.item_sku → bundle_bom leaf SKU aliases.
 const _ITEM_TO_BOM_ALIAS = {
@@ -8746,7 +8748,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.805 — stash entries are OBJECTS {sku, total_units,
+      // v10.806 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8875,7 +8877,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.805 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.806 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8924,7 +8926,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.805 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.806 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8958,7 +8960,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.805 — auto-save PO to po_history so Zac never loses one again.
+  // v10.806 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8977,7 +8979,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.805 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.806 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9279,8 +9281,8 @@ async function _invTraceLeaf_(leafSku) {
 // into inventory_transactions. Bypasses GAS entirely (UrlFetchApp
 // quota was burned today). Calls worker /inventory/backfill-ship-bom
 // twice: first dry, show counts + sample, ask to confirm, then live.
-// v10.805 — Save unmapped variant SKUs to the inbox table (task #69).
-// v10.805's plain upsert OVERWROTE occurrence_count. v10.805: fetch
+// v10.806 — Save unmapped variant SKUs to the inbox table (task #69).
+// v10.806's plain upsert OVERWROTE occurrence_count. v10.806: fetch
 // existing rows first → sum old + new → patch back. Preserves status
 // on re-occurrence (mapped/ignored rows don't reset to 'new'). Bumps
 // last_seen_at so Zac knows the SKU is still showing up after triage.
@@ -9327,7 +9329,7 @@ async function _frameRunwaySaveUnmappedToInbox_(unmappedList) {
   } catch (e) { console.warn('inbox save threw', e); }
 }
 
-// v10.805 — Unmapped variant inbox surface. Lists SKUs awaiting triage.
+// v10.806 — Unmapped variant inbox surface. Lists SKUs awaiting triage.
 async function _frameRunwayOpenUnmappedInbox_() {
   const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
   const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
@@ -9399,7 +9401,7 @@ async function _frameRunwayOpenUnmappedInbox_() {
   if (!rows.length) document.getElementById('unmappedInboxList').innerHTML = '<div style="padding:30px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important">Inbox is empty. Variants that aren\'t in variant_map will land here on the next backfill.</div>';
 }
 
-// v10.805 — Backfill help modal (task #68). Explains what ⚙ Backfill
+// v10.806 — Backfill help modal (task #68). Explains what ⚙ Backfill
 // ledger actually does so it's not a mystery button.
 function _frameRunwayShowBackfillHelp_() {
   const prior = document.getElementById('backfillHelpOverlay');
@@ -9512,7 +9514,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.805 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.806 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9527,7 +9529,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.805 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.806 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9535,7 +9537,7 @@ async function _frameRunwayBackfillShipBom_() {
     .map(sku => ({ sku, count: dryAgg.unmapped_skus[sku] }))
     .sort((a, b) => b.count - a.count);
   const unmappedTotal = unmappedAll.length;
-  // v10.805 — Auto-save unmapped SKUs to inbox (task #69). Fires fire-
+  // v10.806 — Auto-save unmapped SKUs to inbox (task #69). Fires fire-
   // and-forget alongside the dry-run; failure is silent. Keeps the
   // inbox fresh on every backfill even if commit doesn't happen.
   if (unmappedAll.length) {
@@ -9593,7 +9595,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.805 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.806 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9608,7 +9610,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.805 — pre-build unmapped section so ternary is single-expression
+    // v10.806 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9652,7 +9654,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
-// v10.805 — PO history surface (task #71). Lists all rows from
+// v10.806 — PO history surface (task #71). Lists all rows from
 // po_history (newest first) with tap-to-expand line detail. Hidden by
 // default — entry is the 📚 PO history button on the runway header.
 async function _frameRunwayOpenPoHistory_() {
@@ -9771,7 +9773,7 @@ async function _frameRunwayOpenPoHistory_() {
   for (const r of rows) list.appendChild(renderCard(r));
 }
 
-// v10.805 — Vendor editor (task #73). Lists all vendors from the
+// v10.806 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
 async function _frameRunwayOpenVendorEditor_() {
@@ -10321,7 +10323,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
     return { ok: false, error: 'Worker fetch error: ' + e.message };
   }
 }
-// v10.805 — Re-render runway when window resizes across the
+// v10.806 — Re-render runway when window resizes across the
 // mobile/desktop breakpoint (e.g. landscape ↔ portrait rotation, or
 // expanding a narrow window). Debounced 200ms so it doesn't thrash.
 let _frameRunwayResizeT_ = null;
@@ -10348,7 +10350,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   const body = document.getElementById('frameRunwayBody');
   const sel = document.getElementById('frameRunwayWindowSel');
   const windowDays = Number((sel && sel.value) || 30);
-  // v10.805 — Instant render from cache (task #72). Zac: "i don't
+  // v10.806 — Instant render from cache (task #72). Zac: "i don't
   // understand why everything in inventory runway takes too long to
   // load as though it's using a manual calculator by hand."
   // Strategy: paint immediately from last-good localStorage snapshot,
@@ -10409,7 +10411,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     window._frameRunwayItemsCache = items;
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
-    // v10.805 — Persist raw items + uncounted_leaves to localStorage so
+    // v10.806 — Persist raw items + uncounted_leaves to localStorage so
     // next runway open paints instantly from cache. Stripped of velocity
     // values (those get re-applied via _frameRunwayApplyVelocity_ from
     // the velocity stash on next load).
@@ -10560,12 +10562,21 @@ function _frameRunwayRender_(items, containerBanner) {
        +   '<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">green ≥ 60d</span>. '
        +   '<strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">"19d → 158d"</strong> = runway today → runway after on-order container lands.'
        + '</div>';
-  // v10.805 — Mobile-friendly card view (Zac req 2026-06-24).
+  // v10.806 — Mobile-friendly card view (Zac req 2026-06-24).
   // Below 700px the table is unusable on phones (8 columns of mono
   // type don't fit). Switch to card-per-item: name+chips up top, 3-col
   // grid for on_hand/runway/velocity, bins below, last-counted footer.
   const _isMobile_ = (typeof window !== 'undefined' && window.innerWidth < 700);
   if (_isMobile_) {
+    // v10.806 — velocity may be missing on phone if Compute Velocity
+    // never ran here (stash is per-device localStorage). Detect + show
+    // a hint banner so Zac knows to tap ⚡ Compute on the phone once.
+    const noVelocityAnywhere = items.length && !items.some(it => it.velocity_per_day != null);
+    if (noVelocityAnywhere) {
+      html += '<div style="margin:4px 4px 12px;padding:10px 12px;background:rgba(66,165,245,.12);border:1px solid #42a5f5;border-radius:8px;font-size:12px;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;line-height:1.4">'
+        + '<strong>No velocity data on this device.</strong> Tap ⚡ above (in header) to compute. It takes ~30s; data stays on this phone after.'
+        + '</div>';
+    }
     html += '<div style="display:flex;flex-direction:column;gap:8px;padding:0 4px">';
     for (const it of items) {
       const onHandM = (it.flags && it.flags.dropship) ? '—' : ((it.on_hand == null) ? '—' : String(it.on_hand));
@@ -10589,7 +10600,12 @@ function _frameRunwayRender_(items, containerBanner) {
       const lcM = it.last_counted_at
         ? new Date(it.last_counted_at).toISOString().slice(0,10) + (it.last_counted_by ? ' · ' + esc(it.last_counted_by) : '')
         : '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">never</span>';
-      html += '<div style="background:rgba(255,255,255,.03) !important;border:1px solid var(--border);border-left:3px solid ' + (belowThr ? '#FF5252' : runColorM) + ';border-radius:8px;padding:10px 12px">'
+      // v10.806 — search haystack: SKU + name + vendor + bin locations + category.
+      // Matches the desktop table's haystack so search behaves identically.
+      const _binsForSearch_ = (it.bins || []).map(b => String(b.location || '')).join(' ');
+      const _catForSearch_ = (fl.category || fl.category_tag || '').toLowerCase();
+      const _searchHaystack_ = (String(it.sku || '') + ' ' + String(it.name || '') + ' ' + String(vendorM || '') + ' ' + _binsForSearch_ + ' ' + _catForSearch_).toLowerCase();
+      html += '<div data-search-haystack="' + esc(_searchHaystack_) + '" style="background:rgba(255,255,255,.03) !important;border:1px solid var(--border);border-left:3px solid ' + (belowThr ? '#FF5252' : runColorM) + ';border-radius:8px;padding:10px 12px">'
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">'
         +   '<div style="flex:1;min-width:0">'
         +     '<div style="font-family:inherit;font-weight:900;font-size:14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;word-break:break-word;line-height:1.2">' + esc(it.name || it.sku) + '</div>'
@@ -10783,7 +10799,7 @@ function _frameRunwayRender_(items, containerBanner) {
     // even name first (works for alphabetical sort).' Items where
     // name !== sku get a 2-line cell: friendly name on top, SKU
     // mono-italic-dim below. Single-line for items where name=sku.
-    // v10.805 — Show BOM-leaf alias next to SKU when items.sku ≠ bom_leaf
+    // v10.806 — Show BOM-leaf alias next to SKU when items.sku ≠ bom_leaf
     const _bomAlias = (typeof _ITEM_TO_BOM_ALIAS !== 'undefined' && _ITEM_TO_BOM_ALIAS[it.sku]) || null;
     const aliasChip = _bomAlias
       ? '<span title="Velocity tracked under this BOM-leaf SKU. Boaz/operators may also see it under this name." style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.4);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.3px;margin-left:6px;font-family:\'JetBrains Mono\',monospace">≈ ' + esc(_bomAlias) + '</span>'
@@ -25063,7 +25079,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.805<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.806<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
