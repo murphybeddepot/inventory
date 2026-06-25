@@ -22070,7 +22070,7 @@ async function groundApi(action, payload) {
   }
   const body = Object.assign({ action: action, secret: GROUND_SECRET }, payload || {});
   let resp;
-  // v10.811 — route through Cloudflare worker's /orch-relay (added in
+  // v10.812 — route through Cloudflare worker's /orch-relay (added in
   // worker v20.13). Chrome/Edge recently tightened CORS handling on
   // the /exec→googleusercontent.com redirect chain, blocking direct
   // POSTs from the iPad PWA. Worker proxies server-side (no CORS) and
@@ -22582,7 +22582,28 @@ async function refreshGroundQueue() {
   }
 
   try {
-    const data = await groundApi('getQueue', {});
+    let data = await groundApi('getQueue', {});
+    // v10.812 — GAS quota fallback. If /exec returns a quota-shaped
+    // error, fail over to worker-direct ground/queue-direct which
+    // merges SS V1 + Supabase spine holds without touching GAS.
+    if (data && data.ok === false && /too many times|premium urlfetch|quota/i.test(String(data.error || ''))) {
+      console.log('[refreshGround] GAS quota detected — failing over to worker');
+      try {
+        const relayCfg = await _getPrintRelayConfig_();
+        const r = await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/ground/queue-direct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: relayCfg && relayCfg.stamp_secret }),
+        });
+        if (r.ok) {
+          const direct = await r.json();
+          if (direct && direct.ok) {
+            data = direct;
+            data.note = (data.note || '') + ' (GAS-quota fallback)';
+          }
+        }
+      } catch(fbErr) { /* swallow, fall through to error display */ }
+    }
     if (!data.ok) throw new Error(data.error || 'Server error');
     groundQueue = paintGroundQueue_((data.queue || []).slice(), list, empty);
     // v10.592 — paint ground holds banner from the same response.
@@ -25210,7 +25231,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.811<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.812<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
