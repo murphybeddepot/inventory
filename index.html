@@ -8006,10 +8006,19 @@ function _frameRunwayOpen_() {
   ov.id = 'frameRunwayOverlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;flex-direction:column';
   ov.innerHTML = ''
-    + '<div style="background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:2px solid #FFB300;padding:12px 14px;display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">'
+    + '<style>@media (max-width:700px){'
+    +   '#frameRunwayOverlay .runway-btn-label{display:none}'
+    +   '#frameRunwayOverlay .runway-btn{padding:6px 9px !important;font-size:15px !important;line-height:1}'
+    +   '#frameRunwayOverlay .runway-header{padding:8px 10px !important;gap:5px !important}'
+    +   '#frameRunwayOverlay .runway-title-text{display:none}'
+    +   '#frameRunwayOverlay .runway-title{font-size:18px !important}'
+    +   '#frameRunwayOverlay #frameRunwaySub{font-size:10px !important;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+    +   '#frameRunwayOverlay #frameRunwayWindowSel{padding:5px 4px !important;font-size:10px !important;min-width:48px}'
+    + '}</style>'
+    + '<div class="runway-header" style="background:linear-gradient(180deg,#1a1a1a,#0a0a0a);border-bottom:2px solid #FFB300;padding:12px 14px;display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">'
     +   '<button onclick="_frameRunwayClose_()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:800;cursor:pointer">←</button>'
     +   '<div style="flex:1;min-width:0">'
-    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1.5px;text-transform:uppercase;line-height:1">📊 Inventory Runway</div>'
+    +     '<div class="runway-title" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1.5px;text-transform:uppercase;line-height:1">📊<span class="runway-title-text"> Inventory Runway</span></div>'
     +     '<div id="frameRunwaySub" style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:3px">Loading inventory…</div>'
     +   '</div>'
     +   '<select id="frameRunwayWindowSel" onchange="_frameRunwayChangeWindow_(this.value)" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border-radius:6px;padding:5px 7px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">'
@@ -8019,15 +8028,15 @@ function _frameRunwayOpen_() {
     +     '<option value="180">Show 180d</option>'
     +     '<option value="360">Show 360d</option>'
     +   '</select>'
-    +   '<button onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡ Compute velocity</button>'
-    +   '<button onclick="_frameRunwayReload_()" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
-    +   '<button onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥 Receive…</button>'
-    +   '<button onclick="_frameRunwayOpenPoGenerator_()" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦 Generate PO</button>'
-    +   '<button onclick="_frameRunwayOpenPoHistory_()" style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.6);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📚 PO history</button>'
-    +   '<button onclick="_frameRunwayOpenBomDiag_()" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬 Diagnose BOMs</button>'
-    +   '<button id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Re-decompose last 90d of Shopify orders into BOM-leaf inventory consumption. Tap ? for full explanation.">⚙ Backfill ledger</button>'
-    +   '<button onclick="_frameRunwayShowBackfillHelp_()" title="What does Backfill ledger do?" style="background:transparent !important;border:1px solid rgba(255,193,7,.5);color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:50%;padding:0;width:26px;height:26px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center">?</button>'
-    +   '<button onclick="_frameRunwayOpenUnmappedInbox_()" title="Unmapped variant SKUs awaiting triage" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📥 Unmapped inbox</button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" title="Compute velocity" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡<span class="runway-btn-label"> Compute velocity</span></button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayReload_()" title="Reload" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" title="Receive container" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥<span class="runway-btn-label"> Receive…</span></button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayOpenPoGenerator_()" title="Generate PO" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦<span class="runway-btn-label"> Generate PO</span></button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayOpenPoHistory_()" title="PO history" style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.6);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📚<span class="runway-btn-label"> PO history</span></button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayOpenBomDiag_()" title="Diagnose BOMs" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬<span class="runway-btn-label"> Diagnose BOMs</span></button>'
+    +   '<button class="runway-btn" id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Re-decompose last 90d of Shopify orders into BOM-leaf inventory consumption. Tap ? for full explanation.">⚙<span class="runway-btn-label"> Backfill ledger</span></button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayShowBackfillHelp_()" title="What does Backfill ledger do?" style="background:transparent !important;border:1px solid rgba(255,193,7,.5);color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:50%;padding:0;width:26px;height:26px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center">?</button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayOpenUnmappedInbox_()" title="Unmapped SKU inbox" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📥<span class="runway-btn-label"> Unmapped inbox</span></button>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -8108,7 +8117,7 @@ async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
 async function _frameRunwayComputeAllWindows_() {
-  // v10.804 — Visible progress banner (task #70). Zac 2026-06-24:
+  // v10.805 — Visible progress banner (task #70). Zac 2026-06-24:
   // "make more clear when compute velocity is still working — the
   // little tiny tiny text under runway isn't super clear." Adds a
   // bright floating banner with elapsed time + animated bar.
@@ -8568,7 +8577,7 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
 // Currently only KRY has a hard contact (Lily Yan). Other vendors leave
 // `to` blank so operator types the address themselves in Gmail. Add
 // contacts here as you learn them.
-// v10.804 — Hoist ITEM_TO_BOM_ALIAS to module scope so both PO Gen and
+// v10.805 — Hoist ITEM_TO_BOM_ALIAS to module scope so both PO Gen and
 // runway render can read it without re-declaring. Canonical source of
 // truth for items.item_sku → bundle_bom leaf SKU aliases.
 const _ITEM_TO_BOM_ALIAS = {
@@ -8737,7 +8746,7 @@ function _frameRunwayComputePoLines_() {
     if (vendorFilter && itemVendor !== vendorFilter) continue;
     let vpd = 0;
     if (velByLeaf) {
-      // v10.804 — stash entries are OBJECTS {sku, total_units,
+      // v10.805 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
       const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
@@ -8866,7 +8875,7 @@ function _frameRunwayPoBuildEmailBody_() {
   if (!r.lines.length) return null;
   const poNameInput = document.getElementById('poNameInput');
   const poName = (poNameInput && poNameInput.value.trim()) || '';
-  // v10.804 — PO name now required. Zac 2026-06-24: sent a PO without
+  // v10.805 — PO name now required. Zac 2026-06-24: sent a PO without
   // a name + couldn't reconcile it later. Block send + flash the field.
   if (!poName) {
     if (poNameInput) {
@@ -8915,7 +8924,7 @@ function _frameRunwayPoBuildEmailBody_() {
     }
   }
   body += 'Target: ' + r.targetMonths + ' months of runway based on last-' + r.windowDays + 'd velocity.\n\n';
-  // v10.804 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
+  // v10.805 — KRY is DDP (Delivered Duty Paid) so port doesn't matter
   // for them — vendor handles shipping. MBD warehouse is in
   // Jacksonville, FL. Keep destination generic; don't pretend to
   // know about ports / freight modes per vendor.
@@ -8949,7 +8958,7 @@ function _frameRunwayPoEmail_() {
     + '&su=' + encodeURIComponent(e.subject)
     + '&body=' + encodeURIComponent(e.body);
   window.open(url, '_blank');
-  // v10.804 — auto-save PO to po_history so Zac never loses one again.
+  // v10.805 — auto-save PO to po_history so Zac never loses one again.
   // Task #71 / Zac's "does Bedrock save sent POs?" Q on 2026-06-24.
   _frameRunwaySavePoToHistory_(e, 'gmail_compose');
 }
@@ -8968,7 +8977,7 @@ function _frameRunwayPoCopyToClipboard_() {
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
-// v10.804 — fire-and-forget write to po_history. Doesn't block the UI
+// v10.805 — fire-and-forget write to po_history. Doesn't block the UI
 // or alert on failure (would be too noisy if Supabase hiccups); failures
 // are logged to console + visible via subtle toast.
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
@@ -9270,8 +9279,8 @@ async function _invTraceLeaf_(leafSku) {
 // into inventory_transactions. Bypasses GAS entirely (UrlFetchApp
 // quota was burned today). Calls worker /inventory/backfill-ship-bom
 // twice: first dry, show counts + sample, ask to confirm, then live.
-// v10.804 — Save unmapped variant SKUs to the inbox table (task #69).
-// v10.804's plain upsert OVERWROTE occurrence_count. v10.804: fetch
+// v10.805 — Save unmapped variant SKUs to the inbox table (task #69).
+// v10.805's plain upsert OVERWROTE occurrence_count. v10.805: fetch
 // existing rows first → sum old + new → patch back. Preserves status
 // on re-occurrence (mapped/ignored rows don't reset to 'new'). Bumps
 // last_seen_at so Zac knows the SKU is still showing up after triage.
@@ -9318,7 +9327,7 @@ async function _frameRunwaySaveUnmappedToInbox_(unmappedList) {
   } catch (e) { console.warn('inbox save threw', e); }
 }
 
-// v10.804 — Unmapped variant inbox surface. Lists SKUs awaiting triage.
+// v10.805 — Unmapped variant inbox surface. Lists SKUs awaiting triage.
 async function _frameRunwayOpenUnmappedInbox_() {
   const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
   const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
@@ -9390,7 +9399,7 @@ async function _frameRunwayOpenUnmappedInbox_() {
   if (!rows.length) document.getElementById('unmappedInboxList').innerHTML = '<div style="padding:30px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important">Inbox is empty. Variants that aren\'t in variant_map will land here on the next backfill.</div>';
 }
 
-// v10.804 — Backfill help modal (task #68). Explains what ⚙ Backfill
+// v10.805 — Backfill help modal (task #68). Explains what ⚙ Backfill
 // ledger actually does so it's not a mystery button.
 function _frameRunwayShowBackfillHelp_() {
   const prior = document.getElementById('backfillHelpOverlay');
@@ -9503,7 +9512,7 @@ async function _frameRunwayBackfillShipBom_() {
       dryAgg.rows += j.rows_would_write || 0;
       dryAgg.errors += j.shopify_fetch_errors || 0;
       dryAgg.unmapped += j.orders_with_unmapped_variants || 0;
-      // v10.804 — accumulate unmapped SKU counts across chunks (worker v20.9)
+      // v10.805 — accumulate unmapped SKU counts across chunks (worker v20.9)
       const chunkUnmapped = j.unmapped_sku_counts || {};
       for (const sku of Object.keys(chunkUnmapped)) {
         dryAgg.unmapped_skus[sku] = (dryAgg.unmapped_skus[sku] || 0) + chunkUnmapped[sku];
@@ -9518,7 +9527,7 @@ async function _frameRunwayBackfillShipBom_() {
     }
   } catch (e) { _restoreBtn_(); alert('Dry-run failed at chunk ' + iter + ' offset ' + off + ': ' + e.message); return; }
 
-  // v10.804 — Zac 2026-06-24: "i wish it showed all and i wish i could
+  // v10.805 — Zac 2026-06-24: "i wish it showed all and i wish i could
   // select to copy/paste." Replace native confirm() with a custom modal
   // that scrolls the full list, has selectable monospace text, and a
   // copy-all button.
@@ -9526,7 +9535,7 @@ async function _frameRunwayBackfillShipBom_() {
     .map(sku => ({ sku, count: dryAgg.unmapped_skus[sku] }))
     .sort((a, b) => b.count - a.count);
   const unmappedTotal = unmappedAll.length;
-  // v10.804 — Auto-save unmapped SKUs to inbox (task #69). Fires fire-
+  // v10.805 — Auto-save unmapped SKUs to inbox (task #69). Fires fire-
   // and-forget alongside the dry-run; failure is silent. Keeps the
   // inbox fresh on every backfill even if commit doesn't happen.
   if (unmappedAll.length) {
@@ -9584,7 +9593,7 @@ async function _frameRunwayBackfillShipBom_() {
 }
 
 function _frameRunwayShowBackfillDryRunModal_(data) {
-  // v10.804 — selectable + scrollable dry-run summary, replaces alert/confirm.
+  // v10.805 — selectable + scrollable dry-run summary, replaces alert/confirm.
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9599,7 +9608,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
       + '  Inventory ledger rows to write: ' + data.rows + '\n\n'
       + 'ALL ' + data.unmappedTotal + ' UNMAPPED variant SKUs:\n' + skuLines + '\n\n'
       + 'Sample row:\n' + sampleJson;
-    // v10.804 — pre-build unmapped section so ternary is single-expression
+    // v10.805 — pre-build unmapped section so ternary is single-expression
     // (the prior multi-line `+` ternary parsed as `+ :` mid-expression, syntax
     // error that white-screened the entire PWA. ship-sober #verify-inline-js.)
     const unmappedSection = data.unmappedAll.length
@@ -9643,7 +9652,7 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
-// v10.804 — PO history surface (task #71). Lists all rows from
+// v10.805 — PO history surface (task #71). Lists all rows from
 // po_history (newest first) with tap-to-expand line detail. Hidden by
 // default — entry is the 📚 PO history button on the runway header.
 async function _frameRunwayOpenPoHistory_() {
@@ -9762,7 +9771,7 @@ async function _frameRunwayOpenPoHistory_() {
   for (const r of rows) list.appendChild(renderCard(r));
 }
 
-// v10.804 — Vendor editor (task #73). Lists all vendors from the
+// v10.805 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
 async function _frameRunwayOpenVendorEditor_() {
@@ -10312,7 +10321,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
     return { ok: false, error: 'Worker fetch error: ' + e.message };
   }
 }
-// v10.804 — Re-render runway when window resizes across the
+// v10.805 — Re-render runway when window resizes across the
 // mobile/desktop breakpoint (e.g. landscape ↔ portrait rotation, or
 // expanding a narrow window). Debounced 200ms so it doesn't thrash.
 let _frameRunwayResizeT_ = null;
@@ -10339,7 +10348,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   const body = document.getElementById('frameRunwayBody');
   const sel = document.getElementById('frameRunwayWindowSel');
   const windowDays = Number((sel && sel.value) || 30);
-  // v10.804 — Instant render from cache (task #72). Zac: "i don't
+  // v10.805 — Instant render from cache (task #72). Zac: "i don't
   // understand why everything in inventory runway takes too long to
   // load as though it's using a manual calculator by hand."
   // Strategy: paint immediately from last-good localStorage snapshot,
@@ -10400,7 +10409,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     window._frameRunwayItemsCache = items;
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
-    // v10.804 — Persist raw items + uncounted_leaves to localStorage so
+    // v10.805 — Persist raw items + uncounted_leaves to localStorage so
     // next runway open paints instantly from cache. Stripped of velocity
     // values (those get re-applied via _frameRunwayApplyVelocity_ from
     // the velocity stash on next load).
@@ -10551,7 +10560,7 @@ function _frameRunwayRender_(items, containerBanner) {
        +   '<span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">green ≥ 60d</span>. '
        +   '<strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">"19d → 158d"</strong> = runway today → runway after on-order container lands.'
        + '</div>';
-  // v10.804 — Mobile-friendly card view (Zac req 2026-06-24).
+  // v10.805 — Mobile-friendly card view (Zac req 2026-06-24).
   // Below 700px the table is unusable on phones (8 columns of mono
   // type don't fit). Switch to card-per-item: name+chips up top, 3-col
   // grid for on_hand/runway/velocity, bins below, last-counted footer.
@@ -10774,7 +10783,7 @@ function _frameRunwayRender_(items, containerBanner) {
     // even name first (works for alphabetical sort).' Items where
     // name !== sku get a 2-line cell: friendly name on top, SKU
     // mono-italic-dim below. Single-line for items where name=sku.
-    // v10.804 — Show BOM-leaf alias next to SKU when items.sku ≠ bom_leaf
+    // v10.805 — Show BOM-leaf alias next to SKU when items.sku ≠ bom_leaf
     const _bomAlias = (typeof _ITEM_TO_BOM_ALIAS !== 'undefined' && _ITEM_TO_BOM_ALIAS[it.sku]) || null;
     const aliasChip = _bomAlias
       ? '<span title="Velocity tracked under this BOM-leaf SKU. Boaz/operators may also see it under this name." style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.4);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.3px;margin-left:6px;font-family:\'JetBrains Mono\',monospace">≈ ' + esc(_bomAlias) + '</span>'
@@ -25054,7 +25063,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.804<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.805<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
