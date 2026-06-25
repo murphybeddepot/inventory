@@ -22070,7 +22070,27 @@ async function groundApi(action, payload) {
   }
   const body = Object.assign({ action: action, secret: GROUND_SECRET }, payload || {});
   let resp;
+  // v10.811 — route through Cloudflare worker's /orch-relay (added in
+  // worker v20.13). Chrome/Edge recently tightened CORS handling on
+  // the /exec→googleusercontent.com redirect chain, blocking direct
+  // POSTs from the iPad PWA. Worker proxies server-side (no CORS) and
+  // returns the response with proper Access-Control-Allow-Origin
+  // headers. Falls back to direct /exec if the worker is unreachable.
+  const ORCH_RELAY = 'https://mbd-label-stamper.murphybeddepot.workers.dev/orch-relay';
+  let usedRelay = false;
   try {
+    resp = await fetch(ORCH_RELAY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    usedRelay = true;
+  } catch (relayErr) {
+    // Worker unreachable — fall back to direct /exec (still works in
+    // older browsers / Safari).
+    console.log('[groundApi] relay unreachable, falling back to direct /exec:', relayErr.message);
+  }
+  if (!usedRelay) try {
     resp = await fetch(GROUND_ORCH_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
