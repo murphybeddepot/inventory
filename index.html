@@ -10312,6 +10312,28 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
     return { ok: false, error: 'Worker fetch error: ' + e.message };
   }
 }
+// v10.804 — Re-render runway when window resizes across the
+// mobile/desktop breakpoint (e.g. landscape ↔ portrait rotation, or
+// expanding a narrow window). Debounced 200ms so it doesn't thrash.
+let _frameRunwayResizeT_ = null;
+let _frameRunwayWasMobile_ = (typeof window !== 'undefined' && window.innerWidth < 700);
+if (typeof window !== 'undefined' && !window._frameRunwayResizeHooked_) {
+  window._frameRunwayResizeHooked_ = true;
+  window.addEventListener('resize', () => {
+    if (_frameRunwayResizeT_) clearTimeout(_frameRunwayResizeT_);
+    _frameRunwayResizeT_ = setTimeout(() => {
+      const nowMobile = window.innerWidth < 700;
+      if (nowMobile !== _frameRunwayWasMobile_ && window._frameRunwayItemsCache) {
+        _frameRunwayWasMobile_ = nowMobile;
+        const body = document.getElementById('frameRunwayBody');
+        if (body && typeof _frameRunwayRender_ === 'function') {
+          body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache, window._frameRunwayContainerBanner || '');
+        }
+      }
+    }, 200);
+  });
+}
+
 async function _frameRunwayLoad_(forceRefresh) {
   const sub = document.getElementById('frameRunwaySub');
   const body = document.getElementById('frameRunwayBody');
