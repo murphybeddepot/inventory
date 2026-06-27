@@ -10064,6 +10064,65 @@ function _frameRunwayShowBackfillDryRunModal_(data) {
   });
 }
 
+// v10.828 — Bin move modal. Pulls all bin rows for the SKU, lets the
+// operator pick a source bin + qty + destination (typed or picked from
+// the existing-bins list). Calls moveBinQuantity which decrements source,
+// increments destination, logs paired inventory_transactions.
+async function _binMoveOpen_(sku) {
+  let bins;
+  try {
+    const r = await groundApi('listItemBins', { sku });
+    if (!r.ok) { alert('Load bins failed: ' + r.error); return; }
+    bins = r.bins || [];
+  } catch (e) { alert('Load bins failed: ' + e.message); return; }
+  if (!bins.length) { alert('No bin rows for ' + sku + '.'); return; }
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const prior = document.getElementById('binMoveOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'binMoveOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10010;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:18px';
+  const fromOptions = bins.map(b =>
+    '<option value="' + esc(b.location) + '">' + esc(b.location) + ' (' + (Number(b.qty) || 0) + ' on hand)</option>').join('');
+  ov.innerHTML = ''
+    + '<div style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:10px;padding:20px 24px;max-width:480px;width:100%;font-family:inherit">'
+    +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;margin-bottom:4px">↹ Move bin qty</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:16px">' + esc(sku) + '</div>'
+    +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">From</label>'
+    +   '<select id="binMoveFrom" style="width:100%;padding:9px 12px;border:1.5px solid #ccc;border-radius:6px;font-size:14px;margin-bottom:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:inherit;box-sizing:border-box">' + fromOptions + '</select>'
+    +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">Qty to move</label>'
+    +   '<input id="binMoveQty" type="number" inputmode="numeric" min="1" placeholder="1" style="width:100%;padding:9px 12px;border:1.5px solid #ccc;border-radius:6px;font-size:14px;margin-bottom:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box;font-family:inherit">'
+    +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">To <span style="font-weight:600;font-size:10px;text-transform:none;letter-spacing:0">(new location or existing)</span></label>'
+    +   '<input id="binMoveTo" type="text" placeholder="e.g. 005.012" style="width:100%;padding:9px 12px;border:1.5px solid #ccc;border-radius:6px;font-size:14px;margin-bottom:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box;font-family:inherit">'
+    +   '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important">Existing bins:'
+    +     bins.map(b => ' <button onclick="document.getElementById(\'binMoveTo\').value=\'' + esc(b.location) + '\'" style="background:#EEE;border:1px solid #ccc;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:3px;padding:2px 6px;font-size:10px;font-family:inherit;cursor:pointer;font-weight:700">' + esc(b.location) + '</button>').join('')
+    +   '</div>'
+    +   '<div style="display:flex;gap:10px;justify-content:flex-end">'
+    +     '<button id="binMoveCancel" style="padding:9px 18px;background:#eee !important;color:#333 !important;-webkit-text-fill-color:#333 !important;border:1px solid #ccc;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer">Cancel</button>'
+    +     '<button id="binMoveSave" style="padding:9px 22px;background:#42a5f5 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #1976D2;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer">↹ Move</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.getElementById('binMoveCancel').onclick = () => ov.remove();
+  document.getElementById('binMoveSave').onclick = async () => {
+    const fromLoc = document.getElementById('binMoveFrom').value;
+    const qty = Number(document.getElementById('binMoveQty').value);
+    const toLoc = document.getElementById('binMoveTo').value.trim();
+    if (!fromLoc || !toLoc) { alert('Pick a from + to location.'); return; }
+    if (!isFinite(qty) || qty <= 0) { alert('Qty must be > 0.'); return; }
+    if (fromLoc === toLoc) { alert('From and To are the same.'); return; }
+    const actor = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '';
+    try {
+      const r = await groundApi('moveBinQuantity', { sku, from_location: fromLoc, to_location: toLoc, qty, actor });
+      if (!r.ok) { alert('Move failed: ' + r.error); return; }
+      ov.remove();
+      if (typeof showToast === 'function') showToast('✓ Moved ' + qty + ' from ' + fromLoc + ' to ' + toLoc);
+      if (typeof _frameRunwayLoad_ === 'function') _frameRunwayLoad_();
+    } catch (e) { alert('Move failed: ' + e.message); }
+  };
+}
+
 // v10.824 — PO edit modal + mark-received. Fields editable: po_name,
 // status (ordered/paid/shipped/partially_received/received/cancelled),
 // order_date, paid_date, ship_eta, arrival_eta. Saves via updatePO
@@ -11261,7 +11320,9 @@ function _frameRunwayRender_(items, containerBanner) {
         +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">Velocity</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900">' + velM + '<span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">/d</span></div></div>'
         +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">Runway</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:' + runColorM + ' !important;-webkit-text-fill-color:' + runColorM + ' !important">' + runM + '</div></div>'
         + '</div>'
-        + '<div style="margin-top:8px;font-size:11px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">📍 ' + binsM + '</div>'
+        + '<div style="margin-top:8px;font-size:11px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;display:flex;align-items:center;justify-content:space-between;gap:8px"><span>📍 ' + binsM + '</span>'
+        +   ((it.bins && it.bins.length) ? '<button onclick="event.stopPropagation();_binMoveOpen_(\'' + esc(it.sku) + '\')" style="background:rgba(66,165,245,.10);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:900;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.4px" title="Move qty between bins">↹ Move</button>' : '')
+        + '</div>'
         + '<div style="margin-top:4px;font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">🗓 ' + lcM + '</div>'
         + '</div>';
     }
@@ -11464,7 +11525,7 @@ function _frameRunwayRender_(items, containerBanner) {
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important">' + onOrderDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + velDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + runDisp + '</td>'
-         +   '<td style="padding:8px 6px;line-height:1.7">' + binsHtml + '</td>'
+         +   '<td style="padding:8px 6px;line-height:1.7">' + binsHtml + ((it.bins && it.bins.length) ? ' <button onclick="event.stopPropagation();_binMoveOpen_(\'' + esc(it.sku) + '\')" title="Move qty between bins" style="background:rgba(66,165,245,.10);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:3px;padding:1px 6px;font-size:9px;font-weight:900;cursor:pointer;margin-left:4px">↹</button>' : '') + '</td>'
          +   '<td style="padding:8px 6px;white-space:nowrap">' + lastCountedHtml + '</td>'
          +   '<td style="padding:8px 4px;text-align:right;white-space:nowrap">'
          +     '<button onclick="_invTraceLeaf_(\'' + esc(it.sku) + '\')" title="See where this item is consumed (variant_map → bundles → orders)" style="background:rgba(0,230,118,.10);border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:900;cursor:pointer">🔬</button>'
@@ -25834,7 +25895,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.825<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.828<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
