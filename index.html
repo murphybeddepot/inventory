@@ -10195,6 +10195,27 @@ function _poEdit_(poId) {
   });
 }
 
+async function _poReceiveLine_(poId, sku, remaining, poName) {
+  if (remaining <= 0) return;
+  const qtyStr = prompt('How many of ' + sku + ' arrived?\n(Remaining: ' + remaining + ')', String(remaining));
+  if (qtyStr === null) return;
+  const qty = Number(qtyStr);
+  if (!isFinite(qty) || qty <= 0) { alert('Qty must be > 0'); return; }
+  if (qty > remaining) {
+    if (!confirm('That\'s more than remaining (' + remaining + '). Receive ' + qty + ' anyway?')) return;
+  }
+  const receivedBy = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : (prompt('Your name (optional)', '') || '');
+  try {
+    const r = await groundApi('markPOLineReceived', { po_id: poId, sku, qty, received_by: receivedBy });
+    if (!r.ok) { alert('Receive failed: ' + r.error); return; }
+    if (typeof showToast === 'function') {
+      showToast('✓ ' + qty + ' ' + sku + ' received · ' + r.received_for_sku + '/' + r.ordered_for_sku + (r.fully_received ? ' · ALL RECEIVED' : ''));
+    }
+    const phOv = document.getElementById('poHistoryOverlay');
+    if (phOv) { phOv.remove(); _frameRunwayOpenPoHistory_(); }
+  } catch (e) { alert('Receive failed: ' + e.message); }
+}
+
 async function _poMarkReceived_(poId, poName) {
   if (!confirm('Mark PO "' + (poName || poId) + '" as RECEIVED?\n\nThis will:\n• Add every line item\'s qty to items.on_hand\n• Log a PO_RECEIVE transaction per line\n• Remove the PO from the Runway on-order banner\n\nIrreversible.')) return;
   const receivedBy = prompt('Who received it? (your name)', (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '') || '';
@@ -10316,22 +10337,41 @@ async function _frameRunwayOpenPoHistory_() {
         if (r.arrived_at)      html += '<div>Arrived (legacy): ' + fmtDate(r.arrived_at) + '</div>';
         if (r.gmail_thread_id) html += '<div>Gmail thread: ' + esc(r.gmail_thread_id) + '</div>';
         html += '</div>';
-        // Lines table
+        // Lines table — v10.829 adds Received column + per-line 📥 button.
         if (lines.length) {
+          // Aggregate received_lines per SKU
+          const receivedLines = Array.isArray(r.received_lines)
+            ? r.received_lines
+            : (typeof r.received_lines === 'string' ? (function () { try { return JSON.parse(r.received_lines); } catch (e) { return []; } })() : []);
+          const recBySku = {};
+          for (const rl of receivedLines) {
+            const sku = String(rl.sku || '').trim();
+            recBySku[sku] = (recBySku[sku] || 0) + (Number(rl.qty_received) || 0);
+          }
           html += '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#000 !important"><thead><tr style="background:#222;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important">'
             + '<th style="padding:4px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">SKU</th>'
             + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Qty</th>'
+            + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Received</th>'
             + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Unit $</th>'
             + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Line $</th>'
-            + '<th style="padding:4px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Note</th>'
+            + '<th style="padding:4px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Action</th>'
             + '</tr></thead><tbody>';
           for (const L of lines) {
+            const ordered = Number(L.qty) || 0;
+            const sku = String(L.sku || '').trim();
+            const received = Number(recBySku[sku]) || 0;
+            const remaining = Math.max(0, ordered - received);
+            const recColor = received === 0 ? '#888' : (received >= ordered ? '#00C853' : '#FFB300');
+            const actionCell = (lifeStatus === 'received' || remaining === 0)
+              ? '<span style="color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;font-weight:900">✓</span>'
+              : '<button onclick="event.stopPropagation();_poReceiveLine_(\'' + esc(r.po_id) + '\',\'' + esc(sku) + '\',' + remaining + ',\'' + esc(r.po_name || r.po_id) + '\')" style="background:rgba(0,200,83,.15);color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:1px solid #00C853;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:900;cursor:pointer;font-family:inherit">📥 Receive</button>';
             html += '<tr style="border-bottom:1px solid #222;color:#fff !important;-webkit-text-fill-color:#fff !important">'
               + '<td style="padding:4px 8px;font-family:\'JetBrains Mono\',monospace">' + esc(L.sku) + '</td>'
-              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (Number(L.qty) || 0).toLocaleString() + '</td>'
+              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + ordered.toLocaleString() + '</td>'
+              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + recColor + ' !important;-webkit-text-fill-color:' + recColor + ' !important">' + received + ' / ' + ordered + '</td>'
               + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (L.unit_cost != null ? '$' + Number(L.unit_cost).toFixed(2) : '—') + '</td>'
               + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (L.line_total != null ? '$' + Number(L.line_total).toFixed(2) : '—') + '</td>'
-              + '<td style="padding:4px 8px;font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important">' + esc(L.note || L.discount || '') + '</td>'
+              + '<td style="padding:4px 8px">' + actionCell + '</td>'
               + '</tr>';
           }
           html += '</tbody></table>';
@@ -25895,7 +25935,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.828<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.829<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
