@@ -8099,6 +8099,59 @@ function _frameRunwaySearchClear_() {
   if (inp) inp.value = '';
   _frameRunwaySearchFilter_('');
 }
+// v10.819 — toggle the hide filter. localStorage so persists per-device.
+function _runwayToggleShowHidden_() {
+  const cur = localStorage.getItem('mbd_runway_show_hidden') === '1';
+  if (cur) localStorage.removeItem('mbd_runway_show_hidden');
+  else localStorage.setItem('mbd_runway_show_hidden', '1');
+  // Repaint from cache
+  if (window._frameRunwayItemsCache) {
+    const body = document.getElementById('frameRunwayBody');
+    if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
+  }
+}
+// v10.819 — flip the server-side hidden_from_runway flag for one SKU.
+// Optimistic: updates the local cache immediately, repaints, then writes
+// back. On failure, reverts.
+async function _runwayHideItem_(sku, nextHidden) {
+  if (!sku) return;
+  const cache = window._frameRunwayItemsCache;
+  if (cache) {
+    for (const it of cache) {
+      if (it.sku === sku) {
+        it.flags = it.flags || {};
+        if (nextHidden) it.flags.hidden_from_runway = true;
+        else delete it.flags.hidden_from_runway;
+        break;
+      }
+    }
+    const body = document.getElementById('frameRunwayBody');
+    if (body) body.innerHTML = _frameRunwayRender_(cache.slice(), window._frameRunwayContainerBanner || '');
+  }
+  try {
+    const r = await groundApi('setRunwayItemHidden', { item_sku: sku, hidden: !!nextHidden });
+    if (!r.ok) {
+      if (typeof showToast === 'function') showToast('Hide failed: ' + (r.error || 'unknown'));
+      // Revert
+      if (cache) {
+        for (const it of cache) {
+          if (it.sku === sku) {
+            it.flags = it.flags || {};
+            if (nextHidden) delete it.flags.hidden_from_runway;
+            else it.flags.hidden_from_runway = true;
+            break;
+          }
+        }
+        const body = document.getElementById('frameRunwayBody');
+        if (body) body.innerHTML = _frameRunwayRender_(cache.slice(), window._frameRunwayContainerBanner || '');
+      }
+      return;
+    }
+    if (typeof showToast === 'function') showToast(nextHidden ? '🚫 Hidden' : '👁 Restored');
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Hide failed: ' + e.message);
+  }
+}
 function _frameRunwaySearchReapply_() {
   const inp = document.getElementById('frameRunwaySearchInput');
   if (inp && inp.value) _frameRunwaySearchFilter_(inp.value);
@@ -10927,6 +10980,26 @@ function _frameRunwayRender_(items, containerBanner) {
   if (containerBanner) {
     html += '<div style="padding:10px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.45);border-radius:8px;margin-bottom:12px;font-size:12px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(containerBanner) + '</div>';
   }
+  // v10.819 — hide non-inventory items (instructions, mattresses, finished
+  // cabinet beds, etc) behind a toggle. Operators tap "🚫 Hide" on each
+  // row to stash that SKU; flag persists server-side as
+  // items.flags.hidden_from_runway. "X hidden · show" header pill
+  // reveals them when needed.
+  const showHidden = (typeof localStorage !== 'undefined') && localStorage.getItem('mbd_runway_show_hidden') === '1';
+  let hiddenCount = 0;
+  if (!showHidden) {
+    const before = items.length;
+    items = items.filter(it => !(it.flags && it.flags.hidden_from_runway));
+    hiddenCount = before - items.length;
+  } else {
+    for (const it of items) if (it.flags && it.flags.hidden_from_runway) hiddenCount++;
+  }
+  if (hiddenCount > 0) {
+    const label = showHidden
+      ? '👁 Showing ' + hiddenCount + ' hidden · <a href="#" onclick="event.preventDefault();_runwayToggleShowHidden_()" style="color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;font-weight:900">hide them</a>'
+      : '🚫 ' + hiddenCount + ' hidden · <a href="#" onclick="event.preventDefault();_runwayToggleShowHidden_()" style="color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;font-weight:900">show</a>';
+    html += '<div style="padding:7px 11px;background:rgba(120,140,170,.10);border:1px solid rgba(120,140,170,.40);border-radius:6px;margin-bottom:10px;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;letter-spacing:.4px">' + label + '</div>';
+  }
   if (!items.length) {
     html += '<div style="padding:30px 12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px;font-style:italic">No SKUs yet. Run the Boaz seed SQL first.</div>';
     return html;
@@ -11025,7 +11098,10 @@ function _frameRunwayRender_(items, containerBanner) {
         +     (aliasM ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:9px;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;margin-top:2px">≈ ' + esc(aliasM) + '</div>' : '')
         +     '<div style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">' + esc(vendorM) + '</div>'
         +   '</div>'
-        +   '<button onclick="_invTraceLeaf_(\'' + esc(it.sku) + '\')" style="background:rgba(0,230,118,.10);border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:4px 9px;font-size:11px;font-weight:900;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif">🔬</button>'
+        +   '<div style="display:flex;gap:4px;flex-shrink:0">'
+        +     '<button onclick="_invTraceLeaf_(\'' + esc(it.sku) + '\')" style="background:rgba(0,230,118,.10);border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:4px 9px;font-size:11px;font-weight:900;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif" title="Trace BOM">🔬</button>'
+        +     '<button onclick="event.stopPropagation();_runwayHideItem_(\'' + esc(it.sku) + '\',' + (fl.hidden_from_runway ? 'false' : 'true') + ')" style="background:rgba(120,140,170,.10);border:1px solid rgba(120,140,170,.55);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border-radius:4px;padding:4px 8px;font-size:11px;font-weight:900;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif" title="' + (fl.hidden_from_runway ? 'Restore to Runway' : 'Hide from Runway') + '">' + (fl.hidden_from_runway ? '👁' : '🚫') + '</button>'
+        +   '</div>'
         + '</div>'
         + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">'
         +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">On hand</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:' + (belowThr ? '#FF5252' : 'var(--text)') + ' !important;-webkit-text-fill-color:' + (belowThr ? '#FF5252' : 'var(--text)') + ' !important">' + onHandM + (it.on_order > 0 ? '<span style="font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important"> +' + onOrderM + '</span>' : '') + '</div></div>'
@@ -11237,7 +11313,10 @@ function _frameRunwayRender_(items, containerBanner) {
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + runDisp + '</td>'
          +   '<td style="padding:8px 6px;line-height:1.7">' + binsHtml + '</td>'
          +   '<td style="padding:8px 6px;white-space:nowrap">' + lastCountedHtml + '</td>'
-         +   '<td style="padding:8px 4px;text-align:right"><button onclick="_invTraceLeaf_(\'' + esc(it.sku) + '\')" title="See where this item is consumed (variant_map → bundles → orders)" style="background:rgba(0,230,118,.10);border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:900;cursor:pointer">🔬</button></td>'
+         +   '<td style="padding:8px 4px;text-align:right;white-space:nowrap">'
+         +     '<button onclick="_invTraceLeaf_(\'' + esc(it.sku) + '\')" title="See where this item is consumed (variant_map → bundles → orders)" style="background:rgba(0,230,118,.10);border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:900;cursor:pointer">🔬</button>'
+         +     ' <button onclick="event.stopPropagation();_runwayHideItem_(\'' + esc(it.sku) + '\',' + ((it.flags || {}).hidden_from_runway ? 'false' : 'true') + ')" title="' + ((it.flags || {}).hidden_from_runway ? 'Restore to Runway' : 'Hide from Runway') + '" style="background:rgba(120,140,170,.10);border:1px solid rgba(120,140,170,.55);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border-radius:4px;padding:3px 6px;font-size:10px;font-weight:900;cursor:pointer;margin-left:4px">' + ((it.flags || {}).hidden_from_runway ? '👁' : '🚫') + '</button>'
+         +   '</td>'
          + '</tr>';
   }
   html += '</tbody></table>';
@@ -25602,7 +25681,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.816<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.819<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
