@@ -2201,13 +2201,18 @@ input::placeholder, textarea::placeholder {
        overlay panel listing all SKUs with on_hand + on_order (C24) +
        runway days. Phase 0 has placeholder velocity; Phase 1 will wire
        Shopify bundle decomposition. -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
     <button onclick="_frameRunwayOpen_()" style="padding:11px 10px;background:linear-gradient(180deg,#3a2d00,#7a5a00) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📊 Inventory Runway</button>
     <!-- v10.742 — '+ Add new item' for off-BOM stock (consumables, samples, packaging).
          Tap → PIN → modal asking for SKU + name + location + qty + category + unit.
          Same worker /inventory/correct-bin-count endpoint as bin-edit (it upserts
          items + bin), with name/unit/category passthrough. -->
     <button onclick="_stockV2OpenAddNewItem_()" style="padding:11px 10px;background:linear-gradient(180deg,#3d1a5e,#7B2CBF) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #C77DFF;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">+ Add New Item</button>
+  </div>
+  <!-- v10.815 — Pallets / crates / gaylords. Task #64. Movable physical
+       containers with item assignments + movement history. -->
+  <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px">
+    <button onclick="_palletsOpen_()" style="padding:11px 10px;background:linear-gradient(180deg,#1a3d3d,#2d6e6e) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #4DD0E1;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📦 Pallets &amp; Crates</button>
   </div>
   <div id="stockV2Stats" style="display:none;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:8px 12px;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:8px;margin-bottom:10px"></div>
   <div id="stockV2List" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -8342,6 +8347,302 @@ async function _frameRunwayCountNewLeafSave_(sku, pin) {
     alert('Save error: ' + e.message);
   } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '✓ Save count'; }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Pallets surface — v10.815 (task #64, Stock 2.0 Phase 1).
+//
+// Movable physical containers (AA.01 / CR-007 / GY-001). The
+// orchestrator (Pallets.gs) owns the data. Two states in one
+// overlay: list (all pallets w/ counts) + detail (one pallet w/
+// items + movement log + edit actions).
+//
+// All Supabase writes go through groundApi → orchestrator → worker
+// /supabase/relay (today's quota counter says it's safe again).
+// ════════════════════════════════════════════════════════════════
+
+let _palletsState = {
+  view: 'list',      // 'list' | 'detail'
+  selectedId: null,
+  list: [],
+  detail: null,
+  filter: '',
+  loading: false,
+};
+
+function _palletsOpen_() {
+  let ov = document.getElementById('palletsOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'palletsOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,18,.96);z-index:9500;overflow:auto;-webkit-overflow-scrolling:touch';
+    document.body.appendChild(ov);
+  }
+  ov.style.display = 'block';
+  _palletsState.view = 'list';
+  _palletsState.selectedId = null;
+  _palletsRender_();
+  _palletsLoadList_();
+}
+
+function _palletsClose_() {
+  const ov = document.getElementById('palletsOverlay');
+  if (ov) ov.style.display = 'none';
+}
+
+async function _palletsLoadList_() {
+  _palletsState.loading = true;
+  _palletsRender_();
+  try {
+    const data = await groundApi('listPallets', { search: _palletsState.filter || undefined });
+    _palletsState.list = (data && data.ok && Array.isArray(data.pallets)) ? data.pallets : [];
+  } catch (e) {
+    _palletsState.list = [];
+    if (typeof showToast === 'function') showToast('Pallets load failed: ' + e.message);
+  }
+  _palletsState.loading = false;
+  _palletsRender_();
+}
+
+async function _palletsLoadDetail_(palletId) {
+  _palletsState.view = 'detail';
+  _palletsState.selectedId = palletId;
+  _palletsState.detail = null;
+  _palletsState.loading = true;
+  _palletsRender_();
+  try {
+    const data = await groundApi('getPalletDetail', { pallet_id: palletId });
+    if (data && data.ok) {
+      _palletsState.detail = data;
+    } else {
+      if (typeof showToast === 'function') showToast(data && data.error ? data.error : 'Detail load failed');
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Detail load failed: ' + e.message);
+  }
+  _palletsState.loading = false;
+  _palletsRender_();
+}
+
+function _palletsRender_() {
+  const ov = document.getElementById('palletsOverlay');
+  if (!ov) return;
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s => String(s == null ? '' : s));
+  if (_palletsState.view === 'list') {
+    ov.innerHTML = _palletsRenderList_(esc);
+  } else {
+    ov.innerHTML = _palletsRenderDetail_(esc);
+  }
+}
+
+function _palletsRenderList_(esc) {
+  const list = _palletsState.list || [];
+  const loading = _palletsState.loading;
+  const rows = list.map(p => {
+    const status = String(p.status || '');
+    const statusColor = status === 'active' ? '#00C853'
+      : status === 'empty' ? '#FFB300'
+      : status === 'damaged' ? '#FF5252'
+      : '#888';
+    const kindGlyph = p.kind === 'crate' ? '📦' : p.kind === 'gaylord' ? '🟫' : p.kind === 'box' ? '🟧' : '🟦';
+    return '<div onclick="_palletsLoadDetail_(\'' + esc(p.pallet_id) + '\')" style="display:flex;align-items:center;gap:12px;padding:14px 14px;background:rgba(255,255,255,.04);border:1.5px solid rgba(77,208,225,.30);border-radius:10px;cursor:pointer;margin-bottom:6px">'
+      + '<div style="font-size:22px">' + kindGlyph + '</div>'
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;letter-spacing:.6px">' + esc(p.pallet_id) + '</div>'
+      +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.4px;text-transform:uppercase;margin-top:2px">'
+      +     esc(p.current_location || 'no location') + ' · ' + (p.item_skus || 0) + ' skus · ' + (p.total_qty || 0) + ' total qty'
+      +   '</div>'
+      + '</div>'
+      + '<div style="font-size:10px;font-weight:900;letter-spacing:.5px;background:' + statusColor + '22;color:' + statusColor + ' !important;-webkit-text-fill-color:' + statusColor + ' !important;border:1px solid ' + statusColor + '55;padding:3px 8px;border-radius:4px;text-transform:uppercase">' + esc(status) + '</div>'
+      + '</div>';
+  }).join('');
+  return ''
+    + '<div style="max-width:760px;margin:0 auto;padding:20px 16px 80px">'
+    +   '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">'
+    +     '<button onclick="_palletsClose_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">← Back</button>'
+    +     '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;letter-spacing:1px">📦 Pallets &amp; Crates</div>'
+    +     '<button onclick="_palletsOpenCreate_()" style="padding:9px 14px;background:linear-gradient(180deg,#1a3d3d,#2d6e6e);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #4DD0E1;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">+ New</button>'
+    +   '</div>'
+    +   '<div style="margin-bottom:12px">'
+    +     '<input id="palletsSearchInput" type="text" placeholder="Filter by ID or notes…" value="' + esc(_palletsState.filter) + '" oninput="_palletsState.filter=this.value" onchange="_palletsLoadList_()" style="width:100%;padding:11px 14px;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:14px">'
+    +   '</div>'
+    +   (loading
+        ? '<div style="padding:30px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">Loading pallets…</div>'
+        : (list.length === 0
+          ? '<div style="padding:40px 20px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border:1px dashed var(--border);border-radius:10px">No pallets yet. Tap + New to create one.</div>'
+          : rows))
+    + '</div>';
+}
+
+function _palletsRenderDetail_(esc) {
+  const d = _palletsState.detail;
+  const loading = _palletsState.loading;
+  if (loading || !d) {
+    return '<div style="max-width:760px;margin:0 auto;padding:20px 16px">'
+      + '<button onclick="_palletsState.view=\'list\';_palletsRender_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:16px">← All pallets</button>'
+      + '<div style="padding:40px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">Loading…</div>'
+      + '</div>';
+  }
+  const p = d.pallet;
+  const items = d.items || [];
+  const moves = d.movements || [];
+  const totalQty = items.reduce((s, it) => s + (Number(it.qty) || 0), 0);
+  const itemRows = items.map(it => {
+    return '<div style="display:flex;align-items:center;gap:10px;padding:11px 12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;margin-bottom:5px">'
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;letter-spacing:.4px">' + esc(it.item_sku) + '</div>'
+      +   (it.notes ? '<div style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">' + esc(it.notes) + '</div>' : '')
+      + '</div>'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:17px;font-weight:900;color:#4DD0E1 !important;-webkit-text-fill-color:#4DD0E1 !important;letter-spacing:.5px">' + (Number(it.qty) || 0) + '</div>'
+      + '<button onclick="_palletsAdjustItem_(\'' + esc(it.item_sku) + '\')" style="padding:6px 10px;background:rgba(77,208,225,.15);color:#4DD0E1 !important;-webkit-text-fill-color:#4DD0E1 !important;border:1px solid #4DD0E1;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer">±</button>'
+      + '</div>';
+  }).join('') || '<div style="padding:20px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic;border:1px dashed var(--border);border-radius:8px">No items on this pallet yet.</div>';
+  const moveRows = moves.slice(0, 8).map(m => {
+    const dt = m.moved_at ? new Date(m.moved_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    return '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;padding:5px 0">'
+      + esc(dt) + ' · ' + esc(m.from_location || '∅') + ' → ' + esc(m.to_location || '∅')
+      + (m.reason ? ' (' + esc(m.reason) + ')' : '')
+      + (m.moved_by ? ' · ' + esc(m.moved_by) : '')
+      + '</div>';
+  }).join('') || '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">No movements logged yet.</div>';
+  return ''
+    + '<div style="max-width:760px;margin:0 auto;padding:20px 16px 80px">'
+    +   '<button onclick="_palletsState.view=\'list\';_palletsRender_();_palletsLoadList_()" style="padding:8px 14px;background:rgba(255,255,255,.06);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:16px">← All pallets</button>'
+    +   '<div style="padding:14px;background:linear-gradient(135deg,rgba(77,208,225,.10),rgba(77,208,225,.02));border:1.5px solid rgba(77,208,225,.45);border-radius:10px;margin-bottom:12px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:32px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;letter-spacing:1px">' + esc(p.pallet_id) + '</div>'
+    +     '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-top:4px">'
+    +       esc(p.kind) + ' · ' + esc(p.status) + ' · ' + esc(p.current_location || 'no location') + ' · ' + items.length + ' skus · ' + totalQty + ' total qty'
+    +     '</div>'
+    +     (p.notes ? '<div style="font-size:12px;color:#fff !important;-webkit-text-fill-color:#fff !important;margin-top:8px">' + esc(p.notes) + '</div>' : '')
+    +   '</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">'
+    +     '<button onclick="_palletsOpenAddItem_()" style="padding:10px 8px;background:linear-gradient(180deg,#1A5C1A,#00C853);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">+ Item</button>'
+    +     '<button onclick="_palletsMove_()" style="padding:10px 8px;background:linear-gradient(180deg,#3a2d00,#7a5a00);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🚛 Move</button>'
+    +     '<button onclick="_palletsArchive_()" style="padding:10px 8px;background:rgba(255,82,82,.18);color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1.5px solid #FF5252;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🗄 Archive</button>'
+    +   '</div>'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;letter-spacing:.6px;margin:14px 0 8px">Items on this pallet</div>'
+    +   itemRows
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;letter-spacing:.5px;margin:18px 0 6px">Movement history</div>'
+    +   moveRows
+    + '</div>';
+}
+
+async function _palletsOpenCreate_() {
+  const id = prompt('New pallet ID (e.g. AA.01 / CR-007 / GY-001):');
+  if (!id || !id.trim()) return;
+  const kind = (prompt('Kind: pallet / crate / gaylord / box', 'pallet') || 'pallet').trim().toLowerCase();
+  const loc = prompt('Current location (optional, e.g. Row A, Slot 1):', '') || '';
+  const packer = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '';
+  try {
+    const r = await groundApi('upsertPallet', {
+      pallet_id: id.trim(),
+      kind,
+      status: 'active',
+      current_location: loc.trim() || undefined,
+      received_by: packer || undefined,
+    });
+    if (!r.ok) { if (typeof showToast === 'function') showToast(r.error || 'Create failed'); return; }
+    if (typeof showToast === 'function') showToast('✓ Created ' + id.trim());
+    _palletsLoadList_();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Create failed: ' + e.message);
+  }
+}
+
+async function _palletsMove_() {
+  const id = _palletsState.selectedId;
+  if (!id) return;
+  const cur = (_palletsState.detail && _palletsState.detail.pallet && _palletsState.detail.pallet.current_location) || '';
+  const newLoc = prompt('Move ' + id + ' to (current: "' + cur + '"):', cur);
+  if (!newLoc || newLoc.trim() === cur) return;
+  const reason = prompt('Reason (consolidate / reposition / ship-prep / etc.):', 'reposition') || 'reposition';
+  const packer = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '';
+  try {
+    const r = await groundApi('movePallet', {
+      pallet_id: id,
+      new_location: newLoc.trim(),
+      reason,
+      moved_by: packer || undefined,
+    });
+    if (!r.ok) { if (typeof showToast === 'function') showToast(r.error || 'Move failed'); return; }
+    if (typeof showToast === 'function') showToast('✓ Moved to ' + newLoc.trim());
+    _palletsLoadDetail_(id);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Move failed: ' + e.message);
+  }
+}
+
+async function _palletsArchive_() {
+  const id = _palletsState.selectedId;
+  if (!id) return;
+  if (!confirm('Archive pallet ' + id + '? Items must already be removed.')) return;
+  try {
+    let r = await groundApi('archivePallet', { pallet_id: id });
+    if (!r.ok && r.error && /still has items/.test(r.error)) {
+      if (!confirm(r.error + '\n\nForce-archive anyway?')) return;
+      r = await groundApi('archivePallet', { pallet_id: id, force: true });
+    }
+    if (!r.ok) { if (typeof showToast === 'function') showToast(r.error || 'Archive failed'); return; }
+    if (typeof showToast === 'function') showToast('✓ Archived');
+    _palletsState.view = 'list';
+    _palletsLoadList_();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Archive failed: ' + e.message);
+  }
+}
+
+async function _palletsOpenAddItem_() {
+  const id = _palletsState.selectedId;
+  if (!id) return;
+  const sku = prompt('Item SKU to add to ' + id + ':');
+  if (!sku || !sku.trim()) return;
+  const qtyStr = prompt('Qty placed on this pallet:', '1');
+  const qty = Number(qtyStr);
+  if (!isFinite(qty) || qty <= 0) {
+    if (typeof showToast === 'function') showToast('Qty must be a positive number');
+    return;
+  }
+  const packer = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '';
+  try {
+    const r = await groundApi('assignItemToPallet', {
+      pallet_id: id,
+      item_sku: sku.trim(),
+      qty,
+      mode: 'set',
+      placed_by: packer || undefined,
+    });
+    if (!r.ok) { if (typeof showToast === 'function') showToast(r.error || 'Assign failed'); return; }
+    if (typeof showToast === 'function') showToast('✓ ' + sku.trim() + ' x' + qty);
+    _palletsLoadDetail_(id);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Assign failed: ' + e.message);
+  }
+}
+
+async function _palletsAdjustItem_(sku) {
+  const id = _palletsState.selectedId;
+  if (!id) return;
+  const cur = (_palletsState.detail && (_palletsState.detail.items || []).find(it => it.item_sku === sku));
+  const curQty = cur ? Number(cur.qty) || 0 : 0;
+  const newQtyStr = prompt('New qty of ' + sku + ' on ' + id + ' (currently ' + curQty + '). Enter 0 to remove.', String(curQty));
+  if (newQtyStr === null) return;
+  const newQty = Number(newQtyStr);
+  if (!isFinite(newQty) || newQty < 0) {
+    if (typeof showToast === 'function') showToast('Qty must be 0 or positive');
+    return;
+  }
+  const packer = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '';
+  try {
+    const r = await groundApi('assignItemToPallet', {
+      pallet_id: id, item_sku: sku, qty: newQty, mode: 'set',
+      placed_by: packer || undefined,
+    });
+    if (!r.ok) { if (typeof showToast === 'function') showToast(r.error || 'Update failed'); return; }
+    if (typeof showToast === 'function') showToast(newQty === 0 ? '✓ Removed' : '✓ Updated to ' + newQty);
+    _palletsLoadDetail_(id);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Update failed: ' + e.message);
   }
 }
 
@@ -21422,7 +21723,7 @@ function showShareSetupQr() {
 }
 
 // ── System Status (v9.52) ─────────────────────────────────
-// v10.813 — URL-trigger: visiting ?recover=1 fires the recovery immediately.
+// v10.815 — URL-trigger: visiting ?recover=1 fires the recovery immediately.
 // Useful when GAS quota is dead and you need to flush spine drift without
 // digging through menus.
 try {
@@ -21431,7 +21732,7 @@ try {
   }
 } catch(e) {}
 
-// v10.813 — 🚑 RECOVER NOW button. Skips GAS entirely — calls worker
+// v10.815 — 🚑 RECOVER NOW button. Skips GAS entirely — calls worker
 // /recover/* endpoints directly from the browser. Useful when GAS
 // UrlFetchApp daily quota is exhausted and the spine is drifting from
 // reality. Runs both:
@@ -22131,7 +22432,7 @@ async function groundApi(action, payload) {
   }
   const body = Object.assign({ action: action, secret: GROUND_SECRET }, payload || {});
   let resp;
-  // v10.813 — route through Cloudflare worker's /orch-relay (added in
+  // v10.815 — route through Cloudflare worker's /orch-relay (added in
   // worker v20.13). Chrome/Edge recently tightened CORS handling on
   // the /exec→googleusercontent.com redirect chain, blocking direct
   // POSTs from the iPad PWA. Worker proxies server-side (no CORS) and
@@ -22644,7 +22945,7 @@ async function refreshGroundQueue() {
 
   try {
     let data = await groundApi('getQueue', {});
-    // v10.813 — GAS quota fallback. If /exec returns a quota-shaped
+    // v10.815 — GAS quota fallback. If /exec returns a quota-shaped
     // error, fail over to worker-direct ground/queue-direct which
     // merges SS V1 + Supabase spine holds without touching GAS.
     if (data && data.ok === false && /too many times|premium urlfetch|quota/i.test(String(data.error || ''))) {
@@ -25292,7 +25593,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.813<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.815<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
