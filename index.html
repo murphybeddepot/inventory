@@ -8258,7 +8258,10 @@ async function _frameRunwayComputeAllWindows_() {
   }, 1000);
   let res;
   try {
-    res = await _frameRunwayFullVelocityViaWorkerWithTimeout_([30, 60, 90, 180, 360], 90000);
+    // v10.830 — 90s was too tight when the worker hit a slow Shopify
+    // response. Worker's own max_seconds=270 so 240s here gives breathing
+    // room without abandoning a 4-min stuck call.
+    res = await _frameRunwayFullVelocityViaWorkerWithTimeout_([30, 60, 90, 180, 360], 240000);
   } catch (e) {
     clearInterval(ticker);
     _restore_();
@@ -9708,6 +9711,14 @@ async function _frameRunwaySaveUnmappedToInbox_(unmappedList) {
     for (const u of unmappedList) {
       const prior = existingMap[u.sku];
       if (prior) {
+        // v10.830 — already-resolved SKUs are silent. Don't even bump
+        // the occurrence_count on 'mapped' / 'ignored' / 'wontfix' rows
+        // so they STAY hidden. Bug was: count was bumped on every
+        // sweep, last_seen_at refreshed, but Zac never saw it because
+        // we filter to status=new — the leak was that those rows were
+        // still considered fresh and could resurface if the filter ever
+        // got lifted. Now we just leave them alone.
+        if (prior.status === 'mapped' || prior.status === 'ignored' || prior.status === 'wontfix') continue;
         patches.push({
           variant_sku: u.sku,
           new_count: (Number(prior.occurrence_count) || 0) + Number(u.count),
@@ -9760,7 +9771,11 @@ async function _frameRunwayOpenUnmappedInbox_() {
   document.body.appendChild(ov);
   let rows = [];
   try {
-    const r = await fetch(SUPABASE_URL + '/rest/v1/unmapped_skus_inbox?select=*&order=last_seen_at.desc&limit=500', {
+    // v10.830 — default to status='new' only. Resolved rows hide so
+    // the inbox shows what actually needs attention. Pass include
+    // resolved=true to see history.
+    const showAll = window._unmappedInboxShowAll === true;
+    const r = await fetch(SUPABASE_URL + '/rest/v1/unmapped_skus_inbox?' + (showAll ? '' : 'status=eq.new&') + 'select=*&order=last_seen_at.desc&limit=500', {
       headers: { 'apikey': SUPABASE_PUB_KEY, 'Authorization': 'Bearer ' + SUPABASE_PUB_KEY },
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -9793,12 +9808,12 @@ async function _frameRunwayOpenUnmappedInbox_() {
         const sku = btn.dataset.sku;
         btn.disabled = true; btn.textContent = '…';
         try {
-          await fetch(SUPABASE_URL + '/rest/v1/unmapped_skus_inbox?variant_sku=eq.' + encodeURIComponent(sku), {
-            method: 'PATCH',
-            headers: { 'apikey': SUPABASE_PUB_KEY, 'Authorization': 'Bearer ' + SUPABASE_PUB_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-            body: JSON.stringify({ status: action, resolved_at: new Date().toISOString(), last_updated_at: new Date().toISOString() }),
-          });
-          // Reload the inbox
+          // v10.830 — route through orchestrator (service key bypasses
+          // RLS). Was hitting Supabase REST with the publishable key,
+          // which silently 401'd. LIGHTSBLK kept reappearing because
+          // status never changed.
+          const r = await groundApi('setUnmappedInboxStatus', { variant_sku: sku, status: action });
+          if (!r.ok) throw new Error(r.error || 'unknown');
           _frameRunwayOpenUnmappedInbox_();
         } catch (err) {
           alert('Update failed: ' + err.message);
@@ -25935,7 +25950,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.829<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.830<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
