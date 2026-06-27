@@ -8054,7 +8054,7 @@ function _frameRunwayOpen_() {
     +   '<input type="search" id="frameRunwaySearchInput" placeholder="🔍 Search by SKU, bin, or tag (sbf-q, 3.7, spare…)" oninput="_frameRunwaySearchFilter_(this.value)" autocomplete="off" style="width:100%;padding:9px 36px 9px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box">'
     +   '<button type="button" id="frameRunwaySearchClearBtn" onclick="_frameRunwaySearchClear_()" style="display:none;position:absolute;right:22px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer" title="Clear search">✕</button>'
     + '</div>'
-    // v10.820 — vendor filter dropdown. Populated after items load
+    // v10.822 — vendor filter dropdown. Populated after items load
     // from the unique set of flags.vendor values seen on cached items.
     + '<div id="frameRunwayVendorBar" style="padding:6px 14px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap"></div>'
     + '<div id="frameRunwayBody" style="flex:1;overflow-y:auto;padding:12px 14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">'
@@ -8102,7 +8102,7 @@ function _frameRunwaySearchClear_() {
   if (inp) inp.value = '';
   _frameRunwaySearchFilter_('');
 }
-// v10.820 — populate the vendor dropdown from the current items cache.
+// v10.822 — populate the vendor dropdown from the current items cache.
 // Called after _frameRunwayItemsCache is set.
 function _runwayPopulateVendorBar_() {
   const bar = document.getElementById('frameRunwayVendorBar');
@@ -8139,7 +8139,7 @@ function _runwaySetVendorFilter_(vendor) {
     _runwayPopulateVendorBar_();
   }
 }
-// v10.820 — toggle the hide filter. localStorage so persists per-device.
+// v10.822 — toggle the hide filter. localStorage so persists per-device.
 function _runwayToggleShowHidden_() {
   const cur = localStorage.getItem('mbd_runway_show_hidden') === '1';
   if (cur) localStorage.removeItem('mbd_runway_show_hidden');
@@ -8150,7 +8150,7 @@ function _runwayToggleShowHidden_() {
     if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
   }
 }
-// v10.820 — flip the server-side hidden_from_runway flag for one SKU.
+// v10.822 — flip the server-side hidden_from_runway flag for one SKU.
 // Optimistic: updates the local cache immediately, repaints, then writes
 // back. On failure, reverts.
 async function _runwayHideItem_(sku, nextHidden) {
@@ -9613,8 +9613,23 @@ async function _invTraceLeaf_(leafSku) {
         return;
       }
     } catch (e2) {
-      document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace network error: ' + esc(String(e)) + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:monospace;margin-top:8px">URL: ' + esc(url) + '<br>Direct retry: ' + esc(String(e2)) + '</div></div>';
-      return;
+      // v10.822 — Last-resort fallback: route through the orchestrator
+      // proxy. Some iPad/Safari contexts can't reach workers.dev directly
+      // (Zac 2026-06-27 saw both direct attempts fail with "Failed to
+      // fetch" even though curl from the same network worked). The
+      // orch-relay path is known-working so we get a guaranteed reach.
+      try {
+        const proxied = await groundApi('traceLeaf', { sku: leafSku, days: 90 });
+        if (proxied && proxied.ok) {
+          j = proxied;
+        } else {
+          document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace failed (proxy): ' + esc((proxied && proxied.error) || 'unknown') + '</div>';
+          return;
+        }
+      } catch (e3) {
+        document.getElementById('invTraceBody').innerHTML = '<div style="padding:30px;color:#c00 !important;-webkit-text-fill-color:#c00 !important">Trace network error: ' + esc(String(e)) + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:monospace;margin-top:8px">URL: ' + esc(url) + '<br>Direct retry: ' + esc(String(e2)) + '<br>Proxy retry: ' + esc(String(e3)) + '</div></div>';
+        return;
+      }
     }
   }
 
@@ -10914,7 +10929,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     items = _frameRunwaySortItems_(items);
     // v10.736 — cache items for resort.
     window._frameRunwayItemsCache = items;
-    // v10.820 — refresh the vendor dropdown after cache fills
+    // v10.822 — refresh the vendor dropdown after cache fills
     try { _runwayPopulateVendorBar_(); } catch(e) {}
     // v10.715 — stash uncounted-leaves payload for the renderer's footer.
     window._frameRunwayUncountedLeaves = res.uncounted_leaves || [];
@@ -11022,7 +11037,7 @@ function _frameRunwayRender_(items, containerBanner) {
   if (containerBanner) {
     html += '<div style="padding:10px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.45);border-radius:8px;margin-bottom:12px;font-size:12px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(containerBanner) + '</div>';
   }
-  // v10.820 — hide non-inventory items (instructions, mattresses, finished
+  // v10.822 — hide non-inventory items (instructions, mattresses, finished
   // cabinet beds, etc) behind a toggle. Operators tap "🚫 Hide" on each
   // row to stash that SKU; flag persists server-side as
   // items.flags.hidden_from_runway. "X hidden · show" header pill
@@ -11036,7 +11051,7 @@ function _frameRunwayRender_(items, containerBanner) {
   } else {
     for (const it of items) if (it.flags && it.flags.hidden_from_runway) hiddenCount++;
   }
-  // v10.820 — vendor filter. Single-vendor view via the dropdown above.
+  // v10.822 — vendor filter. Single-vendor view via the dropdown above.
   const vendorFilter = (typeof localStorage !== 'undefined') ? localStorage.getItem('mbd_runway_vendor_filter') || '' : '';
   if (vendorFilter) {
     items = items.filter(it => {
@@ -25731,7 +25746,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.820<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.822<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
