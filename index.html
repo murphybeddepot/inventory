@@ -2209,7 +2209,7 @@ input::placeholder, textarea::placeholder {
          items + bin), with name/unit/category passthrough. -->
     <button onclick="_stockV2OpenAddNewItem_()" style="padding:11px 10px;background:linear-gradient(180deg,#3d1a5e,#7B2CBF) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #C77DFF;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">+ Add New Item</button>
   </div>
-  <!-- v10.815 — Pallets / crates / gaylords. Task #64. Movable physical
+  <!-- v10.816 — Pallets / crates / gaylords. Task #64. Movable physical
        containers with item assignments + movement history. -->
   <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px">
     <button onclick="_palletsOpen_()" style="padding:11px 10px;background:linear-gradient(180deg,#1a3d3d,#2d6e6e) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #4DD0E1;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📦 Pallets &amp; Crates</button>
@@ -11090,6 +11090,15 @@ function _frameRunwayRender_(items, containerBanner) {
                 + '<span style="color:' + colorWith + ' !important;-webkit-text-fill-color:' + colorWith + ' !important;font-weight:900">' + dispW + '</span>';
       } else {
         runDisp = '<span style="color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;font-weight:900">' + dispR + '</span>';
+      }
+      // v10.816 — task #76 ETA-aware gap chip. Appears when a PO is
+      // far enough out that we'll stock out before it lands. Sits
+      // beside the "Xd → Yd" so the operator sees the gap risk
+      // inline. The "→ 158d" naive number is misleading on its own.
+      if (typeof it.coverage_gap_days === 'number' && it.coverage_gap_days >= 7 && it.on_order > 0) {
+        const gapDays = it.coverage_gap_days;
+        const gapColor = gapDays >= 30 ? '#FF5252' : '#FFB300';
+        runDisp += ' <span title="ETA-aware: even with on-order, we hit zero before the next PO lands. Coverage gap = ' + gapDays + ' days." style="background:' + gapColor + '22;border:1px solid ' + gapColor + ';color:' + gapColor + ' !important;-webkit-text-fill-color:' + gapColor + ' !important;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:900;letter-spacing:.5px;margin-left:4px">⚠ ' + gapDays + 'd GAP</span>';
       }
     }
     const dnuChip = (it.dnu_qty > 0)
@@ -21723,7 +21732,7 @@ function showShareSetupQr() {
 }
 
 // ── System Status (v9.52) ─────────────────────────────────
-// v10.815 — URL-trigger: visiting ?recover=1 fires the recovery immediately.
+// v10.816 — URL-trigger: visiting ?recover=1 fires the recovery immediately.
 // Useful when GAS quota is dead and you need to flush spine drift without
 // digging through menus.
 try {
@@ -21732,7 +21741,7 @@ try {
   }
 } catch(e) {}
 
-// v10.815 — 🚑 RECOVER NOW button. Skips GAS entirely — calls worker
+// v10.816 — 🚑 RECOVER NOW button. Skips GAS entirely — calls worker
 // /recover/* endpoints directly from the browser. Useful when GAS
 // UrlFetchApp daily quota is exhausted and the spine is drifting from
 // reality. Runs both:
@@ -22432,7 +22441,7 @@ async function groundApi(action, payload) {
   }
   const body = Object.assign({ action: action, secret: GROUND_SECRET }, payload || {});
   let resp;
-  // v10.815 — route through Cloudflare worker's /orch-relay (added in
+  // v10.816 — route through Cloudflare worker's /orch-relay (added in
   // worker v20.13). Chrome/Edge recently tightened CORS handling on
   // the /exec→googleusercontent.com redirect chain, blocking direct
   // POSTs from the iPad PWA. Worker proxies server-side (no CORS) and
@@ -22945,7 +22954,7 @@ async function refreshGroundQueue() {
 
   try {
     let data = await groundApi('getQueue', {});
-    // v10.815 — GAS quota fallback. If /exec returns a quota-shaped
+    // v10.816 — GAS quota fallback. If /exec returns a quota-shaped
     // error, fail over to worker-direct ground/queue-direct which
     // merges SS V1 + Supabase spine holds without touching GAS.
     if (data && data.ok === false && /too many times|premium urlfetch|quota/i.test(String(data.error || ''))) {
@@ -25593,7 +25602,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.815<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.816<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
