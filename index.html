@@ -2059,6 +2059,8 @@ input::placeholder, textarea::placeholder {
     <button onclick="openVoidOrderPrompt_()" title="Find a shipped order by number and void its labels for re-pack (manager PIN required)" style="padding:14px 14px;background:#1a1a1a;color:#FF5252;-webkit-text-fill-color:#FF5252;border:1.5px solid #8B0000;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔍</span><span style="font-size:9px">VOID #</span></button>
     <button id="groundManagerModeBtn" onclick="toggleGroundManagerMode()" title="Manager bulk-print mode — select multiple orders to print + ship in one action" style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">👤</span><span style="font-size:9px">BULK</span></button>
     <button id="groundSyncBtn" onclick="syncShipStationThenRefresh()" title="Force ShipStation to pull new Shopify orders, then reload the queue" style="padding:14px 14px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🔄</span><span style="font-size:9px">SYNC SS</span></button>
+    <!-- v10.838 — FedEx Express pickups: manage today's auto-pickup, manual schedule, override past-cutoff -->
+    <button onclick="_openFedExExpressPickups_()" title="FedEx Express auto-pickup — manage, override, edit cutoff" style="padding:14px 14px;background:#1a1a1a;color:#FF9A5C;-webkit-text-fill-color:#FF9A5C;border:1.5px solid #FF7F28;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">🚚</span><span style="font-size:9px">PICKUPS</span></button>
     <!-- v10.601 — SS ↔ FedEx booking-mode toggle. localStorage-persisted -->
     <button id="groundCarrierToggleBtn" onclick="toggleGroundCarrierMode()" title="Switch booking between ShipStation and FedEx-direct. Default SS." style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span id="groundCarrierToggleIcon" style="font-size:18px">📦</span><span id="groundCarrierToggleLbl" style="font-size:9px">SS</span></button>
     <button onclick="refreshGroundQueue()" title="Reload queue (uses ShipStation's current state)" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
@@ -10688,6 +10690,133 @@ async function _frameRunwayOpenLedger_(opts) {
     document.getElementById(id).onkeydown = (e) => { if (e.key === 'Enter') _runLedgerQuery_(); };
   });
   _runLedgerQuery_();
+}
+
+// v10.838 — FedEx Express pickups surface. Lets Seth/Kim see today's
+// scheduled pickup, manually schedule one, override past-cutoff next-
+// biz-day pickups back to today, and edit the cutoff hour. Backed by
+// the FedExExpress.gs endpoints shipped in v10.836/.837.
+async function _openFedExExpressPickups_() {
+  const prior = document.getElementById('fedexExpressOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'fedexExpressOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = ''
+    + '<div style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FF7F28;border-radius:10px;padding:18px;max-width:840px;width:100%;max-height:92vh;display:flex;flex-direction:column;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +     '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;color:#FF9A5C !important;-webkit-text-fill-color:#FF9A5C !important">🚚 FedEx Express Pickups</div>'
+    +     '<button onclick="document.getElementById(\'fedexExpressOverlay\').remove()" style="background:transparent;border:0;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:24px;cursor:pointer;line-height:1">×</button>'
+    +   '</div>'
+    +   '<div id="fedexExpressStatus" style="font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:8px">Loading…</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">'
+    +     '<button id="fedexExpressManualBtn" style="padding:9px 12px;background:linear-gradient(180deg,#3a2d00,#7a5a00);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">+ Manual schedule</button>'
+    +     '<button id="fedexExpressOverrideBtn" style="padding:9px 12px;background:linear-gradient(180deg,#1A5C1A,#00C853);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">🚚 Override to today</button>'
+    +     '<button id="fedexExpressCutoffBtn" style="padding:9px 12px;background:rgba(66,165,245,.15);color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1.5px solid #42a5f5;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">⏰ Edit cutoff hour</button>'
+    +     '<button id="fedexExpressRefreshBtn" style="padding:9px 12px;background:rgba(120,140,170,.15);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border:1.5px solid rgba(120,140,170,.6);border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">↻ Refresh</button>'
+    +   '</div>'
+    +   '<div id="fedexExpressList" style="flex:1;overflow-y:auto;background:#000 !important;border:1px solid #222;border-radius:6px;padding:8px"></div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  document.getElementById('fedexExpressManualBtn').onclick = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = prompt('Schedule a FedEx Express pickup for which date?\n(YYYY-MM-DD; blank = today/next-biz auto)', today);
+    if (date === null) return;
+    const notes = prompt('Notes (optional, e.g. "missed yesterday — extra packages")', '') || '';
+    try {
+      const r = await groundApi('manualSchedulePickup', { date_key: date.trim() || undefined, notes: notes || undefined });
+      if (!r.ok) { alert('Schedule failed: ' + r.error); return; }
+      if (typeof showToast === 'function') showToast(r.no_op ? 'Already scheduled for ' + r.date_key : '✓ Scheduled for ' + r.date_key);
+      _loadFedExExpressList_();
+    } catch (e) { alert('Schedule failed: ' + e.message); }
+  };
+  document.getElementById('fedexExpressOverrideBtn').onclick = async () => {
+    const orig = prompt('Original auto-scheduled date that should move to TODAY?\n(YYYY-MM-DD; blank = just ensure today is scheduled)', '');
+    if (orig === null) return;
+    const reason = prompt('Reason (e.g. "FedEx still on dock", "early courier missed yesterday")', 'courier still on dock') || '';
+    try {
+      const r = await groundApi('overrideExpressPickupToToday', { original_date_key: orig.trim() || undefined, reason: reason || undefined });
+      if (!r.ok) { alert('Override failed: ' + r.error); return; }
+      if (typeof showToast === 'function') showToast('✓ Pickup overridden to ' + r.today_date_key + (r.overridden ? ' (was ' + r.original_date_key + ')' : ''));
+      _loadFedExExpressList_();
+    } catch (e) { alert('Override failed: ' + e.message); }
+  };
+  document.getElementById('fedexExpressCutoffBtn').onclick = async () => {
+    // Read current value first
+    let cur = '';
+    try {
+      const d = await groundApi('diagFedExExpress', {});
+      if (d && d.ok && d.today_lock && d.today_lock.cutoff_hour != null) cur = String(d.today_lock.cutoff_hour);
+    } catch (e) {}
+    const h = prompt('Same-day cutoff hour in EST (0-23). After this hour, Express pickups roll to next biz day.', cur || '12');
+    if (h === null) return;
+    const hour = Number(h);
+    if (!isFinite(hour) || hour < 0 || hour > 23) { alert('Hour must be 0-23'); return; }
+    try {
+      const r = await groundApi('setFedExExpressCutoff', { hour });
+      if (!r.ok) { alert('Cutoff update failed: ' + r.error); return; }
+      if (typeof showToast === 'function') showToast('✓ Cutoff set to ' + hour + ':00 EST');
+      _loadFedExExpressList_();
+    } catch (e) { alert('Cutoff update failed: ' + e.message); }
+  };
+  document.getElementById('fedexExpressRefreshBtn').onclick = _loadFedExExpressList_;
+  _loadFedExExpressList_();
+}
+
+async function _loadFedExExpressList_() {
+  const status = document.getElementById('fedexExpressStatus');
+  const list = document.getElementById('fedexExpressList');
+  if (!status || !list) return;
+  status.textContent = 'Loading…';
+  list.innerHTML = '<div style="padding:24px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic">Loading pickups…</div>';
+  let rows = [];
+  try {
+    const sinceDate = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const r = await groundApi('listFedExExpressPickups', { since_date: sinceDate, limit: 100 });
+    if (!r.ok) {
+      list.innerHTML = '<div style="padding:20px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">Load failed: ' + (r.error || 'unknown') + '</div>';
+      return;
+    }
+    rows = r.pickups || [];
+  } catch (e) {
+    list.innerHTML = '<div style="padding:20px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">Load threw: ' + e.message + '</div>';
+    return;
+  }
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayRow = rows.find(r => r.date_key === todayKey);
+  status.innerHTML = '<strong style="color:#fff !important;-webkit-text-fill-color:#fff !important">'
+    + (todayRow ? 'Today (' + todayKey + '): ' + (todayRow.label_count || 0) + ' labels · ' + (todayRow.status || '?') : 'No pickup scheduled for today yet')
+    + '</strong> · ' + rows.length + ' pickups in last 30 days';
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic">No pickups scheduled yet. Bedrock will create one automatically on the first FedEx Express label of the day.</div>';
+    return;
+  }
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#000 !important">';
+  html += '<thead style="position:sticky;top:0;background:#15171c !important;z-index:5"><tr style="color:#FF9A5C !important;-webkit-text-fill-color:#FF9A5C !important">'
+    + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Date</th>'
+    + '<th style="padding:6px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Labels</th>'
+    + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Status</th>'
+    + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Confirmation</th>'
+    + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Notes</th>'
+    + '</tr></thead><tbody>';
+  for (const r of rows) {
+    const isToday = r.date_key === todayKey;
+    const statusColor = r.status === 'confirmed' || r.status === 'verified' ? '#00E676'
+      : r.status === 'cancelled' || r.status === 'missed' ? '#FF5252'
+      : r.status === 'dry_run' ? '#FFB300' : '#9EB0D0';
+    html += '<tr style="border-bottom:1px solid #1a1a1a' + (isToday ? ';background:rgba(255,127,40,.10)' : '') + '">'
+      + '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important;font-weight:' + (isToday ? '900' : '600') + '">' + esc(r.date_key) + (isToday ? ' · TODAY' : '') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important">' + (Number(r.label_count) || 0) + '</td>'
+      + '<td style="padding:5px 8px;color:' + statusColor + ' !important;-webkit-text-fill-color:' + statusColor + ' !important;font-weight:800;text-transform:uppercase;font-size:10px;letter-spacing:.4px">' + esc(r.status || '') + '</td>'
+      + '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;color:#ccc !important;-webkit-text-fill-color:#ccc !important">' + esc(r.confirmation || '—') + '</td>'
+      + '<td style="padding:5px 8px;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:11px">' + esc(r.notes || '') + '</td>'
+      + '</tr>';
+  }
+  html += '</tbody></table>';
+  list.innerHTML = html;
 }
 
 async function _frameRunwayOpenVendorEditor_() {
@@ -26257,7 +26386,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.835<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.838<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
