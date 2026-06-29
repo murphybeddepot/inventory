@@ -141,9 +141,29 @@
 
     var carr=r.carriers||[];
     document.getElementById('carrBadge').textContent = carr.length;
-    document.getElementById('carrBody').innerHTML = carr.length ? carr.map(function(c){
+    // v10.867 — Express pickup strip at top of Carriers column when one's scheduled today
+    var expressStrip = '';
+    var ep = r.express_pickup;
+    if (ep) {
+      var pillBg, pillFg, pillText;
+      if (ep.live && ep.confirmation && ep.confirmation !== 'API_FAILED') {
+        pillBg = 'rgba(0,230,118,.12)'; pillFg = '#00E676';
+        pillText = '✓ FEDEX EXPRESS PICKUP · ' + ep.confirmation;
+      } else if (ep.api_error || ep.confirmation === 'API_FAILED') {
+        pillBg = 'rgba(255,82,82,.14)'; pillFg = '#FF5252';
+        pillText = '🚨 FEDEX PICKUP FAILED — CALL FEDEX';
+      } else {
+        pillBg = 'rgba(255,179,0,.14)'; pillFg = '#FFB300';
+        pillText = '⚠ EXPRESS PICKUP NOT YET AUTO-BOOKED';
+      }
+      expressStrip = '<div style="padding:14px 18px;background:' + pillBg + ';border-bottom:1px solid rgba(255,255,255,.10);text-align:center">'
+        + '<div style="font-size:13px;letter-spacing:1.5px;color:' + pillFg + ';font-weight:800;text-transform:uppercase">' + esc(pillText) + '</div>'
+        + (ep.label_count > 1 ? '<div style="font-size:11px;color:var(--dim);margin-top:3px">covering ' + ep.label_count + ' labels · ready 2-4pm</div>' : '<div style="font-size:11px;color:var(--dim);margin-top:3px">ready 2-4pm EST</div>')
+      + '</div>';
+    }
+    document.getElementById('carrBody').innerHTML = expressStrip + (carr.length ? carr.map(function(c){
       return '<div class="carrier"><span class="cn">'+esc(c.carrier)+'</span><span class="cc">'+c.count+'</span></div>';
-    }).join('') : '<div class="empty">No carriers assigned.</div>';
+    }).join('') : (expressStrip ? '' : '<div class="empty">No carriers assigned.</div>'));
 
     var n=r.notes||{};
     document.getElementById('dateBadge').textContent = n.date||r.date||'';
