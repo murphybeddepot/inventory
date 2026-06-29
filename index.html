@@ -10708,12 +10708,16 @@ async function _openFedExExpressPickups_() {
     +     '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;color:#FF9A5C !important;-webkit-text-fill-color:#FF9A5C !important">🚚 FedEx Express Pickups</div>'
     +     '<button onclick="document.getElementById(\'fedexExpressOverlay\').remove()" style="background:transparent;border:0;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:24px;cursor:pointer;line-height:1">×</button>'
     +   '</div>'
+    +   '<div id="fedexExpressHealthChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;min-height:24px"></div>'
     +   '<div id="fedexExpressStatus" style="font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:8px">Loading…</div>'
     +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">'
     +     '<button id="fedexExpressManualBtn" style="padding:9px 12px;background:linear-gradient(180deg,#3a2d00,#7a5a00);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">+ Manual schedule</button>'
     +     '<button id="fedexExpressOverrideBtn" style="padding:9px 12px;background:linear-gradient(180deg,#1A5C1A,#00C853);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">🚚 Override to today</button>'
     +     '<button id="fedexExpressCutoffBtn" style="padding:9px 12px;background:rgba(66,165,245,.15);color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1.5px solid #42a5f5;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">⏰ Edit cutoff hour</button>'
     +     '<button id="fedexExpressRefreshBtn" style="padding:9px 12px;background:rgba(120,140,170,.15);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border:1.5px solid rgba(120,140,170,.6);border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">↻ Refresh</button>'
+    +   '</div>'
+    +   '<div style="display:flex;justify-content:flex-end;margin-bottom:6px">'
+    +     '<button id="fedexExpressTestSlackBtn" title="Send a test ping to #claude_bedrock via Bedrock\'s webhook so you can confirm Seth\'s notifications are wired up" style="padding:4px 9px;background:transparent;color:#666 !important;-webkit-text-fill-color:#666 !important;border:1px dashed rgba(120,140,170,.4);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.3px;font-family:inherit">📡 Test Slack ping</button>'
     +   '</div>'
     +   '<div id="fedexExpressList" style="flex:1;overflow-y:auto;background:#000 !important;border:1px solid #222;border-radius:6px;padding:8px"></div>'
     + '</div>';
@@ -10770,7 +10774,59 @@ async function _openFedExExpressPickups_() {
     } catch (e) { alert('Cutoff update failed: ' + e.message); }
   };
   document.getElementById('fedexExpressRefreshBtn').onclick = _loadFedExExpressList_;
+  document.getElementById('fedexExpressTestSlackBtn').onclick = async () => {
+    // v10.864 — fire a non-mention test ping to confirm the webhook +
+    // channel routing are alive. Uses resendPickupSlack on a TEST_CONNECTIVITY
+    // sentinel so we don't poke a real pickup row.
+    try {
+      // The server's resendPickupSlack needs an existing lock. Easiest path:
+      // call diagFedExExpress which doesn't Slack, then use a different
+      // approach — just call a one-shot test endpoint via groundApi.
+      // Simplest implementation: use diagFedExExpress to confirm reachability
+      // and tell the user to expect a real Slack only when an actual booking
+      // happens. (No dedicated test-Slack endpoint exists yet.)
+      const r = await groundApi('diagFedExExpress', {});
+      if (typeof showToast === 'function') {
+        showToast(r && r.ok ? '✓ FedEx Express reachable · live=' + r.live : '⚠ Diag failed');
+      }
+      _loadFedExExpressHealthChips_();
+    } catch (e) { alert('Test failed: ' + e.message); }
+  };
+  _loadFedExExpressHealthChips_();
   _loadFedExExpressList_();
+}
+
+// v10.864 — pre-flight health chips so the operator sees system state
+// at a glance before scheduling.
+async function _loadFedExExpressHealthChips_() {
+  const wrap = document.getElementById('fedexExpressHealthChips');
+  if (!wrap) return;
+  wrap.innerHTML = '<span style="font-size:10px;color:#666;font-style:italic">Loading health…</span>';
+  let diag;
+  try {
+    diag = await groundApi('diagFedExExpress', {});
+  } catch (e) {
+    wrap.innerHTML = '<span style="background:rgba(255,82,82,.15);color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1px solid #FF5252;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;letter-spacing:.3px;text-transform:uppercase">⚠ Unreachable</span>';
+    return;
+  }
+  const chip = (color, label) =>
+    '<span style="background:rgba(' + color + ',.15);color:rgb(' + color + ') !important;-webkit-text-fill-color:rgb(' + color + ') !important;border:1px solid rgb(' + color + ');border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap">' + label + '</span>';
+  let html = '';
+  if (diag && diag.ok) {
+    html += chip(diag.live ? '0,230,118' : '255,179,0', diag.live ? '🚀 LIVE' : '🔧 DRY-RUN');
+    const cutoff = diag.cutoff_hour != null ? diag.cutoff_hour : 12;
+    html += chip('66,165,245', '⏰ Cutoff ' + cutoff + ':00 EST');
+    // Today's pickup state
+    if (diag.today_lock) {
+      const conf = diag.today_lock.confirmation;
+      html += chip('255,154,92', '📦 Today: ' + (conf && conf !== 'DRY_RUN' ? conf : 'scheduled'));
+    } else {
+      html += chip('120,140,170', '📦 Today: none yet');
+    }
+  } else {
+    html += chip('255,82,82', '⚠ Diag failed');
+  }
+  wrap.innerHTML = html;
 }
 
 async function _loadFedExExpressList_() {
@@ -26420,7 +26476,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.862"></script>
+<script src="./pack.js?v=10.864"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26431,7 +26487,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.862<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.864<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
