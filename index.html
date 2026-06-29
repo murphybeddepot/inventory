@@ -9277,6 +9277,30 @@ function _frameRunwayComputePoLines_() {
   return { lines, targetMonths, roundTo, windowDays, vendorFilter };
 }
 
+// v10.873 — clipboard copy with toast. Uses modern Clipboard API
+// with a textarea fallback for older Safari.
+function _copyToClipboardWithToast_(text, toastMsg) {
+  toastMsg = toastMsg || '✓ Copied';
+  const cleanup = (ok) => {
+    if (typeof showToast === 'function') showToast(ok ? '📋 ' + toastMsg : '⚠ Copy failed');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(String(text)).then(() => cleanup(true)).catch(() => cleanup(false));
+    return;
+  }
+  // Fallback
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = String(text);
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    cleanup(true);
+  } catch (e) { cleanup(false); }
+}
+
 function _frameRunwayRecomputePo_() {
   const body = document.getElementById('poGeneratorTable');
   if (!body) return;
@@ -9290,12 +9314,16 @@ function _frameRunwayRecomputePo_() {
     badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString() + ' · velocity ' + r.windowDays + 'd' + venTag;
   }
   // v10.755 — vendor subtitle: shows contact info when a vendor is picked.
+  // v10.873 — added inline 📋 copy button for the vendor email so Zac can
+  // grab it in one tap without highlighting + Cmd-C.
   const subtitleEl = document.getElementById('poVendorSubtitle');
   if (subtitleEl) {
     if (r.vendorFilter) {
       const c = _VENDOR_CONTACTS[r.vendorFilter];
       if (c && c.email) {
-        subtitleEl.textContent = c.name + ' · ' + c.email;
+        const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        subtitleEl.innerHTML = esc(c.name) + ' · <a href="mailto:' + esc(c.email) + '" style="color:#7B2CBF;text-decoration:underline">' + esc(c.email) + '</a> '
+          + '<button onclick="_copyToClipboardWithToast_(\'' + esc(c.email).replace(/'/g, "\\'") + '\', \'Email copied\')" title="Copy email to clipboard" style="margin-left:4px;padding:2px 6px;background:rgba(123,44,191,.10) !important;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;border:1px solid rgba(123,44,191,.4);border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;font-family:inherit">📋</button>';
       } else if (c) {
         subtitleEl.textContent = c.name + ' · (no email on file — fill in Gmail manually)';
       } else {
@@ -26682,7 +26710,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.870"></script>
+<script src="./pack.js?v=10.873"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26693,7 +26721,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.870<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.873<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
