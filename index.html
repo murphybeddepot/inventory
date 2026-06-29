@@ -10725,35 +10725,8 @@ async function _openFedExExpressPickups_() {
   document.body.appendChild(ov);
 
   document.getElementById('fedexExpressManualBtn').onclick = _openFedExManualScheduleForm_;
-  document.getElementById('fedexExpressOverrideBtn').onclick = async () => {
-    const orig = prompt('Original auto-scheduled date that should move to TODAY?\n(YYYY-MM-DD; blank = just ensure today is scheduled)', '');
-    if (orig === null) return;
-    const reason = prompt('Reason (e.g. "FedEx still on dock", "early courier missed yesterday")', 'courier still on dock') || '';
-    try {
-      const r = await groundApi('overrideExpressPickupToToday', { original_date_key: orig.trim() || undefined, reason: reason || undefined });
-      if (!r.ok) { alert('Override failed: ' + r.error); return; }
-      if (typeof showToast === 'function') showToast('✓ Pickup overridden to ' + r.today_date_key + (r.overridden ? ' (was ' + r.original_date_key + ')' : ''));
-      _loadFedExExpressList_();
-    } catch (e) { alert('Override failed: ' + e.message); }
-  };
-  document.getElementById('fedexExpressCutoffBtn').onclick = async () => {
-    // Read current value first
-    let cur = '';
-    try {
-      const d = await groundApi('diagFedExExpress', {});
-      if (d && d.ok && d.today_lock && d.today_lock.cutoff_hour != null) cur = String(d.today_lock.cutoff_hour);
-    } catch (e) {}
-    const h = prompt('Same-day cutoff hour in EST (0-23). After this hour, Express pickups roll to next biz day.', cur || '12');
-    if (h === null) return;
-    const hour = Number(h);
-    if (!isFinite(hour) || hour < 0 || hour > 23) { alert('Hour must be 0-23'); return; }
-    try {
-      const r = await groundApi('setFedExExpressCutoff', { hour });
-      if (!r.ok) { alert('Cutoff update failed: ' + r.error); return; }
-      if (typeof showToast === 'function') showToast('✓ Cutoff set to ' + hour + ':00 EST');
-      _loadFedExExpressList_();
-    } catch (e) { alert('Cutoff update failed: ' + e.message); }
-  };
+  document.getElementById('fedexExpressOverrideBtn').onclick = _openFedExOverrideForm_;
+  document.getElementById('fedexExpressCutoffBtn').onclick = _openFedExCutoffForm_;
   document.getElementById('fedexExpressRefreshBtn').onclick = _loadFedExExpressList_;
   document.getElementById('fedexExpressTestSlackBtn').onclick = async () => {
     // v10.864 — fire a non-mention test ping to confirm the webhook +
@@ -10844,6 +10817,109 @@ function _openFedExManualScheduleForm_() {
     const d = document.getElementById('fedexManualDate');
     if (d) d.focus();
   }, 100);
+}
+
+// v10.866 — Override-to-today form modal. Replaces the prompt() chain.
+function _openFedExOverrideForm_() {
+  const prior = document.getElementById('fedexOverrideForm');
+  if (prior) prior.remove();
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const ov = document.createElement('div');
+  ov.id = 'fedexOverrideForm';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10010;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00C853;border-radius:10px;padding:18px;max-width:480px;width:100%;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;margin-bottom:12px">🚚 Override Pickup to Today</div>'
+    +   '<div style="font-size:12px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:14px;line-height:1.4">Use when auto-flow scheduled for next biz day but the FedEx courier still hasn\'t shown up at the dock — today\'s pickup window is still viable.</div>'
+    +   '<label style="display:block;margin-bottom:14px">'
+    +     '<div style="font-size:11px;font-weight:800;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px">Original auto-scheduled date</div>'
+    +     '<input id="fedexOverrideOrig" type="date" style="width:100%;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #444;border-radius:6px;padding:10px 12px;font-size:15px;font-family:inherit">'
+    +     '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px;font-style:italic">Blank = just ensure today is scheduled (no rollback)</div>'
+    +   '</label>'
+    +   '<label style="display:block;margin-bottom:14px">'
+    +     '<div style="font-size:11px;font-weight:800;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px">Reason</div>'
+    +     '<input id="fedexOverrideReason" type="text" value="courier still on dock" style="width:100%;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #444;border-radius:6px;padding:10px 12px;font-size:14px;font-family:inherit">'
+    +   '</label>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<button onclick="document.getElementById(\'fedexOverrideForm\').remove()" style="flex:1;padding:11px;background:transparent;color:#888 !important;-webkit-text-fill-color:#888 !important;border:1px solid #444;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">Cancel</button>'
+    +     '<button id="fedexOverrideSubmitBtn" style="flex:2;padding:11px;background:linear-gradient(180deg,#00C853,#1A5C1A);color:#fff !important;-webkit-text-fill-color:#fff !important;border:0;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">🚚 Override to today (' + todayIso + ')</button>'
+    +   '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  document.getElementById('fedexOverrideSubmitBtn').onclick = async () => {
+    const btn = document.getElementById('fedexOverrideSubmitBtn');
+    btn.disabled = true; btn.textContent = 'Overriding…';
+    const orig = (document.getElementById('fedexOverrideOrig').value || '').trim();
+    const reason = (document.getElementById('fedexOverrideReason').value || '').trim();
+    try {
+      const r = await groundApi('overrideExpressPickupToToday', {
+        original_date_key: orig || undefined,
+        reason: reason || undefined,
+      });
+      if (!r.ok) { alert('Override failed: ' + r.error); btn.disabled = false; btn.textContent = '🚚 Override to today (' + todayIso + ')'; return; }
+      if (typeof showToast === 'function') {
+        showToast('✓ Overridden to ' + r.today_date_key + (r.overridden ? ' (was ' + r.original_date_key + ')' : ''));
+      }
+      document.getElementById('fedexOverrideForm').remove();
+      _loadFedExExpressList_();
+      _loadFedExExpressHealthChips_();
+    } catch (e) {
+      alert('Override failed: ' + e.message);
+      btn.disabled = false; btn.textContent = '🚚 Override to today (' + todayIso + ')';
+    }
+  };
+}
+
+// v10.866 — Edit cutoff hour form modal. Replaces the prompt().
+function _openFedExCutoffForm_() {
+  const prior = document.getElementById('fedexCutoffForm');
+  if (prior) prior.remove();
+  // Read current value
+  let cur = 12;
+  groundApi('diagFedExExpress', {}).then(d => {
+    if (d && d.ok && d.cutoff_hour != null) {
+      cur = d.cutoff_hour;
+      const inp = document.getElementById('fedexCutoffInput');
+      if (inp) inp.value = String(cur);
+    }
+  }).catch(() => {});
+  const ov = document.createElement('div');
+  ov.id = 'fedexCutoffForm';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10010;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #42a5f5;border-radius:10px;padding:18px;max-width:480px;width:100%;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;margin-bottom:12px">⏰ Same-Day Cutoff Hour</div>'
+    +   '<div style="font-size:12px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:14px;line-height:1.4">Express labels printed after this hour (EST) roll to next business day for pickup. Default 12 (noon). Set 17 for "all day same-day," 10 for tighter window, etc.</div>'
+    +   '<label style="display:block;margin-bottom:14px">'
+    +     '<div style="font-size:11px;font-weight:800;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px">Cutoff hour (0–23, EST)</div>'
+    +     '<input id="fedexCutoffInput" type="number" min="0" max="23" step="1" value="12" style="width:100%;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #444;border-radius:6px;padding:10px 12px;font-size:18px;font-weight:800;text-align:center;font-family:inherit">'
+    +   '</label>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<button onclick="document.getElementById(\'fedexCutoffForm\').remove()" style="flex:1;padding:11px;background:transparent;color:#888 !important;-webkit-text-fill-color:#888 !important;border:1px solid #444;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">Cancel</button>'
+    +     '<button id="fedexCutoffSubmitBtn" style="flex:2;padding:11px;background:linear-gradient(180deg,#42a5f5,#1565c0);color:#fff !important;-webkit-text-fill-color:#fff !important;border:0;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">⏰ Save cutoff</button>'
+    +   '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  document.getElementById('fedexCutoffSubmitBtn').onclick = async () => {
+    const btn = document.getElementById('fedexCutoffSubmitBtn');
+    const hourRaw = (document.getElementById('fedexCutoffInput').value || '').trim();
+    const hour = Number(hourRaw);
+    if (!isFinite(hour) || hour < 0 || hour > 23) { alert('Hour must be 0–23'); return; }
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const r = await groundApi('setFedExExpressCutoff', { hour });
+      if (!r.ok) { alert('Cutoff update failed: ' + r.error); btn.disabled = false; btn.textContent = '⏰ Save cutoff'; return; }
+      if (typeof showToast === 'function') showToast('✓ Cutoff set to ' + hour + ':00 EST');
+      document.getElementById('fedexCutoffForm').remove();
+      _loadFedExExpressList_();
+      _loadFedExExpressHealthChips_();
+    } catch (e) {
+      alert('Cutoff update failed: ' + e.message);
+      btn.disabled = false; btn.textContent = '⏰ Save cutoff';
+    }
+  };
 }
 
 // v10.864 — pre-flight health chips so the operator sees system state
@@ -26526,7 +26602,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.865"></script>
+<script src="./pack.js?v=10.866"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26537,7 +26613,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.865<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.866<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
