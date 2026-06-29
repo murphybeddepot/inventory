@@ -8050,6 +8050,8 @@ function _frameRunwayOpen_() {
     + '<div style="padding:8px 14px 4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
     +   '<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-right:4px">Sort</span>'
     +   '<div id="frameRunwaySortChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>'
+    +   '<div style="flex:1"></div>'
+    +   '<button onclick="_frameRunwayToggleView_()" id="frameRunwayViewToggle" title="Toggle table vs card view" style="padding:5px 10px;background:rgba(120,140,170,.10);border:1px solid rgba(120,140,170,.6);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border-radius:5px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;text-transform:uppercase">⊞ View</button>'
     + '</div>'
     + '<div style="padding:4px 14px 0;position:relative">'
     +   '<input type="search" id="frameRunwaySearchInput" placeholder="🔍 Search by SKU, bin, or tag (sbf-q, 3.7, spare…)" oninput="_frameRunwaySearchFilter_(this.value)" autocomplete="off" style="width:100%;padding:9px 36px 9px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box">'
@@ -8096,6 +8098,19 @@ function _frameRunwaySearchFilter_(rawQuery) {
   if (sub && q) {
     const total = rows.length;
     sub.textContent = visible + ' of ' + total + ' SKUs matching "' + q + '"';
+  }
+}
+// v10.835 — toggle table ↔ cards on any screen. Cycles auto → table →
+// cards → auto. Persists in localStorage. Re-renders from cache.
+function _frameRunwayToggleView_() {
+  const cur = localStorage.getItem('mbd_runway_view') || 'auto';
+  const next = cur === 'auto' ? 'table' : cur === 'table' ? 'cards' : 'auto';
+  if (next === 'auto') localStorage.removeItem('mbd_runway_view');
+  else localStorage.setItem('mbd_runway_view', next);
+  if (typeof showToast === 'function') showToast('View: ' + next);
+  if (window._frameRunwayItemsCache) {
+    const body = document.getElementById('frameRunwayBody');
+    if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
   }
 }
 function _frameRunwaySearchClear_() {
@@ -11554,7 +11569,7 @@ function _frameRunwayRender_(items, containerBanner) {
       '<button onclick="_frameRunwayApplyQuickFilter_(\'' + esc(query) + '\')" style="background:rgba(255,255,255,.04);border:1.5px solid ' + color + ';color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;border-radius:6px;padding:5px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">' + count + ' ' + label + '</button>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding:8px 12px;background:rgba(0,0,0,.30);border:1px solid var(--border);border-radius:8px">'
       + '<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-right:4px">Needs attention</span>'
-      + (urgentCount ? chip('Runway < 14d', urgentCount, '#FF5252', '< 14d urgent') : '')
+      + (urgentCount ? chip('Runway < 14d', urgentCount, '#FF5252', 'urgent') : '')
       + (belowCount  ? chip('Below threshold', belowCount, '#FF5252', 'low') : '')
       + (recountCount ? chip('Need recount', recountCount, '#FFB300', 'recount') : '')
       + (neverCount ? chip('Never counted', neverCount, '#7C3AED', 'never') : '')
@@ -11582,7 +11597,13 @@ function _frameRunwayRender_(items, containerBanner) {
   // Below 700px the table is unusable on phones (8 columns of mono
   // type don't fit). Switch to card-per-item: name+chips up top, 3-col
   // grid for on_hand/runway/velocity, bins below, last-counted footer.
-  const _isMobile_ = (typeof window !== 'undefined' && window.innerWidth < 700);
+  // v10.835 — manual card/table override. Defaults to auto (mobile=cards,
+  // desktop=table) but localStorage 'mbd_runway_view' = 'cards' | 'table'
+  // wins. The header toggle button writes it.
+  const _viewPref_ = (typeof localStorage !== 'undefined') ? (localStorage.getItem('mbd_runway_view') || 'auto') : 'auto';
+  const _isMobile_ = _viewPref_ === 'cards' ? true
+    : _viewPref_ === 'table' ? false
+    : (typeof window !== 'undefined' && window.innerWidth < 700);
   if (_isMobile_) {
     // v10.809 — velocity may be missing on phone if Compute Velocity
     // never ran here (stash is per-device localStorage). Detect + show
@@ -11599,8 +11620,16 @@ function _frameRunwayRender_(items, containerBanner) {
       const onOrderM = (it.on_order > 0) ? String(it.on_order) : '—';
       const noBomM = it._velocity_status === 'no_bom_match';
       const velM = (it.velocity_per_day == null) ? (noBomM ? '—' : '…') : (Math.round(it.velocity_per_day * 10) / 10);
+      // v10.835 — mobile runway: distinguish "no sales" (vel=0) from truly
+      // infinite (huge stock + tiny vel) so we stop slapping ∞ on every
+      // stagnant SKU. Server caps both cases at 999; we recover intent here.
       let runM = '—', runColorM = 'var(--text-dim)';
-      if (it.days_of_runway != null) {
+      if (noBomM) {
+        runM = '—';
+      } else if (it.velocity_per_day === 0 && (it.on_hand || 0) > 0) {
+        runM = '0 sales';
+        runColorM = '#7C8FA8';
+      } else if (it.days_of_runway != null) {
         const r = Math.round(it.days_of_runway);
         runM = r >= 999 ? '∞' : (r + 'd');
         runColorM = r < 30 ? '#FF5252' : (r < 60 ? '#FFB300' : '#00E676');
@@ -11618,9 +11647,23 @@ function _frameRunwayRender_(items, containerBanner) {
         : '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">never</span>';
       // v10.809 — search haystack: SKU + name + vendor + bin locations + category.
       // Matches the desktop table's haystack so search behaves identically.
+      // v10.835 — also tag urgent / low / recount / never so the chip
+      // filter row works on mobile (was desktop-only).
       const _binsForSearch_ = (it.bins || []).map(b => String(b.location || '')).join(' ');
       const _catForSearch_ = (fl.category || fl.category_tag || '').toLowerCase();
-      const _searchHaystack_ = (String(it.sku || '') + ' ' + String(it.name || '') + ' ' + String(vendorM || '') + ' ' + _binsForSearch_ + ' ' + _catForSearch_).toLowerCase();
+      const _isUrgentM_ = typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14;
+      const _isNeverM_ = !it.last_counted_at && Number(it.on_hand || 0) === 0;
+      const _needsRecountM_ = !!(it.flags && it.flags.needs_recount);
+      const _belowThrM_ = (Number(fl.threshold || 0) > 0) && Number(it.on_hand || 0) < Number(fl.threshold || 0);
+      const _searchHaystack_ = [
+        String(it.sku || ''), String(it.name || ''), String(vendorM || ''),
+        _binsForSearch_, _catForSearch_,
+        _isUrgentM_ ? 'urgent' : '',
+        _belowThrM_ ? 'low below threshold' : '',
+        _needsRecountM_ ? 'recount' : '',
+        _isNeverM_ ? 'never uncounted' : '',
+        (it.dnu_qty || 0) > 0 ? 'dnu' : '',
+      ].join(' ').toLowerCase();
       html += '<div data-search-haystack="' + esc(_searchHaystack_) + '" style="background:rgba(255,255,255,.03) !important;border:1px solid var(--border);border-left:3px solid ' + (belowThr ? '#FF5252' : runColorM) + ';border-radius:8px;padding:10px 12px">'
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">'
         +   '<div style="flex:1;min-width:0">'
@@ -26214,7 +26257,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.834<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.835<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
