@@ -10294,6 +10294,11 @@ function _poEdit_(poId) {
     document.getElementById('poEditCancel').onclick = () => ov.remove();
     ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
     document.getElementById('poEditSave').onclick = async () => {
+      console.log('[poEditSave] clicked');
+      const saveBtn = document.getElementById('poEditSave');
+      const originalLabel = saveBtn.textContent;
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⟳ Saving…';
       // Harvest the lines table
       const newLines = [];
       body.querySelectorAll('tr').forEach(r => {
@@ -10307,6 +10312,7 @@ function _poEdit_(poId) {
         if (note) line.note = note;
         newLines.push(line);
       });
+      console.log('[poEditSave] harvested ' + newLines.length + ' lines');
       const totalUnits = newLines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
       const totalUsd   = newLines.reduce((s, l) => s + (Number(l.line_total) || 0), 0);
       const fields = {
@@ -10321,14 +10327,24 @@ function _poEdit_(poId) {
         total_usd: totalUsd,
       };
       try {
+        console.log('[poEditSave] calling groundApi updatePO with', fields);
         const res = await groundApi('updatePO', { po_id: poId, fields });
-        if (!res.ok) { alert('Save failed: ' + (res.error || 'unknown')); return; }
+        console.log('[poEditSave] response', res);
+        if (!res.ok) {
+          alert('Save failed: ' + (res.error || 'unknown') + (res.detail ? '\n\n' + JSON.stringify(res.detail).slice(0, 300) : ''));
+          saveBtn.disabled = false;
+          saveBtn.textContent = originalLabel;
+          return;
+        }
         ov.remove();
         if (typeof showToast === 'function') showToast('✓ PO updated · ' + newLines.length + ' lines');
         const phOv = document.getElementById('poHistoryOverlay');
         if (phOv) { phOv.remove(); _frameRunwayOpenPoHistory_(); }
       } catch (e) {
+        console.log('[poEditSave] threw', e);
         alert('Save failed: ' + e.message);
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalLabel;
       }
     };
   });
@@ -26198,7 +26214,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.833<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.834<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
