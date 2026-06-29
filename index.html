@@ -8612,10 +8612,12 @@ function _palletsRenderDetail_(esc) {
     +     '</div>'
     +     (p.notes ? '<div style="font-size:12px;color:#fff !important;-webkit-text-fill-color:#fff !important;margin-top:8px">' + esc(p.notes) + '</div>' : '')
     +   '</div>'
-    +   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">'
-    +     '<button onclick="_palletsOpenAddItem_()" style="padding:10px 8px;background:linear-gradient(180deg,#1A5C1A,#00C853);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">+ Item</button>'
-    +     '<button onclick="_palletsMove_()" style="padding:10px 8px;background:linear-gradient(180deg,#3a2d00,#7a5a00);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🚛 Move</button>'
-    +     '<button onclick="_palletsArchive_()" style="padding:10px 8px;background:rgba(255,82,82,.18);color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1.5px solid #FF5252;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🗄 Archive</button>'
+    +   '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:14px">'
+    +     '<button onclick="_palletsReceive_()" style="padding:10px 6px;background:linear-gradient(180deg,#1A5C1A,#00C853);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00E676;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">📥 Receive</button>'
+    +     '<button onclick="_palletsOpenAddItem_()" style="padding:10px 6px;background:rgba(0,230,118,.10);color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border:1px solid #00E676;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">+ Item</button>'
+    +     '<button onclick="_palletsMove_()" style="padding:10px 6px;background:linear-gradient(180deg,#3a2d00,#7a5a00);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">🚛 Move</button>'
+    +     '<button onclick="_palletsPrintLabel_()" style="padding:10px 6px;background:linear-gradient(180deg,#1a3d3d,#2d6e6e);color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #4DD0E1;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">🖨 Label</button>'
+    +     '<button onclick="_palletsArchive_()" style="padding:10px 6px;background:rgba(255,82,82,.18);color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1.5px solid #FF5252;border-radius:8px;font-size:11px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">🗄 Archive</button>'
     +   '</div>'
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;letter-spacing:.6px;margin:14px 0 8px">Items on this pallet</div>'
     +   itemRows
@@ -8685,6 +8687,51 @@ async function _palletsArchive_() {
     _palletsLoadList_();
   } catch (e) {
     if (typeof showToast === 'function') showToast('Archive failed: ' + e.message);
+  }
+}
+
+// v10.831 — Receive into pallet: SKU + qty → server does pallet
+// assignment + bumps items.on_hand + logs RECEIVE_TO_PALLET ledger row.
+// Different from + Item (which only assigns to pallet, no on_hand change).
+async function _palletsReceive_() {
+  const id = _palletsState.selectedId;
+  if (!id) return;
+  const sku = prompt('SKU received onto ' + id + ':');
+  if (!sku || !sku.trim()) return;
+  const qtyStr = prompt('Qty of ' + sku.trim() + ' received:', '1');
+  const qty = Number(qtyStr);
+  if (!isFinite(qty) || qty <= 0) {
+    if (typeof showToast === 'function') showToast('Qty must be > 0');
+    return;
+  }
+  const receivedBy = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '';
+  try {
+    const r = await groundApi('recordReceiveToPallet', {
+      pallet_id: id, item_sku: sku.trim(), qty, received_by: receivedBy,
+    });
+    if (!r.ok) { if (typeof showToast === 'function') showToast(r.error || 'Receive failed'); return; }
+    if (typeof showToast === 'function') {
+      showToast('✓ ' + sku.trim() + ' +' + qty + ' (on_hand ' + r.on_hand_before + ' → ' + r.on_hand_after + ')');
+    }
+    _palletsLoadDetail_(id);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Receive failed: ' + e.message);
+  }
+}
+
+// v10.831 — Print 4×6 pallet label via PrintNode.
+async function _palletsPrintLabel_() {
+  const id = _palletsState.selectedId;
+  if (!id) return;
+  const copiesStr = prompt('Print how many copies of the ' + id + ' label?', '1');
+  if (copiesStr === null) return;
+  const copies = Math.max(1, Math.min(10, Number(copiesStr) || 1));
+  try {
+    const r = await groundApi('printPalletLabel', { pallet_id: id, copies });
+    if (!r.ok) { alert('Print failed: ' + (r.error || 'unknown')); return; }
+    if (typeof showToast === 'function') showToast('🖨 Sent ' + copies + '× label to printer');
+  } catch (e) {
+    alert('Print failed: ' + e.message);
   }
 }
 
@@ -25950,7 +25997,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.830<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.831<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
