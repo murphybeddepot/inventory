@@ -8988,9 +8988,18 @@ function openHowItWorks() {
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">How Bedrock Works</div>'
     +   '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.395 (2026-06-01).</div>'
+    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.862 (2026-06-29).</div>'
 
-    + H('🆕 Recent wins (v10.347–v10.395)')
+    + H('🆕 Recent wins (v10.701–v10.862)')
+    + pill('live', '🚚 FedEx Express auto-pickup', 'Buy a FedEx Express label → Bedrock auto-books a courier with FedEx for that day. 12pm EST cutoff rolls to next biz day. 🚚 PICKUPS button on Ground tab → manual schedule / override-to-today / 🗑 cancel (calls real FedEx CancelPickup). 6pm EDT Cloudflare Cron checks every Express tracking number; Slacks Seth if anything didn\'t get scanned.')
+    + pill('live', '☁ Cloudflare worker migration', 'FedEx OAuth + CreatePickup/CancelPickup/Track all moved to the worker (mbd-label-stamper). Apps Script proxies through with fallback to direct call. Daily cron lives on Cloudflare, not GAS. Same architecture coming for FedEx-direct labels.')
+    + pill('gated', '📦 FedEx-direct shipping cert ready', 'FedExShip.js can build ZPL labels for Ground / Home Delivery / Priority Overnight / 2-Day in sandbox. Tomorrow: run runGenerateCertLabels → runPrintCertLabels → scan 4 labels at 600 DPI → email FedEx for Bar Code Analysis approval. Once approved per service, Bedrock prints FedEx labels directly without ShipStation.')
+    + pill('live', '📊 Inventory Runway dashboard', 'Per-SKU runway computed from velocity (last 90 days of Shopify orders + BOM expansion) + on-hand minus consumption since last count + on-order. Card view on mobile, table on desktop. <14d urgent chip. 0-sales label for stagnant SKUs. PO history per item. Inventory ledger (audit trail).')
+    + pill('live', '📋 PO lifecycle management', 'PO Generator → Order date → Paid → Ship ETA → Arrival ETA → Mark Received (full or per-line). Edit qty/items/dates after creation. Renames cleanly wipe orphan inventory_on_order rows. Vendor contacts editable + clickable.')
+    + pill('live', '📦 Stock 2.0', 'Pallets (AA.01 etc.) with receive-to-pallet + label printing. Bin moves (BIN_MOVE_OUT/IN paired ledger). Item master with EVERYTHING (Hafele, consumables, packaging, all BOM leaves). Mapped Inbox dedupe.')
+    + pill('live', '📺 Warehouse TV board', '/inventory/board.html — Packing / Carriers / Today. Overdue countdown flags. 1st-priority orange badge. 45s auto-refresh + fullscreen.')
+
+    + H('🆕 Previous wins (v10.347–v10.395)')
     + pill('live', '🧱 Order spine LIVE in prod', 'orders_spine + order_events activated 2026-05-28. 267 orders seeded, reconcile on a 15-min trigger. Future timeline + status comes from here, not Google Sheets.')
     + pill('live', '📋 Native pick list (Postgres)', 'Shopify variant → bundle/BOM → bucketed pick list (cabinet, frame, hardware, packaging, instruction). Cabinet excluded from pick SKUs (only in Cabinets to Pull as the stock #). FLIP-PACK absorbs PB pack + spacers. Dropship mattress excluded. INST-* instruction line with 🖨 Print chip.')
     + pill('live', '🪑 Side-cab hardware (depth-aware)', 'For PBCAB/Daytona/etc. with side cabinets: HANDLE/PIN(15 or 21")/CAM/SHELF PINS/OVERLAY HINGES from PB HW, summed L+R. Three sources: sheet map → SKU LTx/RTx parse → Shopify line-item properties (Position+Width+Options).')

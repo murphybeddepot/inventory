@@ -10729,7 +10729,14 @@ async function _openFedExExpressPickups_() {
     try {
       const r = await groundApi('manualSchedulePickup', { date_key: date.trim() || undefined, notes: notes || undefined });
       if (!r.ok) { alert('Schedule failed: ' + r.error); return; }
-      if (typeof showToast === 'function') showToast(r.no_op ? 'Already scheduled for ' + r.date_key : '✓ Scheduled for ' + r.date_key);
+      // v10.862 — show what FedEx actually said, not just "scheduled"
+      if (typeof showToast === 'function') {
+        const msg = r.no_op ? '⚠ Already scheduled for ' + r.date_key
+          : r.api_ok === true ? '🚚 BOOKED ' + r.date_key + ' · ' + (r.confirmation || '?')
+          : r.api_ok === false ? '🚨 FedEx rejected: ' + (r.api_error || 'unknown')
+          : '✓ Scheduled for ' + r.date_key + ' (dry-run)';
+        showToast(msg);
+      }
       _loadFedExExpressList_();
     } catch (e) { alert('Schedule failed: ' + e.message); }
   };
@@ -10838,12 +10845,21 @@ async function _pickupResendSlack_(dateKey) {
 }
 async function _pickupDelete_(dateKey) {
   if (!dateKey) return;
-  if (!confirm('Cancel the FedEx Express pickup scheduled for ' + dateKey + '?\n\nThis frees the slot so you can re-schedule (manual or auto on next Express label). Phase 1 dry-run — no FedEx API call to cancel; just clears Bedrock\'s side.')) return;
+  // v10.862 — dialog now accurate to live cancel path (v10.852+).
+  if (!confirm('Cancel the FedEx Express pickup scheduled for ' + dateKey + '?\n\nIf this was a live booking (status: confirmed), Bedrock will also call FedEx CancelPickup so the courier doesn\'t come. Frees the slot for re-scheduling.')) return;
   const reason = prompt('Reason (optional, for the ledger)', '') || '';
   try {
     const r = await groundApi('deletePickup', { date_key: dateKey, reason: reason || undefined });
     if (!r.ok) { alert('Delete failed: ' + r.error); return; }
-    if (typeof showToast === 'function') showToast('🗑 Cancelled ' + dateKey);
+    // v10.862 — toast reflects actual outcome: did FedEx accept the cancel?
+    if (typeof showToast === 'function') {
+      const msg = r.fedex_cancelled === true
+        ? '🗑 Pickup cancelled (FedEx confirmed)'
+        : r.fedex_cancelled === false
+        ? '⚠ Bedrock cleared — call FedEx to confirm (' + (r.fedex_cancel_error || 'API rejected') + ')'
+        : '🗑 Cancelled ' + dateKey + ' (Bedrock only — no live booking to cancel)';
+      showToast(msg);
+    }
     _loadFedExExpressList_();
   } catch (e) { alert('Delete failed: ' + e.message); }
 }
@@ -26404,7 +26420,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.777"></script>
+<script src="./pack.js?v=10.862"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26415,7 +26431,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.847<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.862<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
