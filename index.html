@@ -10801,22 +10801,50 @@ async function _loadFedExExpressList_() {
     + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Status</th>'
     + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Confirmation</th>'
     + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Notes</th>'
+    + '<th style="padding:6px 8px;width:78px;border-bottom:1px solid #333"></th>'
     + '</tr></thead><tbody>';
   for (const r of rows) {
     const isToday = r.date_key === todayKey;
     const statusColor = r.status === 'confirmed' || r.status === 'verified' ? '#00E676'
       : r.status === 'cancelled' || r.status === 'missed' ? '#FF5252'
       : r.status === 'dry_run' ? '#FFB300' : '#9EB0D0';
+    const isCancelled = r.status === 'cancelled';
+    const actions = isCancelled
+      ? '<span style="color:#444">—</span>'
+      : '<button onclick="_pickupResendSlack_(\'' + esc(r.date_key) + '\')" title="Re-send Slack reminder" style="background:rgba(66,165,245,.15);color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1px solid #42a5f5;border-radius:3px;padding:2px 5px;font-size:10px;font-weight:900;cursor:pointer;margin-right:3px">🔔</button>'
+        + '<button onclick="_pickupDelete_(\'' + esc(r.date_key) + '\')" title="Cancel this pickup" style="background:rgba(255,82,82,.15);color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1px solid #FF5252;border-radius:3px;padding:2px 5px;font-size:10px;font-weight:900;cursor:pointer">🗑</button>';
     html += '<tr style="border-bottom:1px solid #1a1a1a' + (isToday ? ';background:rgba(255,127,40,.10)' : '') + '">'
       + '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important;font-weight:' + (isToday ? '900' : '600') + '">' + esc(r.date_key) + (isToday ? ' · TODAY' : '') + '</td>'
       + '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important">' + (Number(r.label_count) || 0) + '</td>'
       + '<td style="padding:5px 8px;color:' + statusColor + ' !important;-webkit-text-fill-color:' + statusColor + ' !important;font-weight:800;text-transform:uppercase;font-size:10px;letter-spacing:.4px">' + esc(r.status || '') + '</td>'
       + '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;color:#ccc !important;-webkit-text-fill-color:#ccc !important">' + esc(r.confirmation || '—') + '</td>'
       + '<td style="padding:5px 8px;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:11px">' + esc(r.notes || '') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;white-space:nowrap">' + actions + '</td>'
       + '</tr>';
   }
   html += '</tbody></table>';
   list.innerHTML = html;
+}
+
+// v10.840 — per-row actions for the Pickups table.
+async function _pickupResendSlack_(dateKey) {
+  if (!dateKey) return;
+  try {
+    const r = await groundApi('resendPickupSlack', { date_key: dateKey });
+    if (!r.ok) { alert('Resend failed: ' + r.error); return; }
+    if (typeof showToast === 'function') showToast('🔔 Slack reminder sent for ' + dateKey);
+  } catch (e) { alert('Resend failed: ' + e.message); }
+}
+async function _pickupDelete_(dateKey) {
+  if (!dateKey) return;
+  if (!confirm('Cancel the FedEx Express pickup scheduled for ' + dateKey + '?\n\nThis frees the slot so you can re-schedule (manual or auto on next Express label). Phase 1 dry-run — no FedEx API call to cancel; just clears Bedrock\'s side.')) return;
+  const reason = prompt('Reason (optional, for the ledger)', '') || '';
+  try {
+    const r = await groundApi('deletePickup', { date_key: dateKey, reason: reason || undefined });
+    if (!r.ok) { alert('Delete failed: ' + r.error); return; }
+    if (typeof showToast === 'function') showToast('🗑 Cancelled ' + dateKey);
+    _loadFedExExpressList_();
+  } catch (e) { alert('Delete failed: ' + e.message); }
 }
 
 async function _frameRunwayOpenVendorEditor_() {
@@ -26386,7 +26414,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.838<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.840<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
