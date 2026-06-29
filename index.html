@@ -10210,7 +10210,7 @@ function _poEdit_(poId) {
     ov.style.cssText = 'position:fixed;inset:0;z-index:10010;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:18px';
     const STATUSES = ['ordered','paid','shipped','partially_received','received','cancelled'];
     ov.innerHTML = ''
-      + '<div style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:10px;padding:18px 22px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;font-family:inherit">'
+      + '<div style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:10px;padding:18px 22px;max-width:760px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit">'
       +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;margin-bottom:14px">✏ Edit PO</div>'
       +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">PO Name</label>'
       +   '<input id="poEditName" type="text" value="' + esc(po.po_name) + '" style="width:100%;padding:8px 11px;border:1.5px solid #ccc;border-radius:5px;font-size:14px;margin-bottom:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box">'
@@ -10224,16 +10224,90 @@ function _poEdit_(poId) {
       +     '<div><label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">Ship ETA</label><input id="poEditShipEta" type="date" value="' + isoOr(po.ship_eta) + '" style="width:100%;padding:7px 9px;border:1.5px solid #ccc;border-radius:5px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box"></div>'
       +     '<div><label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">Arrival ETA</label><input id="poEditArrivalEta" type="date" value="' + isoOr(po.arrival_eta) + '" style="width:100%;padding:7px 9px;border:1.5px solid #ccc;border-radius:5px;font-size:13px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box"></div>'
       +   '</div>'
-      +   '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:14px">Editing Arrival ETA, Status, or PO Name triggers a re-projection into inventory_on_order so the runway banner updates.</div>'
+      +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:6px">Lines</label>'
+      +   '<div id="poEditLinesWrap" style="margin-bottom:8px;border:1px solid #ddd;border-radius:6px;overflow:hidden">'
+      +     '<table id="poEditLinesTbl" style="width:100%;border-collapse:collapse;font-size:12px">'
+      +       '<thead><tr style="background:#f5f5f5;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      +         '<th style="padding:5px 6px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800">SKU</th>'
+      +         '<th style="padding:5px 6px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;width:70px">Qty</th>'
+      +         '<th style="padding:5px 6px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;width:80px">Unit $</th>'
+      +         '<th style="padding:5px 6px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800">Note</th>'
+      +         '<th style="padding:5px 6px;width:32px"></th>'
+      +       '</tr></thead><tbody id="poEditLinesBody"></tbody></table>'
+      +   '</div>'
+      +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+      +     '<button id="poEditAddLine" style="padding:5px 10px;background:#fff !important;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1.5px solid #42a5f5;border-radius:5px;font-size:11px;font-weight:900;cursor:pointer">+ Add line</button>'
+      +     '<div id="poEditLinesTotal" style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:\'JetBrains Mono\',monospace"></div>'
+      +   '</div>'
+      +   '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:14px">Editing Arrival ETA, Status, PO Name, or any line triggers a re-projection into inventory_on_order so the runway banner updates.</div>'
       +   '<div style="display:flex;gap:10px;justify-content:flex-end">'
       +     '<button id="poEditCancel" style="padding:9px 18px;background:#eee !important;color:#333 !important;-webkit-text-fill-color:#333 !important;border:1px solid #ccc;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer">Cancel</button>'
       +     '<button id="poEditSave" style="padding:9px 22px;background:#42a5f5 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #1976D2;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer">💾 Save</button>'
       +   '</div>'
       + '</div>';
     document.body.appendChild(ov);
+    // v10.832 — render existing lines into the editable table
+    const initialLines = Array.isArray(po.lines_json)
+      ? po.lines_json
+      : (typeof po.lines_json === 'string' ? (function () { try { return JSON.parse(po.lines_json); } catch (e) { return []; } })() : []);
+    const body = document.getElementById('poEditLinesBody');
+    function _poLineRowHtml_(L) {
+      return ''
+        + '<tr style="border-bottom:1px solid #eee">'
+        +   '<td style="padding:3px 4px"><input type="text" data-field="sku" value="' + esc(L.sku || '') + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;box-sizing:border-box"></td>'
+        +   '<td style="padding:3px 4px"><input type="number" inputmode="numeric" data-field="qty" value="' + (Number(L.qty) || 0) + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;text-align:right;box-sizing:border-box"></td>'
+        +   '<td style="padding:3px 4px"><input type="number" step="0.01" inputmode="decimal" data-field="unit_cost" value="' + (L.unit_cost != null ? Number(L.unit_cost) : '') + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;text-align:right;box-sizing:border-box"></td>'
+        +   '<td style="padding:3px 4px"><input type="text" data-field="note" value="' + esc(L.note || L.discount || '') + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;box-sizing:border-box"></td>'
+        +   '<td style="padding:3px 4px;text-align:center"><button data-action="poLineRemove" style="background:rgba(255,82,82,.10);border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border-radius:3px;padding:3px 7px;font-size:11px;font-weight:900;cursor:pointer">×</button></td>'
+        + '</tr>';
+    }
+    function _poLinesRecalcTotal_() {
+      const rows = body.querySelectorAll('tr');
+      let units = 0; let usd = 0;
+      rows.forEach(r => {
+        const q = Number(r.querySelector('[data-field="qty"]').value) || 0;
+        const u = Number(r.querySelector('[data-field="unit_cost"]').value) || 0;
+        units += q; usd += q * u;
+      });
+      document.getElementById('poEditLinesTotal').textContent = units.toLocaleString() + ' units · $' + usd.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+    function _poLinesWire_() {
+      body.querySelectorAll('button[data-action="poLineRemove"]').forEach(btn => {
+        btn.onclick = () => { btn.closest('tr').remove(); _poLinesRecalcTotal_(); };
+      });
+      body.querySelectorAll('input[data-field="qty"], input[data-field="unit_cost"]').forEach(inp => {
+        inp.oninput = _poLinesRecalcTotal_;
+      });
+    }
+    body.innerHTML = (initialLines.length ? initialLines : [{}]).map(_poLineRowHtml_).join('');
+    _poLinesWire_();
+    _poLinesRecalcTotal_();
+    document.getElementById('poEditAddLine').onclick = () => {
+      const tmp = document.createElement('tbody');
+      tmp.innerHTML = _poLineRowHtml_({});
+      body.appendChild(tmp.firstElementChild);
+      _poLinesWire_();
+      _poLinesRecalcTotal_();
+    };
+
     document.getElementById('poEditCancel').onclick = () => ov.remove();
     ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
     document.getElementById('poEditSave').onclick = async () => {
+      // Harvest the lines table
+      const newLines = [];
+      body.querySelectorAll('tr').forEach(r => {
+        const sku = r.querySelector('[data-field="sku"]').value.trim();
+        const qty = Number(r.querySelector('[data-field="qty"]').value);
+        const unit = Number(r.querySelector('[data-field="unit_cost"]').value);
+        const note = r.querySelector('[data-field="note"]').value.trim();
+        if (!sku || !isFinite(qty) || qty <= 0) return;   // skip empty/invalid
+        const line = { sku, qty };
+        if (isFinite(unit) && unit > 0) { line.unit_cost = unit; line.line_total = +(qty * unit).toFixed(2); }
+        if (note) line.note = note;
+        newLines.push(line);
+      });
+      const totalUnits = newLines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+      const totalUsd   = newLines.reduce((s, l) => s + (Number(l.line_total) || 0), 0);
       const fields = {
         po_name: document.getElementById('poEditName').value.trim(),
         status: document.getElementById('poEditStatus').value,
@@ -10241,13 +10315,15 @@ function _poEdit_(poId) {
         paid_date: document.getElementById('poEditPaidDate').value || null,
         ship_eta: document.getElementById('poEditShipEta').value || null,
         arrival_eta: document.getElementById('poEditArrivalEta').value || null,
+        lines_json: newLines,
+        total_units: totalUnits,
+        total_usd: totalUsd,
       };
       try {
         const res = await groundApi('updatePO', { po_id: poId, fields });
         if (!res.ok) { alert('Save failed: ' + (res.error || 'unknown')); return; }
         ov.remove();
-        if (typeof showToast === 'function') showToast('✓ PO updated');
-        // Refresh the PO history list
+        if (typeof showToast === 'function') showToast('✓ PO updated · ' + newLines.length + ' lines');
         const phOv = document.getElementById('poHistoryOverlay');
         if (phOv) { phOv.remove(); _frameRunwayOpenPoHistory_(); }
       } catch (e) {
@@ -25997,7 +26073,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.831<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.832<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
