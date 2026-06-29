@@ -10724,26 +10724,7 @@ async function _openFedExExpressPickups_() {
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   document.body.appendChild(ov);
 
-  document.getElementById('fedexExpressManualBtn').onclick = async () => {
-    // v10.847 — don't pre-fill. iOS prompt() pre-fill is sometimes
-    // unreliable. Blank means "let the server use cutoff logic".
-    const date = prompt('Schedule a FedEx Express pickup for which date?\n\nBlank = today (or next biz day if past 12pm EST cutoff).\nOtherwise YYYY-MM-DD.', '');
-    if (date === null) return;
-    const notes = prompt('Notes (optional, e.g. "missed yesterday — extra packages")', '') || '';
-    try {
-      const r = await groundApi('manualSchedulePickup', { date_key: date.trim() || undefined, notes: notes || undefined });
-      if (!r.ok) { alert('Schedule failed: ' + r.error); return; }
-      // v10.862 — show what FedEx actually said, not just "scheduled"
-      if (typeof showToast === 'function') {
-        const msg = r.no_op ? '⚠ Already scheduled for ' + r.date_key
-          : r.api_ok === true ? '🚚 BOOKED ' + r.date_key + ' · ' + (r.confirmation || '?')
-          : r.api_ok === false ? '🚨 FedEx rejected: ' + (r.api_error || 'unknown')
-          : '✓ Scheduled for ' + r.date_key + ' (dry-run)';
-        showToast(msg);
-      }
-      _loadFedExExpressList_();
-    } catch (e) { alert('Schedule failed: ' + e.message); }
-  };
+  document.getElementById('fedexExpressManualBtn').onclick = _openFedExManualScheduleForm_;
   document.getElementById('fedexExpressOverrideBtn').onclick = async () => {
     const orig = prompt('Original auto-scheduled date that should move to TODAY?\n(YYYY-MM-DD; blank = just ensure today is scheduled)', '');
     if (orig === null) return;
@@ -10794,6 +10775,75 @@ async function _openFedExExpressPickups_() {
   };
   _loadFedExExpressHealthChips_();
   _loadFedExExpressList_();
+}
+
+// v10.865 — proper form modal for + Manual Schedule. Replaces the
+// three-prompt() chain. iPad-friendly: real date input, real textarea,
+// clear submit. Closes-on-backdrop-tap. Re-focuses for keyboard.
+function _openFedExManualScheduleForm_() {
+  const prior = document.getElementById('fedexManualScheduleForm');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'fedexManualScheduleForm';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10010;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:10px;padding:18px;max-width:480px;width:100%;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;margin-bottom:12px">+ Manual FedEx Express Pickup</div>'
+    +   '<div style="font-size:12px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:14px;line-height:1.4">Forces a pickup for a specific date even when no Express label has been printed yet. Useful for re-stacking after a missed pickup or pre-scheduling tomorrow.</div>'
+    +   '<label style="display:block;margin-bottom:14px">'
+    +     '<div style="font-size:11px;font-weight:800;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px">Pickup date</div>'
+    +     '<input id="fedexManualDate" type="date" style="width:100%;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #444;border-radius:6px;padding:10px 12px;font-size:15px;font-family:inherit">'
+    +     '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px;font-style:italic">Blank = let server decide (today or next biz day per cutoff)</div>'
+    +   '</label>'
+    +   '<label style="display:block;margin-bottom:14px">'
+    +     '<div style="font-size:11px;font-weight:800;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px">Notes (optional)</div>'
+    +     '<textarea id="fedexManualNotes" placeholder="e.g. missed yesterday — extra packages" rows="3" style="width:100%;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1px solid #444;border-radius:6px;padding:10px 12px;font-size:14px;font-family:inherit;resize:vertical"></textarea>'
+    +   '</label>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<button onclick="document.getElementById(\'fedexManualScheduleForm\').remove()" style="flex:1;padding:11px;background:transparent;color:#888 !important;-webkit-text-fill-color:#888 !important;border:1px solid #444;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">Cancel</button>'
+    +     '<button id="fedexManualSubmitBtn" style="flex:2;padding:11px;background:linear-gradient(180deg,#FFB300,#FF9100);color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:0;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-family:inherit">🚚 Schedule pickup</button>'
+    +   '</div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  document.getElementById('fedexManualSubmitBtn').onclick = async () => {
+    const btn = document.getElementById('fedexManualSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Booking…';
+    const date = (document.getElementById('fedexManualDate').value || '').trim();
+    const notes = (document.getElementById('fedexManualNotes').value || '').trim();
+    try {
+      const r = await groundApi('manualSchedulePickup', {
+        date_key: date || undefined,
+        notes: notes || undefined,
+      });
+      if (!r.ok) {
+        alert('Schedule failed: ' + r.error);
+        btn.disabled = false; btn.textContent = '🚚 Schedule pickup';
+        return;
+      }
+      if (typeof showToast === 'function') {
+        const msg = r.no_op ? '⚠ Already scheduled for ' + r.date_key
+          : r.api_ok === true ? '🚚 BOOKED ' + r.date_key + ' · ' + (r.confirmation || '?')
+          : r.api_ok === false ? '🚨 FedEx rejected: ' + (r.api_error || 'unknown')
+          : '✓ Scheduled for ' + r.date_key + ' (dry-run)';
+        showToast(msg);
+      }
+      document.getElementById('fedexManualScheduleForm').remove();
+      _loadFedExExpressList_();
+      _loadFedExExpressHealthChips_();
+    } catch (e) {
+      alert('Schedule failed: ' + e.message);
+      btn.disabled = false; btn.textContent = '🚚 Schedule pickup';
+    }
+  };
+
+  // Auto-focus the date input for keyboard users
+  setTimeout(() => {
+    const d = document.getElementById('fedexManualDate');
+    if (d) d.focus();
+  }, 100);
 }
 
 // v10.864 — pre-flight health chips so the operator sees system state
@@ -26476,7 +26526,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.864"></script>
+<script src="./pack.js?v=10.865"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26487,7 +26537,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.864<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.865<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
