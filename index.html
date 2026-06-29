@@ -8038,6 +8038,7 @@ function _frameRunwayOpen_() {
     +   '<button class="runway-btn" onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" title="Receive container" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥<span class="runway-btn-label"> Receive…</span></button>'
     +   '<button class="runway-btn" onclick="_frameRunwayOpenPoGenerator_()" title="Generate PO" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦<span class="runway-btn-label"> Generate PO</span></button>'
     +   '<button class="runway-btn" onclick="_frameRunwayOpenPoHistory_()" title="PO history" style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.6);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📚<span class="runway-btn-label"> PO history</span></button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayOpenLedger_()" title="Inventory ledger — audit trail of every qty change" style="background:rgba(120,140,170,.10) !important;border:1px solid rgba(120,140,170,.6);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📜<span class="runway-btn-label"> Ledger</span></button>'
     +   '<button class="runway-btn" onclick="_frameRunwayOpenBomDiag_()" title="Diagnose BOMs" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬<span class="runway-btn-label"> Diagnose BOMs</span></button>'
     +   '<button class="runway-btn" id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Re-decompose last 90d of Shopify orders into BOM-leaf inventory consumption. Tap ? for full explanation.">⚙<span class="runway-btn-label"> Backfill ledger</span></button>'
     +   '<button class="runway-btn" onclick="_frameRunwayShowBackfillHelp_()" title="What does Backfill ledger do?" style="background:transparent !important;border:1px solid rgba(255,193,7,.5);color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:50%;padding:0;width:26px;height:26px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center">?</button>'
@@ -10534,6 +10535,130 @@ async function _frameRunwayOpenPoHistory_() {
 // v10.809 — Vendor editor (task #73). Lists all vendors from the
 // public.vendors table; tap any to edit name/email/phone/notes.
 // Adds 'new vendor' row at the bottom.
+// v10.833 — Inventory Ledger surface (Stock 2 follow-up 4/4).
+// Read-only audit trail of inventory_transactions with filters.
+// Open from runway header → 📜 Ledger or from any item row (future).
+async function _frameRunwayOpenLedger_(opts) {
+  opts = opts || {};
+  const prior = document.getElementById('ledgerOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'ledgerOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = ''
+    + '<style>@media (max-width:700px){'
+    +   '#ledgerOverlay{padding:6px !important}'
+    +   '#ledgerOverlay > div{padding:10px 12px !important}'
+    +   '#ledgerOverlay table{font-size:10px !important}'
+    +   '#ledgerOverlay table th,#ledgerOverlay table td{padding:4px 5px !important}'
+    + '}</style>'
+    + '<div style="background:#0e0e0e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid rgba(120,140,170,.7);border-radius:10px;padding:16px;max-width:1100px;width:100%;max-height:92vh;display:flex;flex-direction:column;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +     '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important">📜 Inventory Ledger</div>'
+    +     '<button onclick="document.getElementById(\'ledgerOverlay\').remove()" style="background:transparent;border:0;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:24px;cursor:pointer;line-height:1">×</button>'
+    +   '</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:10px">'
+    +     '<input id="ledgerFilterSku" type="text" placeholder="SKU (exact)" value="' + (opts.sku || '') + '" style="padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;font-family:\'JetBrains Mono\',monospace;box-sizing:border-box">'
+    +     '<select id="ledgerFilterReason" style="padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;font-family:inherit;box-sizing:border-box">'
+    +       '<option value="">All reasons</option>'
+    +       ['SHIP','SHIP_BOM','RECV','RECEIVE_TO_PALLET','PO_RECEIVE','PO_RECEIVE_PARTIAL','BIN_MOVE_OUT','BIN_MOVE_IN','CYCLE_COUNT','ADJUST','REVERSAL','RESERVED'].map(c => '<option value="' + c + '">' + c + '</option>').join('')
+    +     '</select>'
+    +     '<input id="ledgerFilterDays" type="number" min="1" max="365" value="7" placeholder="Days" style="padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;box-sizing:border-box">'
+    +     '<input id="ledgerFilterActor" type="text" placeholder="Recorded by" style="padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;box-sizing:border-box">'
+    +   '</div>'
+    +   '<div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">'
+    +     '<input id="ledgerFilterQ" type="text" placeholder="Search reason or notes…" style="flex:1;padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;box-sizing:border-box">'
+    +     '<button id="ledgerApplyBtn" style="padding:7px 14px;background:#9EB0D0 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:0;border-radius:5px;font-size:11px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;font-family:inherit">Apply</button>'
+    +     '<button id="ledgerClearBtn" style="padding:7px 12px;background:#333 !important;color:#aaa !important;-webkit-text-fill-color:#aaa !important;border:0;border-radius:5px;font-size:11px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;font-family:inherit">Clear</button>'
+    +   '</div>'
+    +   '<div id="ledgerSummary" style="font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important;margin-bottom:8px">Loading…</div>'
+    +   '<div id="ledgerTable" style="flex:1;overflow-y:auto;background:#000 !important;border:1px solid #222;border-radius:6px"></div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  async function _runLedgerQuery_() {
+    const sku = document.getElementById('ledgerFilterSku').value.trim();
+    const reason = document.getElementById('ledgerFilterReason').value;
+    const days = Math.max(1, Math.min(365, Number(document.getElementById('ledgerFilterDays').value) || 7));
+    const actor = document.getElementById('ledgerFilterActor').value.trim();
+    const q = document.getElementById('ledgerFilterQ').value.trim();
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    document.getElementById('ledgerSummary').textContent = 'Loading…';
+    document.getElementById('ledgerTable').innerHTML = '<div style="padding:24px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic">Loading ledger…</div>';
+    try {
+      const r = await groundApi('listInventoryLedger', { sku: sku || undefined, reason_code: reason || undefined, since, actor: actor || undefined, q: q || undefined, limit: 1000 });
+      if (!r.ok) {
+        document.getElementById('ledgerTable').innerHTML = '<div style="padding:20px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">Load failed: ' + (r.error || 'unknown') + '</div>';
+        return;
+      }
+      const rows = r.rows || [];
+      // Build summary chips by reason_code
+      const byCode = {};
+      let totalDelta = 0;
+      rows.forEach(row => {
+        const c = String(row.reason_code || 'UNKNOWN').toUpperCase();
+        byCode[c] = (byCode[c] || 0) + 1;
+        totalDelta += Number(row.quantity_change) || 0;
+      });
+      const chips = Object.keys(byCode).sort((a, b) => byCode[b] - byCode[a]).map(c => {
+        const color = c.indexOf('SHIP') === 0 ? '#FFB300' : c.indexOf('RECV') >= 0 || c.indexOf('PO_RECEIVE') >= 0 || c === 'RECEIVE_TO_PALLET' ? '#00E676' : c.indexOf('BIN_MOVE') === 0 ? '#42a5f5' : c === 'CYCLE_COUNT' ? '#9C27B0' : '#888';
+        return '<span style="display:inline-block;margin-right:5px;background:' + color + '22;border:1px solid ' + color + ';color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;border-radius:4px;padding:2px 6px;font-size:9px;font-weight:900;letter-spacing:.4px">' + c + ' ' + byCode[c] + '</span>';
+      }).join('');
+      document.getElementById('ledgerSummary').innerHTML = '<strong style="color:#fff !important;-webkit-text-fill-color:#fff !important">' + rows.length + ' rows</strong> · ' + (totalDelta >= 0 ? '+' : '') + totalDelta.toLocaleString() + ' net qty · ' + chips;
+      // Render table
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      if (!rows.length) {
+        document.getElementById('ledgerTable').innerHTML = '<div style="padding:24px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic">No rows match.</div>';
+        return;
+      }
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:11px;background:#000 !important">';
+      html += '<thead style="position:sticky;top:0;background:#15171c !important;z-index:5"><tr style="color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important">'
+        + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">When</th>'
+        + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">SKU</th>'
+        + '<th style="padding:6px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Δ Qty</th>'
+        + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Reason</th>'
+        + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">Detail</th>'
+        + '<th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:900;border-bottom:1px solid #333">By</th>'
+        + '</tr></thead><tbody>';
+      for (const row of rows) {
+        const dt = row.created_at ? new Date(row.created_at) : null;
+        const dtStr = dt ? (dt.toISOString().slice(0,10) + ' ' + dt.toISOString().slice(11,16)) : '';
+        const delta = Number(row.quantity_change) || 0;
+        const deltaColor = delta > 0 ? '#00E676' : delta < 0 ? '#FFB300' : '#888';
+        const codeColor = (row.reason_code || '').indexOf('SHIP') === 0 ? '#FFB300' : (row.reason_code || '').indexOf('RECV') >= 0 || (row.reason_code || '').indexOf('PO_RECEIVE') >= 0 || row.reason_code === 'RECEIVE_TO_PALLET' ? '#00E676' : (row.reason_code || '').indexOf('BIN_MOVE') === 0 ? '#42a5f5' : '#9EB0D0';
+        const detail = [row.reason, row.notes, row.order_number ? '#' + row.order_number : '', row.reverses_txn_id ? 'reverses ' + row.reverses_txn_id : ''].filter(Boolean).join(' · ');
+        html += '<tr style="border-bottom:1px solid #1a1a1a">'
+          + '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;color:#aaa !important;-webkit-text-fill-color:#aaa !important;white-space:nowrap">' + esc(dtStr) + '</td>'
+          + '<td style="padding:5px 8px;font-family:\'JetBrains Mono\',monospace;color:#fff !important;-webkit-text-fill-color:#fff !important">' + esc(row.sku) + '</td>'
+          + '<td style="padding:5px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:' + deltaColor + ' !important;-webkit-text-fill-color:' + deltaColor + ' !important">' + (delta > 0 ? '+' : '') + delta + '</td>'
+          + '<td style="padding:5px 8px;color:' + codeColor + ' !important;-webkit-text-fill-color:' + codeColor + ' !important;font-weight:800;font-size:10px;letter-spacing:.4px">' + esc(row.reason_code || '') + '</td>'
+          + '<td style="padding:5px 8px;color:#ccc !important;-webkit-text-fill-color:#ccc !important;font-size:11px">' + esc(detail) + '</td>'
+          + '<td style="padding:5px 8px;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:11px;white-space:nowrap">' + esc(row.recorded_by || '') + '</td>'
+          + '</tr>';
+      }
+      html += '</tbody></table>';
+      document.getElementById('ledgerTable').innerHTML = html;
+    } catch (e) {
+      document.getElementById('ledgerTable').innerHTML = '<div style="padding:20px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">Load threw: ' + e.message + '</div>';
+    }
+  }
+  document.getElementById('ledgerApplyBtn').onclick = _runLedgerQuery_;
+  document.getElementById('ledgerClearBtn').onclick = () => {
+    document.getElementById('ledgerFilterSku').value = '';
+    document.getElementById('ledgerFilterReason').value = '';
+    document.getElementById('ledgerFilterDays').value = '7';
+    document.getElementById('ledgerFilterActor').value = '';
+    document.getElementById('ledgerFilterQ').value = '';
+    _runLedgerQuery_();
+  };
+  // Enter key in any input → apply
+  ['ledgerFilterSku','ledgerFilterReason','ledgerFilterDays','ledgerFilterActor','ledgerFilterQ'].forEach(id => {
+    document.getElementById(id).onkeydown = (e) => { if (e.key === 'Enter') _runLedgerQuery_(); };
+  });
+  _runLedgerQuery_();
+}
+
 async function _frameRunwayOpenVendorEditor_() {
   const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
   const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
@@ -26073,7 +26198,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.832<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.833<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
