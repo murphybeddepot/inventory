@@ -10571,6 +10571,27 @@ async function _frameRunwayOpenPoHistory_() {
 // v10.833 — Inventory Ledger surface (Stock 2 follow-up 4/4).
 // Read-only audit trail of inventory_transactions with filters.
 // Open from runway header → 📜 Ledger or from any item row (future).
+// v10.868 — quick-period chips ("Today / 7d / 30d / 90d / 1yr") +
+// quick-reason chips ("🚚 Ship / 📦 PO recv / 🪵 Pallet / 🔢 Count /
+// 📂 Bin") for the Inventory Ledger. Each chip sets a filter +
+// re-runs the query. Faster than typing into the number input.
+function _ledgerQuickChipsHtml_() {
+  var pBtn = function (days, label) {
+    return '<button data-days="' + days + '" class="ledger-period-chip" style="padding:4px 9px;background:rgba(120,140,170,.12) !important;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border:1px solid rgba(120,140,170,.45);border-radius:4px;font-size:11px;font-weight:800;letter-spacing:.3px;cursor:pointer;font-family:inherit">' + label + '</button>';
+  };
+  var rBtn = function (code, label) {
+    return '<button data-reason="' + code + '" class="ledger-reason-chip" style="padding:4px 9px;background:rgba(255,179,0,.10) !important;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1px solid #FFB300;border-radius:4px;font-size:11px;font-weight:800;letter-spacing:.3px;cursor:pointer;font-family:inherit">' + label + '</button>';
+  };
+  return '<div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;flex-wrap:wrap">'
+    + '<span style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;letter-spacing:.4px;text-transform:uppercase;font-weight:700;margin-right:3px">Period</span>'
+    + pBtn(1, 'Today') + pBtn(7, '7d') + pBtn(30, '30d') + pBtn(90, '90d') + pBtn(365, '1yr')
+    + '<div style="flex:1"></div>'
+    + rBtn('SHIP', '🚚 Ship') + rBtn('PO_RECEIVE', '📦 PO recv')
+    + rBtn('RECEIVE_TO_PALLET', '🪵 Pallet') + rBtn('CYCLE_COUNT', '🔢 Count')
+    + rBtn('BIN_MOVE_OUT', '📂 Bin')
+    + '</div>';
+}
+
 async function _frameRunwayOpenLedger_(opts) {
   opts = opts || {};
   const prior = document.getElementById('ledgerOverlay');
@@ -10599,6 +10620,7 @@ async function _frameRunwayOpenLedger_(opts) {
     +     '<input id="ledgerFilterDays" type="number" min="1" max="365" value="7" placeholder="Days" style="padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;box-sizing:border-box">'
     +     '<input id="ledgerFilterActor" type="text" placeholder="Recorded by" style="padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;box-sizing:border-box">'
     +   '</div>'
+    +   _ledgerQuickChipsHtml_()
     +   '<div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">'
     +     '<input id="ledgerFilterQ" type="text" placeholder="Search reason or notes…" style="flex:1;padding:7px 9px;border:1px solid #333;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;box-sizing:border-box">'
     +     '<button id="ledgerApplyBtn" style="padding:7px 14px;background:#9EB0D0 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:0;border-radius:5px;font-size:11px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;font-family:inherit">Apply</button>'
@@ -10688,6 +10710,23 @@ async function _frameRunwayOpenLedger_(opts) {
   // Enter key in any input → apply
   ['ledgerFilterSku','ledgerFilterReason','ledgerFilterDays','ledgerFilterActor','ledgerFilterQ'].forEach(id => {
     document.getElementById(id).onkeydown = (e) => { if (e.key === 'Enter') _runLedgerQuery_(); };
+  });
+  // v10.868 — quick-period chips
+  document.querySelectorAll('#ledgerOverlay .ledger-period-chip').forEach(btn => {
+    btn.onclick = () => {
+      document.getElementById('ledgerFilterDays').value = btn.getAttribute('data-days');
+      _runLedgerQuery_();
+    };
+  });
+  // v10.868 — quick-reason chips. Tap toggles the dropdown to that reason.
+  document.querySelectorAll('#ledgerOverlay .ledger-reason-chip').forEach(btn => {
+    btn.onclick = () => {
+      const sel = document.getElementById('ledgerFilterReason');
+      const want = btn.getAttribute('data-reason');
+      // Toggle off if same already selected
+      sel.value = (sel.value === want) ? '' : want;
+      _runLedgerQuery_();
+    };
   });
   _runLedgerQuery_();
 }
@@ -26602,7 +26641,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.866"></script>
+<script src="./pack.js?v=10.868"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26613,7 +26652,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.866<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.868<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
