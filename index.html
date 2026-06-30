@@ -9340,14 +9340,58 @@ async function openDailyPulse() {
     + '<div onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px 22px;max-width:640px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit;border-top:6px solid #00C853">'
     +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">☀ Daily Pulse</div>'
-    +     '<button onclick="document.getElementById(\'dailyPulseOverlay\').remove()" style="background:transparent;border:0;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:26px;cursor:pointer;line-height:1">×</button>'
+    +     '<div style="display:flex;gap:6px;align-items:center">'
+    +       '<button id="dailyPulseRefreshBtn" title="Refresh now" style="background:rgba(0,200,83,.10) !important;color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:1px solid #00C853;border-radius:5px;padding:4px 9px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit">↻ Refresh</button>'
+    +       '<label style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" id="dailyPulseAutoCk" style="margin:0">auto</label>'
+    +       '<button onclick="_closeDailyPulse_()" style="background:transparent;border:0;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:26px;cursor:pointer;line-height:1;padding:0 4px">×</button>'
+    +     '</div>'
     +   '</div>'
     +   '<div id="dailyPulseStatus" style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:18px">Loading today\'s state…</div>'
     +   '<div id="dailyPulseBody"><div style="text-align:center;padding:30px;color:#999 !important;-webkit-text-fill-color:#999 !important;font-style:italic">Querying Supabase + FedEx…</div></div>'
     + '</div>';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.onclick = (e) => { if (e.target === ov) _closeDailyPulse_(); };
   document.body.appendChild(ov);
+  // v10.878 — Refresh button + auto-refresh toggle (persisted in localStorage)
+  document.getElementById('dailyPulseRefreshBtn').onclick = () => { _dailyPulseLoad_(); };
+  const autoCk = document.getElementById('dailyPulseAutoCk');
+  autoCk.checked = (localStorage.getItem('mbd_daily_pulse_auto') === '1');
+  autoCk.onchange = () => {
+    if (autoCk.checked) {
+      localStorage.setItem('mbd_daily_pulse_auto', '1');
+      _dailyPulseStartAuto_();
+    } else {
+      localStorage.removeItem('mbd_daily_pulse_auto');
+      _dailyPulseStopAuto_();
+    }
+  };
+  if (autoCk.checked) _dailyPulseStartAuto_();
+  await _dailyPulseLoad_();
+  return;
+}
 
+function _closeDailyPulse_() {
+  _dailyPulseStopAuto_();
+  const ov = document.getElementById('dailyPulseOverlay');
+  if (ov) ov.remove();
+}
+function _dailyPulseStopAuto_() {
+  if (window._dailyPulseAutoTimer) {
+    clearInterval(window._dailyPulseAutoTimer);
+    window._dailyPulseAutoTimer = null;
+  }
+}
+function _dailyPulseStartAuto_() {
+  _dailyPulseStopAuto_();
+  // Re-load every 60s while modal is open
+  window._dailyPulseAutoTimer = setInterval(() => {
+    if (!document.getElementById('dailyPulseOverlay')) {
+      _dailyPulseStopAuto_();
+      return;
+    }
+    _dailyPulseLoad_();
+  }, 60000);
+}
+async function _dailyPulseLoad_() {
   try {
     // Worker endpoint — same one the 7am Slack cron uses
     const STAMP_BASE = 'https://mbd-label-stamper.murphybeddepot.workers.dev';
@@ -26915,7 +26959,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.877"></script>
+<script src="./pack.js?v=10.878"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26926,7 +26970,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.877<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.878<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
