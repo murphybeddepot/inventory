@@ -1345,6 +1345,14 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <button onclick="closeMoreMenu();openInspectOrderModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🔍</span>
+      <div style="flex:1">
+        <div>Inspect Order</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">See raw Shopify line items + live BOM expansion for any order #</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -14994,6 +15002,110 @@ function _ensureQuillLoaded_() {
   return _quillLoadPromise;
 }
 
+// v10.892 — Inspect Order modal: shows raw Shopify line items + live
+// BOM expansion side by side. Answers "what SKUs are actually on this
+// order" without leaving Bedrock. Useful for triaging "the pick list
+// is missing items" — compare the source (Shopify) against the
+// expansion (variant_map → bundle_bom).
+async function openInspectOrderModal(preFillOrder) {
+  let backdrop = document.getElementById('inspectOrderBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'inspectOrderBackdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10010;display:flex;align-items:center;justify-content:center;padding:24px';
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.innerHTML = `
+    <div class="keep-dark-text" style="background:#fff !important;-webkit-text-fill-color:#1a1a1a;color:#1a1a1a;width:min(1000px,100%);max-height:92vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+      <div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:22px">🔍</span>
+        <div style="flex:1">
+          <div style="font-size:17px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">Inspect Order</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);font-weight:500">Raw Shopify line items + live BOM expansion side-by-side</div>
+        </div>
+        <button onclick="document.getElementById('inspectOrderBackdrop').remove()" style="background:transparent !important;color:#fff !important;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">Close</button>
+      </div>
+      <div style="padding:18px;display:flex;gap:10px;align-items:center;background:#f5f5f7 !important;border-bottom:1px solid #e0e0e0">
+        <input id="inspectOrderInput" placeholder="Order # (e.g. 31801)" value="${(preFillOrder || '').replace(/"/g,'&quot;')}" style="flex:1;padding:12px 14px;font-size:16px;border:1.5px solid #ddd;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace" onkeydown="if(event.key==='Enter')_inspectOrderGo_()">
+        <button onclick="_inspectOrderGo_()" style="padding:12px 24px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px">Inspect</button>
+      </div>
+      <div id="inspectOrderBody" style="padding:18px;overflow-y:auto;flex:1">
+        <div style="text-align:center;padding:30px;color:#999 !important;-webkit-text-fill-color:#999;font-size:13px">Enter an order # above to see Shopify line items + the BOM expansion.</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  window._inspectOrderGo_ = async function () {
+    const ord = (document.getElementById('inspectOrderInput').value || '').trim();
+    const body = document.getElementById('inspectOrderBody');
+    if (!ord) { body.innerHTML = '<div style="padding:20px;color:#c33 !important;-webkit-text-fill-color:#c33">Order # required</div>'; return; }
+    body.innerHTML = '<div style="text-align:center;padding:30px;color:#999 !important;-webkit-text-fill-color:#999"><div style="width:30px;height:30px;border:3px solid rgba(0,0,0,.15);border-top-color:#1a1a1a;border-radius:50%;animation:mbdSpin 1s linear infinite;margin:0 auto 12px"></div>Loading…</div>';
+    const [shopify, expansion] = await Promise.all([
+      groundApi('getShopifyOrderLineItems', { orderNumber: ord }),
+      groundApi('pickListSessionForOrder', { orderNumber: ord }),
+    ]);
+    let html = '';
+    // Shopify line items (LEFT)
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
+    html += '<div>';
+    html += '<div style="font-size:13px;font-weight:800;margin-bottom:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">📋 Shopify line items</div>';
+    if (shopify && shopify.ok) {
+      const items = shopify.line_items || [];
+      if (!items.length) {
+        html += '<div style="padding:14px;color:#999 !important;-webkit-text-fill-color:#999;font-size:12px;background:#f5f5f7 !important;border-radius:8px">(no line items)</div>';
+      } else {
+        html += '<div style="background:#f5f5f7 !important;border-radius:8px;padding:10px">';
+        items.forEach(it => {
+          html += '<div style="background:#fff !important;border:1px solid #e0e0e0;border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:12px">';
+          html += '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">' + (it.sku || '<i style="color:#c33 !important;-webkit-text-fill-color:#c33">(no SKU)</i>') + ' × ' + (it.quantity || 1) + '</div>';
+          if (it.title) html += '<div style="color:#666 !important;-webkit-text-fill-color:#666;margin-top:2px">' + String(it.title).replace(/</g,'&lt;') + '</div>';
+          if (it.properties && it.properties.length) {
+            html += '<div style="margin-top:4px;padding-top:4px;border-top:1px dashed #ddd;font-size:11px">';
+            it.properties.forEach(p => {
+              html += '<div style="color:#888 !important;-webkit-text-fill-color:#888"><b>' + String(p.name).replace(/</g,'&lt;') + ':</b> ' + String(p.value).replace(/</g,'&lt;') + '</div>';
+            });
+            html += '</div>';
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="padding:14px;color:#c33 !important;-webkit-text-fill-color:#c33;font-size:12px;background:#fee !important;border-radius:8px">⚠ ' + ((shopify && shopify.error) || 'unknown') + '</div>';
+    }
+    html += '</div>';
+    // BOM expansion (RIGHT)
+    html += '<div>';
+    html += '<div style="font-size:13px;font-weight:800;margin-bottom:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">🛠 BOM expansion (live)</div>';
+    if (expansion && expansion.ok) {
+      const bk = expansion.buckets || {};
+      ['cabinet','frame','hardware','packaging','instruction'].forEach(name => {
+        const rows = bk[name] || [];
+        if (!rows.length) return;
+        html += '<div style="background:#f5f5f7 !important;border-radius:8px;padding:8px 10px;margin-bottom:6px">';
+        html += '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px">' + name + ' (' + rows.length + ')</div>';
+        rows.forEach(r => {
+          html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;padding:1px 0">' + (r.item_sku || '?') + ' × ' + (r.qty || '?') + '</div>';
+        });
+        html += '</div>';
+      });
+      const unr = expansion.unresolved || [];
+      if (unr.length) {
+        html += '<div style="background:#fff8e1 !important;border:1px solid #ffe082;border-radius:8px;padding:8px 10px;margin-top:6px">';
+        html += '<div style="font-size:10px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px">⚠ Unresolved (' + unr.length + ')</div>';
+        unr.forEach(u => {
+          html += '<div style="font-size:11px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500;padding:1px 0">' + (u.sku || '(no SKU)') + ' · ' + String(u.name || '').replace(/</g,'&lt;') + ' · ' + (u.reason || '?') + '</div>';
+        });
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="padding:14px;color:#c33 !important;-webkit-text-fill-color:#c33;font-size:12px;background:#fee !important;border-radius:8px">⚠ ' + ((expansion && expansion.error) || 'unknown') + '</div>';
+    }
+    html += '</div>';
+    html += '</div>';
+    body.innerHTML = html;
+  };
+  if (preFillOrder) setTimeout(_inspectOrderGo_, 100);
+}
+
 // v10.888 — BOM Tools modal: Postgres-canonical edits for variant_map +
 // bundle_bom. The Sheet→Postgres sync (`pickListSyncStoresToPostgres`) is
 // now disabled by default; this UI replaces the Sheet authoring workflow.
@@ -27205,7 +27317,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.889<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.892<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
