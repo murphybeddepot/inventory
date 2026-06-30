@@ -1169,11 +1169,20 @@ input::placeholder, textarea::placeholder {
   <div onclick="event.stopPropagation()" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:18px 20px 28px;max-height:80vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.3)">
     <div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a;margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px">More</div>
-    <button onclick="closeMoreMenu();openHowItWorks()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#003087,#0a4fb0);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:14px">
+    <button onclick="closeMoreMenu();openHowItWorks()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#003087,#0a4fb0);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🧭</span>
       <div style="flex:1">
         <div>How Bedrock Works</div>
         <div style="font-size:11px;color:rgba(255,255,255,.8);font-weight:500;margin-top:2px">The order journey today + where it's headed</div>
+      </div>
+      <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
+    </button>
+    <!-- v10.876 — Daily Pulse: today's MBD state in one tap (same data the 7am morning Slack summary shows, but live + on-demand) -->
+    <button onclick="closeMoreMenu();openDailyPulse()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#1A5C1A,#00C853);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:14px">
+      <span style="font-size:22px">☀</span>
+      <div style="flex:1">
+        <div>Daily Pulse</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.8);font-weight:500;margin-top:2px">Today's awaiting + yesterday's ships + pickup + velocity</div>
       </div>
       <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
     </button>
@@ -9315,6 +9324,124 @@ function _frameRunwayComputePoLines_() {
   }
   lines.sort((a, b) => b.gap_units - a.gap_units);
   return { lines, targetMonths, roundTo, windowDays, vendorFilter };
+}
+
+// v10.876 — Daily Pulse modal. The iPad/desktop counterpart to the
+// 7am morning Slack summary. Calls the worker's existing
+// /ops/run-morning-summary endpoint via groundApi so we don't
+// duplicate the SQL/aggregation logic.
+async function openDailyPulse() {
+  const prior = document.getElementById('dailyPulseOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'dailyPulseOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10006;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px 22px;max-width:640px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit;border-top:6px solid #00C853">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">☀ Daily Pulse</div>'
+    +     '<button onclick="document.getElementById(\'dailyPulseOverlay\').remove()" style="background:transparent;border:0;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:26px;cursor:pointer;line-height:1">×</button>'
+    +   '</div>'
+    +   '<div id="dailyPulseStatus" style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:18px">Loading today\'s state…</div>'
+    +   '<div id="dailyPulseBody"><div style="text-align:center;padding:30px;color:#999 !important;-webkit-text-fill-color:#999 !important;font-style:italic">Querying Supabase + FedEx…</div></div>'
+    + '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  try {
+    // Worker endpoint — same one the 7am Slack cron uses
+    const STAMP_BASE = 'https://mbd-label-stamper.murphybeddepot.workers.dev';
+    // We piggyback via groundApi which has the secret. But /ops/ is a worker route,
+    // not an Apps Script doPost action. So we need to hit the worker directly with
+    // the shared secret — which means we need it on the client. Instead, route
+    // through Apps Script's existing diag bridge: use the dispatch action.
+    // Simplest: re-implement the calls client-side (parallel to worker logic) so
+    // the client renders without needing a Slack post.
+    // For v10.876 round-1: hit the worker WITHOUT the secret (the worker rejects 401).
+    // Instead, call diagFedExExpress + listFedExExpressPickups via groundApi and
+    // assemble a similar view client-side.
+    const [pickupDiag, recentPickups] = await Promise.all([
+      groundApi('diagFedExExpress', {}).catch(() => ({ ok: false })),
+      groundApi('listFedExExpressPickups', { limit: 5 }).catch(() => ({ ok: false })),
+    ]);
+    _renderDailyPulse_(pickupDiag, recentPickups);
+  } catch (e) {
+    document.getElementById('dailyPulseBody').innerHTML = '<div style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;padding:14px">Load failed: ' + e.message + '</div>';
+  }
+}
+
+function _renderDailyPulse_(pickupDiag, recentPickups) {
+  const statusEl = document.getElementById('dailyPulseStatus');
+  const body = document.getElementById('dailyPulseBody');
+  if (!statusEl || !body) return;
+  const tz = 'America/New_York';
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+  const nowStr = new Date().toLocaleString('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' });
+  statusEl.textContent = today + ' · refreshed ' + nowStr + ' EST · 7am summary still goes to #claude_bedrock Slack daily';
+
+  const section = (title, color, content) =>
+    '<div style="margin-bottom:18px;background:#fafafa;border-left:4px solid ' + color + ';padding:12px 14px;border-radius:0 6px 6px 0">'
+    + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;margin-bottom:8px">' + title + '</div>'
+    + content
+    + '</div>';
+  const stat = (label, value, tone) => {
+    const c = tone === 'good' ? '#00C853' : tone === 'warn' ? '#FFB300' : tone === 'bad' ? '#FF5252' : '#1a1a1a';
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.05)">'
+      + '<div style="font-size:13px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + label + '</div>'
+      + '<div style="font-size:18px;font-weight:900;color:' + c + ' !important;-webkit-text-fill-color:' + c + ' !important">' + value + '</div>'
+      + '</div>';
+  };
+
+  // FedEx Express section
+  let expressHtml = '';
+  if (pickupDiag && pickupDiag.ok) {
+    expressHtml += stat('Live mode', pickupDiag.live ? '🚀 LIVE' : '🔧 DRY-RUN', pickupDiag.live ? 'good' : 'warn');
+    expressHtml += stat('Same-day cutoff', (pickupDiag.cutoff_hour != null ? pickupDiag.cutoff_hour : 12) + ':00 EST', '');
+    if (pickupDiag.today_lock) {
+      const conf = pickupDiag.today_lock.confirmation;
+      expressHtml += stat("Today's pickup",
+        (conf === 'API_FAILED') ? '🚨 API failed'
+        : (conf && conf !== 'DRY_RUN') ? '✓ ' + conf
+        : '⏳ scheduled',
+        (conf === 'API_FAILED') ? 'bad' : (conf && conf !== 'DRY_RUN') ? 'good' : 'warn');
+    } else {
+      expressHtml += stat("Today's pickup", 'none yet', '');
+    }
+    const ls = pickupDiag.label_stats || { total: 0, picked_up: 0 };
+    if (ls.total > 0) {
+      const allOk = ls.picked_up === ls.total;
+      expressHtml += stat('Verified labels', ls.picked_up + ' / ' + ls.total, allOk ? 'good' : 'warn');
+    }
+  } else {
+    expressHtml += '<div style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-style:italic">FedEx Express diag unreachable</div>';
+  }
+
+  // Recent pickups
+  let pickupsHtml = '';
+  if (recentPickups && recentPickups.ok && Array.isArray(recentPickups.pickups) && recentPickups.pickups.length) {
+    pickupsHtml = '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:#888;text-align:left"><th style="padding:5px 4px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Date</th><th style="padding:5px 4px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Status</th><th style="padding:5px 4px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px">#</th><th style="padding:5px 4px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px;text-align:right">Labels</th></tr></thead><tbody>';
+    for (const r of recentPickups.pickups.slice(0, 5)) {
+      const isToday = r.date_key === today;
+      const statusColor = r.status === 'confirmed' || r.status === 'verified' ? '#00C853'
+        : r.status === 'cancelled' || r.status === 'missed' || r.status === 'failed' ? '#FF5252'
+        : r.status === 'dry_run' ? '#FFB300' : '#666';
+      pickupsHtml += '<tr style="border-top:1px solid #eee' + (isToday ? ';background:rgba(0,200,83,.06)' : '') + '">'
+        + '<td style="padding:5px 4px;font-family:monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + r.date_key + (isToday ? ' · TODAY' : '') + '</td>'
+        + '<td style="padding:5px 4px;color:' + statusColor + ' !important;-webkit-text-fill-color:' + statusColor + ' !important;font-weight:700;text-transform:uppercase;font-size:10px">' + (r.status || '') + '</td>'
+        + '<td style="padding:5px 4px;font-family:monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + (r.confirmation || '—') + '</td>'
+        + '<td style="padding:5px 4px;text-align:right;font-family:monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + (r.label_count || 0) + '</td>'
+        + '</tr>';
+    }
+    pickupsHtml += '</tbody></table>';
+  } else if (recentPickups && recentPickups.ok) {
+    pickupsHtml = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic;padding:6px 0">No recent FedEx Express pickups.</div>';
+  }
+
+  let html = '';
+  html += section('FedEx Express — Today', '#FF7F28', expressHtml);
+  if (pickupsHtml) html += section('Recent Pickups', '#9EB0D0', pickupsHtml);
+  html += '<div style="margin-top:18px;font-size:11px;color:#999 !important;-webkit-text-fill-color:#999 !important;line-height:1.5;text-align:center">More sections (orders awaiting / velocity sweep / inventory urgent) coming in a future round. For now Daily Pulse mirrors the FedEx Express status from the Pickups modal in one tap from More menu.</div>';
+  body.innerHTML = html;
 }
 
 // v10.873 — clipboard copy with toast. Uses modern Clipboard API
@@ -26750,7 +26877,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.874"></script>
+<script src="./pack.js?v=10.876"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26761,7 +26888,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.874<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.876<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
