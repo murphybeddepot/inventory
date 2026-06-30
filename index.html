@@ -1337,6 +1337,14 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <button onclick="closeMoreMenu();openBomToolsModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🧱</span>
+      <div style="flex:1">
+        <div>BOM Tools</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Edit variant_map + bundle_bom in Postgres (canonical, replaces the Sheet)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -14986,6 +14994,204 @@ function _ensureQuillLoaded_() {
   return _quillLoadPromise;
 }
 
+// v10.888 — BOM Tools modal: Postgres-canonical edits for variant_map +
+// bundle_bom. The Sheet→Postgres sync (`pickListSyncStoresToPostgres`) is
+// now disabled by default; this UI replaces the Sheet authoring workflow.
+async function openBomToolsModal() {
+  let pin = '';
+  function ensurePin() {
+    if (pin) return pin;
+    const entered = window.prompt('Manager PIN required for BOM edits:');
+    if (!entered) return null;
+    pin = String(entered).trim();
+    return pin;
+  }
+  let backdrop = document.getElementById('bomToolsBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'bomToolsBackdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10010;display:flex;align-items:center;justify-content:center;padding:24px';
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.innerHTML = `
+    <div class="keep-dark-text" style="background:#fff !important;-webkit-text-fill-color:#1a1a1a;color:#1a1a1a;width:min(900px,100%);max-height:92vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+      <div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:22px">🧱</span>
+        <div style="flex:1">
+          <div style="font-size:17px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">BOM Tools</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);font-weight:500">Postgres-canonical • Sheet→Postgres sync is DISABLED</div>
+        </div>
+        <button onclick="document.getElementById('bomToolsBackdrop').remove()" style="background:transparent !important;color:#fff !important;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">Close</button>
+      </div>
+      <div style="display:flex;border-bottom:2px solid #eee;background:#f5f5f7 !important">
+        <button id="bomTabVariant" onclick="_bomSwitchTab_('variant')" style="flex:1;padding:14px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:none;border-bottom:3px solid #1a1a1a;cursor:pointer;font-weight:800;font-size:14px">Variant Map</button>
+        <button id="bomTabBundle" onclick="_bomSwitchTab_('bundle')" style="flex:1;padding:14px;background:#f5f5f7 !important;color:#666 !important;-webkit-text-fill-color:#666;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:800;font-size:14px">Bundle BOM</button>
+      </div>
+      <div id="bomBodyVariant" style="padding:18px;overflow-y:auto;flex:1">
+        <div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666;line-height:1.55;background:#f5f5f7 !important;padding:10px 12px;border-radius:8px;margin-bottom:14px">
+          <b>variant_map</b> rows define how a Shopify variant SKU expands into bundles.
+          Per HORIZ rule: <code>queen/singleXL → HORIZ-PACK-82</code>, <code>single/double → HORIZ-PACK-77</code> in sub_bundle_2.
+          SOFABED variants need <code>main_bundle = SOFABED-BUNDLE</code> (NOT PBCAB-BUNDLE). PBCAB variants keep <code>main_bundle = PBCAB-BUNDLE</code>.
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <input id="bomVariantSearch" placeholder="search variant SKU (e.g. SOFABED-QHORIZ)" oninput="_bomVariantSearch_(this.value)" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">
+        </div>
+        <div id="bomVariantSearchResults" style="margin-bottom:14px;max-height:180px;overflow-y:auto"></div>
+        <div id="bomVariantForm"></div>
+      </div>
+      <div id="bomBodyBundle" style="padding:18px;overflow-y:auto;flex:1;display:none">
+        <div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666;line-height:1.55;background:#f5f5f7 !important;padding:10px 12px;border-radius:8px;margin-bottom:14px">
+          <b>bundle_bom</b> rows define what's INSIDE a bundle. <b>child_category</b>: <code>BUNDLE</code> = nested bundle (recurses); <code>ELEMENT</code> = physical leaf SKU.
+          <b>NEVER set parent_sku == child_sku</b> — that's a self-reference that causes infinite recursion (the API refuses).
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <input id="bomParentSearch" placeholder="enter parent bundle SKU (e.g. SOFABED-BUNDLE, HORIZ-PACK-82)" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">
+          <button onclick="_bomLoadBundle_()" style="padding:10px 16px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">Load</button>
+        </div>
+        <div id="bomBundleChildren"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  window._bomSwitchTab_ = function (tab) {
+    document.getElementById('bomBodyVariant').style.display = tab === 'variant' ? 'block' : 'none';
+    document.getElementById('bomBodyBundle').style.display = tab === 'bundle' ? 'block' : 'none';
+    const tv = document.getElementById('bomTabVariant'), tb = document.getElementById('bomTabBundle');
+    if (tab === 'variant') {
+      tv.style.background = '#fff'; tv.style.color = '#1a1a1a'; tv.style.borderBottomColor = '#1a1a1a';
+      tb.style.background = '#f5f5f7'; tb.style.color = '#666'; tb.style.borderBottomColor = 'transparent';
+    } else {
+      tb.style.background = '#fff'; tb.style.color = '#1a1a1a'; tb.style.borderBottomColor = '#1a1a1a';
+      tv.style.background = '#f5f5f7'; tv.style.color = '#666'; tv.style.borderBottomColor = 'transparent';
+    }
+  };
+  let _bomSearchTimer = null;
+  window._bomVariantSearch_ = function (q) {
+    clearTimeout(_bomSearchTimer);
+    _bomSearchTimer = setTimeout(async () => {
+      const box = document.getElementById('bomVariantSearchResults');
+      if (!q || q.length < 2) { box.innerHTML = ''; return; }
+      box.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">Searching…</div>';
+      const r = await groundApi('bomListVariantsByPrefix', { prefix: q, limit: 30 });
+      if (!r || !r.ok) { box.innerHTML = '<div style="padding:8px;color:#c33;font-size:12px">Search failed</div>'; return; }
+      if (!r.rows || !r.rows.length) { box.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">No matches.</div>'; return; }
+      box.innerHTML = r.rows.map(row =>
+        `<div onclick="_bomLoadVariantForm_('${row.variant_sku.replace(/'/g,"\\'")}')" style="padding:8px 10px;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:4px;cursor:pointer;background:#fff !important;font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='#fff'">
+          <b>${row.variant_sku}</b> <span style="color:#999">· ${row.size || '?'} · ${row.family || '?'}</span><br>
+          <span style="font-size:10px;color:#666">main=${row.main_bundle || '—'} · sub1=${row.sub_bundle_1 || '—'} · sub2=${row.sub_bundle_2 || '—'} · sub3=${row.sub_bundle_3 || '—'}</span>
+        </div>`
+      ).join('');
+    }, 250);
+  };
+  window._bomLoadVariantForm_ = async function (sku) {
+    const formBox = document.getElementById('bomVariantForm');
+    formBox.innerHTML = '<div style="padding:10px;color:#999">Loading…</div>';
+    const r = await groundApi('bomGetVariant', { variant_sku: sku });
+    const row = (r && r.ok && r.row) || { variant_sku: sku };
+    const fld = (label, key, help) => `
+      <div style="margin-bottom:10px">
+        <label style="display:block;font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666;margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${label}</label>
+        <input id="bomVar_${key}" value="${(row[key] == null ? '' : String(row[key])).replace(/"/g, '&quot;')}" style="width:100%;padding:8px 10px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace">
+        ${help ? `<div style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999;margin-top:2px">${help}</div>` : ''}
+      </div>`;
+    formBox.innerHTML = `
+      <div style="background:#f5f5f7 !important;padding:14px;border-radius:8px">
+        <div style="font-size:13px;font-weight:800;margin-bottom:10px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Edit: <code>${sku}</code></div>
+        ${fld('variant_sku', 'variant_sku', 'The Shopify variant SKU (read-only after first save)')}
+        ${fld('frame', 'frame', 'Structural frame SKU. PBFRAME-QUEEN / PBFRAME-DOUBLE / etc.')}
+        ${fld('main_bundle', 'main_bundle', 'Primary expansion. PBCAB-BUNDLE for panel beds; SOFABED-BUNDLE for sofa beds.')}
+        ${fld('sub_bundle_1', 'sub_bundle_1', 'PBCAB-SUB-BUNDLE for most panel-bed variants.')}
+        ${fld('sub_bundle_2', 'sub_bundle_2', 'HORIZ delta if applicable. HORIZ-PACK-82 (queen/singleXL), HORIZ-PACK-77 (single/double).')}
+        ${fld('sub_bundle_3', 'sub_bundle_3', 'Packaging bundle. PKG-BUNDLE-SHORT typical.')}
+        ${fld('size', 'size', 'QUEEN / DOUBLE / SINGLE / SINGLEXL')}
+        ${fld('family', 'family', 'SOFA / PBCAB / LIBRARY / BOAZ etc.')}
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button onclick="_bomSaveVariant_('${sku.replace(/'/g,"\\'")}')" style="flex:1;padding:11px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:800;font-size:14px">💾 Save (PIN required)</button>
+          <button onclick="document.getElementById('bomVariantForm').innerHTML=''" style="padding:11px 16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:1.5px solid #ccc;border-radius:6px;cursor:pointer;font-weight:700">Cancel</button>
+        </div>
+      </div>`;
+  };
+  window._bomSaveVariant_ = async function (sku) {
+    const p = ensurePin(); if (!p) return;
+    const payload = {
+      manager_pin: p,
+      variant_sku: document.getElementById('bomVar_variant_sku').value.trim() || sku,
+      frame: document.getElementById('bomVar_frame').value.trim(),
+      main_bundle: document.getElementById('bomVar_main_bundle').value.trim(),
+      sub_bundle_1: document.getElementById('bomVar_sub_bundle_1').value.trim(),
+      sub_bundle_2: document.getElementById('bomVar_sub_bundle_2').value.trim(),
+      sub_bundle_3: document.getElementById('bomVar_sub_bundle_3').value.trim(),
+      size: document.getElementById('bomVar_size').value.trim(),
+      family: document.getElementById('bomVar_family').value.trim(),
+    };
+    const r = await groundApi('bomSaveVariant', payload);
+    if (r && r.ok) {
+      alert('✅ Saved ' + payload.variant_sku);
+    } else {
+      alert('❌ Save failed: ' + ((r && r.error) || 'unknown'));
+      if (r && r.error && /pin/i.test(r.error)) pin = '';
+    }
+  };
+  window._bomLoadBundle_ = async function () {
+    const box = document.getElementById('bomBundleChildren');
+    const parent = (document.getElementById('bomParentSearch').value || '').trim();
+    if (!parent) { box.innerHTML = '<div style="padding:10px;color:#999">Enter a parent SKU first.</div>'; return; }
+    box.innerHTML = '<div style="padding:10px;color:#999">Loading…</div>';
+    const r = await groundApi('bomListBundleChildren', { parent_sku: parent });
+    if (!r || !r.ok) { box.innerHTML = '<div style="padding:10px;color:#c33">Load failed</div>'; return; }
+    const childRow = (c) => `
+      <tr>
+        <td style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">${c.child_sku}</td>
+        <td style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">${c.child_qty}</td>
+        <td style="padding:6px 8px;font-size:11px"><span style="padding:2px 6px;border-radius:4px;background:${c.child_category === 'BUNDLE' ? '#e1f4ff' : '#f5f5f7'};color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-weight:700">${c.child_category || 'ELEMENT'}</span></td>
+        <td style="padding:6px 8px;text-align:right">
+          <button onclick="_bomDeleteChild_('${parent.replace(/'/g,"\\'")}','${c.child_sku.replace(/'/g,"\\'")}')" style="padding:4px 8px;background:#fee !important;color:#c33 !important;-webkit-text-fill-color:#c33;border:1px solid #fcc;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">Delete</button>
+        </td>
+      </tr>`;
+    const rows = (r.rows || []).map(childRow).join('');
+    box.innerHTML = `
+      <div style="background:#fff !important;border:1.5px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:14px">
+        <div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;padding:8px 12px;font-size:13px;font-weight:800">Children of <code>${parent}</code> (${(r.rows || []).length})</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f5f5f7"><th style="padding:6px 8px;text-align:left;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase">child_sku</th><th style="padding:6px 8px;text-align:left;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase">qty</th><th style="padding:6px 8px;text-align:left;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase">category</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4" style="padding:10px;color:#999;font-size:12px;text-align:center">No children — bundle is empty.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div style="background:#f5f5f7 !important;padding:14px;border-radius:8px">
+        <div style="font-size:12px;font-weight:800;margin-bottom:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Add or update a child:</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end">
+          <div><label style="display:block;font-size:10px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">child_sku</label><input id="bomChild_sku" style="width:100%;padding:7px 9px;font-size:12px;border:1.5px solid #ddd;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace"></div>
+          <div><label style="display:block;font-size:10px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">qty</label><input id="bomChild_qty" type="number" step="any" style="width:100%;padding:7px 9px;font-size:12px;border:1.5px solid #ddd;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a"></div>
+          <div><label style="display:block;font-size:10px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">category</label><select id="bomChild_cat" style="width:100%;padding:7px 9px;font-size:12px;border:1.5px solid #ddd;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a"><option>ELEMENT</option><option>BUNDLE</option></select></div>
+          <button onclick="_bomSaveChild_('${parent.replace(/'/g,"\\'")}')" style="padding:8px 14px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:800;font-size:12px">+ Add</button>
+        </div>
+        <div style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999;margin-top:6px">Setting an existing child_sku overwrites it. Self-references (parent==child) are refused.</div>
+      </div>`;
+  };
+  window._bomSaveChild_ = async function (parent) {
+    const p = ensurePin(); if (!p) return;
+    const payload = {
+      manager_pin: p,
+      parent_sku: parent,
+      child_sku: document.getElementById('bomChild_sku').value.trim(),
+      child_qty: Number(document.getElementById('bomChild_qty').value) || 0,
+      child_category: document.getElementById('bomChild_cat').value,
+    };
+    const r = await groundApi('bomSaveBundleChild', payload);
+    if (r && r.ok) {
+      _bomLoadBundle_();
+    } else {
+      alert('❌ Save failed: ' + ((r && r.error) || 'unknown'));
+      if (r && r.error && /pin/i.test(r.error)) pin = '';
+    }
+  };
+  window._bomDeleteChild_ = async function (parent, child) {
+    if (!confirm(`Delete ${child} from ${parent}?`)) return;
+    const p = ensurePin(); if (!p) return;
+    const r = await groundApi('bomDeleteBundleChild', { manager_pin: p, parent_sku: parent, child_sku: child });
+    if (r && r.ok) _bomLoadBundle_();
+    else { alert('❌ Delete failed: ' + ((r && r.error) || 'unknown')); if (r && r.error && /pin/i.test(r.error)) pin = ''; }
+  };
+}
+
 async function openEmailTemplatesEditor() {
   // Pre-load Quill in background while we fetch the template list —
   // first edit is then instant rather than waiting on a CDN round-trip.
@@ -26999,7 +27205,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.887<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.888<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
