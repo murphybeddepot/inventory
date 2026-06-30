@@ -3444,16 +3444,58 @@ async function printPickListOnly_(orderNumber) {
 async function printNativePickList_(orderNumber) {
   const ord = String(orderNumber || '').trim();
   if (!ord) return;
-  showToast('🛠 Building Bedrock pick list for #' + ord + '…');
+  // v10.889 — persistent overlay (not a toast). The old toast faded
+  // after a few seconds while the request was still in flight (20s+),
+  // so packers couldn't tell if it was working. New pattern: blocking
+  // overlay with spinner; updates in-place when the response arrives;
+  // dismiss only on tap-OK or 6s after a successful submit.
+  const prev = document.getElementById('printNativePickListOv');
+  if (prev) prev.remove();
+  const ov = document.createElement('div');
+  ov.id = 'printNativePickListOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10040;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:24px';
+  ov.innerHTML = `
+    <div style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(0,135,254,.45);border-radius:14px;max-width:520px;width:100%;padding:22px;font-family:Helvetica,Arial,sans-serif">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+        <div id="pnplSpinner" style="width:28px;height:28px;border:3px solid rgba(66,165,245,.30);border-top-color:#42a5f5;border-radius:50%;animation:mbdSpin 1s linear infinite;flex-shrink:0"></div>
+        <div style="flex:1">
+          <div id="pnplTitle" style="font-size:16px;font-weight:800;color:#fff;-webkit-text-fill-color:#fff">Building pick list for #${ord}…</div>
+          <div id="pnplSub" style="font-size:12px;color:rgba(255,255,255,.65);-webkit-text-fill-color:rgba(255,255,255,.65);margin-top:3px">Server is rendering the PDF + sending to PrintNode (up to ~20s)</div>
+        </div>
+      </div>
+      <div id="pnplFooter" style="display:none;text-align:right">
+        <button onclick="document.getElementById('printNativePickListOv').remove()" style="padding:9px 18px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">OK</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  const setOverlay = (icon, color, title, sub, showOk) => {
+    const sp = document.getElementById('pnplSpinner');
+    const t = document.getElementById('pnplTitle');
+    const s = document.getElementById('pnplSub');
+    const f = document.getElementById('pnplFooter');
+    if (!sp || !t || !s || !f) return;
+    sp.style.animation = 'none';
+    sp.style.border = 'none';
+    sp.style.fontSize = '26px';
+    sp.style.color = color;
+    sp.style.webkitTextFillColor = color;
+    sp.innerHTML = icon;
+    t.innerHTML = title;
+    s.innerHTML = sub;
+    if (showOk) f.style.display = 'block';
+  };
   try {
     const res = await groundApi('printNativePickListForOrder', { orderNumber: ord });
     if (res && res.ok) {
-      showToast('✓ Native pick list sent (#' + ord + ', job ' + (res.job_id || '?') + ')');
+      setOverlay('✓', '#0a7a3f', '✓ Pick list printed for #' + ord, 'Sent to PrintNode (printer ' + (res.printer_id || '?') + ', job ' + (res.job_id || '?') + ')', true);
+      // Auto-dismiss after 6s on success
+      setTimeout(() => { const x = document.getElementById('printNativePickListOv'); if (x) x.remove(); }, 6000);
     } else {
-      showToast('⚠ Native pick list: ' + ((res && res.error) || 'unknown'));
+      const err = (res && res.error) || 'unknown error';
+      setOverlay('⚠', '#FF6B00', '⚠ Print FAILED for #' + ord, String(err).replace(/</g,'&lt;'), true);
     }
   } catch (e) {
-    showToast('⚠ Native pick list error: ' + (e.message || e));
+    setOverlay('⚠', '#c33', '⚠ Network error', String(e.message || e), true);
   }
 }
 
