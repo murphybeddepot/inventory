@@ -15058,11 +15058,15 @@ async function openInspectOrderModal(preFillOrder) {
           html += '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">' + (it.sku || '<i style="color:#c33 !important;-webkit-text-fill-color:#c33">(no SKU)</i>') + ' × ' + (it.quantity || 1) + '</div>';
           if (it.title) html += '<div style="color:#666 !important;-webkit-text-fill-color:#666;margin-top:2px">' + String(it.title).replace(/</g,'&lt;') + '</div>';
           if (it.properties && it.properties.length) {
-            html += '<div style="margin-top:4px;padding-top:4px;border-top:1px dashed #ddd;font-size:11px">';
-            it.properties.forEach(p => {
-              html += '<div style="color:#888 !important;-webkit-text-fill-color:#888"><b>' + String(p.name).replace(/</g,'&lt;') + ':</b> ' + String(p.value).replace(/</g,'&lt;') + '</div>';
-            });
-            html += '</div>';
+            // v10.894 — hide Shopify system properties (_mws_*, _key, etc.)
+            const userProps = it.properties.filter(p => p.name && !String(p.name).startsWith('_'));
+            if (userProps.length) {
+              html += '<div style="margin-top:4px;padding-top:4px;border-top:1px dashed #ddd;font-size:11px">';
+              userProps.forEach(p => {
+                html += '<div style="color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a"><b style="color:#666 !important;-webkit-text-fill-color:#666">' + String(p.name).replace(/</g,'&lt;') + ':</b> ' + String(p.value).replace(/</g,'&lt;') + '</div>';
+              });
+              html += '</div>';
+            }
           }
           html += '</div>';
         });
@@ -27317,7 +27321,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.893<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.894<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
