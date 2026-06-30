@@ -15026,7 +15026,8 @@ async function openInspectOrderModal(preFillOrder) {
       </div>
       <div style="padding:18px;display:flex;gap:10px;align-items:center;background:#f5f5f7 !important;border-bottom:1px solid #e0e0e0">
         <input id="inspectOrderInput" placeholder="Order # (e.g. 31801)" value="${(preFillOrder || '').replace(/"/g,'&quot;')}" style="flex:1;padding:12px 14px;font-size:16px;border:1.5px solid #ddd;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace" onkeydown="if(event.key==='Enter')_inspectOrderGo_()">
-        <button onclick="_inspectOrderGo_()" style="padding:12px 24px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px">Inspect</button>
+        <button onclick="_inspectOrderGo_()" style="padding:12px 20px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px">Inspect</button>
+        <button onclick="_inspectOrderPrint_()" title="Print the live pick list" style="padding:12px 20px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px">🖨 Print</button>
       </div>
       <div id="inspectOrderBody" style="padding:18px;overflow-y:auto;flex:1">
         <div style="text-align:center;padding:30px;color:#999 !important;-webkit-text-fill-color:#999;font-size:13px">Enter an order # above to see Shopify line items + the BOM expansion.</div>
@@ -15106,6 +15107,19 @@ async function openInspectOrderModal(preFillOrder) {
     html += '</div>';
     html += '</div>';
     body.innerHTML = html;
+  };
+  // v10.895 — Print button: fire the native pick list with the same
+  // persistent overlay UX as the Pack tab's button.
+  window._inspectOrderPrint_ = async function () {
+    const ord = (document.getElementById('inspectOrderInput').value || '').trim();
+    if (!ord) { alert('Order # required'); return; }
+    if (typeof printNativePickList_ === 'function') {
+      printNativePickList_(ord);
+    } else {
+      // Fallback: call directly without the overlay (unlikely)
+      const r = await groundApi('printNativePickListForOrder', { orderNumber: ord });
+      alert((r && r.ok) ? ('✓ Pick list sent · job ' + r.job_id) : ('FAIL: ' + ((r && r.error) || 'unknown')));
+    }
   };
   if (preFillOrder) setTimeout(_inspectOrderGo_, 100);
 }
@@ -27321,7 +27335,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.894<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.895<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
