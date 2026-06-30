@@ -15244,25 +15244,35 @@ async function openBomToolsModal() {
   window._bomLoadVariantForm_ = async function (sku) {
     const formBox = document.getElementById('bomVariantForm');
     formBox.innerHTML = '<div style="padding:10px;color:#999">Loading…</div>';
-    const r = await groundApi('bomGetVariant', { variant_sku: sku });
+    // v10.900 — fetch the row + the list of valid bundle parents in parallel
+    // so the form's bundle fields can use a datalist autocomplete.
+    const [r, parentsRes] = await Promise.all([
+      groundApi('bomGetVariant', { variant_sku: sku }),
+      groundApi('bomListBundleParents', { limit: 500 }),
+    ]);
     const row = (r && r.ok && r.row) || { variant_sku: sku };
-    const fld = (label, key, help) => `
+    const validParents = (parentsRes && parentsRes.ok && parentsRes.parents) || [];
+    const datalistHtml = '<datalist id="bomBundleParentsList">' +
+      validParents.map(p => '<option value="' + String(p).replace(/"/g,'&quot;') + '">').join('') +
+      '</datalist>';
+    const fld = (label, key, help, useDatalist) => `
       <div style="margin-bottom:10px">
         <label style="display:block;font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666;margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">${label}</label>
-        <input id="bomVar_${key}" value="${(row[key] == null ? '' : String(row[key])).replace(/"/g, '&quot;')}" style="width:100%;padding:8px 10px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace">
+        <input id="bomVar_${key}" ${useDatalist ? 'list="bomBundleParentsList"' : ''} value="${(row[key] == null ? '' : String(row[key])).replace(/"/g, '&quot;')}" style="width:100%;padding:8px 10px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace">
         ${help ? `<div style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999;margin-top:2px">${help}</div>` : ''}
       </div>`;
     formBox.innerHTML = `
+      ${datalistHtml}
       <div style="background:#f5f5f7 !important;padding:14px;border-radius:8px">
-        <div style="font-size:13px;font-weight:800;margin-bottom:10px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Edit: <code>${sku}</code></div>
-        ${fld('variant_sku', 'variant_sku', 'The Shopify variant SKU (read-only after first save)')}
-        ${fld('frame', 'frame', 'Structural frame SKU. PBFRAME-QUEEN / PBFRAME-DOUBLE / etc.')}
-        ${fld('main_bundle', 'main_bundle', 'Primary expansion. PBCAB-BUNDLE for panel beds; SOFABED-BUNDLE for sofa beds.')}
-        ${fld('sub_bundle_1', 'sub_bundle_1', 'PBCAB-SUB-BUNDLE for most panel-bed variants.')}
-        ${fld('sub_bundle_2', 'sub_bundle_2', 'HORIZ delta if applicable. HORIZ-PACK-82 (queen/singleXL), HORIZ-PACK-77 (single/double).')}
-        ${fld('sub_bundle_3', 'sub_bundle_3', 'Packaging bundle. PKG-BUNDLE-SHORT typical.')}
-        ${fld('size', 'size', 'QUEEN / DOUBLE / SINGLE / SINGLEXL')}
-        ${fld('family', 'family', 'SOFA / PBCAB / LIBRARY / BOAZ etc.')}
+        <div style="font-size:13px;font-weight:800;margin-bottom:10px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">Edit: <code>${sku}</code> <span style="font-size:10px;font-weight:600;color:#999 !important;-webkit-text-fill-color:#999;margin-left:8px">${validParents.length} valid bundle names available · type to autocomplete</span></div>
+        ${fld('variant_sku', 'variant_sku', 'The Shopify variant SKU (read-only after first save)', false)}
+        ${fld('frame', 'frame', 'Structural frame SKU. PBFRAME-QUEEN / PBFRAME-DOUBLE / etc.', true)}
+        ${fld('main_bundle', 'main_bundle', 'Primary expansion. PBCAB-BUNDLE for panel beds; SOFABED-BUNDLE for sofa beds.', true)}
+        ${fld('sub_bundle_1', 'sub_bundle_1', 'PBCAB-SUB-BUNDLE for most panel-bed variants.', true)}
+        ${fld('sub_bundle_2', 'sub_bundle_2', 'HORIZ delta if applicable. HORIZ-PACK-82 (queen/singleXL), HORIZ-PACK-77 (single/double).', true)}
+        ${fld('sub_bundle_3', 'sub_bundle_3', 'Packaging bundle. PKG-BUNDLE-SHORT typical.', true)}
+        ${fld('size', 'size', 'QUEEN / DOUBLE / SINGLE / SINGLEXL', false)}
+        ${fld('family', 'family', 'SOFA / PBCAB / LIBRARY / BOAZ etc.', false)}
         <div style="display:flex;gap:8px;margin-top:14px">
           <button onclick="_bomSaveVariant_('${sku.replace(/'/g,"\\'")}')" style="flex:1;padding:11px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:800;font-size:14px">💾 Save (PIN required)</button>
           <button onclick="document.getElementById('bomVariantForm').innerHTML=''" style="padding:11px 16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:1.5px solid #ccc;border-radius:6px;cursor:pointer;font-weight:700">Cancel</button>
@@ -27431,7 +27441,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.899<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.900<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
