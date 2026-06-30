@@ -15155,6 +15155,7 @@ async function openBomToolsModal() {
       <div style="display:flex;border-bottom:2px solid #eee;background:#f5f5f7 !important">
         <button id="bomTabVariant" onclick="_bomSwitchTab_('variant')" style="flex:1;padding:14px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:none;border-bottom:3px solid #1a1a1a;cursor:pointer;font-weight:800;font-size:14px">Variant Map</button>
         <button id="bomTabBundle" onclick="_bomSwitchTab_('bundle')" style="flex:1;padding:14px;background:#f5f5f7 !important;color:#666 !important;-webkit-text-fill-color:#666;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:800;font-size:14px">Bundle BOM</button>
+        <button id="bomTabIssues" onclick="_bomSwitchTab_('issues')" style="flex:1;padding:14px;background:#f5f5f7 !important;color:#666 !important;-webkit-text-fill-color:#666;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:800;font-size:14px">🔍 Issues</button>
       </div>
       <div id="bomBodyVariant" style="padding:18px;overflow-y:auto;flex:1">
         <div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666;line-height:1.55;background:#f5f5f7 !important;padding:10px 12px;border-radius:8px;margin-bottom:14px">
@@ -15179,19 +15180,27 @@ async function openBomToolsModal() {
         </div>
         <div id="bomBundleChildren"></div>
       </div>
+      <div id="bomBodyIssues" style="padding:18px;overflow-y:auto;flex:1;display:none">
+        <div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666;line-height:1.55;background:#f5f5f7 !important;padding:10px 12px;border-radius:8px;margin-bottom:14px">
+          Scans <b>variant_map</b> for known-bad patterns and offers one-tap fixes (manager PIN required).
+          Detects: HORIZ variants missing the size-appropriate HORIZ-PACK sub-bundle (queen/singleXL → HORIZ-PACK-82, single/double → HORIZ-PACK-77), SOFABED variants stuck on <code>main_bundle=PBCAB-BUNDLE</code>, and variants pointing to non-existent bundles.
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+          <button onclick="_bomScanIssues_()" style="padding:10px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:13px">🔍 Scan now</button>
+          <div id="bomIssuesSummary" style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666"></div>
+        </div>
+        <div id="bomIssuesList"></div>
+      </div>
     </div>`;
   document.body.appendChild(backdrop);
   window._bomSwitchTab_ = function (tab) {
     document.getElementById('bomBodyVariant').style.display = tab === 'variant' ? 'block' : 'none';
     document.getElementById('bomBodyBundle').style.display = tab === 'bundle' ? 'block' : 'none';
-    const tv = document.getElementById('bomTabVariant'), tb = document.getElementById('bomTabBundle');
-    if (tab === 'variant') {
-      tv.style.background = '#fff'; tv.style.color = '#1a1a1a'; tv.style.borderBottomColor = '#1a1a1a';
-      tb.style.background = '#f5f5f7'; tb.style.color = '#666'; tb.style.borderBottomColor = 'transparent';
-    } else {
-      tb.style.background = '#fff'; tb.style.color = '#1a1a1a'; tb.style.borderBottomColor = '#1a1a1a';
-      tv.style.background = '#f5f5f7'; tv.style.color = '#666'; tv.style.borderBottomColor = 'transparent';
-    }
+    document.getElementById('bomBodyIssues').style.display = tab === 'issues' ? 'block' : 'none';
+    const tv = document.getElementById('bomTabVariant'), tb = document.getElementById('bomTabBundle'), ti = document.getElementById('bomTabIssues');
+    [tv, tb, ti].forEach(t => { t.style.background = '#f5f5f7'; t.style.color = '#666'; t.style.borderBottomColor = 'transparent'; });
+    const active = tab === 'variant' ? tv : tab === 'bundle' ? tb : ti;
+    active.style.background = '#fff'; active.style.color = '#1a1a1a'; active.style.borderBottomColor = '#1a1a1a';
   };
   let _bomSearchTimer = null;
   window._bomVariantSearch_ = function (q) {
@@ -15319,6 +15328,54 @@ async function openBomToolsModal() {
     const r = await groundApi('bomDeleteBundleChild', { manager_pin: p, parent_sku: parent, child_sku: child });
     if (r && r.ok) _bomLoadBundle_();
     else { alert('❌ Delete failed: ' + ((r && r.error) || 'unknown')); if (r && r.error && /pin/i.test(r.error)) pin = ''; }
+  };
+  // v10.896 — Issues tab handlers
+  window._bomScanIssues_ = async function () {
+    const summary = document.getElementById('bomIssuesSummary');
+    const list = document.getElementById('bomIssuesList');
+    summary.textContent = 'Scanning…';
+    list.innerHTML = '<div style="padding:14px;color:#999 !important;-webkit-text-fill-color:#999;text-align:center">Loading…</div>';
+    const r = await groundApi('bomScanForIssues', {});
+    if (!r || !r.ok) {
+      summary.textContent = 'Scan failed';
+      list.innerHTML = '<div style="padding:14px;color:#c33 !important;-webkit-text-fill-color:#c33">' + ((r && r.error) || 'unknown') + '</div>';
+      return;
+    }
+    summary.textContent = `${r.count} issue${r.count===1?'':'s'} across ${r.total_variants} variants · ` + Object.keys(r.by_kind).map(k => `${k}: ${r.by_kind[k]}`).join(' · ');
+    if (!r.count) {
+      list.innerHTML = '<div style="padding:24px;color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f;text-align:center;font-weight:700">✓ No issues found.</div>';
+      return;
+    }
+    list.innerHTML = r.issues.map((iss, idx) => {
+      const kindBadge = {
+        horiz_missing_pack: 'background:#fff8e1;color:#7a5500',
+        horiz_wrong_pack:   'background:#fee;color:#c33',
+        sofabed_wrong_main: 'background:#fee;color:#c33',
+        missing_bundle:     'background:#fff8e1;color:#7a5500',
+      }[iss.kind] || 'background:#f5f5f7;color:#666';
+      const fixBtn = iss.fix
+        ? `<button onclick="_bomApplyFix_(${idx})" style="padding:6px 10px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:700;font-size:11px">Apply fix</button>`
+        : '<span style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999">no auto-fix</span>';
+      return `<div style="background:#fff !important;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;font-size:12px">
+        <span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${kindBadge};-webkit-text-fill-color:inherit">${iss.kind.replace(/_/g,' ')}</span>
+        <div style="flex:1;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace">${iss.msg}</div>
+        ${fixBtn}
+      </div>`;
+    }).join('');
+    // Stash issues for the apply-fix handler
+    window._bomIssuesCache_ = r.issues;
+  };
+  window._bomApplyFix_ = async function (idx) {
+    const iss = (window._bomIssuesCache_ || [])[idx];
+    if (!iss || !iss.fix) return;
+    const p = ensurePin(); if (!p) return;
+    const r = await groundApi('bomApplyFix', { manager_pin: p, variant_sku: iss.variant_sku, fix: iss.fix });
+    if (r && r.ok) {
+      _bomScanIssues_();  // refresh list (issue should drop off)
+    } else {
+      alert('❌ Fix failed: ' + ((r && r.error) || 'unknown'));
+      if (r && r.error && /pin/i.test(r.error)) pin = '';
+    }
   };
 }
 
@@ -27335,7 +27392,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.895<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.896<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
