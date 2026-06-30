@@ -9360,17 +9360,20 @@ async function openDailyPulse() {
     // For v10.876 round-1: hit the worker WITHOUT the secret (the worker rejects 401).
     // Instead, call diagFedExExpress + listFedExExpressPickups via groundApi and
     // assemble a similar view client-side.
-    const [pickupDiag, recentPickups] = await Promise.all([
+    // v10.877 — parallel: FedEx diag + recent pickups + full morning
+    // summary data via worker (proxied through orchestrator).
+    const [pickupDiag, recentPickups, morningData] = await Promise.all([
       groundApi('diagFedExExpress', {}).catch(() => ({ ok: false })),
       groundApi('listFedExExpressPickups', { limit: 5 }).catch(() => ({ ok: false })),
+      groundApi('getDailyPulse', {}).catch(() => ({ ok: false })),
     ]);
-    _renderDailyPulse_(pickupDiag, recentPickups);
+    _renderDailyPulse_(pickupDiag, recentPickups, morningData);
   } catch (e) {
     document.getElementById('dailyPulseBody').innerHTML = '<div style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;padding:14px">Load failed: ' + e.message + '</div>';
   }
 }
 
-function _renderDailyPulse_(pickupDiag, recentPickups) {
+function _renderDailyPulse_(pickupDiag, recentPickups, morningData) {
   const statusEl = document.getElementById('dailyPulseStatus');
   const body = document.getElementById('dailyPulseBody');
   if (!statusEl || !body) return;
@@ -9437,10 +9440,45 @@ function _renderDailyPulse_(pickupDiag, recentPickups) {
     pickupsHtml = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic;padding:6px 0">No recent FedEx Express pickups.</div>';
   }
 
+  // v10.877 — Operations + System sections from morningData
+  let opsHtml = '';
+  let systemHtml = '';
+  if (morningData && morningData.ok) {
+    opsHtml += stat('Awaiting Ground orders', (morningData.today_awaiting != null ? morningData.today_awaiting : '?'),
+      (morningData.today_awaiting > 50) ? 'warn' : '');
+    opsHtml += stat('Yesterday\'s ships', (morningData.yesterday_ships != null ? morningData.yesterday_ships : '?'),
+      (morningData.yesterday_ships >= 5) ? 'good' : 'warn');
+    if (morningData.yesterday_labels) {
+      const yl = morningData.yesterday_labels;
+      if (yl.total > 0) {
+        opsHtml += stat("Yesterday's verified Express labels", yl.picked_up + ' / ' + yl.total,
+          (yl.picked_up === yl.total) ? 'good' : 'warn');
+      }
+    }
+    if (morningData.pickup_summary) {
+      opsHtml += stat("Today's pickup summary", morningData.pickup_summary, '');
+    }
+    if (morningData.velocity_note) {
+      const note = String(morningData.velocity_note);
+      // amber if "0h ago" or "Nh ago" with N > 6 hours stale
+      let tone = '';
+      const m = note.match(/last SHIP_BOM:\s+(\d+)h/);
+      if (m) {
+        const hours = Number(m[1]);
+        tone = hours > 12 ? 'warn' : 'good';
+      }
+      systemHtml += stat('Velocity sweep', note, tone);
+    }
+  } else {
+    opsHtml = '<div style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-style:italic">Operations summary unreachable (' + ((morningData && morningData.error) || 'unknown') + ')</div>';
+  }
+
   let html = '';
+  html += section('Operations — Today', '#003087', opsHtml);
+  if (systemHtml) html += section('System Health', '#42a5f5', systemHtml);
   html += section('FedEx Express — Today', '#FF7F28', expressHtml);
   if (pickupsHtml) html += section('Recent Pickups', '#9EB0D0', pickupsHtml);
-  html += '<div style="margin-top:18px;font-size:11px;color:#999 !important;-webkit-text-fill-color:#999 !important;line-height:1.5;text-align:center">More sections (orders awaiting / velocity sweep / inventory urgent) coming in a future round. For now Daily Pulse mirrors the FedEx Express status from the Pickups modal in one tap from More menu.</div>';
+  html += '<div style="margin-top:18px;font-size:10px;color:#999 !important;-webkit-text-fill-color:#999 !important;line-height:1.5;text-align:center">Same data the 7am Slack morning summary uses, fetched live via the Cloudflare worker.</div>';
   body.innerHTML = html;
 }
 
@@ -26877,7 +26915,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.876"></script>
+<script src="./pack.js?v=10.877"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -26888,7 +26926,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.876<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.877<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
