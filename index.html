@@ -15238,7 +15238,10 @@ async function openBomToolsModal() {
   backdrop = document.createElement('div');
   backdrop.id = 'bomToolsBackdrop';
   backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10010;display:flex;align-items:center;justify-content:center;padding:24px';
-  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  // v10.905 — Esc-to-close on BOM Tools too
+  const _bomOnEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _bomOnEsc); } };
+  document.addEventListener('keydown', _bomOnEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _bomOnEsc); } };
   backdrop.innerHTML = `
     <div class="keep-dark-text" style="background:#fff !important;-webkit-text-fill-color:#1a1a1a;color:#1a1a1a;width:min(900px,100%);max-height:92vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)">
       <div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px">
