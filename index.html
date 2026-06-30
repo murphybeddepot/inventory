@@ -15039,11 +15039,31 @@ async function openInspectOrderModal(preFillOrder) {
     const body = document.getElementById('inspectOrderBody');
     if (!ord) { body.innerHTML = '<div style="padding:20px;color:#c33 !important;-webkit-text-fill-color:#c33">Order # required</div>'; return; }
     body.innerHTML = '<div style="text-align:center;padding:30px;color:#999 !important;-webkit-text-fill-color:#999"><div style="width:30px;height:30px;border:3px solid rgba(0,0,0,.15);border-top-color:#1a1a1a;border-radius:50%;animation:mbdSpin 1s linear infinite;margin:0 auto 12px"></div>Loading…</div>';
-    const [shopify, expansion] = await Promise.all([
-      groundApi('getShopifyOrderLineItems', { orderNumber: ord }),
+    // v10.899 — fetch full summary (incl customer + addr) alongside line
+    // items + BOM expansion. Reuses shopify summary across the panel.
+    const [summary, expansion] = await Promise.all([
+      groundApi('getShopifyOrderSummary', { orderNumber: ord }),
       groundApi('pickListSessionForOrder', { orderNumber: ord }),
     ]);
+    const shopify = summary && summary.ok && summary.summary
+      ? { ok: true, line_items: summary.summary.line_items || [] }
+      : (summary && !summary.ok ? summary : { ok: false });
     let html = '';
+    // Order metadata header
+    if (summary && summary.ok && summary.summary) {
+      const s = summary.summary;
+      const sa = s.shipping_address || {};
+      const addr = [sa.address1, sa.address2, [sa.city, sa.province, sa.zip].filter(Boolean).join(', '), sa.country].filter(Boolean).join(' · ');
+      const fdate = s.processed_at ? new Date(s.processed_at).toLocaleDateString() : (s.created_at ? new Date(s.created_at).toLocaleDateString() : '');
+      const statusChip = (color, label) => `<span style="padding:2px 7px;border-radius:4px;background:${color};color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px">${label}</span>`;
+      const finChip = s.financial_status ? statusChip(s.financial_status === 'paid' ? '#c8e6c9' : '#fff3cd', s.financial_status) : '';
+      const fulChip = s.fulfillment_status ? statusChip(s.fulfillment_status === 'fulfilled' ? '#c8e6c9' : '#fff3cd', s.fulfillment_status) : statusChip('#f5f5f7', 'unfulfilled');
+      html += `<div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;font-size:14px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">${s.name || '#' + ord} · ${s.customer_name || '(no customer)'} ${finChip} ${fulChip}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);margin-top:4px">${addr || '(no shipping address)'}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.6) !important;-webkit-text-fill-color:rgba(255,255,255,.6);margin-top:2px">${fdate ? 'Ordered ' + fdate + ' · ' : ''}${s.customer_email || ''}${s.customer_phone ? ' · ' + s.customer_phone : ''}${s.total_price ? ' · $' + s.total_price : ''}</div>
+      </div>`;
+    }
     // Shopify line items (LEFT)
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
     html += '<div>';
@@ -27411,7 +27431,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.897<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.899<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
