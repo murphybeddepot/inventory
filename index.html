@@ -15274,10 +15274,42 @@ async function openBomToolsModal() {
         ${fld('size', 'size', 'QUEEN / DOUBLE / SINGLE / SINGLEXL', false)}
         ${fld('family', 'family', 'SOFA / PBCAB / LIBRARY / BOAZ etc.', false)}
         <div style="display:flex;gap:8px;margin-top:14px">
+          <button onclick="_bomPreviewVariant_()" title="Dry-run the BOM expansion with the current form values (no DB write)" style="padding:11px 16px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:800;font-size:14px">👁 Preview</button>
           <button onclick="_bomSaveVariant_('${sku.replace(/'/g,"\\'")}')" style="flex:1;padding:11px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:800;font-size:14px">💾 Save (PIN required)</button>
           <button onclick="document.getElementById('bomVariantForm').innerHTML=''" style="padding:11px 16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:1.5px solid #ccc;border-radius:6px;cursor:pointer;font-weight:700">Cancel</button>
         </div>
+        <div id="bomPreviewResult"></div>
       </div>`;
+  };
+  // v10.901 — preview BOM expansion using current form values, no save.
+  window._bomPreviewVariant_ = async function () {
+    const box = document.getElementById('bomPreviewResult');
+    box.innerHTML = '<div style="margin-top:12px;padding:10px;color:#999 !important;-webkit-text-fill-color:#999;text-align:center;font-size:12px">Previewing…</div>';
+    const r = await groundApi('bomPreviewExpansion', {
+      frame: document.getElementById('bomVar_frame').value.trim(),
+      main_bundle: document.getElementById('bomVar_main_bundle').value.trim(),
+      sub_bundle_1: document.getElementById('bomVar_sub_bundle_1').value.trim(),
+      sub_bundle_2: document.getElementById('bomVar_sub_bundle_2').value.trim(),
+      sub_bundle_3: document.getElementById('bomVar_sub_bundle_3').value.trim(),
+    });
+    if (!r || !r.ok) {
+      box.innerHTML = '<div style="margin-top:12px;padding:10px;color:#c33 !important;-webkit-text-fill-color:#c33;background:#fee !important;border-radius:6px;font-size:12px">⚠ ' + ((r && r.error) || 'unknown') + '</div>';
+      return;
+    }
+    let h = '<div style="margin-top:12px;background:#e3f2fd !important;border:1px solid #90caf9;border-radius:8px;padding:10px">';
+    h += '<div style="font-size:12px;font-weight:800;color:#1565c0 !important;-webkit-text-fill-color:#1565c0;margin-bottom:6px">👁 Preview (' + r.total_lines + ' lines · ' + r.resolved_bundles.length + ' bundles)</div>';
+    if (r.unknown_bundles && r.unknown_bundles.length) {
+      h += '<div style="font-size:11px;color:#c33 !important;-webkit-text-fill-color:#c33;background:#fee !important;padding:6px 8px;border-radius:4px;margin-bottom:8px">⚠ Bundles with no children in bundle_bom: ' + r.unknown_bundles.join(', ') + '</div>';
+    }
+    ['cabinet','frame','hardware','packaging','instruction'].forEach(n => {
+      const rows = (r.buckets && r.buckets[n]) || [];
+      if (!rows.length) return;
+      h += '<div style="margin-bottom:6px"><div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:800">' + n + ' (' + rows.length + ')</div>';
+      rows.forEach(it => { h += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;padding:1px 0">' + it.item_sku + ' × ' + it.qty + '</div>'; });
+      h += '</div>';
+    });
+    h += '</div>';
+    box.innerHTML = h;
   };
   window._bomSaveVariant_ = async function (sku) {
     const p = ensurePin(); if (!p) return;
@@ -27441,7 +27473,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.900<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.901<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
