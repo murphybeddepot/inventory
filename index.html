@@ -15195,8 +15195,9 @@ async function openBomToolsModal() {
           <b>NEVER set parent_sku == child_sku</b> — that's a self-reference that causes infinite recursion (the API refuses).
         </div>
         <div style="display:flex;gap:8px;margin-bottom:14px">
-          <input id="bomParentSearch" placeholder="enter parent bundle SKU (e.g. SOFABED-BUNDLE, HORIZ-PACK-82)" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">
+          <input id="bomParentSearch" list="bomBundleParentsList" placeholder="enter parent bundle SKU (e.g. SOFABED-BUNDLE, HORIZ-PACK-82)" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a" onkeydown="if(event.key==='Enter')_bomLoadBundle_()">
           <button onclick="_bomLoadBundle_()" style="padding:10px 16px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">Load</button>
+          <button onclick="_bomBrowseBundles_()" title="List every bundle that has children" style="padding:10px 16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:1.5px solid #1a1a1a;border-radius:8px;cursor:pointer;font-weight:700">📂 Browse all</button>
         </div>
         <div id="bomBundleChildren"></div>
       </div>
@@ -15384,6 +15385,36 @@ async function openBomToolsModal() {
       alert('❌ Save failed: ' + ((r && r.error) || 'unknown'));
       if (r && r.error && /pin/i.test(r.error)) pin = '';
     }
+  };
+  // v10.902 — Browse all bundles. Lists every parent_sku in bundle_bom
+  // grouped by family prefix with child counts. Click → loads that bundle.
+  window._bomBrowseBundles_ = async function () {
+    const box = document.getElementById('bomBundleChildren');
+    box.innerHTML = '<div style="padding:14px;color:#999 !important;-webkit-text-fill-color:#999;text-align:center">Loading bundle list…</div>';
+    const r = await groundApi('bomListBundleParents', { limit: 500 });
+    if (!r || !r.ok) { box.innerHTML = '<div style="padding:14px;color:#c33 !important;-webkit-text-fill-color:#c33">Load failed</div>'; return; }
+    const parents = r.parents || [];
+    // Group by family prefix (first 1-2 hyphen-separated segments)
+    const groups = {};
+    parents.forEach(p => {
+      const parts = String(p).split('-');
+      let family = parts[0];
+      if (['HORIZ','PKG','PB','SBLM','SBF','BOAZ','LIBRARY','PBCAB','PBFRAME','SOFABED','DAYTONA','BAHAMA','STAUG','MAJESTIC','TILTNXT','FLIPUP','PANEL','NEXTBED'].indexOf(parts[0]) >= 0 && parts.length > 1) {
+        family = parts[0] + (parts[0].length < 4 ? '-' + parts[1] : '');
+      }
+      (groups[family] = groups[family] || []).push(p);
+    });
+    let h = '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666;margin-bottom:10px"><b>' + parents.length + '</b> bundles total · grouped by family · tap any to load children</div>';
+    Object.keys(groups).sort().forEach(fam => {
+      const items = groups[fam].sort();
+      h += '<div style="background:#f5f5f7 !important;border-radius:8px;padding:8px 10px;margin-bottom:8px">';
+      h += '<div style="font-size:11px;font-weight:800;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">' + fam + ' (' + items.length + ')</div>';
+      items.forEach(b => {
+        h += '<button onclick="document.getElementById(\'bomParentSearch\').value=\'' + b.replace(/'/g,"\\'") + '\';_bomLoadBundle_()" style="display:inline-block;margin:2px;padding:5px 9px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:1px solid #ddd;border-radius:5px;cursor:pointer;font-family:\'JetBrains Mono\',monospace;font-size:11px">' + b + '</button>';
+      });
+      h += '</div>';
+    });
+    box.innerHTML = h;
   };
   window._bomDeleteChild_ = async function (parent, child) {
     if (!confirm(`Delete ${child} from ${parent}?`)) return;
@@ -27473,7 +27504,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.901<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.902<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
