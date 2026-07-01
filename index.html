@@ -1436,6 +1436,14 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <button onclick="closeMoreMenu();openManualGroundOrderModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📦</span>
+      <div style="flex:1">
+        <div>New Ground Order</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Create a custom ground order → posts to ShipStation → shows up in Ground queue for buy-label</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -15432,6 +15440,281 @@ async function openInspectOrderModal(preFillOrder) {
   if (preFillOrder) setTimeout(_inspectOrderGo_, 100);
 }
 
+// ===============================================================
+// v10.918 — Task #30: Bedrock-native manual ground order creation.
+// Full flag-gated modal: address-book autocomplete + item templates
+// + weight presets + priority tag + spine event + PIN gate.
+// Posts to createManualGroundOrder → ShipStation V1 /orders/createorder.
+// GroundSync pulls the created order into the Ground queue within
+// an hour, where the standard buy-label flow takes over.
+// ===============================================================
+
+const _MG_RECENT_ADDR_KEY_ = 'mbd_mg_recent_addresses';
+const _MG_RECENT_ITEM_KEY_ = 'mbd_mg_recent_items';
+
+function _mgRecentGet_(key) {
+  try { const a = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(a) ? a : []; } catch(e) { return []; }
+}
+function _mgRecentPushAddr_(addr) {
+  if (!addr || !addr.name) return;
+  const key = (addr.name + '|' + (addr.street1||'') + '|' + (addr.postalCode||'')).toLowerCase();
+  let arr = _mgRecentGet_(_MG_RECENT_ADDR_KEY_).filter(a =>
+    ((a.name || '') + '|' + (a.street1 || '') + '|' + (a.postalCode || '')).toLowerCase() !== key
+  );
+  arr.unshift({ ...addr, _lastUsed: Date.now() });
+  if (arr.length > 25) arr.length = 25;
+  try { localStorage.setItem(_MG_RECENT_ADDR_KEY_, JSON.stringify(arr)); } catch(e) {}
+}
+function _mgRecentPushItem_(item) {
+  if (!item || !item.sku) return;
+  let arr = _mgRecentGet_(_MG_RECENT_ITEM_KEY_).filter(a => (a.sku || '').toUpperCase() !== item.sku.toUpperCase());
+  arr.unshift({ sku: item.sku, name: item.name || item.sku });
+  if (arr.length > 40) arr.length = 40;
+  try { localStorage.setItem(_MG_RECENT_ITEM_KEY_, JSON.stringify(arr)); } catch(e) {}
+}
+
+async function openManualGroundOrderModal() {
+  let backdrop = document.getElementById('mgOrderBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'mgOrderBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape' && document.getElementById('mgOrderBackdrop')) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+
+  const suggestedOrderNumber = 'MG-' + (function() {
+    const d = new Date(), z = n => String(n).padStart(2,'0');
+    return d.getFullYear() + z(d.getMonth()+1) + z(d.getDate()) + '-' + z(d.getHours()) + z(d.getMinutes()) + z(d.getSeconds());
+  })();
+
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">📦</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">New Ground Order</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('mgOrderBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" id="mgOrderBody">
+        <div style="background:#fff3cd;border:1px solid #ffb300;color:#7a5500;padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.5">
+          <b>⚠ Real ShipStation order.</b> Creates an <code>awaiting_shipment</code> order in ShipStation V1. Once created, GroundSync (hourly 8am–4pm EST) pulls it into the Bedrock Ground queue where you buy the label.
+        </div>
+
+        <!-- Order # + Priority -->
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;display:block;margin-bottom:4px">Order #</label>
+            <input id="mgOrderNumber" value="${suggestedOrderNumber}" style="width:100%;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:8px">
+            <label style="display:flex;align-items:center;gap:6px;padding:10px 14px;background:#fff;border:1.5px solid #ddd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;color:#1a1a1a;min-height:44px">
+              <input type="checkbox" id="mgPriority" style="width:18px;height:18px"> 🔥 Priority
+            </label>
+          </div>
+        </div>
+
+        <!-- Address book selector -->
+        <div id="mgAddrBookRow" style="margin-bottom:8px"></div>
+
+        <!-- Ship-to -->
+        <div style="font-size:14px;font-weight:800;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px;margin:6px 0 8px">Ship to</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <input id="mgName" placeholder="Full name *" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <input id="mgStreet1" placeholder="Street address *" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <input id="mgStreet2" placeholder="Apt, suite, etc. (optional)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <input id="mgCity" placeholder="City *" style="padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <div style="display:flex;gap:8px">
+            <input id="mgState" placeholder="State *" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;text-transform:uppercase;font-family:'JetBrains Mono',monospace;min-height:44px" maxlength="2">
+            <input id="mgZip" placeholder="ZIP *" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+          </div>
+          <input id="mgPhone" placeholder="Phone (optional)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+          <input id="mgEmail" placeholder="Email (optional)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+        </div>
+
+        <!-- Items -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px">
+          <div style="font-size:14px;font-weight:800;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">Items</div>
+          <button onclick="_mgAddItemRow_()" class="bd-btn-secondary" style="padding:6px 12px;font-size:12px;min-height:32px">+ Add item</button>
+        </div>
+        <div id="mgItemsList"></div>
+        <div id="mgRecentItemChips" style="margin-top:6px"></div>
+
+        <!-- Weight + presets -->
+        <div style="display:flex;gap:10px;align-items:flex-end;margin:16px 0 8px;flex-wrap:wrap">
+          <div style="flex:1;min-width:180px">
+            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;display:block;margin-bottom:4px">Weight (lbs)</label>
+            <input id="mgWeight" type="number" step="0.1" min="0" placeholder="e.g. 12.5" style="width:100%;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${[5, 10, 20, 40, 65].map(w =>
+              `<button onclick="document.getElementById('mgWeight').value=${w}" class="bd-btn-secondary" style="padding:8px 10px;font-size:12px;min-height:38px">${w} lb</button>`
+            ).join('')}
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div style="margin-top:16px">
+          <label style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;display:block;margin-bottom:4px">Internal notes (optional)</label>
+          <textarea id="mgInternalNotes" rows="2" placeholder="Anything the packer should know" style="width:100%;padding:10px 12px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:inherit"></textarea>
+        </div>
+
+        <!-- Submit row -->
+        <div style="margin-top:22px;display:flex;justify-content:flex-end;gap:10px">
+          <button class="bd-btn-secondary" onclick="document.getElementById('mgOrderBackdrop').remove()">Cancel</button>
+          <button class="bd-btn-primary bd-tone-ok" onclick="_mgSubmit_()">Create in ShipStation →</button>
+        </div>
+
+        <div id="mgResult" style="margin-top:14px"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  _mgAddItemRow_();
+  _mgRenderAddrBook_();
+  _mgRenderRecentItemChips_();
+
+  // Load server-side address book (backup for cross-device)
+  try {
+    const r = await groundApi('listManualOrderAddressBook', {});
+    if (r && r.ok && Array.isArray(r.entries)) {
+      const local = _mgRecentGet_(_MG_RECENT_ADDR_KEY_);
+      const merged = [...local];
+      const seen = new Set(local.map(a => (a.name+'|'+a.street1+'|'+a.postalCode).toLowerCase()));
+      r.entries.forEach(a => {
+        const k = ((a.name||'')+'|'+(a.street1||'')+'|'+(a.postalCode||'')).toLowerCase();
+        if (!seen.has(k)) { merged.push(a); seen.add(k); }
+      });
+      try { localStorage.setItem(_MG_RECENT_ADDR_KEY_, JSON.stringify(merged.slice(0,25))); } catch(e) {}
+      _mgRenderAddrBook_();
+    }
+  } catch (e) { console.log('MG address book load failed: ' + e.message); }
+}
+
+function _mgRenderAddrBook_() {
+  const row = document.getElementById('mgAddrBookRow');
+  if (!row) return;
+  const addrs = _mgRecentGet_(_MG_RECENT_ADDR_KEY_).slice(0, 6);
+  if (!addrs.length) { row.style.display = 'none'; return; }
+  row.style.display = 'block';
+  row.innerHTML = `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;margin-bottom:4px">Recent addresses (tap to fill)</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${
+      addrs.map((a, i) =>
+        `<button onclick="_mgFillAddr_(${i})" class="bd-btn-secondary" style="padding:6px 10px;font-size:11px;min-height:32px;text-align:left" title="${(a.street1||'').replace(/"/g,'&quot;')}, ${(a.city||'').replace(/"/g,'&quot;')}, ${(a.state||'')}">${(a.name||'').substring(0,22)}${(a.name||'').length>22?'…':''} · ${(a.city||'')} ${(a.state||'')}</button>`
+      ).join('')
+    }</div>`;
+}
+
+function _mgFillAddr_(idx) {
+  const a = _mgRecentGet_(_MG_RECENT_ADDR_KEY_)[idx];
+  if (!a) return;
+  document.getElementById('mgName').value = a.name || '';
+  document.getElementById('mgStreet1').value = a.street1 || '';
+  document.getElementById('mgStreet2').value = a.street2 || '';
+  document.getElementById('mgCity').value = a.city || '';
+  document.getElementById('mgState').value = a.state || '';
+  document.getElementById('mgZip').value = a.postalCode || '';
+  document.getElementById('mgPhone').value = a.phone || '';
+}
+
+let _mgItemRowCounter_ = 0;
+function _mgAddItemRow_(sku, name, qty) {
+  const list = document.getElementById('mgItemsList');
+  if (!list) return;
+  const idx = ++_mgItemRowCounter_;
+  const wrap = document.createElement('div');
+  wrap.id = 'mgItemRow_' + idx;
+  wrap.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+  wrap.innerHTML = `
+    <input class="mg-sku" placeholder="SKU or description" value="${(sku||'').replace(/"/g,'&quot;')}" style="flex:2;padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:40px">
+    <input class="mg-name" placeholder="Description (optional)" value="${(name||'').replace(/"/g,'&quot;')}" style="flex:2;padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:40px">
+    <input class="mg-qty" type="number" min="1" value="${qty || 1}" style="width:70px;padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:40px">
+    <button onclick="document.getElementById('mgItemRow_${idx}').remove()" class="bd-btn-secondary" style="padding:6px 10px;font-size:14px;min-height:40px" title="Remove row">×</button>`;
+  list.appendChild(wrap);
+}
+
+function _mgRenderRecentItemChips_() {
+  const box = document.getElementById('mgRecentItemChips');
+  if (!box) return;
+  const items = _mgRecentGet_(_MG_RECENT_ITEM_KEY_).slice(0, 8);
+  if (!items.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;margin-top:6px;margin-bottom:4px">Recent items (tap to add)</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">${
+      items.map(it =>
+        `<button onclick="_mgAddItemRow_('${(it.sku||'').replace(/'/g,"\\'")}','${(it.name||'').replace(/'/g,"\\'")}',1)" class="bd-btn-secondary" style="padding:5px 9px;font-size:11px;min-height:30px;font-family:'JetBrains Mono',monospace">+ ${it.sku}</button>`
+      ).join('')
+    }</div>`;
+}
+
+async function _mgSubmit_() {
+  const shipTo = {
+    name: document.getElementById('mgName').value.trim(),
+    street1: document.getElementById('mgStreet1').value.trim(),
+    street2: document.getElementById('mgStreet2').value.trim(),
+    city: document.getElementById('mgCity').value.trim(),
+    state: document.getElementById('mgState').value.trim().toUpperCase(),
+    postalCode: document.getElementById('mgZip').value.trim(),
+    country: 'US',
+    phone: document.getElementById('mgPhone').value.trim(),
+  };
+  const missing = ['name','street1','city','state','postalCode'].filter(f => !shipTo[f]);
+  if (missing.length) {
+    document.getElementById('mgResult').innerHTML = `<div style="background:#fee;border:1px solid #fcc;color:#c33;padding:10px 12px;border-radius:8px;font-size:13px">Ship-to missing: ${missing.join(', ')}</div>`;
+    return;
+  }
+
+  const items = [];
+  document.querySelectorAll('#mgItemsList > div').forEach(row => {
+    const sku = row.querySelector('.mg-sku').value.trim();
+    const name = row.querySelector('.mg-name').value.trim();
+    const qty = Math.max(1, Math.floor(Number(row.querySelector('.mg-qty').value) || 1));
+    if (sku || name) items.push({ sku: sku || 'CUSTOM', name: name || sku, quantity: qty });
+  });
+  if (!items.length) {
+    document.getElementById('mgResult').innerHTML = `<div style="background:#fee;border:1px solid #fcc;color:#c33;padding:10px 12px;border-radius:8px;font-size:13px">Add at least one item.</div>`;
+    return;
+  }
+
+  const p = ensurePin();
+  if (!p) return;
+
+  const weight = Number(document.getElementById('mgWeight').value) || 0;
+  const orderNumber = document.getElementById('mgOrderNumber').value.trim();
+  const priority = document.getElementById('mgPriority').checked;
+  const customerEmail = document.getElementById('mgEmail').value.trim();
+  const internalNotes = document.getElementById('mgInternalNotes').value.trim();
+
+  const resultBox = document.getElementById('mgResult');
+  resultBox.innerHTML = `<div style="background:#e3f2fd;border:1px solid #90caf9;color:#1565c0;padding:10px 12px;border-radius:8px;font-size:13px">📤 Posting to ShipStation…</div>`;
+
+  const r = await groundApi('createManualGroundOrder', {
+    manager_pin: p,
+    orderNumber, shipTo, items,
+    weight: weight > 0 ? weight : undefined,
+    priority, customerEmail, internalNotes,
+    created_by: (typeof _packerName_ === 'function' ? _packerName_() : '') || 'operator',
+  });
+
+  if (r && r.ok) {
+    _mgRecentPushAddr_(shipTo);
+    items.forEach(it => _mgRecentPushItem_(it));
+    resultBox.innerHTML = `
+      <div style="background:#c8e6c9;border:1px solid #4caf50;color:#0a7a3f;padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.6">
+        <div style="font-weight:800;font-size:14px;margin-bottom:6px">✅ Order created: ${r.orderNumber}</div>
+        <div>ShipStation orderId: <code>${r.shipstation_order_id}</code></div>
+        <div style="margin-top:6px">GroundSync will pull it into the Ground queue within an hour, or open in ShipStation now to verify.</div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <a href="${(r.adminUrl||'#').replace(/"/g,'&quot;')}" target="_blank" class="bd-btn-primary" style="text-decoration:none;padding:9px 14px;font-size:13px">🔗 Open in ShipStation</a>
+          <button onclick="document.getElementById('mgOrderBackdrop').remove();openManualGroundOrderModal()" class="bd-btn-secondary" style="padding:9px 14px;font-size:13px">+ Create another</button>
+          <button onclick="document.getElementById('mgOrderBackdrop').remove()" class="bd-btn-secondary" style="padding:9px 14px;font-size:13px">Done</button>
+        </div>
+      </div>`;
+  } else {
+    resultBox.innerHTML = `<div style="background:#fee;border:1px solid #fcc;color:#c33;padding:10px 12px;border-radius:8px;font-size:13px">❌ ${(r && r.error) || 'Unknown error'}</div>`;
+    if (r && r.error && /pin/i.test(r.error) && typeof pin !== 'undefined') pin = '';
+  }
+}
+
 // v10.888 — BOM Tools modal: Postgres-canonical edits for variant_map +
 // bundle_bom. The Sheet→Postgres sync (`pickListSyncStoresToPostgres`) is
 // now disabled by default; this UI replaces the Sheet authoring workflow.
@@ -27843,7 +28126,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.917<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.918<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
