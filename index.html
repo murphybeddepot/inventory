@@ -900,6 +900,89 @@ input::placeholder, textarea::placeholder {
   border-color: var(--border) !important;
 }
 
+/* v10.907 — Bedrock Design System v1.1 base classes.
+   See docs/DESIGN_SYSTEM_v1.md for full spec.
+   .bd-modal-shell isolates a light "office" surface from the global
+   dark-theme overrides above so children can write plain inline styles
+   without !important + -webkit-text-fill-color doubling. */
+.bd-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, .65);
+  z-index: 10010;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.bd-modal-shell {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+  width: min(1000px, 100%);
+  max-height: 92vh;
+  border-radius: 12px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, .5);
+}
+.bd-modal-shell,
+.bd-modal-shell * {
+  color: #1a1a1a;
+  -webkit-text-fill-color: #1a1a1a;
+}
+.bd-modal-header {
+  background: #1a1a1a !important;
+  padding: 14px 18px;
+  display: flex; align-items: center; gap: 12px;
+}
+.bd-modal-header, .bd-modal-header * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.bd-modal-header .bd-close-btn {
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer; font-weight: 700; font-size: 13px;
+}
+.bd-modal-body {
+  padding: 18px; overflow-y: auto; flex: 1;
+  background: #ffffff;
+}
+.bd-btn-primary {
+  background: #1a1a1a !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  border: none; border-radius: 8px;
+  padding: 12px 18px; font-weight: 800; font-size: 14px;
+  cursor: pointer; min-height: 44px;
+}
+.bd-btn-secondary {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+  -webkit-text-fill-color: #1a1a1a !important;
+  border: 1.5px solid #ccc; border-radius: 8px;
+  padding: 12px 18px; font-weight: 700; font-size: 14px;
+  cursor: pointer; min-height: 44px;
+}
+.bd-btn-destructive {
+  background: #fee !important;
+  color: #c33 !important;
+  -webkit-text-fill-color: #c33 !important;
+  border: 1px solid #fcc; border-radius: 8px;
+  padding: 12px 18px; font-weight: 700; font-size: 14px;
+  cursor: pointer; min-height: 44px;
+}
+.bd-btn-primary.bd-tone-ok { background: #0a7a3f !important; }
+.bd-btn-primary.bd-tone-info { background: #1565c0 !important; }
+.bd-chip {
+  display: inline-block;
+  padding: 3px 8px; border-radius: 4px;
+  font-size: 12px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.bd-chip-ok   { background: #c8e6c9; color: #0a7a3f; -webkit-text-fill-color: #0a7a3f; }
+.bd-chip-info { background: #e3f2fd; color: #1565c0; -webkit-text-fill-color: #1565c0; }
+.bd-chip-warn { background: #fff3cd; color: #7a5500; -webkit-text-fill-color: #7a5500; }
+.bd-chip-bad  { background: #fee; color: #c33; -webkit-text-fill-color: #c33; }
+
 /* Big numbers — give them the JetBrains Mono industrial gauge feel.
    Targets the Barlow Condensed huge font sizes used for cabinet locations,
    stock counts, etc. */
@@ -15007,6 +15090,54 @@ function _ensureQuillLoaded_() {
 // order" without leaving Bedrock. Useful for triaging "the pick list
 // is missing items" — compare the source (Shopify) against the
 // expansion (variant_map → bundle_bom).
+// v10.907 — Bedrock Design System v1.1 token object + shell helper.
+// See docs/DESIGN_SYSTEM_v1.md. Use in new modals; older ones migrate
+// over the audit sequence in DESIGN_SYSTEM_AUDIT.md.
+const BD = {
+  bgDark:  '#0E1520',  bgHeader: '#1a1a1a',  bgLight: '#fff',  bgTint: '#f5f5f7',
+  textDark: '#1a1a1a', textDim: '#666', textInv: '#fff', textInvDim: 'rgba(255,255,255,.7)',
+  ok:   '#0a7a3f',  okBg:   '#c8e6c9',
+  info: '#1565c0',  infoBg: '#e3f2fd',
+  warn: '#FF9100',  warnBg: '#fff3cd',
+  bad:  '#c33',     badBg:  '#fee',
+  radMd: 8, radLg: 12, padMd: 12, padLg: 18, gapMd: 8, gapLg: 14,
+};
+// renderModalShell — canonical modal chrome per §3 of the design system.
+// Returns { backdrop } and mounts to document.body. Handles the 3-way
+// dismiss automatically (backdrop click + Esc + close button).
+function renderModalShell({ id, icon, title, subtitle, bodyHTML, onClose }) {
+  const prev = id ? document.getElementById(id) : null;
+  if (prev) prev.remove();
+  const backdrop = document.createElement('div');
+  if (id) backdrop.id = id;
+  backdrop.className = 'bd-modal-backdrop';
+  const _dismiss = () => {
+    backdrop.remove();
+    document.removeEventListener('keydown', _onEsc);
+    if (typeof onClose === 'function') try { onClose(); } catch (e) {}
+  };
+  const _onEsc = (e) => { if (e.key === 'Escape') _dismiss(); };
+  backdrop.onclick = (e) => { if (e.target === backdrop) _dismiss(); };
+  document.addEventListener('keydown', _onEsc);
+  const iconHTML = icon ? `<span style="font-size:22px" aria-hidden="true">${icon}</span>` : '';
+  const subtitleHTML = subtitle ? `<div style="font-size:11px;color:${BD.textInvDim};font-weight:500">${subtitle}</div>` : '';
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell">
+      <div class="bd-modal-header">
+        ${iconHTML}
+        <div style="flex:1">
+          <div style="font-size:17px;font-weight:800">${title}</div>
+          ${subtitleHTML}
+        </div>
+        <button class="bd-close-btn" data-bd-close>Close</button>
+      </div>
+      ${bodyHTML}
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.querySelectorAll('[data-bd-close]').forEach(b => b.addEventListener('click', _dismiss));
+  return { backdrop, dismiss: _dismiss };
+}
+
 // v10.905 — recently-inspected order chip storage + Esc-to-close.
 const _INSPECT_RECENT_KEY = 'mbd_recent_inspected_orders';
 function _inspectRecentGet_() {
@@ -27584,7 +27715,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.906<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.907<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
