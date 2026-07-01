@@ -15190,37 +15190,38 @@ async function openInspectOrderModal(preFillOrder) {
   const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); _detachEsc_(); } };
   const _detachEsc_ = () => { document.removeEventListener('keydown', _onEsc); };
   document.addEventListener('keydown', _onEsc);
+  // v10.911 — Inspect Order sweep (Jobs' 6 cuts + .bd-modal-shell migration).
+  // • CUT: modal subtitle "Raw Shopify line items + live BOM..."
+  // • CUT: header 🖨 Print button (moved to appear only after results load)
+  // • CUT: "Recent:" chip strip (last-inspected shows as input placeholder instead)
+  // • CUT: default view now shows FRAME + HARDWARE + PACKAGING + INSTRUCTION
+  //   only if non-empty (packaging + instruction default-hidden behind "show all")
+  // • CUT: emojis from section headers (📋 🛠 🧬)
+  // • CUT: spine event list from last 8 → last 3
+  // Migrated to .bd-modal-shell + .bd-modal-header + .bd-btn-primary etc.
+  const lastRecent = _inspectRecentGet_()[0] || '';
+  const placeholder = lastRecent ? `last: ${lastRecent}` : 'Order # (e.g. 31801)';
+  backdrop.className = 'bd-modal-backdrop';
+  backdrop.style.cssText = '';
   backdrop.innerHTML = `
-    <div class="keep-dark-text" style="background:#fff !important;-webkit-text-fill-color:#1a1a1a;color:#1a1a1a;width:min(1000px,100%);max-height:92vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)">
-      <div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px">
+    <div class="bd-modal-shell">
+      <div class="bd-modal-header">
         <span style="font-size:22px">🔍</span>
         <div style="flex:1">
-          <div style="font-size:17px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">Inspect Order</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);font-weight:500">Raw Shopify line items + live BOM expansion side-by-side</div>
+          <div style="font-size:17px;font-weight:800">Inspect Order</div>
         </div>
-        <button onclick="document.getElementById('inspectOrderBackdrop').remove()" style="background:transparent !important;color:#fff !important;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">Close</button>
+        <button class="bd-close-btn" onclick="document.getElementById('inspectOrderBackdrop').remove()">Close</button>
       </div>
-      <div style="padding:18px;display:flex;gap:10px;align-items:center;background:#f5f5f7 !important;border-bottom:1px solid #e0e0e0">
-        <input id="inspectOrderInput" placeholder="Order # (e.g. 31801)" value="${(preFillOrder || '').replace(/"/g,'&quot;')}" style="flex:1;padding:12px 14px;font-size:16px;border:1.5px solid #ddd;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace" onkeydown="if(event.key==='Enter')_inspectOrderGo_()">
-        <button onclick="_inspectOrderGo_()" style="padding:12px 20px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px">Inspect</button>
-        <button onclick="_inspectOrderPrint_()" title="Print the live pick list" style="padding:12px 20px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px">🖨 Print</button>
+      <div style="padding:14px 18px;display:flex;gap:8px;align-items:center;background:#f5f5f7;border-bottom:1px solid #e0e0e0">
+        <input id="inspectOrderInput" placeholder="${placeholder}" value="${(preFillOrder || '').replace(/"/g,'&quot;')}" style="flex:1;padding:12px 14px;font-size:16px;border:1.5px solid #ddd;border-radius:8px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px" onkeydown="if(event.key==='Enter')_inspectOrderGo_()">
+        <button class="bd-btn-primary" onclick="_inspectOrderGo_()">Inspect</button>
       </div>
-      <div id="inspectOrderRecent" style="padding:8px 18px;background:#fafafa !important;border-bottom:1px solid #eee;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666"></div>
-      <div id="inspectOrderBody" style="padding:18px;overflow-y:auto;flex:1">
-        <div style="text-align:center;padding:30px;color:#999 !important;-webkit-text-fill-color:#999;font-size:13px">Enter an order # above to see Shopify line items + the BOM expansion. Esc to close.</div>
+      <div class="bd-modal-body" id="inspectOrderBody">
+        <div style="text-align:center;padding:30px;color:#666;font-size:14px">Enter an order # above. Esc to close.</div>
       </div>
     </div>`;
   document.body.appendChild(backdrop);
-  // Render recent-inspected chips
-  const _renderRecent_ = () => {
-    const arr = _inspectRecentGet_();
-    const box = document.getElementById('inspectOrderRecent');
-    if (!arr.length) { box.style.display = 'none'; return; }
-    box.style.display = 'block';
-    box.innerHTML = '<span style="font-weight:700;color:#999 !important;-webkit-text-fill-color:#999;margin-right:6px">Recent:</span>' + arr.map(o =>
-      `<button onclick="document.getElementById('inspectOrderInput').value='${String(o).replace(/'/g,"\\'")}';_inspectOrderGo_()" style="display:inline-block;margin:0 4px 0 0;padding:3px 8px;background:#fff !important;color:#1565c0 !important;-webkit-text-fill-color:#1565c0;border:1px solid #90caf9;border-radius:4px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">${o}</button>`
-    ).join('');
-  };
+  const _renderRecent_ = () => {};   // no-op post-sweep — recent surfaces via placeholder only
   _renderRecent_();
   window._inspectOrderGo_ = async function () {
     const ord = (document.getElementById('inspectOrderInput').value || '').trim();
@@ -15269,7 +15270,7 @@ async function openInspectOrderModal(preFillOrder) {
     // Shopify line items (LEFT)
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
     html += '<div>';
-    html += '<div style="font-size:13px;font-weight:800;margin-bottom:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">📋 Shopify line items</div>';
+    html += '<div style="font-size:14px;font-weight:800;margin-bottom:8px;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">Shopify line items</div>';
     if (shopify && shopify.ok) {
       const items = shopify.line_items || [];
       if (!items.length) {
@@ -15301,7 +15302,7 @@ async function openInspectOrderModal(preFillOrder) {
     html += '</div>';
     // BOM expansion (RIGHT)
     html += '<div>';
-    html += '<div style="font-size:13px;font-weight:800;margin-bottom:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">🛠 BOM expansion (live)</div>';
+    html += '<div style="font-size:14px;font-weight:800;margin-bottom:8px;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">BOM expansion</div>';
     if (expansion && expansion.ok) {
       const bk = expansion.buckets || {};
       ['cabinet','frame','hardware','packaging','instruction'].forEach(name => {
@@ -15330,7 +15331,7 @@ async function openInspectOrderModal(preFillOrder) {
     html += '</div>';
     // v10.904 — Spine panel (3rd row, full width). Shows lifecycle_state,
     // freight bookings if any, holds, recent events.
-    html += '<div style="margin-top:18px"><div style="font-size:13px;font-weight:800;margin-bottom:8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">🧬 Spine state</div>';
+    html += '<div style="margin-top:18px"><div style="font-size:14px;font-weight:800;margin-bottom:8px;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">Spine state</div>';
     if (spine && spine.ok) {
       if (spine.spine === 'disabled' || spine.spine === 'inactive') {
         html += '<div style="padding:10px;font-size:11px;color:#999 !important;-webkit-text-fill-color:#999;background:#f5f5f7 !important;border-radius:8px">Spine ' + spine.spine + '. No state recorded.</div>';
@@ -15356,7 +15357,7 @@ async function openInspectOrderModal(preFillOrder) {
           html += '<div style="font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;background:#fff !important;padding:6px 8px;border-radius:4px;margin-bottom:6px">🚛 Freight: ' + (fr.carrier || '?') + ' · pro=' + (fr.pro_number || '—') + (fr.bol_url ? ' · <a href="' + fr.bol_url + '" target="_blank" style="color:#1565c0">BOL</a>' : '') + '</div>';
         }
         if (evs.length) {
-          const recent = evs.slice(-8).reverse();
+          const recent = evs.slice(-3).reverse();
           html += '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin:6px 0 4px">Recent events (' + evs.length + ' total · showing ' + recent.length + ')</div>';
           recent.forEach(e => {
             const tstr = e.ts ? new Date(e.ts).toLocaleString() : '—';
@@ -15371,6 +15372,11 @@ async function openInspectOrderModal(preFillOrder) {
       html += '<div style="padding:10px;font-size:11px;color:#c33 !important;-webkit-text-fill-color:#c33;background:#fee !important;border-radius:8px">⚠ Spine read failed</div>';
     }
     html += '</div>';
+    // v10.911 — trailing single primary action, only after results load.
+    // Print bottom-right per Jonah's thumb-reach rule.
+    html += `<div style="margin-top:22px;display:flex;justify-content:flex-end">
+      <button class="bd-btn-primary bd-tone-ok" onclick="_inspectOrderPrint_()" title="Print the live pick list">🖨 Print pick list</button>
+    </div>`;
     body.innerHTML = html;
   };
   // v10.895 — Print button: fire the native pick list with the same
@@ -27766,7 +27772,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.910<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.911<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
