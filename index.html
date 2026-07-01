@@ -1080,6 +1080,37 @@ input::placeholder, textarea::placeholder {
   color: #1565c0 !important;
   -webkit-text-fill-color: #1565c0 !important;
 }
+/* v10.922 — Priority chip: dedicated classes so contrast survives the
+   shell descendant rule. Off = light gray on white (visible but muted).
+   On = dark on bright orange. Both auditable at 4.5:1+. */
+.bd-modal-shell .bd-priority-chip {
+  display: inline-block;
+  padding: 3px 10px !important;
+  border-radius: 4px !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  letter-spacing: .6px !important;
+  text-transform: uppercase;
+}
+.bd-modal-shell .bd-priority-chip.bd-priority-off {
+  background: #e0e0e0 !important;
+  color: #555 !important;
+  -webkit-text-fill-color: #555 !important;
+}
+.bd-modal-shell .bd-priority-chip.bd-priority-on {
+  background: #FF6B00 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  box-shadow: 0 0 0 1.5px #cc4400;
+}
+.bd-modal-shell .bd-priority-label-off {
+  background: #ffffff !important;
+  border-color: #cccccc !important;
+}
+.bd-modal-shell .bd-priority-label-on {
+  background: #fff3cd !important;
+  border-color: #FF6B00 !important;
+}
 /* Buttons inside callouts keep their own contrast. Specificity beats
    the `.bd-callout-* *` selector above. */
 .bd-modal-shell .bd-callout-ok .bd-btn-primary,
@@ -2308,9 +2339,14 @@ input::placeholder, textarea::placeholder {
 <!-- ============================================================ -->
 <div id="tab-ground" class="panel">
 
-  <!-- Top status bar / connectivity check -->
-  <div id="groundStatusBar" style="background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
-    <div style="flex:1">
+  <!-- Top status bar / connectivity check
+       v10.922 — Zac 2026-07-01: "on the ground tab some of the menu
+       items don't fit on the screen". Header now wraps: status line
+       gets its own full-width row when the button strip would push it
+       off-screen. Buttons stay in a horizontally scrollable row so
+       none get clipped. -->
+  <div id="groundStatusBar" style="background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="flex:1 1 220px;min-width:180px">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666">Ground Pack</div>
       <div id="groundStatusLine" style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">Loading queue…</div>
       <div id="groundDeployDebug" style="font-size:10px;font-family:monospace;color:#888;margin-top:3px"></div>
@@ -2324,10 +2360,19 @@ input::placeholder, textarea::placeholder {
     <!-- v10.601 — SS ↔ FedEx booking-mode toggle. localStorage-persisted -->
     <button id="groundCarrierToggleBtn" onclick="toggleGroundCarrierMode()" title="Switch booking between ShipStation and FedEx-direct. Default SS." style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span id="groundCarrierToggleIcon" style="font-size:18px">📦</span><span id="groundCarrierToggleLbl" style="font-size:9px">SS</span></button>
     <button onclick="refreshGroundQueue()" title="Reload queue (uses ShipStation's current state)" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
-    <!-- v10.919 — Zac 2026-07-01: "the new ground order modal should be
-    in the ground tab". Custom order creation → posts to ShipStation +
-    inline GroundSync so the order appears immediately below. -->
-    <button onclick="openManualGroundOrderModal()" title="Create a custom ground order → posts to ShipStation → shows up in this queue" style="padding:14px 14px;background:#0a7a3f;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">📦</span><span style="font-size:9px">+ NEW</span></button>
+  </div>
+
+  <!-- v10.922 — Zac 2026-07-01: "some of the menu items don't fit on
+  the screen". Moved + New Ground Order OUT of the crowded header row
+  into its own bar above the queue. Full-width tap target on phones,
+  still visible as a distinct action, and doesn't push the icon-only
+  header buttons off-screen. -->
+  <div style="margin-bottom:10px">
+    <button onclick="openManualGroundOrderModal()" style="width:100%;padding:12px 16px;background:linear-gradient(90deg,#0a7a3f,#0d904a);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;letter-spacing:.4px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 8px rgba(10,122,63,.35)">
+      <span style="font-size:18px">📦</span>
+      <span>Create new ground order</span>
+      <span style="font-size:11px;font-weight:700;opacity:.8;letter-spacing:.5px">→ SHIPSTATION</span>
+    </button>
   </div>
 
   <!-- v10.468 — Manager bulk-print sticky action bar (hidden until any selected). -->
@@ -15659,9 +15704,9 @@ async function openManualGroundOrderModal() {
             <div id="mgOrderNumberHint" style="font-size:11px;margin-top:4px;min-height:14px"></div>
           </div>
           <div style="display:flex;align-items:flex-end;gap:8px">
-            <label id="mgPriorityLabel" style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fff;border:1.5px solid #ddd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;color:#1a1a1a;min-height:44px" title="Flag as priority — surfaces in Ground queue with an orange PRIORITY chip">
+            <label id="mgPriorityLabel" class="bd-priority-label-off" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-width:1.5px;border-style:solid;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;min-height:44px" title="Flag as priority — surfaces in Ground queue with an orange PRIORITY chip">
               <input type="checkbox" id="mgPriority" style="width:18px;height:18px" onchange="_mgTogglePriorityChip_()">
-              <span id="mgPriorityChip" style="padding:2px 8px;border-radius:4px;background:#f0f0f0;color:#666;-webkit-text-fill-color:#666;font-size:11px;font-weight:800;letter-spacing:.5px">PRIORITY</span>
+              <span id="mgPriorityChip" class="bd-priority-chip bd-priority-off">PRIORITY</span>
             </label>
           </div>
         </div>
@@ -15760,22 +15805,20 @@ async function openManualGroundOrderModal() {
   } catch (e) { console.log('MG address book load failed: ' + e.message); }
 }
 
-// v10.921 — toggle the PRIORITY chip's visual state on checkbox change.
+// v10.922 — toggle the PRIORITY chip's visual state via class swap
+// (v10.921's inline-style approach lost the cascade fight against the
+// .bd-modal-shell descendant color rule; classes get proper specificity).
 function _mgTogglePriorityChip_() {
   const cb = document.getElementById('mgPriority');
   const chip = document.getElementById('mgPriorityChip');
   const label = document.getElementById('mgPriorityLabel');
   if (!cb || !chip) return;
   if (cb.checked) {
-    chip.style.background = '#FF9100';
-    chip.style.color = '#1a1a1a';
-    chip.style.setProperty('-webkit-text-fill-color', '#1a1a1a', 'important');
-    if (label) { label.style.background = '#fff3cd'; label.style.borderColor = '#FF9100'; }
+    chip.classList.remove('bd-priority-off'); chip.classList.add('bd-priority-on');
+    if (label) { label.classList.remove('bd-priority-label-off'); label.classList.add('bd-priority-label-on'); }
   } else {
-    chip.style.background = '#f0f0f0';
-    chip.style.color = '#666';
-    chip.style.setProperty('-webkit-text-fill-color', '#666', 'important');
-    if (label) { label.style.background = '#fff'; label.style.borderColor = '#ddd'; }
+    chip.classList.remove('bd-priority-on'); chip.classList.add('bd-priority-off');
+    if (label) { label.classList.remove('bd-priority-label-on'); label.classList.add('bd-priority-label-off'); }
   }
 }
 
@@ -28315,7 +28358,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.921<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.922<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
