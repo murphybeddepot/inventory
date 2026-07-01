@@ -14528,9 +14528,15 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
     ov = document.createElement('div');
     ov.id = 'packJumpOverlay';
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:99999;animation:mbdFade .15s ease-out;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)';
+    // v10.909 — Pack "Opening #order" splash uses the canonical stamp
+    // (Design System §7.1) as the hero instead of loose 32px Barlow.
+    // Same signature everywhere an order # appears.
+    const stampHTML = (typeof renderOrderStamp === 'function')
+      ? renderOrderStamp(orderNumber, { size: 44 })
+      : '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:32px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff;letter-spacing:.5px">Opening #' + esc(orderNumber) + '</div>';
     ov.innerHTML =
       '<div style="font-size:64px;color:#42a5f5;animation:mbdSpin 1s linear infinite;line-height:1">⟳</div>'
-      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:32px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff;letter-spacing:.5px">Opening #' + esc(orderNumber) + '</div>'
+      + '<div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div style="font-size:13px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;letter-spacing:.5px;text-transform:uppercase;font-weight:800">Opening</div>' + stampHTML + '</div>'
       + '<div id="packJumpOverlayStatus" style="font-size:14px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;letter-spacing:.5px;text-align:center;max-width:90vw">Loading queue…</div>'
       + '<div id="packJumpOverlayTimer" style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:#42a5f5;opacity:.7">0.0s</div>';
     document.body.appendChild(ov);
