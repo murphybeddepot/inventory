@@ -15647,15 +15647,21 @@ async function openManualGroundOrderModal() {
           <b>⚠ Real ShipStation order.</b> Creates an <code>awaiting_shipment</code> order in ShipStation V1. Once created, GroundSync (inline + hourly) pulls it into the Bedrock Ground queue where you buy the label.
         </div>
 
-        <!-- Order # + Priority -->
-        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+        <!-- Order # + Priority (v10.921) -->
+        <div style="display:flex;gap:10px;margin-bottom:6px;flex-wrap:wrap">
           <div style="flex:1;min-width:200px">
-            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;display:block;margin-bottom:4px">Order #</label>
-            <input id="mgOrderNumber" value="${suggestedOrderNumber}" style="width:100%;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+            <label class="bd-field-label">Order # <span style="font-weight:600;text-transform:none;letter-spacing:0">(type a Shopify # for an existing order, or use the auto MG-…)</span></label>
+            <div style="display:flex;gap:6px;align-items:stretch">
+              <input id="mgOrderNumber" value="${suggestedOrderNumber}" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+              <button onclick="document.getElementById('mgOrderNumber').value='';document.getElementById('mgOrderNumber').focus()" class="bd-btn-secondary" style="padding:8px 10px;font-size:12px;min-height:44px" title="Clear the field so you can type your own">Clear</button>
+              <button onclick="document.getElementById('mgOrderNumber').value='${suggestedOrderNumber}'" class="bd-btn-secondary" style="padding:8px 10px;font-size:12px;min-height:44px" title="Use the auto-generated MG-… order number">Auto</button>
+            </div>
+            <div id="mgOrderNumberHint" style="font-size:11px;margin-top:4px;min-height:14px"></div>
           </div>
           <div style="display:flex;align-items:flex-end;gap:8px">
-            <label style="display:flex;align-items:center;gap:6px;padding:10px 14px;background:#fff;border:1.5px solid #ddd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;color:#1a1a1a;min-height:44px">
-              <input type="checkbox" id="mgPriority" style="width:18px;height:18px"> 🔥 Priority
+            <label id="mgPriorityLabel" style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fff;border:1.5px solid #ddd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;color:#1a1a1a;min-height:44px" title="Flag as priority — surfaces in Ground queue with an orange PRIORITY chip">
+              <input type="checkbox" id="mgPriority" style="width:18px;height:18px" onchange="_mgTogglePriorityChip_()">
+              <span id="mgPriorityChip" style="padding:2px 8px;border-radius:4px;background:#f0f0f0;color:#666;-webkit-text-fill-color:#666;font-size:11px;font-weight:800;letter-spacing:.5px">PRIORITY</span>
             </label>
           </div>
         </div>
@@ -15664,7 +15670,7 @@ async function openManualGroundOrderModal() {
         <div id="mgAddrBookRow" style="margin-bottom:8px"></div>
 
         <!-- Ship-to -->
-        <div style="font-size:14px;font-weight:800;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px;margin:6px 0 8px">Ship to</div>
+        <div class="bd-section-title">Ship to</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
           <input id="mgName" placeholder="Full name *" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
           <input id="mgStreet1" placeholder="Street address *" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
@@ -15680,7 +15686,7 @@ async function openManualGroundOrderModal() {
 
         <!-- Items -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px">
-          <div style="font-size:14px;font-weight:800;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">Items</div>
+          <div class="bd-section-title">Items</div>
           <button onclick="_mgAddItemRow_()" class="bd-btn-secondary" style="padding:6px 12px;font-size:12px;min-height:32px">+ Add item</button>
         </div>
         <div id="mgItemsList"></div>
@@ -15689,7 +15695,7 @@ async function openManualGroundOrderModal() {
         <!-- Weight + presets -->
         <div style="display:flex;gap:10px;align-items:flex-end;margin:16px 0 8px;flex-wrap:wrap">
           <div style="flex:1;min-width:180px">
-            <label style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;display:block;margin-bottom:4px">Weight (lbs)</label>
+            <label class="bd-field-label">Weight (lbs)</label>
             <input id="mgWeight" type="number" step="0.1" min="0" placeholder="e.g. 12.5" style="width:100%;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
           </div>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
@@ -15701,7 +15707,7 @@ async function openManualGroundOrderModal() {
 
         <!-- Notes -->
         <div style="margin-top:16px">
-          <label style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;display:block;margin-bottom:4px">Internal notes (optional)</label>
+          <label class="bd-field-label">Internal notes (optional)</label>
           <textarea id="mgInternalNotes" rows="2" placeholder="Anything the packer should know" style="width:100%;padding:10px 12px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:inherit"></textarea>
         </div>
 
@@ -15719,6 +15725,23 @@ async function openManualGroundOrderModal() {
   _mgAddItemRow_();
   _mgRenderAddrBook_();
   _mgRenderRecentItemChips_();
+  // v10.921 — live hint under the Order # field. Warns when a typed
+  // number looks like an existing Shopify order (5-6 digit numeric),
+  // because ShipStation V1 /orders/createorder is an UPSERT — sending
+  // an existing orderKey UPDATES that order instead of creating a new one.
+  const orderNumInp = document.getElementById('mgOrderNumber');
+  const hintBox = document.getElementById('mgOrderNumberHint');
+  const _mgUpdateOrderNumHint_ = () => {
+    const v = (orderNumInp && orderNumInp.value || '').trim();
+    if (!v) { hintBox.innerHTML = '<span style="color:#c33 !important;-webkit-text-fill-color:#c33">Order # required</span>'; return; }
+    if (/^MG-\d{8}-\d{6}$/.test(v)) { hintBox.innerHTML = '<span style="color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f">Auto-generated Bedrock manual order #</span>'; return; }
+    if (/^\d{5,6}$/.test(v)) {
+      hintBox.innerHTML = '<span style="color:#7a5500 !important;-webkit-text-fill-color:#7a5500">⚠ Looks like a Shopify order #. If this order already exists in ShipStation, it will be UPDATED (upsert), not duplicated.</span>';
+      return;
+    }
+    hintBox.innerHTML = '<span style="color:#666 !important;-webkit-text-fill-color:#666">Custom order # — will be sent to ShipStation as-is.</span>';
+  };
+  if (orderNumInp) { orderNumInp.addEventListener('input', _mgUpdateOrderNumHint_); _mgUpdateOrderNumHint_(); }
 
   // Load server-side address book (backup for cross-device)
   try {
@@ -15735,6 +15758,25 @@ async function openManualGroundOrderModal() {
       _mgRenderAddrBook_();
     }
   } catch (e) { console.log('MG address book load failed: ' + e.message); }
+}
+
+// v10.921 — toggle the PRIORITY chip's visual state on checkbox change.
+function _mgTogglePriorityChip_() {
+  const cb = document.getElementById('mgPriority');
+  const chip = document.getElementById('mgPriorityChip');
+  const label = document.getElementById('mgPriorityLabel');
+  if (!cb || !chip) return;
+  if (cb.checked) {
+    chip.style.background = '#FF9100';
+    chip.style.color = '#1a1a1a';
+    chip.style.setProperty('-webkit-text-fill-color', '#1a1a1a', 'important');
+    if (label) { label.style.background = '#fff3cd'; label.style.borderColor = '#FF9100'; }
+  } else {
+    chip.style.background = '#f0f0f0';
+    chip.style.color = '#666';
+    chip.style.setProperty('-webkit-text-fill-color', '#666', 'important');
+    if (label) { label.style.background = '#fff'; label.style.borderColor = '#ddd'; }
+  }
 }
 
 function _mgRenderAddrBook_() {
@@ -28273,7 +28315,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.920<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.921<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
