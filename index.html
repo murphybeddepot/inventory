@@ -15875,7 +15875,73 @@ async function openManualGroundOrderModal() {
     }
     hintBox.innerHTML = '<span style="color:#666 !important;-webkit-text-fill-color:#666">Custom order # — will be sent to ShipStation as-is.</span>';
   };
-  if (orderNumInp) { orderNumInp.addEventListener('input', _mgUpdateOrderNumHint_); _mgUpdateOrderNumHint_(); }
+  // v10.924 — auto-fetch Shopify order details when the user types a
+  // Shopify-shaped # (5-6 digit numeric). Debounced 700ms after last
+  // input. If Shopify returns a shipping address AND the ship-to form
+  // is empty, prefill silently. If the form has data, offer a "🔍
+  // Prefill from Shopify" chip before overwriting.
+  let _mgShopifyLookupTimer_ = null;
+  let _mgLastLookedUp_ = '';
+  const _mgShopFillFrom_ = (o, silent) => {
+    const sa = o.shipping_address || {};
+    const need = ['mgName','mgStreet1','mgStreet2','mgCity','mgState','mgZip','mgPhone','mgEmail'];
+    const hasAny = need.some(id => (document.getElementById(id) || {value:''}).value.trim());
+    const write = () => {
+      const setIf = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+      setIf('mgName', o.customer_name);
+      setIf('mgStreet1', sa.address1);
+      setIf('mgStreet2', sa.address2);
+      setIf('mgCity', sa.city);
+      setIf('mgState', String(sa.province || '').toUpperCase());
+      setIf('mgZip', sa.zip);
+      setIf('mgPhone', o.customer_phone);
+      setIf('mgEmail', o.customer_email);
+    };
+    if (silent || !hasAny) { write(); return true; }
+    return null;
+  };
+  const _mgTryShopifyLookup_ = async () => {
+    const v = (orderNumInp && orderNumInp.value || '').trim();
+    if (!/^\d{5,6}$/.test(v)) return;
+    if (v === _mgLastLookedUp_) return;
+    _mgLastLookedUp_ = v;
+    hintBox.innerHTML = '<span style="color:#1565c0 !important;-webkit-text-fill-color:#1565c0">🔍 Looking up ' + v + ' in Shopify…</span>';
+    try {
+      const r = await groundApi('getShopifyOrderSummary', { orderNumber: v });
+      if (r && r.ok && r.summary && r.summary.shipping_address && r.summary.shipping_address.address1) {
+        const o = r.summary;
+        const hasFormData = ['mgName','mgStreet1','mgCity'].some(id => (document.getElementById(id) || {value:''}).value.trim());
+        if (!hasFormData) {
+          _mgShopFillFrom_(o, true);
+          hintBox.innerHTML = '<span style="color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f">✅ Prefilled ship-to from Shopify order ' + v + ' (' + (o.customer_name || 'no name') + ')</span>';
+        } else {
+          hintBox.innerHTML = '<span style="color:#1565c0 !important;-webkit-text-fill-color:#1565c0">🔍 Found ' + v + ' in Shopify (' + (o.customer_name || 'no name') + ') — <button onclick="window._mgPrefillFromShopify_()" style="background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">Prefill anyway</button></span>';
+          window._mgLastShopifyOrder_ = o;
+        }
+      } else {
+        _mgUpdateOrderNumHint_();
+        if (r && r.ok === false) {
+          hintBox.innerHTML = '<span style="color:#7a5500 !important;-webkit-text-fill-color:#7a5500">⚠ ' + v + ' not found in Shopify — will create as ' + v + ' in ShipStation.</span>';
+        }
+      }
+    } catch (e) {
+      console.log('Shopify lookup failed: ' + e.message);
+      _mgUpdateOrderNumHint_();
+    }
+  };
+  window._mgPrefillFromShopify_ = () => {
+    if (!window._mgLastShopifyOrder_) return;
+    _mgShopFillFrom_(window._mgLastShopifyOrder_, true);
+    hintBox.innerHTML = '<span style="color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f">✅ Prefilled ship-to from Shopify order (' + (window._mgLastShopifyOrder_.customer_name || 'no name') + ')</span>';
+  };
+  if (orderNumInp) {
+    orderNumInp.addEventListener('input', () => {
+      _mgUpdateOrderNumHint_();
+      if (_mgShopifyLookupTimer_) clearTimeout(_mgShopifyLookupTimer_);
+      _mgShopifyLookupTimer_ = setTimeout(_mgTryShopifyLookup_, 700);
+    });
+    _mgUpdateOrderNumHint_();
+  }
 
   // Load server-side address book (backup for cross-device)
   try {
@@ -28516,7 +28582,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.923<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.924<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
