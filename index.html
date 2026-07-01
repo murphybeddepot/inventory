@@ -15726,17 +15726,33 @@ async function openBomToolsModal() {
         sofabed_wrong_main: 'background:#fee;color:#c33',
         missing_bundle:     'background:#fff8e1;color:#7a5500',
       }[iss.kind] || 'background:#f5f5f7;color:#666';
-      // v10.910 — Q7 fix: issues without auto-fix (mostly missing_bundle
-      // where we can't know if the bundle should be renamed, created, or
-      // nulled) now get an "Edit in Variant Map" button that jumps to
-      // the variant edit form. Manual, but actionable.
-      const fixBtn = iss.fix
-        ? `<button onclick="_bomApplyFix_(${idx})" style="padding:6px 10px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:700;font-size:11px">Apply fix</button>`
-        : `<button onclick="_bomJumpToVariantEdit_('${(iss.variant_sku||'').replace(/'/g,"\\'")}')" style="padding:6px 10px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:700;font-size:11px">📝 Edit</button>`;
-      return `<div style="background:#fff !important;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;font-size:12px">
-        <span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${kindBadge};-webkit-text-fill-color:inherit">${iss.kind.replace(/_/g,' ')}</span>
-        <div style="flex:1;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace">${iss.msg}</div>
-        ${fixBtn}
+      // v10.910/v10.916 — action buttons.
+      //   iss.fix present → 🔧 Apply fix (auto).
+      //   iss.suggestions present → clickable "Rename to X" chips
+      //     for each suggestion, PLUS the Edit fallback.
+      //   otherwise → 📝 Edit fallback only.
+      let fixBtn = '';
+      if (iss.fix) {
+        fixBtn = `<button onclick="_bomApplyFix_(${idx})" style="padding:6px 10px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:700;font-size:11px">Apply fix</button>`;
+      } else {
+        const editBtn = `<button onclick="_bomJumpToVariantEdit_('${(iss.variant_sku||'').replace(/'/g,"\\'")}')" style="padding:6px 10px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:700;font-size:11px">📝 Edit</button>`;
+        fixBtn = editBtn;
+      }
+      // Fuzzy-suggestion chips for missing_bundle without strong auto-fix
+      let suggChips = '';
+      if (Array.isArray(iss.suggestions) && iss.suggestions.length && !iss.fix) {
+        suggChips = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
+          iss.suggestions.map(s =>
+            `<button onclick="_bomApplyRenameSlot_(${idx}, '${s.name.replace(/'/g,"\\'")}')" style="padding:4px 8px;background:#fff3cd !important;color:#7a5500 !important;-webkit-text-fill-color:#7a5500;border:1px solid #ffb300;border-radius:4px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700">Rename → ${s.name} (${s.score.toFixed(2)})</button>`
+          ).join('') + '</div>';
+      }
+      return `<div style="background:#fff !important;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:12px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${kindBadge};-webkit-text-fill-color:inherit">${iss.kind.replace(/_/g,' ')}</span>
+          <div style="flex:1;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:'JetBrains Mono',monospace">${iss.msg}</div>
+          ${fixBtn}
+        </div>
+        ${suggChips}
       </div>`;
     }).join('');
     // Stash issues for the apply-fix handler
@@ -15761,6 +15777,24 @@ async function openBomToolsModal() {
       _bomScanIssues_();  // refresh list (issue should drop off)
     } else {
       alert('❌ Fix failed: ' + ((r && r.error) || 'unknown'));
+      if (r && r.error && /pin/i.test(r.error)) pin = '';
+    }
+  };
+  // v10.916 — apply a fuzzy-suggested rename to a specific slot.
+  // Issue: variant refers to bundle "SOFABED-BUNDL" but bundle_bom has
+  // "SOFABED-BUNDLE" — tap the "Rename → SOFABED-BUNDLE (0.92)" chip
+  // to patch the slot to the correct name.
+  window._bomApplyRenameSlot_ = async function (idx, targetName) {
+    const iss = (window._bomIssuesCache_ || [])[idx];
+    if (!iss || !iss.slot) return;
+    if (!confirm(`Rename slot ${iss.slot} on ${iss.variant_sku}\n\n  from: ${iss.bundle}\n    to: ${targetName}\n\nContinue?`)) return;
+    const p = ensurePin(); if (!p) return;
+    const patch = {}; patch[iss.slot] = targetName;
+    const r = await groundApi('bomApplyFix', { manager_pin: p, variant_sku: iss.variant_sku, fix: patch });
+    if (r && r.ok) {
+      _bomScanIssues_();
+    } else {
+      alert('❌ Rename failed: ' + ((r && r.error) || 'unknown'));
       if (r && r.error && /pin/i.test(r.error)) pin = '';
     }
   };
@@ -27797,7 +27831,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.914<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.916<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
