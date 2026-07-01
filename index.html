@@ -921,67 +921,210 @@ input::placeholder, textarea::placeholder {
   display: flex; flex-direction: column; overflow: hidden;
   box-shadow: 0 8px 40px rgba(0, 0, 0, .5);
 }
+/* v10.920 — hard override for all shell descendants. The global
+   dark-theme override at :784 rewrites inline background:#fff /
+   color:#666 with !important, so our shell descendants need !important
+   at higher specificity to win. */
 .bd-modal-shell,
 .bd-modal-shell * {
-  color: #1a1a1a;
-  -webkit-text-fill-color: #1a1a1a;
+  color: #1a1a1a !important;
+  -webkit-text-fill-color: #1a1a1a !important;
 }
-.bd-modal-header {
+.bd-modal-shell div,
+.bd-modal-shell p,
+.bd-modal-shell span,
+.bd-modal-shell label,
+.bd-modal-shell li {
+  background: transparent !important;
+}
+.bd-modal-shell input[type="text"],
+.bd-modal-shell input[type="number"],
+.bd-modal-shell input[type="email"],
+.bd-modal-shell input[type="tel"],
+.bd-modal-shell input:not([type]),
+.bd-modal-shell textarea,
+.bd-modal-shell select {
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+  -webkit-text-fill-color: #1a1a1a !important;
+  border: 1.5px solid #cccccc !important;
+}
+.bd-modal-shell input::placeholder,
+.bd-modal-shell textarea::placeholder {
+  color: #999999 !important;
+  -webkit-text-fill-color: #999999 !important;
+  opacity: 1;
+}
+.bd-modal-shell code,
+.bd-modal-shell pre {
+  background: #f5f5f7 !important;
+  color: #1565c0 !important;
+  -webkit-text-fill-color: #1565c0 !important;
+}
+/* Header wins over the generic descendant rule via higher specificity */
+.bd-modal-shell .bd-modal-header {
   background: #1a1a1a !important;
   padding: 14px 18px;
   display: flex; align-items: center; gap: 12px;
 }
-.bd-modal-header, .bd-modal-header * {
+.bd-modal-shell .bd-modal-header,
+.bd-modal-shell .bd-modal-header * {
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff !important;
 }
-.bd-modal-header .bd-close-btn {
+.bd-modal-shell .bd-modal-header .bd-close-btn {
   background: transparent !important;
   border: 1px solid rgba(255, 255, 255, .3);
   border-radius: 6px;
   padding: 6px 12px;
   cursor: pointer; font-weight: 700; font-size: 13px;
 }
-.bd-modal-body {
+.bd-modal-shell .bd-modal-body {
   padding: 18px; overflow-y: auto; flex: 1;
-  background: #ffffff;
+  background: #ffffff !important;
 }
-.bd-btn-primary {
+.bd-btn-primary,
+.bd-modal-shell .bd-btn-primary {
   background: #1a1a1a !important;
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff !important;
-  border: none; border-radius: 8px;
+  border: none !important; border-radius: 8px;
   padding: 12px 18px; font-weight: 800; font-size: 14px;
   cursor: pointer; min-height: 44px;
 }
-.bd-btn-secondary {
+.bd-btn-primary *,
+.bd-modal-shell .bd-btn-primary * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.bd-btn-secondary,
+.bd-modal-shell .bd-btn-secondary {
   background: #ffffff !important;
   color: #1a1a1a !important;
   -webkit-text-fill-color: #1a1a1a !important;
-  border: 1.5px solid #ccc; border-radius: 8px;
+  border: 1.5px solid #cccccc !important; border-radius: 8px;
   padding: 12px 18px; font-weight: 700; font-size: 14px;
   cursor: pointer; min-height: 44px;
 }
-.bd-btn-destructive {
-  background: #fee !important;
-  color: #c33 !important;
-  -webkit-text-fill-color: #c33 !important;
-  border: 1px solid #fcc; border-radius: 8px;
+.bd-btn-destructive,
+.bd-modal-shell .bd-btn-destructive {
+  background: #ffeeee !important;
+  color: #cc3333 !important;
+  -webkit-text-fill-color: #cc3333 !important;
+  border: 1px solid #ffcccc !important; border-radius: 8px;
   padding: 12px 18px; font-weight: 700; font-size: 14px;
   cursor: pointer; min-height: 44px;
 }
-.bd-btn-primary.bd-tone-ok { background: #0a7a3f !important; }
-.bd-btn-primary.bd-tone-info { background: #1565c0 !important; }
+.bd-btn-primary.bd-tone-ok,
+.bd-modal-shell .bd-btn-primary.bd-tone-ok { background: #0a7a3f !important; }
+.bd-btn-primary.bd-tone-info,
+.bd-modal-shell .bd-btn-primary.bd-tone-info { background: #1565c0 !important; }
 .bd-chip {
   display: inline-block;
   padding: 3px 8px; border-radius: 4px;
   font-size: 12px; font-weight: 800;
   text-transform: uppercase; letter-spacing: .5px;
 }
-.bd-chip-ok   { background: #c8e6c9; color: #0a7a3f; -webkit-text-fill-color: #0a7a3f; }
-.bd-chip-info { background: #e3f2fd; color: #1565c0; -webkit-text-fill-color: #1565c0; }
-.bd-chip-warn { background: #fff3cd; color: #7a5500; -webkit-text-fill-color: #7a5500; }
-.bd-chip-bad  { background: #fee; color: #c33; -webkit-text-fill-color: #c33; }
+.bd-chip-ok   { background: #c8e6c9 !important; color: #0a7a3f !important; -webkit-text-fill-color: #0a7a3f !important; }
+.bd-chip-info { background: #e3f2fd !important; color: #1565c0 !important; -webkit-text-fill-color: #1565c0 !important; }
+.bd-chip-warn { background: #fff3cd !important; color: #7a5500 !important; -webkit-text-fill-color: #7a5500 !important; }
+.bd-chip-bad  { background: #ffeeee !important; color: #c33333 !important; -webkit-text-fill-color: #c33333 !important; }
+/* v10.920 — callouts. Higher specificity than the generic descendant
+   rule so semantic bg/fg wins. */
+.bd-modal-shell .bd-callout-warn {
+  background: #fff3cd !important;
+  border: 1px solid #ffb300 !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+}
+.bd-modal-shell .bd-callout-warn,
+.bd-modal-shell .bd-callout-warn * {
+  color: #7a5500 !important;
+  -webkit-text-fill-color: #7a5500 !important;
+}
+.bd-modal-shell .bd-callout-warn code {
+  background: rgba(255,179,0,.20) !important;
+  color: #7a5500 !important;
+  -webkit-text-fill-color: #7a5500 !important;
+}
+.bd-modal-shell .bd-callout-ok {
+  background: #c8e6c9 !important;
+  border: 1px solid #4caf50 !important;
+  border-radius: 8px !important;
+  padding: 12px 14px !important;
+}
+.bd-modal-shell .bd-callout-ok,
+.bd-modal-shell .bd-callout-ok * {
+  color: #0a7a3f !important;
+  -webkit-text-fill-color: #0a7a3f !important;
+}
+.bd-modal-shell .bd-callout-bad {
+  background: #ffeeee !important;
+  border: 1px solid #ffcccc !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+}
+.bd-modal-shell .bd-callout-bad,
+.bd-modal-shell .bd-callout-bad * {
+  color: #cc3333 !important;
+  -webkit-text-fill-color: #cc3333 !important;
+}
+.bd-modal-shell .bd-callout-info {
+  background: #e3f2fd !important;
+  border: 1px solid #90caf9 !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+}
+.bd-modal-shell .bd-callout-info,
+.bd-modal-shell .bd-callout-info * {
+  color: #1565c0 !important;
+  -webkit-text-fill-color: #1565c0 !important;
+}
+/* Buttons inside callouts keep their own contrast. Specificity beats
+   the `.bd-callout-* *` selector above. */
+.bd-modal-shell .bd-callout-ok .bd-btn-primary,
+.bd-modal-shell .bd-callout-ok .bd-btn-primary *,
+.bd-modal-shell .bd-callout-info .bd-btn-primary,
+.bd-modal-shell .bd-callout-info .bd-btn-primary *,
+.bd-modal-shell .bd-callout-warn .bd-btn-primary,
+.bd-modal-shell .bd-callout-warn .bd-btn-primary *,
+.bd-modal-shell .bd-callout-bad .bd-btn-primary,
+.bd-modal-shell .bd-callout-bad .bd-btn-primary * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.bd-modal-shell .bd-callout-ok .bd-btn-secondary,
+.bd-modal-shell .bd-callout-ok .bd-btn-secondary *,
+.bd-modal-shell .bd-callout-info .bd-btn-secondary,
+.bd-modal-shell .bd-callout-info .bd-btn-secondary *,
+.bd-modal-shell .bd-callout-warn .bd-btn-secondary,
+.bd-modal-shell .bd-callout-warn .bd-btn-secondary *,
+.bd-modal-shell .bd-callout-bad .bd-btn-secondary,
+.bd-modal-shell .bd-callout-bad .bd-btn-secondary * {
+  color: #1a1a1a !important;
+  -webkit-text-fill-color: #1a1a1a !important;
+}
+/* Section title above each form group — inside the shell it should
+   still be dim gray, not the full #1a1a1a of the generic rule. */
+.bd-modal-shell .bd-field-label {
+  font-size: 10px !important;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  font-weight: 800;
+  color: #666666 !important;
+  -webkit-text-fill-color: #666666 !important;
+  display: block;
+  margin-bottom: 4px;
+}
+.bd-modal-shell .bd-section-title {
+  font-size: 14px !important;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: #1a1a1a !important;
+  -webkit-text-fill-color: #1a1a1a !important;
+  margin: 6px 0 8px;
+}
 
 /* Big numbers — give them the JetBrains Mono industrial gauge feel.
    Targets the Barlow Condensed huge font sizes used for cabinet locations,
@@ -15500,8 +15643,8 @@ async function openManualGroundOrderModal() {
         <button class="bd-close-btn" onclick="document.getElementById('mgOrderBackdrop').remove()">Close</button>
       </div>
       <div class="bd-modal-body" id="mgOrderBody">
-        <div style="background:#fff3cd;border:1px solid #ffb300;color:#7a5500;padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.5">
-          <b>⚠ Real ShipStation order.</b> Creates an <code>awaiting_shipment</code> order in ShipStation V1. Once created, GroundSync (hourly 8am–4pm EST) pulls it into the Bedrock Ground queue where you buy the label.
+        <div class="bd-callout-warn" style="margin-bottom:14px;font-size:12px;line-height:1.5">
+          <b>⚠ Real ShipStation order.</b> Creates an <code>awaiting_shipment</code> order in ShipStation V1. Once created, GroundSync (inline + hourly) pulls it into the Bedrock Ground queue where you buy the label.
         </div>
 
         <!-- Order # + Priority -->
@@ -15663,7 +15806,7 @@ async function _mgSubmit_() {
   };
   const missing = ['name','street1','city','state','postalCode'].filter(f => !shipTo[f]);
   if (missing.length) {
-    document.getElementById('mgResult').innerHTML = `<div style="background:#fee;border:1px solid #fcc;color:#c33;padding:10px 12px;border-radius:8px;font-size:13px">Ship-to missing: ${missing.join(', ')}</div>`;
+    document.getElementById('mgResult').innerHTML = `<div class="bd-callout-bad" style="font-size:13px">Ship-to missing: ${missing.join(', ')}</div>`;
     return;
   }
 
@@ -15675,7 +15818,7 @@ async function _mgSubmit_() {
     if (sku || name) items.push({ sku: sku || 'CUSTOM', name: name || sku, quantity: qty });
   });
   if (!items.length) {
-    document.getElementById('mgResult').innerHTML = `<div style="background:#fee;border:1px solid #fcc;color:#c33;padding:10px 12px;border-radius:8px;font-size:13px">Add at least one item.</div>`;
+    document.getElementById('mgResult').innerHTML = `<div class="bd-callout-bad" style="font-size:13px">Add at least one item.</div>`;
     return;
   }
 
@@ -15689,7 +15832,7 @@ async function _mgSubmit_() {
   const internalNotes = document.getElementById('mgInternalNotes').value.trim();
 
   const resultBox = document.getElementById('mgResult');
-  resultBox.innerHTML = `<div style="background:#e3f2fd;border:1px solid #90caf9;color:#1565c0;padding:10px 12px;border-radius:8px;font-size:13px">📤 Posting to ShipStation…</div>`;
+  resultBox.innerHTML = `<div class="bd-callout-info" style="font-size:13px">📤 Posting to ShipStation…</div>`;
 
   const r = await groundApi('createManualGroundOrder', {
     manager_pin: p,
@@ -15703,10 +15846,10 @@ async function _mgSubmit_() {
     _mgRecentPushAddr_(shipTo);
     items.forEach(it => _mgRecentPushItem_(it));
     resultBox.innerHTML = `
-      <div style="background:#c8e6c9;border:1px solid #4caf50;color:#0a7a3f;padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.6">
+      <div class="bd-callout-ok" style="font-size:13px;line-height:1.6">
         <div style="font-weight:800;font-size:14px;margin-bottom:6px">✅ Order created: ${r.orderNumber}</div>
         <div>ShipStation orderId: <code>${r.shipstation_order_id}</code></div>
-        <div style="margin-top:6px">GroundSync will pull it into the Ground queue within an hour, or open in ShipStation now to verify.</div>
+        <div style="margin-top:6px">Already synced into the Bedrock Ground queue. Open in ShipStation to verify or head to the Ground tab.</div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <a href="${(r.adminUrl||'#').replace(/"/g,'&quot;')}" target="_blank" class="bd-btn-primary" style="text-decoration:none;padding:9px 14px;font-size:13px">🔗 Open in ShipStation</a>
           <button onclick="document.getElementById('mgOrderBackdrop').remove();openManualGroundOrderModal()" class="bd-btn-secondary" style="padding:9px 14px;font-size:13px">+ Create another</button>
@@ -15714,7 +15857,7 @@ async function _mgSubmit_() {
         </div>
       </div>`;
   } else {
-    resultBox.innerHTML = `<div style="background:#fee;border:1px solid #fcc;color:#c33;padding:10px 12px;border-radius:8px;font-size:13px">❌ ${(r && r.error) || 'Unknown error'}</div>`;
+    resultBox.innerHTML = `<div class="bd-callout-bad" style="font-size:13px">❌ ${(r && r.error) || 'Unknown error'}</div>`;
     if (r && r.error && /pin/i.test(r.error) && typeof pin !== 'undefined') pin = '';
   }
 }
@@ -28130,7 +28273,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.919<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.920<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
