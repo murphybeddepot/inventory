@@ -3444,11 +3444,25 @@ async function printPickListOnly_(orderNumber) {
 async function printNativePickList_(orderNumber) {
   const ord = String(orderNumber || '').trim();
   if (!ord) return;
-  // v10.889 — persistent overlay (not a toast). The old toast faded
-  // after a few seconds while the request was still in flight (20s+),
-  // so packers couldn't tell if it was working. New pattern: blocking
-  // overlay with spinner; updates in-place when the response arrives;
-  // dismiss only on tap-OK or 6s after a successful submit.
+  // v10.906 — Zac 2026-06-30: "native pick list thing should show it
+  // first then one can select to print from bedrock to the default paper
+  // printer or not." Redirect to the Inspect Order modal (which already
+  // has the full BOM preview + a 🖨 Print button) so the packer sees
+  // exactly what would print before it fires. Cancel is just Esc.
+  if (typeof openInspectOrderModal === 'function') {
+    openInspectOrderModal(ord);
+    return;
+  }
+  // Fallback if the Inspect Order surface isn't loaded (shouldn't happen
+  // on a fresh page load): direct print with the persistent overlay from
+  // v10.889.
+  _printNativePickListDirect_(ord);
+}
+
+// v10.906 — the previous "fire straight to print" path is preserved
+// for the (rare) fallback + can be re-wired to a "Skip preview, print
+// now" option if we ever add one back.
+async function _printNativePickListDirect_(ord) {
   const prev = document.getElementById('printNativePickListOv');
   if (prev) prev.remove();
   const ov = document.createElement('div');
