@@ -15138,6 +15138,34 @@ function renderModalShell({ id, icon, title, subtitle, bodyHTML, onClose }) {
   return { backdrop, dismiss: _dismiss };
 }
 
+// v10.908 — Order-number stamp (Design System v1.1 iconic detail #1).
+// Barlow Condensed 900 on a black pill with inner white stroke — reads
+// like a shipping-crate stencil from 6 ft. Use this ANYWHERE an order
+// number appears (Inspect Order header, Ground cards, Pack cards,
+// Freight cards, PDF headers). Per docs/DESIGN_SYSTEM_v1.md §7.
+function renderOrderStamp(orderNumber, opts) {
+  const num = String(orderNumber || '').replace(/^#/, '').trim();
+  if (!num) return '';
+  const size = (opts && opts.size) || 32;         // 32px default; 40px hero
+  const padY = Math.max(4, Math.round(size * .18));
+  const padX = Math.max(10, Math.round(size * .42));
+  return `<span aria-label="Order #${num}" style="
+    display:inline-block;
+    background:#1a1a1a;
+    color:#fff;
+    -webkit-text-fill-color:#fff;
+    font-family:'Barlow Condensed',Impact,sans-serif;
+    font-weight:900;
+    font-size:${size}px;
+    line-height:1;
+    padding:${padY}px ${padX}px;
+    border-radius:${Math.round(size*.3)}px;
+    letter-spacing:${Math.max(1, Math.round(size*.03))}px;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.85), inset 0 0 0 2px #1a1a1a;
+    vertical-align:middle;
+  ">#${num}</span>`;
+}
+
 // v10.905 — recently-inspected order chip storage + Esc-to-close.
 const _INSPECT_RECENT_KEY = 'mbd_recent_inspected_orders';
 function _inspectRecentGet_() {
@@ -15223,10 +15251,19 @@ async function openInspectOrderModal(preFillOrder) {
       const statusChip = (color, label) => `<span style="padding:2px 7px;border-radius:4px;background:${color};color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px">${label}</span>`;
       const finChip = s.financial_status ? statusChip(s.financial_status === 'paid' ? '#c8e6c9' : '#fff3cd', s.financial_status) : '';
       const fulChip = s.fulfillment_status ? statusChip(s.fulfillment_status === 'fulfilled' ? '#c8e6c9' : '#fff3cd', s.fulfillment_status) : statusChip('#f5f5f7', 'unfulfilled');
-      html += `<div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:10px;font-size:14px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">${s.name || '#' + ord} · ${s.customer_name || '(no customer)'} ${finChip} ${fulChip}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);margin-top:4px">${addr || '(no shipping address)'}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.6) !important;-webkit-text-fill-color:rgba(255,255,255,.6);margin-top:2px">${fdate ? 'Ordered ' + fdate + ' · ' : ''}${s.customer_email || ''}${s.customer_phone ? ' · ' + s.customer_phone : ''}${s.total_price ? ' · $' + s.total_price : ''}</div>
+      // v10.908 — order-number stamp as the hero (the "one thing at 2×
+      // the size" per Design System §2). Customer + status chips wrap
+      // below. Total & date live in the micro line.
+      const stampNum = (s.name || ('#' + ord)).replace(/^#/, '');
+      html += `<div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;border-radius:10px;padding:14px 16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          ${renderOrderStamp(stampNum, { size: 36 })}
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:16px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">${s.customer_name || '(no customer)'} ${finChip} ${fulChip}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);margin-top:4px">${addr || '(no shipping address)'}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.6) !important;-webkit-text-fill-color:rgba(255,255,255,.6);margin-top:2px">${fdate ? 'Ordered ' + fdate + ' · ' : ''}${s.customer_email || ''}${s.customer_phone ? ' · ' + s.customer_phone : ''}${s.total_price ? ' · $' + s.total_price : ''}</div>
+          </div>
+        </div>
       </div>`;
     }
     // Shopify line items (LEFT)
@@ -27715,7 +27752,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.907<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.908<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
