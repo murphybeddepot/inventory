@@ -13771,8 +13771,20 @@ function findCabinets(query) {
     havePhysical[normCab(u.cabinet_num)] = true;
   });
 
-  // 1. Exact match on cabinet # — return only that, it's almost certainly what they want
-  const exact = pool.filter(c => normCab(c.cabinet) === q);
+  // 1. Exact match on cabinet # — return only that, it's almost certainly what they want.
+  // v10.917 — Zac 2026-07-01: searching "31441" only showed the original
+  // May physical shipment, hiding 31441-RMK arriving this week (both are
+  // legit; the RMK is a remake of the same order). When the query is a
+  // bare numeric order # (or clearly a cabinet-base like "D064"), also
+  // consider suffix variants like -RMK, -L, -2, -3 as "exact" so the
+  // early-return doesn't hide them.
+  const isBaseQuery = /^(\d{4,6}|[A-Z]\d{3,5})$/.test(q);
+  const exact = pool.filter(c => {
+    const nc = normCab(c.cabinet);
+    if (nc === q) return true;
+    if (isBaseQuery && (nc === q + '-RMK' || nc === q + '-L' || /^-\d+$/.test(nc.slice(q.length)))) return true;
+    return false;
+  });
   if (exact.length) return exact;
 
   // 2. Cabinet # starts with the query (e.g. "STK014" matches "STK014-QSOFAW")
@@ -27831,7 +27843,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.916<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.917<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
