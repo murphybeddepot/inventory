@@ -1111,6 +1111,93 @@ input::placeholder, textarea::placeholder {
   background: #fff3cd !important;
   border-color: #FF6B00 !important;
 }
+/* v10.923 — mobile-friendly modal layout. Zac 2026-07-01 17:06 EDT:
+   "The add shipment screen is not mobile friendly." Below 520px the
+   two-column ship-to grid collapses to a single column, and item
+   rows stack vertically instead of squeezing 4 controls on one line. */
+.bd-modal-shell .mg-ship-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.bd-modal-shell .mg-city-state-zip {
+  display: flex;
+  gap: 8px;
+}
+.bd-modal-shell .mg-item-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.bd-modal-shell .mg-item-row .mg-sku { flex: 2 1 0; min-width: 100px; }
+.bd-modal-shell .mg-item-row .mg-name { flex: 2 1 0; min-width: 100px; }
+.bd-modal-shell .mg-item-row .mg-qty { width: 70px; flex-shrink: 0; }
+@media (max-width: 520px) {
+  .bd-modal-shell .mg-ship-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .bd-modal-shell .mg-ship-grid > * {
+    grid-column: auto !important;
+  }
+  .bd-modal-shell .mg-item-row {
+    flex-wrap: wrap !important;
+  }
+  .bd-modal-shell .mg-item-row .mg-sku,
+  .bd-modal-shell .mg-item-row .mg-name {
+    flex: 1 1 100% !important;
+  }
+  .bd-modal-shell .mg-item-row .mg-qty {
+    flex: 1 1 auto !important;
+    width: auto !important;
+  }
+}
+/* SKU autocomplete dropdown */
+.bd-modal-shell .mg-sku-wrap {
+  position: relative;
+  flex: 2 1 0;
+  min-width: 100px;
+}
+.bd-modal-shell .mg-sku-wrap .mg-sku { width: 100%; }
+.bd-modal-shell .mg-sku-suggest {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  background: #ffffff !important;
+  border: 1.5px solid #cccccc !important;
+  border-top: none !important;
+  border-radius: 0 0 6px 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+}
+.bd-modal-shell .mg-sku-suggest button {
+  display: block !important;
+  width: 100% !important;
+  text-align: left !important;
+  padding: 8px 12px !important;
+  border: none !important;
+  border-bottom: 1px solid #f0f0f0 !important;
+  background: #fff !important;
+  color: #1a1a1a !important;
+  -webkit-text-fill-color: #1a1a1a !important;
+  font-size: 13px !important;
+  cursor: pointer !important;
+  font-family: 'JetBrains Mono', monospace !important;
+}
+.bd-modal-shell .mg-sku-suggest button:hover {
+  background: #e3f2fd !important;
+}
+.bd-modal-shell .mg-sku-suggest .mg-sku-suggest-name {
+  color: #666 !important;
+  -webkit-text-fill-color: #666 !important;
+  font-family: Helvetica, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 500;
+  display: block;
+  margin-top: 2px;
+}
 /* Buttons inside callouts keep their own contrast. Specificity beats
    the `.bd-callout-* *` selector above. */
 .bd-modal-shell .bd-callout-ok .bd-btn-primary,
@@ -15714,14 +15801,14 @@ async function openManualGroundOrderModal() {
         <!-- Address book selector -->
         <div id="mgAddrBookRow" style="margin-bottom:8px"></div>
 
-        <!-- Ship-to -->
+        <!-- Ship-to (mobile-friendly grid; single column below 520px) -->
         <div class="bd-section-title">Ship to</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="mg-ship-grid" style="margin-bottom:8px">
           <input id="mgName" placeholder="Full name *" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
           <input id="mgStreet1" placeholder="Street address *" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
           <input id="mgStreet2" placeholder="Apt, suite, etc. (optional)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
           <input id="mgCity" placeholder="City *" style="padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
-          <div style="display:flex;gap:8px">
+          <div class="mg-city-state-zip">
             <input id="mgState" placeholder="State *" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;text-transform:uppercase;font-family:'JetBrains Mono',monospace;min-height:44px" maxlength="2">
             <input id="mgZip" placeholder="ZIP *" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
           </div>
@@ -15770,6 +15857,8 @@ async function openManualGroundOrderModal() {
   _mgAddItemRow_();
   _mgRenderAddrBook_();
   _mgRenderRecentItemChips_();
+  // v10.923 — warm the SKU master cache so autocomplete is instant.
+  _mgEnsureSkuMaster_();
   // v10.921 — live hint under the Order # field. Warns when a typed
   // number looks like an existing Shopify order (5-6 digit numeric),
   // because ShipStation V1 /orders/createorder is an UPSERT — sending
@@ -15849,20 +15938,89 @@ function _mgFillAddr_(idx) {
 }
 
 let _mgItemRowCounter_ = 0;
+// v10.923 — items master pulled from Supabase items table + Rulebook
+// boxes; used for the SKU autocomplete on each item row. Lazy-loaded
+// once per modal open, cached in a module-level array.
+let _mgSkuMaster_ = null;
+async function _mgEnsureSkuMaster_() {
+  if (_mgSkuMaster_) return _mgSkuMaster_;
+  try {
+    const r = await groundApi('listInventoryItems', { limit: 5000 });
+    if (r && r.ok && Array.isArray(r.items)) {
+      _mgSkuMaster_ = r.items.map(it => ({
+        sku: String(it.sku || '').trim(),
+        name: String(it.name || it.description || '').trim(),
+      })).filter(x => x.sku);
+    } else {
+      _mgSkuMaster_ = [];
+    }
+  } catch (e) {
+    console.log('MG SKU master load failed: ' + e.message);
+    _mgSkuMaster_ = [];
+  }
+  return _mgSkuMaster_;
+}
+
 function _mgAddItemRow_(sku, name, qty) {
   const list = document.getElementById('mgItemsList');
   if (!list) return;
   const idx = ++_mgItemRowCounter_;
   const wrap = document.createElement('div');
   wrap.id = 'mgItemRow_' + idx;
-  wrap.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+  wrap.className = 'mg-item-row';
   wrap.innerHTML = `
-    <input class="mg-sku" placeholder="SKU or description" value="${(sku||'').replace(/"/g,'&quot;')}" style="flex:2;padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:40px">
-    <input class="mg-name" placeholder="Description (optional)" value="${(name||'').replace(/"/g,'&quot;')}" style="flex:2;padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:40px">
-    <input class="mg-qty" type="number" min="1" value="${qty || 1}" style="width:70px;padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:40px">
-    <button onclick="document.getElementById('mgItemRow_${idx}').remove()" class="bd-btn-secondary" style="padding:6px 10px;font-size:14px;min-height:40px" title="Remove row">×</button>`;
+    <div class="mg-sku-wrap">
+      <input class="mg-sku" placeholder="SKU (type to search) or description" value="${(sku||'').replace(/"/g,'&quot;')}" style="padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:40px" autocomplete="off">
+      <div class="mg-sku-suggest" id="mgSkuSuggest_${idx}" style="display:none"></div>
+    </div>
+    <input class="mg-name" placeholder="Description (optional)" value="${(name||'').replace(/"/g,'&quot;')}" style="padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:40px">
+    <input class="mg-qty" type="number" min="1" value="${qty || 1}" style="padding:9px 11px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:40px">
+    <button onclick="document.getElementById('mgItemRow_${idx}').remove()" class="bd-btn-secondary" style="padding:6px 10px;font-size:14px;min-height:40px;flex-shrink:0" title="Remove row">×</button>`;
   list.appendChild(wrap);
+
+  const skuInp = wrap.querySelector('.mg-sku');
+  const nameInp = wrap.querySelector('.mg-name');
+  const suggBox = wrap.querySelector('.mg-sku-suggest');
+  const _renderSuggest = async () => {
+    const q = String(skuInp.value || '').trim().toUpperCase();
+    if (q.length < 2) { suggBox.style.display = 'none'; suggBox.innerHTML = ''; return; }
+    const master = await _mgEnsureSkuMaster_();
+    if (!master || !master.length) { suggBox.style.display = 'none'; return; }
+    const matches = master
+      .map(it => {
+        const s = it.sku.toUpperCase();
+        let score = 0;
+        if (s === q) score = 100;
+        else if (s.startsWith(q)) score = 50 - s.length;
+        else if (s.includes(q)) score = 20 - s.length;
+        else if (it.name.toUpperCase().includes(q)) score = 5;
+        return { it, score };
+      })
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map(x => x.it);
+    if (!matches.length) { suggBox.style.display = 'none'; return; }
+    suggBox.innerHTML = matches.map(m =>
+      `<button onmousedown="event.preventDefault()" onclick="_mgPickSku_(${idx}, '${m.sku.replace(/'/g,"\\'")}', '${(m.name||'').replace(/'/g,"\\'")}')">${m.sku}${m.name ? '<span class="mg-sku-suggest-name">' + m.name + '</span>' : ''}</button>`
+    ).join('');
+    suggBox.style.display = 'block';
+  };
+  skuInp.addEventListener('input', _renderSuggest);
+  skuInp.addEventListener('focus', _renderSuggest);
+  skuInp.addEventListener('blur', () => setTimeout(() => { suggBox.style.display = 'none'; }, 150));
 }
+
+window._mgPickSku_ = function (idx, sku, name) {
+  const row = document.getElementById('mgItemRow_' + idx);
+  if (!row) return;
+  const skuInp = row.querySelector('.mg-sku');
+  const nameInp = row.querySelector('.mg-name');
+  const suggBox = row.querySelector('.mg-sku-suggest');
+  if (skuInp) skuInp.value = sku;
+  if (nameInp && !nameInp.value && name) nameInp.value = name;
+  if (suggBox) { suggBox.style.display = 'none'; suggBox.innerHTML = ''; }
+};
 
 function _mgRenderRecentItemChips_() {
   const box = document.getElementById('mgRecentItemChips');
@@ -28358,7 +28516,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.922<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.923<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
