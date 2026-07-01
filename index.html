@@ -15798,8 +15798,9 @@ async function openManualGroundOrderModal() {
           </div>
         </div>
 
-        <!-- Address book selector -->
+        <!-- Address book + installer directory selectors -->
         <div id="mgAddrBookRow" style="margin-bottom:8px"></div>
+        <div id="mgInstallerRow" style="margin-bottom:8px"></div>
 
         <!-- Ship-to (mobile-friendly grid; single column below 520px) -->
         <div class="bd-section-title">Ship to</div>
@@ -15859,6 +15860,8 @@ async function openManualGroundOrderModal() {
   _mgRenderRecentItemChips_();
   // v10.923 — warm the SKU master cache so autocomplete is instant.
   _mgEnsureSkuMaster_();
+  // v10.925 — load installer directory chips.
+  _mgLoadInstallers_();
   // v10.921 — live hint under the Order # field. Warns when a typed
   // number looks like an existing Shopify order (5-6 digit numeric),
   // because ShipStation V1 /orders/createorder is an UPSERT — sending
@@ -16001,6 +16004,112 @@ function _mgFillAddr_(idx) {
   document.getElementById('mgState').value = a.state || '';
   document.getElementById('mgZip').value = a.postalCode || '';
   document.getElementById('mgPhone').value = a.phone || '';
+}
+
+// v10.925 — installer directory (server-side store, Script Property).
+// Chip row shown just below Recent addresses. Tap fills the ship-to.
+// "+ Add" opens a small nested form to persist a new installer.
+let _mgInstallers_ = [];
+async function _mgLoadInstallers_() {
+  try {
+    const r = await groundApi('listInstallers', {});
+    _mgInstallers_ = (r && r.ok && Array.isArray(r.installers)) ? r.installers : [];
+  } catch (e) { _mgInstallers_ = []; }
+  _mgRenderInstallerRow_();
+}
+function _mgRenderInstallerRow_() {
+  const row = document.getElementById('mgInstallerRow');
+  if (!row) return;
+  const chips = _mgInstallers_.slice(0, 8).map((a, i) =>
+    `<button onclick="_mgFillInstaller_(${i})" class="bd-btn-secondary" style="padding:6px 10px;font-size:11px;min-height:32px;text-align:left" title="${(a.street1||'').replace(/"/g,'&quot;')}, ${(a.city||'').replace(/"/g,'&quot;')}, ${(a.state||'')}">🔧 ${(a.name||'').substring(0,20)}${(a.name||'').length>20?'…':''} · ${(a.city||'')} ${(a.state||'')}</button>`
+  ).join('');
+  const addBtn = `<button onclick="_mgOpenAddInstaller_()" class="bd-btn-secondary" style="padding:6px 10px;font-size:11px;min-height:32px;background:#e3f2fd !important" title="Add a new installer to the directory">+ Add installer</button>`;
+  row.innerHTML = `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;margin-bottom:4px">Installer directory ${_mgInstallers_.length ? '(tap to fill)' : '— empty, add one below'}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${chips}${addBtn}</div>`;
+}
+function _mgFillInstaller_(idx) {
+  const inst = _mgInstallers_[idx];
+  if (!inst) return;
+  document.getElementById('mgName').value = inst.company || inst.name || '';
+  document.getElementById('mgStreet1').value = inst.street1 || '';
+  document.getElementById('mgStreet2').value = inst.street2 || '';
+  document.getElementById('mgCity').value = inst.city || '';
+  document.getElementById('mgState').value = inst.state || '';
+  document.getElementById('mgZip').value = inst.postalCode || '';
+  document.getElementById('mgPhone').value = inst.phone || '';
+  document.getElementById('mgEmail').value = inst.email || '';
+  // Fire-and-forget markInstallerUsed so lastUsedAt ranks the chip higher next time.
+  try { groundApi('markInstallerUsed', { name: inst.name }).catch(() => {}); } catch (e) {}
+}
+
+function _mgOpenAddInstaller_() {
+  // Nested prompt-flow modal — smaller, keeps user in-context.
+  let overlay = document.getElementById('mgAddInstallerBackdrop');
+  if (overlay) overlay.remove();
+  overlay = document.createElement('div');
+  overlay.id = 'mgAddInstallerBackdrop';
+  overlay.className = 'bd-modal-backdrop';
+  overlay.style.zIndex = 10020;   // above the MG modal
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:520px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🔧</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Add Installer</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('mgAddInstallerBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body">
+        <div class="mg-ship-grid" style="margin-bottom:8px">
+          <input id="miName" placeholder="Installer name * (e.g. Bob Smith)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <input id="miCompany" placeholder="Company (optional, e.g. Bob's Install Co.)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <input id="miStreet1" placeholder="Street address *" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <input id="miStreet2" placeholder="Apt, suite, etc. (optional)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <input id="miCity" placeholder="City *" style="padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+          <div class="mg-city-state-zip">
+            <input id="miState" placeholder="State *" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;text-transform:uppercase;font-family:'JetBrains Mono',monospace;min-height:44px" maxlength="2">
+            <input id="miZip" placeholder="ZIP *" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+          </div>
+          <input id="miPhone" placeholder="Phone (optional)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px">
+          <input id="miEmail" placeholder="Email (optional)" style="grid-column:span 2;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">
+        </div>
+        <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:10px">
+          <button class="bd-btn-secondary" onclick="document.getElementById('mgAddInstallerBackdrop').remove()">Cancel</button>
+          <button class="bd-btn-primary bd-tone-ok" onclick="_mgSaveInstaller_()">Save installer</button>
+        </div>
+        <div id="miResult" style="margin-top:10px"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function _mgSaveInstaller_() {
+  const inst = {
+    name: document.getElementById('miName').value.trim(),
+    company: document.getElementById('miCompany').value.trim(),
+    street1: document.getElementById('miStreet1').value.trim(),
+    street2: document.getElementById('miStreet2').value.trim(),
+    city: document.getElementById('miCity').value.trim(),
+    state: document.getElementById('miState').value.trim().toUpperCase(),
+    postalCode: document.getElementById('miZip').value.trim(),
+    country: 'US',
+    phone: document.getElementById('miPhone').value.trim(),
+    email: document.getElementById('miEmail').value.trim(),
+  };
+  const missing = ['name','street1','city','state','postalCode'].filter(f => !inst[f]);
+  if (missing.length) {
+    document.getElementById('miResult').innerHTML = `<div class="bd-callout-bad" style="font-size:13px">Missing: ${missing.join(', ')}</div>`;
+    return;
+  }
+  const p = ensurePin(); if (!p) return;
+  document.getElementById('miResult').innerHTML = `<div class="bd-callout-info" style="font-size:13px">💾 Saving…</div>`;
+  const r = await groundApi('upsertInstaller', { manager_pin: p, installer: inst });
+  if (r && r.ok) {
+    document.getElementById('mgAddInstallerBackdrop').remove();
+    await _mgLoadInstallers_();
+  } else {
+    document.getElementById('miResult').innerHTML = `<div class="bd-callout-bad" style="font-size:13px">❌ ${(r && r.error) || 'unknown error'}</div>`;
+    if (r && r.error && /pin/i.test(r.error) && typeof pin !== 'undefined') pin = '';
+  }
 }
 
 let _mgItemRowCounter_ = 0;
@@ -28582,7 +28691,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.924<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.925<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
