@@ -15926,12 +15926,46 @@ async function openInspectOrderModal(preFillOrder) {
       html += '<div style="padding:10px;font-size:11px;color:#c33 !important;-webkit-text-fill-color:#c33;background:#fee !important;border-radius:8px">⚠ Spine read failed</div>';
     }
     html += '</div>';
+    // v10.933 — Traceability section: which lots contributed to this
+    // order? Loads async so it doesn't block the main render. Empty
+    // state hints when the order shipped pre-lot-spine.
+    html += `<div style="margin-top:18px">
+      <div style="font-size:14px;font-weight:800;margin-bottom:8px;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">Lot traceability</div>
+      <div id="inspectLotBox" style="background:#f5f5f7 !important;border-radius:8px;padding:10px 12px;font-size:12px;color:#666 !important;-webkit-text-fill-color:#666">Loading…</div>
+    </div>`;
     // v10.911 — trailing single primary action, only after results load.
     // Print bottom-right per Jonah's thumb-reach rule.
     html += `<div style="margin-top:22px;display:flex;justify-content:flex-end">
       <button class="bd-btn-primary bd-tone-ok" onclick="_inspectOrderPrint_()" title="Print the live pick list">🖨 Print pick list</button>
     </div>`;
     body.innerHTML = html;
+
+    // Fire the lot walk after the main render lands.
+    (async () => {
+      try {
+        const r = await groundApi('walkLotBackward', { order_number: ord });
+        const lotBox = document.getElementById('inspectLotBox');
+        if (!lotBox) return;
+        if (!r || !r.ok) { lotBox.textContent = '⚠ Lot walk failed: ' + ((r && r.error) || 'unknown'); return; }
+        if (!r.lot_count) {
+          lotBox.innerHTML = '<div>No lot-attributed consumption found for this order.</div>' +
+            '<div style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999;margin-top:3px">Either the order shipped before the lot spine went live (v10.929+) or the ship path hasn\'t been wired for these SKUs yet.</div>';
+          return;
+        }
+        let h = '<div style="font-size:11px;color:#1565c0 !important;-webkit-text-fill-color:#1565c0;font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">' + r.lot_count + ' lot(s) fed this order</div>';
+        r.lots.forEach(l => {
+          const dt = l.received_at ? String(l.received_at).slice(0,10) : '?';
+          h += '<div style="padding:4px 0;border-bottom:1px solid #e0e0e0;font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">';
+          h += '<b>' + l.lot_id + '</b> · ' + l.sku + ' × ' + l.qty_consumed;
+          h += '<span style="color:#666 !important;-webkit-text-fill-color:#666;margin-left:6px">(' + (l.source_type||'?') + ' · ref ' + (l.source_ref||'?') + ' · ' + dt + ')</span>';
+          h += '</div>';
+        });
+        lotBox.innerHTML = h;
+      } catch (e) {
+        const lotBox = document.getElementById('inspectLotBox');
+        if (lotBox) lotBox.textContent = '⚠ Lot walk threw: ' + e.message;
+      }
+    })();
   };
   // v10.895 — Print button: fire the native pick list with the same
   // persistent overlay UX as the Pack tab's button.
@@ -29079,7 +29113,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.932<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.933<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
