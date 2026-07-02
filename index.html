@@ -16138,7 +16138,7 @@ async function openManualGroundOrderModal() {
         <!-- Notes -->
         <div style="margin-top:16px">
           <label class="bd-field-label">Internal notes (optional)</label>
-          <textarea id="mgInternalNotes" rows="2" placeholder="Anything the packer should know" style="width:100%;padding:10px 12px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:inherit"></textarea>
+          <textarea id="mgInternalNotes" rows="2" placeholder="Anything the packer should know" style="width:100%;padding:10px 12px;font-size:13px;border:1.5px solid #cccccc !important;border-radius:6px;background:#ffffff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;font-family:inherit"></textarea>
         </div>
 
         <!-- Submit row -->
@@ -16572,19 +16572,53 @@ async function _mgSubmit_() {
   if (r && r.ok) {
     _mgRecentPushAddr_(shipTo);
     items.forEach(it => _mgRecentPushItem_(it));
+    // v10.944 — Zac 2026-07-02: 'no indication whether it worked'.
+    // The green success callout was rendering at the BOTTOM of the
+    // modal body, below the fold on both mobile + desktop. Three
+    // reinforcements now:
+    //   1. Full-page overlay banner at the top of the modal (in-your-face)
+    //   2. Result box below still gets the details + action buttons
+    //   3. Fixed-position toast in the top-right for anyone who's not
+    //      even looking at the modal
     resultBox.innerHTML = `
-      <div class="bd-callout-ok" style="font-size:13px;line-height:1.6">
-        <div style="font-weight:800;font-size:14px;margin-bottom:6px">✅ Order created: ${r.orderNumber}</div>
-        <div>ShipStation orderId: <code>${r.shipstation_order_id}</code></div>
-        <div style="margin-top:6px">Already synced into the Bedrock Ground queue. Open in ShipStation to verify or head to the Ground tab.</div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <a href="${(r.adminUrl||'#').replace(/"/g,'&quot;')}" target="_blank" class="bd-btn-primary" style="text-decoration:none;padding:9px 14px;font-size:13px">🔗 Open in ShipStation</a>
-          <button onclick="document.getElementById('mgOrderBackdrop').remove();openManualGroundOrderModal()" class="bd-btn-secondary" style="padding:9px 14px;font-size:13px">+ Create another</button>
-          <button onclick="document.getElementById('mgOrderBackdrop').remove()" class="bd-btn-secondary" style="padding:9px 14px;font-size:13px">Done</button>
+      <div class="bd-callout-ok" style="font-size:14px;line-height:1.6;padding:14px;border:2px solid #00b04f !important;background:#e8f5e9 !important">
+        <div style="font-weight:900;font-size:16px;margin-bottom:6px;color:#0a5c1a !important;-webkit-text-fill-color:#0a5c1a !important">✅ Order ${r.orderNumber} created in ShipStation</div>
+        <div style="color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">ShipStation orderId: <code>${r.shipstation_order_id}</code></div>
+        <div style="margin-top:6px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">Already synced into the Bedrock Ground queue. Open in ShipStation to verify or head to the Ground tab.</div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <a href="${(r.adminUrl||'#').replace(/"/g,'&quot;')}" target="_blank" class="bd-btn-primary" style="text-decoration:none;padding:10px 16px;font-size:13px">🔗 Open in ShipStation</a>
+          <button onclick="document.getElementById('mgOrderBackdrop').remove();openManualGroundOrderModal()" class="bd-btn-secondary" style="padding:10px 16px;font-size:13px">+ Create another</button>
+          <button onclick="document.getElementById('mgOrderBackdrop').remove()" class="bd-btn-secondary" style="padding:10px 16px;font-size:13px">Done</button>
         </div>
       </div>`;
+    // Insert a sticky success banner at TOP of the modal body — impossible
+    // to miss even if the resultBox is scrolled off screen.
+    const modalBody = document.querySelector('#mgOrderBackdrop .bd-modal-body');
+    if (modalBody && !document.getElementById('mgTopSuccessBanner')) {
+      const banner = document.createElement('div');
+      banner.id = 'mgTopSuccessBanner';
+      banner.style.cssText = 'position:sticky;top:0;z-index:20;margin:-18px -18px 14px -18px;padding:14px 18px;background:linear-gradient(90deg,#00b04f,#0a5c1a) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-weight:900;font-size:15px;box-shadow:0 3px 10px rgba(0,176,79,.4);text-align:center;letter-spacing:.5px';
+      banner.innerHTML = '✅ ORDER ' + r.orderNumber + ' CREATED IN SHIPSTATION';
+      modalBody.insertBefore(banner, modalBody.firstChild);
+    }
+    // Scroll the result callout into view so we're not depending on the
+    // banner alone.
+    setTimeout(() => resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+    // Fixed toast — visible even if the modal itself scrolls oddly.
+    if (typeof showToast === 'function') showToast('✅ Order ' + r.orderNumber + ' created');
   } else {
-    resultBox.innerHTML = `<div class="bd-callout-bad" style="font-size:13px">❌ ${(r && r.error) || 'Unknown error'}</div>`;
+    resultBox.innerHTML = `<div class="bd-callout-bad" style="font-size:14px;padding:14px;border:2px solid #c33 !important;background:#ffebee !important;color:#8b0000 !important;-webkit-text-fill-color:#8b0000 !important;font-weight:700">❌ ${(r && r.error) || 'Unknown error'}</div>`;
+    // Same treatment on failure — Zac needs to see it either way.
+    const modalBody = document.querySelector('#mgOrderBackdrop .bd-modal-body');
+    if (modalBody && !document.getElementById('mgTopFailBanner')) {
+      const banner = document.createElement('div');
+      banner.id = 'mgTopFailBanner';
+      banner.style.cssText = 'position:sticky;top:0;z-index:20;margin:-18px -18px 14px -18px;padding:14px 18px;background:linear-gradient(90deg,#c33,#8b0000) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-weight:900;font-size:15px;box-shadow:0 3px 10px rgba(195,51,51,.4);text-align:center;letter-spacing:.5px';
+      banner.innerHTML = '❌ ORDER CREATE FAILED — see details below';
+      modalBody.insertBefore(banner, modalBody.firstChild);
+    }
+    setTimeout(() => resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+    if (typeof showToast === 'function') showToast('❌ Order create failed');
     if (r && r.error && /pin/i.test(r.error) && typeof pin !== 'undefined') pin = '';
   }
 }
@@ -29158,7 +29192,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.943<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.944<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
