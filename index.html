@@ -16521,6 +16521,32 @@ function _mgRenderRecentItemChips_() {
 }
 
 async function _mgSubmit_() {
+  // v10.945 — Zac 2026-07-02: 'still nothing happening when i click
+  // create.' Wrap the whole flow in try/catch so ANY thrown error
+  // (network fail, JSON parse fail, silent groundApi reject) surfaces
+  // as a visible banner instead of dying quietly. Also console.log at
+  // entry so dev tools can confirm the click bound.
+  console.log('DIAG-V10.945 _mgSubmit_ entered');
+  const _showFatal = (msg) => {
+    console.error('_mgSubmit_ FATAL:', msg);
+    const rb = document.getElementById('mgResult');
+    if (rb) rb.innerHTML = `<div class="bd-callout-bad" style="font-size:14px;padding:14px;border:2px solid #c33 !important;background:#ffebee !important;color:#8b0000 !important;-webkit-text-fill-color:#8b0000 !important;font-weight:700">❌ ${String(msg).replace(/</g,'&lt;')}</div>`;
+    const mb = document.querySelector('#mgOrderBackdrop .bd-modal-body');
+    if (mb && !document.getElementById('mgTopFailBanner')) {
+      const b = document.createElement('div');
+      b.id = 'mgTopFailBanner';
+      b.style.cssText = 'position:sticky;top:0;z-index:20;margin:-18px -18px 14px -18px;padding:14px 18px;background:linear-gradient(90deg,#c33,#8b0000) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-weight:900;font-size:15px;text-align:center;letter-spacing:.5px';
+      b.innerHTML = '❌ SUBMIT FAILED — ' + String(msg).slice(0, 80).replace(/</g,'&lt;');
+      mb.insertBefore(b, mb.firstChild);
+    }
+    if (typeof showToast === 'function') showToast('❌ ' + String(msg).slice(0, 60));
+  };
+  try {
+  // v10.945 — instant "clicked" feedback before any validation. If Zac
+  // sees NOTHING happen, we now know the click handler didn't fire (as
+  // opposed to a validation bail).
+  const _preRb = document.getElementById('mgResult');
+  if (_preRb) _preRb.innerHTML = `<div class="bd-callout-info" style="font-size:13px;padding:10px;color:#0a5c9a !important;-webkit-text-fill-color:#0a5c9a !important;background:#e3f2fd !important;border:1.5px solid #0a5c9a !important">⏳ Validating…</div>`;
   const shipTo = {
     name: document.getElementById('mgName').value.trim(),
     street1: document.getElementById('mgStreet1').value.trim(),
@@ -16620,6 +16646,9 @@ async function _mgSubmit_() {
     setTimeout(() => resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
     if (typeof showToast === 'function') showToast('❌ Order create failed');
     if (r && r.error && /pin/i.test(r.error) && typeof pin !== 'undefined') pin = '';
+  }
+  } catch (err) {
+    _showFatal((err && (err.message || err.toString())) || 'unknown error');
   }
 }
 
@@ -29192,7 +29221,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.944<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.945<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
