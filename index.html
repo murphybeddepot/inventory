@@ -16810,18 +16810,38 @@ async function _lotBrowseBySku_() {
   box.innerHTML = html;
 }
 
+// v10.946 — Zac 2026-07-02: 'ensurePin is not defined' broke New
+// Ground Order submit + 9 other call sites. ensurePin was originally
+// defined as a NESTED function inside openBomToolsModal only, so any
+// caller outside that closure hit a ReferenceError. Hoisted to a
+// global helper with an in-memory cache that clears after 10 min of
+// idle (matching the manager-bulk-mode pattern from Pack v86).
+window._managerPinCache_ = window._managerPinCache_ || { pin: '', lastUsedAt: 0 };
+window.ensurePin = function ensurePin(promptText) {
+  const now = Date.now();
+  const ten_min = 10 * 60 * 1000;
+  if (window._managerPinCache_.pin &&
+      (now - window._managerPinCache_.lastUsedAt) < ten_min) {
+    window._managerPinCache_.lastUsedAt = now;
+    return window._managerPinCache_.pin;
+  }
+  const entered = window.prompt(promptText || 'Manager PIN required:');
+  if (!entered) return null;
+  const p = String(entered).trim();
+  if (!p) return null;
+  window._managerPinCache_.pin = p;
+  window._managerPinCache_.lastUsedAt = now;
+  return p;
+};
+
 // v10.888 — BOM Tools modal: Postgres-canonical edits for variant_map +
 // bundle_bom. The Sheet→Postgres sync (`pickListSyncStoresToPostgres`) is
 // now disabled by default; this UI replaces the Sheet authoring workflow.
 async function openBomToolsModal() {
-  let pin = '';
-  function ensurePin() {
-    if (pin) return pin;
-    const entered = window.prompt('Manager PIN required for BOM edits:');
-    if (!entered) return null;
-    pin = String(entered).trim();
-    return pin;
-  }
+  // v10.946 — local ensurePin removed; uses the global one now. Local
+  // 'pin' var kept as a no-op holder so any legacy inner code that
+  // referenced it doesn't NPE. Cache is in window._managerPinCache_.
+  let pin = window._managerPinCache_ && window._managerPinCache_.pin || '';
   let backdrop = document.getElementById('bomToolsBackdrop');
   if (backdrop) backdrop.remove();
   backdrop = document.createElement('div');
@@ -29233,7 +29253,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.946<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.947<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
