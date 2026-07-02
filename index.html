@@ -10892,6 +10892,146 @@ async function _binMoveOpen_(sku) {
 
 // v10.824 — PO edit modal + mark-received. Fields editable: po_name,
 // status (ordered/paid/shipped/partially_received/received/cancelled),
+// v10.928 — PO 3-way match: Record Vendor Bill modal. Uses new
+// recordPoBill endpoint. Fetches ordered lines to prefill qty + price,
+// operator adjusts to what the vendor actually billed. Landed cost
+// buckets (freight/duty/broker/other) at the bottom.
+async function openPoBillModal(poId) {
+  const SUPABASE_URL = 'https://inspzlvyjuatgelotguo.supabase.co';
+  const SUPABASE_PUB_KEY = 'sb_publishable_b_jyEi3QPGsEVkZJPeTm3Q_df8EQYnN';
+  const prior = document.getElementById('poBillOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'poBillOverlay';
+  ov.className = 'bd-modal-backdrop';
+  ov.style.zIndex = 10025;   // above PO history modal
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:640px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">💰</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Record Vendor Bill</div><div style="font-size:11px;color:rgba(255,255,255,.7);font-weight:500" id="poBillPoTitle">Loading PO…</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('poBillOverlay').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" id="poBillBody">
+        <div style="padding:30px;text-align:center;color:#666">Loading…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  let po;
+  try {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/po_history?po_id=eq.' + encodeURIComponent(poId) + '&select=*&limit=1', {
+      headers: { 'apikey': SUPABASE_PUB_KEY, 'Authorization': 'Bearer ' + SUPABASE_PUB_KEY },
+    });
+    const arr = await r.json();
+    po = Array.isArray(arr) ? arr[0] : null;
+  } catch (e) {
+    document.getElementById('poBillBody').innerHTML = '<div class="bd-callout-bad">Failed to load PO: ' + e.message + '</div>';
+    return;
+  }
+  if (!po) {
+    document.getElementById('poBillBody').innerHTML = '<div class="bd-callout-bad">PO not found</div>';
+    return;
+  }
+  document.getElementById('poBillPoTitle').textContent = po.po_name + ' · ' + (po.vendor || '(no vendor)');
+
+  const lines = Array.isArray(po.lines_json) ? po.lines_json : (typeof po.lines_json === 'string' ? JSON.parse(po.lines_json||'[]') : []);
+  const bills = Array.isArray(po.bills_json) ? po.bills_json : (typeof po.bills_json === 'string' ? JSON.parse(po.bills_json||'[]') : []);
+
+  const body = document.getElementById('poBillBody');
+  let html = '';
+  html += '<div class="bd-callout-info" style="margin-bottom:12px;font-size:12px;line-height:1.5"><b>3-way match:</b> what the vendor billed you should equal what they shipped + the PO. Discrepancies get flagged as variances.</div>';
+
+  html += '<div class="bd-section-title">This bill</div>';
+  html += '<div class="mg-ship-grid" style="margin-bottom:10px">';
+  html += '<input id="poBillInvRef" placeholder="Invoice # *" style="padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:\'JetBrains Mono\',monospace;min-height:44px">';
+  html += '<input id="poBillDate" type="date" value="' + new Date().toISOString().slice(0,10) + '" style="padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;min-height:44px">';
+  html += '</div>';
+
+  html += '<div class="bd-section-title" style="margin-top:14px">Line items (prefilled from PO — adjust to match vendor bill)</div>';
+  html += '<div style="max-height:260px;overflow-y:auto;background:#f5f5f7;border-radius:8px;padding:10px">';
+  html += '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr>';
+  html += '<th style="text-align:left;padding:4px;color:#666">SKU</th>';
+  html += '<th style="text-align:right;padding:4px;color:#666">Ordered</th>';
+  html += '<th style="text-align:right;padding:4px;color:#666">Billed qty</th>';
+  html += '<th style="text-align:right;padding:4px;color:#666">Unit $</th>';
+  html += '</tr></thead><tbody id="poBillLinesBody">';
+  lines.forEach((l, i) => {
+    const sku = String(l.sku || '').trim();
+    const orderedQty = Number(l.qty || l.quantity || 0);
+    const orderedPrice = Number(l.unit_price || 0);
+    html += '<tr>';
+    html += '<td style="padding:4px;font-family:JetBrains Mono,monospace">' + sku + '<input type="hidden" class="pb-sku" value="' + sku + '"></td>';
+    html += '<td style="padding:4px;text-align:right;color:#999">' + orderedQty + '</td>';
+    html += '<td style="padding:4px;text-align:right"><input type="number" step="0.01" value="' + orderedQty + '" class="pb-qty" style="width:70px;padding:4px 6px;text-align:right;font-size:12px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#1a1a1a;font-family:JetBrains Mono,monospace"></td>';
+    html += '<td style="padding:4px;text-align:right"><input type="number" step="0.01" value="' + orderedPrice.toFixed(2) + '" class="pb-price" style="width:80px;padding:4px 6px;text-align:right;font-size:12px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#1a1a1a;font-family:JetBrains Mono,monospace"></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+
+  html += '<div class="bd-section-title" style="margin-top:14px">Landed cost buckets (optional)</div>';
+  html += '<div class="mg-ship-grid" style="margin-bottom:8px">';
+  html += '<div><label class="bd-field-label">Freight ($)</label><input id="poBillFreight" type="number" step="0.01" value="0" style="width:100%;padding:8px 10px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:JetBrains Mono,monospace;min-height:40px"></div>';
+  html += '<div><label class="bd-field-label">Duty ($)</label><input id="poBillDuty" type="number" step="0.01" value="0" style="width:100%;padding:8px 10px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:JetBrains Mono,monospace;min-height:40px"></div>';
+  html += '<div><label class="bd-field-label">Broker ($)</label><input id="poBillBroker" type="number" step="0.01" value="0" style="width:100%;padding:8px 10px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:JetBrains Mono,monospace;min-height:40px"></div>';
+  html += '<div><label class="bd-field-label">Other ($)</label><input id="poBillOther" type="number" step="0.01" value="0" style="width:100%;padding:8px 10px;font-size:13px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:JetBrains Mono,monospace;min-height:40px"></div>';
+  html += '</div>';
+
+  if (bills.length) {
+    html += '<div class="bd-section-title" style="margin-top:14px">Prior bills on this PO</div>';
+    html += '<div style="font-size:12px;color:#666">' + bills.map(b => b.invoice_ref + ' · ' + b.billed_at).join(' · ') + '</div>';
+  }
+
+  html += '<div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px">';
+  html += '<button class="bd-btn-secondary" onclick="document.getElementById(\'poBillOverlay\').remove()">Cancel</button>';
+  html += '<button class="bd-btn-primary bd-tone-ok" onclick="_poBillSubmit_(\'' + poId + '\')">Save bill</button>';
+  html += '</div>';
+  html += '<div id="poBillResult" style="margin-top:10px"></div>';
+  body.innerHTML = html;
+}
+
+async function _poBillSubmit_(poId) {
+  const invRef = document.getElementById('poBillInvRef').value.trim();
+  const billedAt = document.getElementById('poBillDate').value;
+  if (!invRef) {
+    document.getElementById('poBillResult').innerHTML = '<div class="bd-callout-bad">Invoice # required</div>';
+    return;
+  }
+  const rows = document.querySelectorAll('#poBillLinesBody tr');
+  const billLines = [];
+  rows.forEach(row => {
+    const sku = row.querySelector('.pb-sku').value.trim();
+    const qty = Number(row.querySelector('.pb-qty').value) || 0;
+    const price = Number(row.querySelector('.pb-price').value) || 0;
+    if (sku && qty > 0) {
+      billLines.push({ sku, qty_billed: qty, unit_price: price, extended: qty * price });
+    }
+  });
+  if (!billLines.length) {
+    document.getElementById('poBillResult').innerHTML = '<div class="bd-callout-bad">At least one line required</div>';
+    return;
+  }
+  const p = ensurePin(); if (!p) return;
+  document.getElementById('poBillResult').innerHTML = '<div class="bd-callout-info">Saving…</div>';
+  const bill = {
+    invoice_ref: invRef,
+    billed_at: billedAt,
+    lines: billLines,
+    freight_amount: Number(document.getElementById('poBillFreight').value) || 0,
+    duty_amount: Number(document.getElementById('poBillDuty').value) || 0,
+    broker_amount: Number(document.getElementById('poBillBroker').value) || 0,
+    other_amount: Number(document.getElementById('poBillOther').value) || 0,
+  };
+  const r = await groundApi('recordPoBill', { manager_pin: p, po_id: poId, bill });
+  if (r && r.ok) {
+    document.getElementById('poBillResult').innerHTML = '<div class="bd-callout-ok">✅ Bill recorded (' + r.bills_count + ' total on this PO). Close + refresh PO History to see variance update.</div>';
+  } else {
+    document.getElementById('poBillResult').innerHTML = '<div class="bd-callout-bad">❌ ' + ((r && r.error) || 'Unknown error') + '</div>';
+    if (r && r.error && /pin/i.test(r.error) && typeof pin !== 'undefined') pin = '';
+  }
+}
+
 // order_date, paid_date, ship_eta, arrival_eta. Saves via updatePO
 // orchestrator action; re-projects inventory_on_order when arrival_eta
 // or status changes. Mark Received calls markPOReceived which increments
@@ -11146,14 +11286,70 @@ async function _frameRunwayOpenPoHistory_() {
     if (!d) return '';
     try { return new Date(d).toISOString().slice(0, 10); } catch (e) { return String(d); }
   }
+  // v10.928 — PO 3-way match: compute variance flags from lines_json
+  // (ORDERED), received_lines (RECEIVED), bills_json (BILLED). Chip
+  // appears on the card header when any two of the three diverge.
+  function _poComputeVariance_(r) {
+    const parseArr = (x) => {
+      if (Array.isArray(x)) return x;
+      if (typeof x === 'string' && x.trim()) { try { const p = JSON.parse(x); return Array.isArray(p)?p:[]; } catch(e) { return []; } }
+      return [];
+    };
+    const linesToMap = (arr, qtyKey) => {
+      const m = {};
+      arr.forEach(l => {
+        const sku = String((l && l.sku) || '').trim().toUpperCase();
+        if (!sku) return;
+        m[sku] = m[sku] || { qty: 0, unit_price: Number(l.unit_price || 0) };
+        m[sku].qty += Number(l[qtyKey] || l.qty || l.quantity || 0);
+      });
+      return m;
+    };
+    const ordered = linesToMap(parseArr(r.lines_json), 'qty');
+    const received = linesToMap(parseArr(r.received_lines), 'qty_received');
+    const bills = parseArr(r.bills_json);
+    const billed = {};
+    bills.forEach(b => {
+      (Array.isArray(b.lines) ? b.lines : []).forEach(l => {
+        const sku = String((l && l.sku) || '').trim().toUpperCase();
+        if (!sku) return;
+        billed[sku] = billed[sku] || { qty: 0, unit_price: Number(l.unit_price || 0) };
+        billed[sku].qty += Number(l.qty_billed || l.qty || 0);
+      });
+    });
+    const skus = new Set([...Object.keys(ordered), ...Object.keys(received), ...Object.keys(billed)]);
+    const status = String(r.status || '').toLowerCase();
+    const receiptExpected = status === 'received' || status === 'partially_received';
+    let flagCount = 0, moneyAtRisk = 0;
+    skus.forEach(sku => {
+      const o = ordered[sku] || { qty: 0, unit_price: 0 };
+      const rec = received[sku] || { qty: 0 };
+      const b = billed[sku] || { qty: 0, unit_price: 0 };
+      if (receiptExpected && Math.abs(o.qty - rec.qty) > 0) { flagCount++; moneyAtRisk += Math.abs(rec.qty - o.qty) * (b.unit_price || o.unit_price); }
+      if (b.qty > 0 && Math.abs(o.qty - b.qty) > 0) { flagCount++; moneyAtRisk += Math.abs(b.qty - o.qty) * (o.unit_price || b.unit_price); }
+      if (b.qty > 0 && b.unit_price > 0 && o.unit_price > 0 && Math.abs(o.unit_price - b.unit_price) > 0.01) { flagCount++; moneyAtRisk += Math.abs(b.unit_price - o.unit_price) * (b.qty || o.qty); }
+    });
+    const noBillYet = bills.length === 0 && receiptExpected && Object.keys(ordered).length > 0;
+    return { flagCount, moneyAtRisk, noBillYet, billCount: bills.length };
+  }
+  function _poVarianceChip_(v) {
+    if (!v.flagCount && !v.noBillYet) return '';
+    if (v.noBillYet && !v.flagCount) {
+      return '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;background:rgba(255,179,0,.18);color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1px solid #FFB300;letter-spacing:.4px" title="Received but no vendor bill on file">NO BILL</span>';
+    }
+    const moneyLbl = v.moneyAtRisk > 0 ? ' · $' + Math.round(v.moneyAtRisk).toLocaleString() : '';
+    return '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:3px;background:rgba(255,82,82,.18);color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1px solid #FF5252;letter-spacing:.4px" title="' + v.flagCount + ' variance flag(s), $' + Math.round(v.moneyAtRisk) + ' at risk">⚠ VAR ×' + v.flagCount + moneyLbl + '</span>';
+  }
+
   function renderCard(r) {
     const card = document.createElement('div');
     card.style.cssText = 'background:#1a1a1a !important;border:1px solid #333;border-radius:8px;padding:12px;cursor:pointer';
     const status = r.arrived_at ? '✅ Arrived' : r.balance_paid_at ? '🚢 In transit' : r.deposit_paid_at ? '💰 Deposit paid' : '📝 Sent';
     const lines = Array.isArray(r.lines_json) ? r.lines_json : (typeof r.lines_json === 'string' ? JSON.parse(r.lines_json || '[]') : []);
+    const variance = _poComputeVariance_(r);
     card.innerHTML = ''
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">'
-      +   '<div style="font-size:16px;font-weight:900;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important">' + esc(r.po_name || '(unnamed)') + '</div>'
+      +   '<div style="font-size:16px;font-weight:900;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important">' + esc(r.po_name || '(unnamed)') + ' ' + _poVarianceChip_(variance) + '</div>'
       +   '<div style="font-size:11px;color:#aaa !important;-webkit-text-fill-color:#aaa !important">' + status + '</div>'
       + '</div>'
       + '<div style="display:flex;gap:14px;font-size:12px;color:#ccc !important;-webkit-text-fill-color:#ccc !important;margin-top:4px;flex-wrap:wrap">'
@@ -11180,7 +11376,19 @@ async function _frameRunwayOpenPoHistory_() {
           + '<span style="font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:3px 8px;background:' + statusColor + '22;color:' + statusColor + ' !important;-webkit-text-fill-color:' + statusColor + ' !important;border:1px solid ' + statusColor + ';border-radius:4px;font-weight:900">' + esc(lifeStatus) + '</span>'
           + '<button onclick="event.stopPropagation();_poEdit_(\'' + esc(r.po_id) + '\')" style="background:rgba(66,165,245,.15);color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border:1px solid #42a5f5;border-radius:5px;padding:5px 10px;font-size:11px;font-weight:900;cursor:pointer;font-family:inherit">✏ Edit</button>'
           + (lifeStatus !== 'received' ? '<button onclick="event.stopPropagation();_poMarkReceived_(\'' + esc(r.po_id) + '\',\'' + esc(r.po_name) + '\')" style="background:rgba(0,200,83,.15);color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:1px solid #00C853;border-radius:5px;padding:5px 10px;font-size:11px;font-weight:900;cursor:pointer;font-family:inherit">✓ Mark Received</button>' : '')
+          + '<button onclick="event.stopPropagation();openPoBillModal(\'' + esc(r.po_id) + '\')" style="background:rgba(199,125,255,.15);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border:1px solid #C77DFF;border-radius:5px;padding:5px 10px;font-size:11px;font-weight:900;cursor:pointer;font-family:inherit" title="v10.928: PO 3-way match — record vendor bill for this PO">💰 Record Bill</button>'
           + '</div>';
+        // v10.928 — variance detail block if flagged
+        if (variance.flagCount || variance.noBillYet) {
+          html += '<div style="margin-bottom:10px;padding:8px 10px;background:rgba(255,82,82,.06);border:1px solid rgba(255,82,82,.35);border-radius:6px;font-size:11px">'
+            + '<div style="font-weight:900;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;letter-spacing:.3px;margin-bottom:4px">⚠ 3-WAY MATCH VARIANCE</div>'
+            + '<div style="color:#ccc !important;-webkit-text-fill-color:#ccc !important">'
+            + (variance.noBillYet ? '<div>No vendor bill on file yet. Received without a bill = A/P gap.</div>' : '')
+            + (variance.flagCount ? '<div>' + variance.flagCount + ' variance flag(s) · money at risk ≈ <b>$' + Math.round(variance.moneyAtRisk).toLocaleString() + '</b></div>' : '')
+            + '<div style="margin-top:4px;color:#aaa">Tap 💰 Record Bill above to log vendor invoice + landed cost, then variance detail auto-updates.</div>'
+            + '</div>'
+            + '</div>';
+        }
         html += '<div style="font-size:12px;color:#ccc !important;-webkit-text-fill-color:#ccc !important;margin-bottom:8px">';
         if (r.vendor_email) html += '<div>To: ' + esc(r.vendor_email) + '</div>';
         if (r.subject) html += '<div>Subject: ' + esc(r.subject) + '</div>';
@@ -28691,7 +28899,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.925<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.928<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
