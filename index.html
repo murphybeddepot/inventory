@@ -941,6 +941,7 @@ input::placeholder, textarea::placeholder {
 .bd-modal-shell input[type="number"],
 .bd-modal-shell input[type="email"],
 .bd-modal-shell input[type="tel"],
+.bd-modal-shell input[type="date"],
 .bd-modal-shell input:not([type]),
 .bd-modal-shell textarea,
 .bd-modal-shell select {
@@ -948,6 +949,11 @@ input::placeholder, textarea::placeholder {
   color: #1a1a1a !important;
   -webkit-text-fill-color: #1a1a1a !important;
   border: 1.5px solid #cccccc !important;
+  /* v10.940 — Zac 2026-07-02: 'cursor is invisible at least in the add
+     installer popup fields.' -webkit-text-fill-color also paints the
+     caret transparent unless caret-color is set explicitly. Blue
+     accent so it's obvious where you are. */
+  caret-color: #1565c0 !important;
 }
 .bd-modal-shell input::placeholder,
 .bd-modal-shell textarea::placeholder {
@@ -16269,7 +16275,15 @@ function _mgRenderAddrBook_() {
   const row = document.getElementById('mgAddrBookRow');
   if (!row) return;
   const addrs = _mgRecentGet_(_MG_RECENT_ADDR_KEY_).slice(0, 6);
-  if (!addrs.length) { row.style.display = 'none'; return; }
+  if (!addrs.length) {
+    // v10.940 — Zac 2026-07-02: 'address doesn't auto-complete'. When
+    // no saved addresses exist yet, don't hide silently — hint at how
+    // addresses get populated so the empty state is legible.
+    row.style.display = 'block';
+    row.innerHTML = '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;margin-bottom:4px">Recent addresses</div>' +
+      '<div style="font-size:11px;color:#999;line-height:1.4;padding:4px 8px;background:#f5f5f7;border-radius:6px">No saved addresses yet. Type a real Shopify order # above to auto-fill from that order, tap an installer chip below, or type manually — every successful order saves its ship-to for next time.</div>';
+    return;
+  }
   row.style.display = 'block';
   row.innerHTML = `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;margin-bottom:4px">Recent addresses (tap to fill)</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">${
@@ -16407,8 +16421,12 @@ async function _mgEnsureSkuMaster_() {
   try {
     const r = await groundApi('listInventoryItems', { limit: 5000 });
     if (r && r.ok && Array.isArray(r.items)) {
+      // v10.940 — Zac 2026-07-02: 'sku search doesn't work either on
+      // ground create order'. The items table column is 'item_sku'
+      // not 'sku' — v10.923 code read the wrong key so every item
+      // filtered out with empty sku. Accept both to be safe.
       _mgSkuMaster_ = r.items.map(it => ({
-        sku: String(it.sku || '').trim(),
+        sku: String(it.item_sku || it.sku || '').trim(),
         name: String(it.name || it.description || '').trim(),
       })).filter(x => x.sku);
     } else {
@@ -29134,7 +29152,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.939<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.940<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
