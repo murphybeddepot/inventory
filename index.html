@@ -26500,12 +26500,31 @@ function renderGroundHoldsBanner_(holds) {
     const unknownSkuMatch = String(h.hold_reason || '').match(/No packaging rule for SKU "([^"]+)"|Unknown SKU "([^"]+)"/i);
     const unknownSku = unknownSkuMatch ? (unknownSkuMatch[1] || unknownSkuMatch[2] || '') : '';
     const canConfigure = !!unknownSku && h.kind === 'orderpack_hold' && h.order_id;
+    const canDelete = h.kind === 'orderpack_hold';   // v10.952 — beacon holds aren't deletable
     const actionPill = canConfigure
       ? '<span style="flex:0 0 auto;font-size:11px;font-weight:900;color:#fff !important;-webkit-text-fill-color:#fff !important;background:#7C3AED !important;padding:5px 10px;border-radius:999px;letter-spacing:.4px">⚙ Configure</span>'
       : '<span style="flex:0 0 auto;font-size:11px;font-weight:800;color:#9C27B0 !important;-webkit-text-fill-color:#9C27B0 !important;background:#fff !important;padding:3px 8px;border-radius:999px">Tap</span>';
     const onclick = canConfigure
       ? 'openPackerOverrideModal(\'' + esc(unknownSku).replace(/'/g, '\\\'') + '\',\'' + esc(String(h.order_id)) + '\',\'' + esc(on) + '\')'
       : 'openHoldsPanel({kind:\'' + (h.kind || 'orderpack_hold') + '\'})';
+    // v10.952 — Zac 2026-07-02: 'on ground under on hold there should be
+    // a manager-pin-gated option to delete right from there instead of
+    // having to click view all then delete. and a way to just view all
+    // history/details on those orders'. Inline Details (opens Inspect
+    // Order) + Delete (PIN-gated) buttons right on the row.
+    const inlineActions = ''
+      + '<span onclick="event.stopPropagation();openInspectOrderModal(\'' + esc(on) + '\')" '
+      +   'style="flex:0 0 auto;background:rgba(66,165,245,.20) !important;color:#42a5f5 !important;'
+      +   '-webkit-text-fill-color:#42a5f5 !important;border:1px solid rgba(66,165,245,.55);'
+      +   'border-radius:6px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px" '
+      +   'title="View order details">📋 Details</span>'
+      + (canDelete
+        ? '<span onclick="event.stopPropagation();_inlineDeleteHold_(\'' + esc(on) + '\',\'' + (h.kind || 'orderpack_hold') + '\')" '
+          + 'style="flex:0 0 auto;background:rgba(244,67,54,.18) !important;color:#ef5350 !important;'
+          + '-webkit-text-fill-color:#ef5350 !important;border:1px solid rgba(244,67,54,.55);'
+          + 'border-radius:6px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px" '
+          + 'title="Clear this hold (manager PIN required)">🗑 Delete</span>'
+        : '');
     return ''
       + '<button onclick="' + onclick + '" '
       +    'style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;text-align:left;'
@@ -26532,6 +26551,7 @@ function renderGroundHoldsBanner_(holds) {
         ? '<span style="flex:0 1 auto;min-width:0;font-size:11px;color:#E1BEE7 !important;-webkit-text-fill-color:#E1BEE7 !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%">' + esc(reason) + '</span>'
         : '')
       +   actionPill
+      +   inlineActions
       + '</button>';
   }).join('');
   el.innerHTML = ''
@@ -26543,6 +26563,38 @@ function renderGroundHoldsBanner_(holds) {
     +   '<div style="display:flex;flex-direction:column;gap:6px">' + rows + '</div>'
     + '</div>';
   el.style.display = 'block';
+}
+
+// v10.952 — Inline delete for the hold banner. PIN-gated, no
+// intermediate Holds panel. Refreshes the queue on success.
+async function _inlineDeleteHold_(orderNumber, holdKind) {
+  if (!orderNumber) return;
+  const kind = holdKind || 'orderpack_hold';
+  if (!window.confirm('Clear hold on order #' + orderNumber + '?\n\nThis lets it back into the pack queue.')) return;
+  const pin = window.ensurePin('Manager PIN to clear hold on #' + orderNumber + ':');
+  if (!pin) return;
+  const btnAll = document.querySelectorAll('[onclick*="_inlineDeleteHold_(\'' + orderNumber + '\''+ '"]');
+  btnAll.forEach(b => { b.textContent = '⏳ Clearing…'; b.style.pointerEvents = 'none'; b.style.opacity = '0.6'; });
+  try {
+    const r = await groundApi('deleteHold', {
+      orderNumber: orderNumber,
+      holdKind: kind,
+      managerPin: pin,
+    });
+    if (r && r.ok) {
+      if (typeof showToast === 'function') showToast('✓ Hold cleared on #' + orderNumber);
+      if (typeof refreshGroundQueue === 'function') setTimeout(refreshGroundQueue, 400);
+    } else {
+      const err = (r && r.error) || 'unknown error';
+      if (typeof showToast === 'function') showToast('❌ ' + err);
+      alert('Delete hold failed for #' + orderNumber + ':\n\n' + err);
+      btnAll.forEach(b => { b.textContent = '🗑 Delete'; b.style.pointerEvents = ''; b.style.opacity = ''; });
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('❌ ' + (e.message || e));
+    alert('Delete hold error for #' + orderNumber + ':\n\n' + (e.message || e));
+    btnAll.forEach(b => { b.textContent = '🗑 Delete'; b.style.pointerEvents = ''; b.style.opacity = ''; });
+  }
 }
 
 async function refreshGroundQueue() {
