@@ -1705,6 +1705,14 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <button onclick="closeMoreMenu();openLotSearchModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🔬</span>
+      <div style="flex:1">
+        <div>Lot / Serial Search</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Trace warranty + recall — walk lot → orders, or order # → contributing lots (v10.929+)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -16488,6 +16496,164 @@ async function _mgSubmit_() {
   }
 }
 
+// v10.930 — Lot/Serial Search modal. Warranty + recall triage surface.
+// 3 tabs: Search by lot_id (forward walk), Search by order # (backward
+// walk), Browse by SKU. Uses walkLotForward / walkLotBackward /
+// listLots endpoints (v10.929).
+async function openLotSearchModal() {
+  let backdrop = document.getElementById('lotSearchBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'lotSearchBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape' && document.getElementById('lotSearchBackdrop')) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:840px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🔬</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Lot / Serial Search</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('lotSearchBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body">
+        <div class="bd-callout-info" style="margin-bottom:12px;font-size:12px;line-height:1.5">
+          <b>Trace warranty / recall</b>. Post-ARCH, every cabinet is a lot. Every PO receive creates a lot. Query below to walk forward ("which orders got this lot?") or backward ("which lots contributed to this customer's order?").
+        </div>
+
+        <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+          <button onclick="_lotTab_('forward')" id="lotTabForward" class="bd-btn-secondary" style="padding:8px 14px;font-size:12px;min-height:36px">Forward (lot → orders)</button>
+          <button onclick="_lotTab_('backward')" id="lotTabBackward" class="bd-btn-secondary" style="padding:8px 14px;font-size:12px;min-height:36px">Backward (order → lots)</button>
+          <button onclick="_lotTab_('browse')" id="lotTabBrowse" class="bd-btn-secondary" style="padding:8px 14px;font-size:12px;min-height:36px">Browse by SKU</button>
+        </div>
+
+        <div id="lotSearchPane"></div>
+        <div id="lotSearchResult" style="margin-top:14px"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  _lotTab_('forward');
+}
+
+function _lotTab_(name) {
+  const pane = document.getElementById('lotSearchPane');
+  const resultBox = document.getElementById('lotSearchResult');
+  if (resultBox) resultBox.innerHTML = '';
+  ['Forward','Backward','Browse'].forEach(t => {
+    const b = document.getElementById('lotTab' + t);
+    if (b) b.style.background = (t.toLowerCase() === name) ? '#1a1a1a' : '';
+    if (b) b.style.color = (t.toLowerCase() === name) ? '#fff' : '';
+  });
+  if (name === 'forward') {
+    pane.innerHTML = `
+      <label class="bd-field-label">Lot / Cabinet #</label>
+      <div style="display:flex;gap:8px">
+        <input id="lotFwdInput" placeholder="e.g. L-20260701-1234 or 31441" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px" onkeydown="if(event.key==='Enter')_lotWalkForward_()">
+        <button class="bd-btn-primary" onclick="_lotWalkForward_()">Walk forward →</button>
+      </div>
+      <div style="font-size:11px;color:#666;margin-top:6px">Shows every order that consumed from this lot. Post-July, this is the answer to "who has this ply?"</div>`;
+  } else if (name === 'backward') {
+    pane.innerHTML = `
+      <label class="bd-field-label">Customer order #</label>
+      <div style="display:flex;gap:8px">
+        <input id="lotBwdInput" placeholder="e.g. 31812" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px" onkeydown="if(event.key==='Enter')_lotWalkBackward_()">
+        <input id="lotBwdSku" placeholder="SKU (optional)" style="width:180px;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px" onkeydown="if(event.key==='Enter')_lotWalkBackward_()">
+        <button class="bd-btn-primary" onclick="_lotWalkBackward_()">Walk backward ←</button>
+      </div>
+      <div style="font-size:11px;color:#666;margin-top:6px">Shows every lot that contributed to this customer's shipment. Warranty triage answer.</div>`;
+  } else if (name === 'browse') {
+    pane.innerHTML = `
+      <label class="bd-field-label">SKU</label>
+      <div style="display:flex;gap:8px">
+        <input id="lotBrowseSku" placeholder="e.g. HLR-82" style="flex:1;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;font-family:'JetBrains Mono',monospace;min-height:44px" onkeydown="if(event.key==='Enter')_lotBrowseBySku_()">
+        <label style="display:flex;align-items:center;gap:6px;padding:10px 12px;background:#fff;border:1.5px solid #ddd;border-radius:6px;cursor:pointer;font-size:13px;color:#1a1a1a;min-height:44px">
+          <input type="checkbox" id="lotBrowseRemainingOnly" checked> Only w/ qty remaining
+        </label>
+        <button class="bd-btn-primary" onclick="_lotBrowseBySku_()">Browse</button>
+      </div>
+      <div style="font-size:11px;color:#666;margin-top:6px">Every active lot of the given SKU. FIFO the top one for the next ship.</div>`;
+  }
+}
+
+async function _lotWalkForward_() {
+  const id = document.getElementById('lotFwdInput').value.trim();
+  if (!id) return;
+  const box = document.getElementById('lotSearchResult');
+  box.innerHTML = '<div class="bd-callout-info">Walking forward from ' + id + '…</div>';
+  const r = await groundApi('walkLotForward', { lot_id: id });
+  if (!r || !r.ok) { box.innerHTML = '<div class="bd-callout-bad">' + ((r && r.error) || 'unknown error') + '</div>'; return; }
+  let html = '<div class="bd-section-title">Forward walk · ' + id + '</div>';
+  html += '<div style="font-size:12px;color:#666;margin-bottom:8px">' + r.consumer_count + ' consumption event(s) · ' + r.orders.length + ' distinct order(s)</div>';
+  if (!r.orders.length) {
+    html += '<div class="bd-callout-warn" style="font-size:12px">No consumption yet on this lot — still 100% in stock, or the lot has never been referenced in inventory_transactions.</div>';
+  } else {
+    html += '<div style="max-height:320px;overflow-y:auto;background:#f5f5f7;border-radius:8px;padding:10px">';
+    r.orders.forEach(o => {
+      html += '<div style="padding:6px 0;font-size:13px;border-bottom:1px solid #e0e0e0">';
+      html += '<b style="font-family:JetBrains Mono,monospace">' + o.order_number + '</b>';
+      html += ' <span style="color:#666">· qty consumed: ' + o.qty + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  box.innerHTML = html;
+}
+
+async function _lotWalkBackward_() {
+  const ord = document.getElementById('lotBwdInput').value.trim();
+  if (!ord) return;
+  const sku = document.getElementById('lotBwdSku').value.trim();
+  const box = document.getElementById('lotSearchResult');
+  box.innerHTML = '<div class="bd-callout-info">Walking backward from order ' + ord + '…</div>';
+  const r = await groundApi('walkLotBackward', { order_number: ord, sku: sku || undefined });
+  if (!r || !r.ok) { box.innerHTML = '<div class="bd-callout-bad">' + ((r && r.error) || 'unknown error') + '</div>'; return; }
+  let html = '<div class="bd-section-title">Backward walk · order ' + ord + '</div>';
+  html += '<div style="font-size:12px;color:#666;margin-bottom:8px">' + r.lot_count + ' lot(s) contributed</div>';
+  if (!r.lots.length) {
+    html += '<div class="bd-callout-warn" style="font-size:12px">No lot-attributed consumption for this order. Either the order shipped pre-v10.929 or lot_id was never set on the ship transactions.</div>';
+  } else {
+    html += '<div style="max-height:360px;overflow-y:auto;background:#f5f5f7;border-radius:8px;padding:10px">';
+    r.lots.forEach(l => {
+      const dt = l.received_at ? l.received_at.slice(0,10) : '?';
+      html += '<div style="padding:8px 0;font-size:13px;border-bottom:1px solid #e0e0e0">';
+      html += '<b style="font-family:JetBrains Mono,monospace">' + l.lot_id + '</b>';
+      html += ' <span style="color:#666">· ' + l.sku + ' · consumed: ' + l.qty_consumed + '</span>';
+      html += '<div style="font-size:11px;color:#666;margin-top:2px">' + (l.source_type||'?') + ' · ref: ' + (l.source_ref||'?') + ' · received: ' + dt + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  box.innerHTML = html;
+}
+
+async function _lotBrowseBySku_() {
+  const sku = document.getElementById('lotBrowseSku').value.trim();
+  if (!sku) return;
+  const remainingOnly = document.getElementById('lotBrowseRemainingOnly').checked;
+  const box = document.getElementById('lotSearchResult');
+  box.innerHTML = '<div class="bd-callout-info">Loading lots for ' + sku + '…</div>';
+  const r = await groundApi('listLots', { sku, has_qty_remaining: remainingOnly });
+  if (!r || !r.ok) { box.innerHTML = '<div class="bd-callout-bad">' + ((r && r.error) || 'unknown error') + '</div>'; return; }
+  let html = '<div class="bd-section-title">' + r.lots.length + ' lot(s) of ' + sku + (remainingOnly ? ' (remaining > 0)' : '') + '</div>';
+  if (!r.lots.length) {
+    html += '<div class="bd-callout-warn" style="font-size:12px">No lots found. Either no receives yet for this SKU, or the lots table has no matching rows.</div>';
+  } else {
+    html += '<div style="max-height:360px;overflow-y:auto;background:#f5f5f7;border-radius:8px;padding:10px">';
+    r.lots.forEach(l => {
+      const dt = l.received_at ? l.received_at.slice(0,10) : '?';
+      const pct = l.qty_original > 0 ? Math.round(100 * (l.qty_remaining || 0) / l.qty_original) : 0;
+      html += '<div style="padding:8px 0;font-size:13px;border-bottom:1px solid #e0e0e0">';
+      html += '<b style="font-family:JetBrains Mono,monospace">' + l.lot_id + '</b>';
+      html += ' <span style="color:#666">· ' + (l.qty_remaining || 0) + ' / ' + (l.qty_original || 0) + ' (' + pct + '%)</span>';
+      html += '<div style="font-size:11px;color:#666;margin-top:2px">' + (l.source_type||'?') + ' · ref: ' + (l.source_ref||'?') + ' · received: ' + dt + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  box.innerHTML = html;
+}
+
 // v10.888 — BOM Tools modal: Postgres-canonical edits for variant_map +
 // bundle_bom. The Sheet→Postgres sync (`pickListSyncStoresToPostgres`) is
 // now disabled by default; this UI replaces the Sheet authoring workflow.
@@ -28899,7 +29065,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.928<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.930<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
