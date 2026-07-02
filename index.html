@@ -1719,6 +1719,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.955 — one-touch V1 label dry-run: preview the payload without money at risk -->
+    <button onclick="closeMoreMenu();openV1LabelDryRunModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🧪</span>
+      <div style="flex:1">
+        <div>V1 Label Dry Run</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Preview the exact V1 payload for an order — no money at risk, no shipment created (v10.955)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -16695,6 +16704,80 @@ async function _mgSubmit_() {
   } catch (err) {
     _showFatal((err && (err.message || err.toString())) || 'unknown error');
   }
+}
+
+// v10.955 — V1 Label Dry Run modal. One-touch access to the same
+// runDiagV1LabelDryRun editor helper. Zac enters an order # + sees
+// the exact V1 payload (carrier, service, package, dims, weight) that
+// WOULD be POSTed to /orders/createlabelfororder. No money at risk.
+async function openV1LabelDryRunModal(preFillOrder) {
+  let backdrop = document.getElementById('v1DryRunBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'v1DryRunBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:900px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🧪</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">V1 Label Dry Run</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('v1DryRunBackdrop').remove()">Close</button>
+      </div>
+      <div style="padding:14px 18px;display:flex;gap:8px;align-items:center;background:#f5f5f7;border-bottom:1px solid #e0e0e0">
+        <input id="v1DryRunOrder" placeholder="Order # (e.g. 32600)" value="${(preFillOrder||'').replace(/"/g,'&quot;')}" style="flex:1;padding:12px 14px;font-size:16px;border:1.5px solid #ddd !important;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;font-family:'JetBrains Mono',monospace;min-height:44px" onkeydown="if(event.key==='Enter')_v1DryRunGo_()">
+        <button class="bd-btn-primary" onclick="_v1DryRunGo_()">Preview</button>
+      </div>
+      <div class="bd-modal-body" id="v1DryRunBody" style="background:#fff !important">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:14px">
+          Enter an order # above. Shows the exact JSON payload Bedrock would POST to ShipStation V1 /orders/createlabelfororder for each package on the order. Read-only — no money at risk.
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  window._v1DryRunGo_ = async function () {
+    const on = (document.getElementById('v1DryRunOrder').value || '').trim();
+    const body = document.getElementById('v1DryRunBody');
+    if (!/^\d+$/.test(on)) { body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Enter a numeric order number.</div>'; return; }
+    body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:14px">🔍 Fetching V1 order + running breakdown…</div>';
+    try {
+      const r = await groundApi('runDiagV1LabelDryRun', { orderNumber: on });
+      if (!r || !r.ok) {
+        const errDetail = r ? JSON.stringify(r, null, 2) : '(no response)';
+        body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-weight:800;font-size:14px;margin-bottom:8px">⚠ ' + esc((r && r.error) || 'unknown error') + '</div>'
+          + '<pre style="background:#f5f5f7 !important;color:#333 !important;-webkit-text-fill-color:#333 !important;padding:12px;border-radius:6px;font-size:11px;overflow:auto;max-height:60vh">' + esc(errDetail) + '</pre>';
+        return;
+      }
+      let html = '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px">';
+      const chips = [
+        ['Order #', r.orderNumber],
+        ['V1 order status', r.v1_order_status],
+        ['Ship to', r.ship_to_name],
+        ['Carrier resolved', r.carrier_resolved],
+        ['Service resolved', r.service_resolved],
+        ['Package count', r.package_count],
+      ];
+      chips.forEach(([k, v]) => {
+        html += '<div style="background:#f5f5f7 !important;padding:8px 10px;border-radius:6px;font-size:11px"><span style="text-transform:uppercase;font-weight:800;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(k) + '</span><div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-top:2px">' + esc(v || '—') + '</div></div>';
+      });
+      html += '</div>';
+      html += '<div style="font-size:13px;font-weight:800;color:#000 !important;-webkit-text-fill-color:#000 !important;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Packages that would be POSTed</div>';
+      (r.packages_would_be_sent || []).forEach((pkg, i) => {
+        html += '<div style="background:#f5f5f7 !important;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:8px">';
+        html += '<div style="font-size:11px;font-weight:800;color:#333 !important;-webkit-text-fill-color:#333 !important;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Package ' + (i+1) + ' · box_sku=' + esc(pkg.box_sku || '?') + '</div>';
+        html += '<pre style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;padding:8px;border-radius:4px;font-size:11px;overflow:auto;margin:0">' + esc(JSON.stringify(pkg.body, null, 2)) + '</pre>';
+        html += '</div>';
+      });
+      html += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;padding:8px;background:#fff8e1 !important;border:1px solid #ffe082;border-radius:6px;margin-top:8px">' + esc(r.note || '') + '</div>';
+      body.innerHTML = html;
+    } catch (e) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Request failed: ' + esc(e.message || String(e)) + '</div>';
+    }
+  };
+  setTimeout(() => { const el = document.getElementById('v1DryRunOrder'); if (el) el.focus(); }, 100);
+  if (preFillOrder) setTimeout(() => window._v1DryRunGo_(), 200);
 }
 
 // v10.930 — Lot/Serial Search modal. Warranty + recall triage surface.
