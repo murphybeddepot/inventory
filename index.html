@@ -16200,16 +16200,61 @@ async function openManualGroundOrderModal() {
     if (silent || !hasAny) { write(); return true; }
     return null;
   };
+  // v10.953 — Zac 2026-07-02: 'on new ground order looking up the order
+  // in shopify takes longer than expected'. Two speed wins:
+  // 1. Per-tab localStorage cache (15 min TTL) so repeat lookups of the
+  //    same order # are instant.
+  // 2. Debounce cut from 700ms → 350ms.
+  const _mgShopCacheGet_ = (n) => {
+    try {
+      const raw = localStorage.getItem('mbd_shopify_lookup_v1');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const rec = parsed && parsed[n];
+      if (!rec) return null;
+      const age = Date.now() - Number(rec.at || 0);
+      if (age > 15 * 60 * 1000) return null;
+      return rec.summary || null;
+    } catch (e) { return null; }
+  };
+  const _mgShopCacheSet_ = (n, summary) => {
+    try {
+      const raw = localStorage.getItem('mbd_shopify_lookup_v1');
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed[n] = { at: Date.now(), summary: summary };
+      // Trim oldest if >50 entries
+      const keys = Object.keys(parsed);
+      if (keys.length > 50) {
+        keys.sort((a,b) => (parsed[a].at||0) - (parsed[b].at||0)).slice(0, keys.length - 50)
+          .forEach(k => delete parsed[k]);
+      }
+      localStorage.setItem('mbd_shopify_lookup_v1', JSON.stringify(parsed));
+    } catch (e) {}
+  };
   const _mgTryShopifyLookup_ = async () => {
     const v = (orderNumInp && orderNumInp.value || '').trim();
     if (!/^\d{5,6}$/.test(v)) return;
     if (v === _mgLastLookedUp_) return;
     _mgLastLookedUp_ = v;
+    // Check cache before network.
+    const cached = _mgShopCacheGet_(v);
+    if (cached && cached.shipping_address && cached.shipping_address.address1) {
+      const hasFormData = ['mgName','mgStreet1','mgCity'].some(id => (document.getElementById(id) || {value:''}).value.trim());
+      if (!hasFormData) {
+        _mgShopFillFrom_(cached, true);
+        hintBox.innerHTML = '<span style="color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f">✅ Prefilled ship-to from Shopify order ' + v + ' <span style="opacity:.7">(cached)</span></span>';
+        return;
+      }
+      hintBox.innerHTML = '<span style="color:#1565c0 !important;-webkit-text-fill-color:#1565c0">🔍 Cached ' + v + ' (' + (cached.customer_name || 'no name') + ') — <button onclick="window._mgPrefillFromShopify_()" style="background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">Prefill anyway</button></span>';
+      window._mgLastShopifyOrder_ = cached;
+      return;
+    }
     hintBox.innerHTML = '<span style="color:#1565c0 !important;-webkit-text-fill-color:#1565c0">🔍 Looking up ' + v + ' in Shopify…</span>';
     try {
       const r = await groundApi('getShopifyOrderSummary', { orderNumber: v });
       if (r && r.ok && r.summary && r.summary.shipping_address && r.summary.shipping_address.address1) {
         const o = r.summary;
+        _mgShopCacheSet_(v, o);   // v10.953 — cache for next time
         const hasFormData = ['mgName','mgStreet1','mgCity'].some(id => (document.getElementById(id) || {value:''}).value.trim());
         if (!hasFormData) {
           _mgShopFillFrom_(o, true);
@@ -16238,7 +16283,7 @@ async function openManualGroundOrderModal() {
     orderNumInp.addEventListener('input', () => {
       _mgUpdateOrderNumHint_();
       if (_mgShopifyLookupTimer_) clearTimeout(_mgShopifyLookupTimer_);
-      _mgShopifyLookupTimer_ = setTimeout(_mgTryShopifyLookup_, 700);
+      _mgShopifyLookupTimer_ = setTimeout(_mgTryShopifyLookup_, 350);   // v10.953 — 700 → 350ms
     });
     _mgUpdateOrderNumHint_();
   }
