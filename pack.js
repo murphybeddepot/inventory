@@ -12293,16 +12293,31 @@ function _packerOverrideCarrierChanged() {
     fedex: ['fedex_home_delivery', 'fedex_ground', 'fedex_2day', 'fedex_express_saver', 'fedex_standard_overnight'],
     ups: ['ups_ground', 'ups_3_day_select', 'ups_2nd_day_air', 'ups_next_day_air_saver', 'ups_next_day_air'],
   };
+  // v10.949 — Zac 2026-07-02: FedEx One Rate offers 5 delivery
+  // speeds, not one hardcoded service. ShipEngine V2 rejects
+  // fedex_one_rate_* (those are the box names, not services).
+  // The valid One Rate services are just the standard FedEx delivery
+  // codes — ShipEngine applies One Rate pricing based on the
+  // service + package_code combination.
   const ONE_RATE = [
-    'fedex_one_rate_envelope', 'fedex_one_rate_pak', 'fedex_one_rate_tube',
-    'fedex_one_rate_small_box', 'fedex_one_rate_medium_box',
-    'fedex_one_rate_large_box', 'fedex_one_rate_extra_large_box',
+    ['fedex_2day', 'FedEx 2Day (One Rate — default, 2 business days)'],
+    ['fedex_2day_am', 'FedEx 2Day AM (One Rate — 2 days, morning)'],
+    ['fedex_express_saver', 'FedEx Express Saver (One Rate — 3 business days)'],
+    ['fedex_standard_overnight', 'FedEx Standard Overnight (One Rate — next PM)'],
+    ['fedex_priority_overnight', 'FedEx Priority Overnight (One Rate — next AM)'],
+    ['fedex_first_overnight', 'FedEx First Overnight (One Rate — next early AM)'],
   ];
   const mode = window._packerOverrideMode || 'standard';
-  const opts = (mode === 'one_rate' && car === 'fedex') ? ONE_RATE : (SERVICES[car] || []);
-  svc.innerHTML = opts.length
-    ? '<option value="">— pick a service —</option>' + opts.map(s => '<option value="' + s + '">' + s + '</option>').join('')
-    : '<option value="">— pick a carrier first —</option>';
+  const isOneRate = (mode === 'one_rate' && car === 'fedex');
+  if (isOneRate) {
+    svc.innerHTML = '<option value="">— pick a One Rate service —</option>'
+      + ONE_RATE.map(pair => '<option value="' + pair[0] + '">' + pair[1] + '</option>').join('');
+  } else {
+    const opts = SERVICES[car] || [];
+    svc.innerHTML = opts.length
+      ? '<option value="">— pick a service —</option>' + opts.map(s => '<option value="' + s + '">' + s + '</option>').join('')
+      : '<option value="">— pick a carrier first —</option>';
+  }
 }
 
 // v10.734 — build the box-select options for the current mode.
