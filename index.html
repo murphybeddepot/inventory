@@ -2615,6 +2615,12 @@ input::placeholder, textarea::placeholder {
          items + bin), with name/unit/category passthrough. -->
     <button onclick="_stockV2OpenAddNewItem_()" style="padding:11px 10px;background:linear-gradient(180deg,#3d1a5e,#7B2CBF) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #C77DFF;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">+ Add New Item</button>
   </div>
+  <!-- v10.938 — Zac 2026-07-02: Stock 2 needs the print interface too.
+       Same openPrintLocationLabels() launcher as Stock 1 — reuses the
+       whole modal / bin picker / copies count / PrintNode submit path. -->
+  <div style="margin-bottom:8px">
+    <button onclick="openPrintLocationLabels()" style="width:100%;padding:12px 14px;background:linear-gradient(135deg,#0a8a3f,#106c34) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 6px rgba(10,138,63,.35)">📍 Print Location Labels (QR)</button>
+  </div>
   <!-- v10.816 — Pallets / crates / gaylords. Task #64. Movable physical
        containers with item assignments + movement history. -->
   <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px">
@@ -15154,11 +15160,23 @@ function openPrintLocationLabels() {
   window._locLabelPrintClick = async () => {
     if (!selected.size) { showToast('Pick at least one bin to print'); return; }
     const copies = Math.max(1, Math.min(10, Number(document.getElementById('locLabelCopies').value) || 1));
-    const ok = confirm('Print ' + selected.size + ' bin label' + (selected.size === 1 ? '' : 's') + ' × ' + copies + ' cop' + (copies === 1 ? 'y' : 'ies') + '?\n\nLabels go to your default PrintNode printer.');
-    if (!ok) return;
     const btn = document.getElementById('locLabelPrintBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⟳ Printing…'; }
     const statusEl = document.getElementById('locLabelSendStatus');
+    // v10.938 — pre-flight printer state. If offline, surface it BEFORE
+    // asking the user to confirm — Zac 2026-07-02: bin labels submitted
+    // (job # returned) but nothing physically printed because the bridge
+    // was offline. This puts the failure BEFORE the submit.
+    if (statusEl) statusEl.textContent = 'Checking printer…';
+    try {
+      const chk = await groundApi('checkPrintNodePrinterOnline', {});
+      if (chk && chk.ok && !chk.online) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:#c33;font-weight:800">⚠ Printer OFFLINE — ' + esc(chk.printer_name || '(unknown)') + ' · state=' + esc(chk.state) + ' · bridge=' + esc(chk.computer_state) + '. Turn the PrintNode bridge computer on or reconnect the printer, then try again.</span>';
+        return;   // don't even ask to confirm; nothing will print
+      }
+    } catch (e) { /* soft fail — proceed if the check itself errored */ }
+    const ok = confirm('Print ' + selected.size + ' bin label' + (selected.size === 1 ? '' : 's') + ' × ' + copies + ' cop' + (copies === 1 ? 'y' : 'ies') + '?\n\nLabels go to your default PrintNode printer.');
+    if (!ok) { if (statusEl) statusEl.textContent = ''; return; }
+    if (btn) { btn.disabled = true; btn.textContent = '⟳ Printing…'; }
     if (statusEl) statusEl.textContent = 'Submitting to PrintNode…';
     try {
       const res = await groundApi('printLocationLabels', {
@@ -29113,7 +29131,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.933<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.938<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
