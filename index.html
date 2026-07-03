@@ -1737,6 +1737,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.966 — Katana-style visual scheduler board. Seth's whiteboard replacement. -->
+    <button onclick="closeMoreMenu();openSchedulerBoardModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📅</span>
+      <div style="flex:1">
+        <div>Scheduler Board</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Katana-style kanban: work orders by station × state. Seth's whiteboard, digital (v10.966)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -16787,6 +16796,125 @@ async function openV1LabelDryRunModal(preFillOrder) {
   };
   setTimeout(() => { const el = document.getElementById('v1DryRunOrder'); if (el) el.focus(); }, 100);
   if (preFillOrder) setTimeout(() => window._v1DryRunGo_(), 200);
+}
+
+// v10.966 — Katana-style Scheduler Board. Kanban of open work orders
+// grouped by state, columns per work_center. Seth's whiteboard, digital.
+// This is the crown-jewel visual scheduler Katana is known for.
+async function openSchedulerBoardModal() {
+  let backdrop = document.getElementById('schedBoardBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'schedBoardBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:1400px;width:100%">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">📅</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Scheduler Board</div><div style="font-size:11px;opacity:.85;margin-top:2px">Live work orders by station × state · auto-refresh 30s</div></div>
+        <button class="bd-close-btn" onclick="_schedBoardStop_();document.getElementById('schedBoardBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" id="schedBoardBody" style="background:#fff !important;padding:12px;max-height:82vh;overflow:auto">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:14px">Loading board…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  window._schedBoardStop_ = () => { if (window._schedBoardTimer_) { clearInterval(window._schedBoardTimer_); window._schedBoardTimer_ = null; } };
+  window._schedBoardRender_ = async function () {
+    const body = document.getElementById('schedBoardBody');
+    if (!body) return;
+    try {
+      const [wcResp, woResp, loadResp] = await Promise.all([
+        groundApi('listWorkCenters', {}),
+        groundApi('listWorkOrders', { openOnly: true, limit: 500 }),
+        groundApi('getWorkCenterLoad', {}),
+      ]);
+      if (!wcResp || !wcResp.ok || !woResp || !woResp.ok) {
+        body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Failed to load board data.</div>';
+        return;
+      }
+      const wcs = wcResp.work_centers || [];
+      const wos = woResp.work_orders || [];
+      const load = (loadResp && loadResp.ok && loadResp.rows) || [];
+      const loadByWc = {}; load.forEach(l => { loadByWc[l.work_center_id] = l; });
+      const wosByWc = {};
+      wcs.forEach(wc => { wosByWc[wc.work_center_id] = { ready: [], in_progress: [], pending: [], on_hold: [] }; });
+      // Unassigned bucket
+      wosByWc._unassigned = { ready: [], in_progress: [], pending: [], on_hold: [] };
+      wos.forEach(wo => {
+        const wcid = wo.work_center_id || '_unassigned';
+        if (!wosByWc[wcid]) wosByWc[wcid] = { ready: [], in_progress: [], pending: [], on_hold: [] };
+        (wosByWc[wcid][wo.state] || []).push(wo);
+      });
+      const stateStyle = {
+        ready:       { label: 'Ready',       color: '#0a5c1a', bg: '#e8f5e9', border: '#0a7a3f' },
+        in_progress: { label: 'In progress', color: '#0a3d78', bg: '#e3f2fd', border: '#1565c0' },
+        pending:     { label: 'Pending',     color: '#666',    bg: '#f5f5f7', border: '#999'    },
+        on_hold:     { label: 'On hold',     color: '#7a4c00', bg: '#fff3cd', border: '#ff8f00' },
+      };
+      // Grid: one row per work_center, one card per WO grouped by state.
+      let html = '';
+      // Top KPI strip
+      const totalOpen = wos.length;
+      const totalReady = wos.filter(w => w.state === 'ready').length;
+      const totalInProgress = wos.filter(w => w.state === 'in_progress').length;
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">';
+      html += '<div style="padding:10px;background:#f5f5f7 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;letter-spacing:.5px">Open WOs</div><div style="font-size:22px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + totalOpen + '</div></div>';
+      html += '<div style="padding:10px;background:#e8f5e9 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#0a5c1a !important;-webkit-text-fill-color:#0a5c1a !important;font-weight:800;letter-spacing:.5px">Ready</div><div style="font-size:22px;font-weight:900;color:#0a5c1a !important;-webkit-text-fill-color:#0a5c1a !important">' + totalReady + '</div></div>';
+      html += '<div style="padding:10px;background:#e3f2fd !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#0a3d78 !important;-webkit-text-fill-color:#0a3d78 !important;font-weight:800;letter-spacing:.5px">In progress</div><div style="font-size:22px;font-weight:900;color:#0a3d78 !important;-webkit-text-fill-color:#0a3d78 !important">' + totalInProgress + '</div></div>';
+      html += '<div style="padding:10px;background:#f5f5f7 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;letter-spacing:.5px">Stations</div><div style="font-size:22px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + wcs.length + '</div></div>';
+      html += '</div>';
+      // Kanban rows
+      wcs.forEach(wc => {
+        const buckets = wosByWc[wc.work_center_id] || { ready: [], in_progress: [], pending: [], on_hold: [] };
+        const wl = loadByWc[wc.work_center_id] || {};
+        const totalForWc = buckets.ready.length + buckets.in_progress.length + buckets.pending.length + buckets.on_hold.length;
+        html += '<div style="border:1px solid #e0e0e0 !important;border-radius:10px;padding:10px;margin-bottom:10px;background:#fafafa !important">';
+        html += '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;gap:12px">';
+        html += '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase">' + esc(wc.code) + ' · ' + esc(wc.name) + '</div>';
+        html += '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:.5px;font-weight:800">CAP ' + esc(wc.hourly_capacity) + '/hr · $' + esc(wc.hourly_cost) + '/hr · ' + (wl.expected_hours_open ? Number(wl.expected_hours_open).toFixed(1) + 'h open' : '—') + '</div></div>';
+        html += '<div style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;font-weight:800">' + totalForWc + ' open</div>';
+        html += '</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">';
+        ['ready','in_progress','pending','on_hold'].forEach(state => {
+          const st = stateStyle[state];
+          const cards = buckets[state] || [];
+          html += '<div style="background:' + st.bg + ' !important;border:1.5px solid ' + st.border + ' !important;border-radius:8px;padding:8px;min-height:70px">';
+          html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:800;color:' + st.color + ' !important;-webkit-text-fill-color:' + st.color + ' !important;margin-bottom:6px">' + st.label + ' · ' + cards.length + '</div>';
+          cards.slice(0, 8).forEach(wo => {
+            html += '<div style="background:#fff !important;border:1px solid rgba(0,0,0,.1);border-radius:6px;padding:6px 8px;margin-bottom:4px;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
+            html += '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(wo.sku) + ' × ' + esc(wo.qty) + '</div>';
+            if (wo.order_number) html += '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important">#' + esc(wo.order_number) + '</div>';
+            if (wo.duration_expected_min) html += '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(wo.duration_expected_min) + ' min est</div>';
+            html += '</div>';
+          });
+          if (cards.length > 8) html += '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-align:center;margin-top:2px">+ ' + (cards.length - 8) + ' more</div>';
+          if (!cards.length) html += '<div style="font-size:10px;color:#999 !important;-webkit-text-fill-color:#999 !important;text-align:center;padding:8px 0">empty</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+        html += '</div>';
+      });
+      // Unassigned WOs row (if any)
+      const unBuckets = wosByWc._unassigned || { ready: [], in_progress: [], pending: [], on_hold: [] };
+      const unTotal = unBuckets.ready.length + unBuckets.in_progress.length + unBuckets.pending.length + unBuckets.on_hold.length;
+      if (unTotal) {
+        html += '<div style="border:2px dashed #ffb300 !important;border-radius:10px;padding:10px;background:#fff8e1 !important">';
+        html += '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500 !important;text-transform:uppercase;margin-bottom:6px">⚠ Unassigned Station · ' + unTotal + '</div>';
+        html += '<div style="font-size:11px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500 !important">These WOs have no work_center_id set. Add a routing for the SKU or update the WO directly.</div>';
+        html += '</div>';
+      }
+      body.innerHTML = html;
+    } catch (e) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Board load failed: ' + esc(e.message || String(e)) + '</div>';
+    }
+  };
+  await window._schedBoardRender_();
+  // Auto-refresh every 30s
+  window._schedBoardTimer_ = setInterval(window._schedBoardRender_, 30000);
 }
 
 // v10.962 — Production Floor tablet mode. Katana Shop Floor + Odoo
