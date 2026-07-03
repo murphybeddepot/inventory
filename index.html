@@ -1782,6 +1782,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.1070 — Fire Digest Now (v10.1069 endpoint) -->
+    <button onclick="closeMoreMenu();openFireDigestModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🧪</span>
+      <div style="flex:1">
+        <div>Fire Digest Now</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Test any Slack digest immediately — no waiting for the scheduled trigger (v10.1070)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <!-- v10.962 — Manufacturing tablet mode (Katana Shop Floor App / Odoo Work Orders tablet). Post-July primary UI. -->
     <button onclick="closeMoreMenu();openProductionFloorModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
@@ -17055,6 +17064,72 @@ function _cpCol_(icon, label, val, color, sub) {
     + '<div style="font-size:22px;font-weight:900;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important">' + val + '</div>'
     + '<div style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-top:6px;line-height:1.3">' + esc(sub) + '</div>'
     + '</div>';
+}
+
+// v10.1070 — Fire Digest Now UI. Lists 12 recurring digests, tap to
+// fire on-demand via runDigestNow (v10.1069). Shows fire status +
+// last result inline. Used for testing before waiting for cron.
+async function openFireDigestModal() {
+  let backdrop = document.getElementById('fireDigestBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'fireDigestBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:720px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🧪</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Fire Digest Now</div><div style="font-size:11px;opacity:.85;margin-top:2px">Tap a digest to fire it immediately · posts to #claude_bedrock</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('fireDigestBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" id="fireDigestBody" style="background:#fff !important;padding:14px 18px">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading digest list…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  try {
+    const r = await groundApi('listAvailableDigests', {});
+    if (!r || !r.ok) {
+      document.getElementById('fireDigestBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Failed: ' + esc((r && r.error) || 'unknown') + '</div>';
+      return;
+    }
+    let html = '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px;padding:10px;background:#fff8e1 !important;border-left:3px solid #ff8f00;border-radius:6px">⚠ Firing a digest will actually post to Slack. Use for testing after install-trigger runs.</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr;gap:6px">';
+    (r.digests || []).forEach(d => {
+      const disabled = !d.handler_exists;
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + (disabled ? '#f5f5f7' : '#fff') + ' !important;border:1px solid ' + (disabled ? '#e0e0e0' : '#c8e6c9') + ';border-radius:8px">'
+        + '<div style="flex:1"><div style="font-size:13px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(d.label) + '</div><div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:1px">' + esc(d.cadence) + ' · ' + esc(d.handler) + '</div></div>'
+        + (disabled
+            ? '<span style="font-size:11px;color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-weight:800">FN MISSING</span>'
+            : '<button onclick="_fireDigest_(\'' + esc(d.key) + '\', this)" style="padding:7px 14px;background:#0a5c1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:12px;font-weight:900;cursor:pointer">▶ FIRE</button>')
+        + '</div>';
+    });
+    html += '</div>';
+    html += '<div id="fireDigestResult" style="margin-top:14px"></div>';
+    document.getElementById('fireDigestBody').innerHTML = html;
+  } catch (e) {
+    document.getElementById('fireDigestBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+async function _fireDigest_(key, btn) {
+  const resultEl = document.getElementById('fireDigestResult');
+  if (btn) { btn.textContent = '… FIRING'; btn.disabled = true; }
+  try {
+    const r = await groundApi('runDigestNow', { digest_key: key });
+    if (r && r.ok) {
+      if (btn) { btn.textContent = '✓ FIRED'; btn.style.background = '#1565c0'; }
+      resultEl.innerHTML = '<div style="padding:12px;background:#e8f5e9 !important;border-radius:6px;color:#0a5c1a !important;-webkit-text-fill-color:#0a5c1a !important;font-size:12px">✓ Fired <b>' + esc(key) + '</b>. Check #claude_bedrock. Handler: <code>' + esc(r.handler) + '</code></div>';
+    } else {
+      if (btn) { btn.textContent = '✗ FAILED'; btn.style.background = '#c33'; btn.disabled = false; }
+      resultEl.innerHTML = '<div style="padding:12px;background:#ffebee !important;border-radius:6px;color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:12px">Failed: ' + esc((r && r.error) || 'unknown') + '</div>';
+    }
+  } catch (e) {
+    if (btn) { btn.textContent = '✗ ERROR'; btn.disabled = false; }
+    resultEl.innerHTML = '<div style="padding:12px;background:#ffebee !important;border-radius:6px;color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:12px">Error: ' + esc(e.message || String(e)) + '</div>';
+  }
 }
 
 // v10.1067 — Warranty dashboard. Wraps getWarrantyRemakesSummary (v10.1035).
