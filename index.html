@@ -1728,6 +1728,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.962 — Manufacturing tablet mode (Katana Shop Floor App / Odoo Work Orders tablet). Post-July primary UI. -->
+    <button onclick="closeMoreMenu();openProductionFloorModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🏭</span>
+      <div style="flex:1">
+        <div>Production Floor</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Tablet-mode work orders — operator taps Start/Done, timings auto-captured (v10.962, July mfg)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -16778,6 +16787,131 @@ async function openV1LabelDryRunModal(preFillOrder) {
   };
   setTimeout(() => { const el = document.getElementById('v1DryRunOrder'); if (el) el.focus(); }, 100);
   if (preFillOrder) setTimeout(() => window._v1DryRunGo_(), 200);
+}
+
+// v10.962 — Production Floor tablet mode. Katana Shop Floor + Odoo
+// mrp.workorder tablet pattern. Operator picks their work center,
+// sees ready/in-progress WOs, big Start/Done buttons.
+async function openProductionFloorModal() {
+  let backdrop = document.getElementById('prodFloorBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'prodFloorBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:1000px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🏭</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Production Floor</div><div style="font-size:11px;opacity:.85;margin-top:2px">Pick your station · Start · Done</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('prodFloorBackdrop').remove()">Close</button>
+      </div>
+      <div style="padding:14px 18px;background:#f5f5f7;border-bottom:1px solid #e0e0e0">
+        <div style="font-size:11px;font-weight:800;color:#333 !important;-webkit-text-fill-color:#333 !important;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Work Station</div>
+        <div id="prodFloorStationChips" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      </div>
+      <div class="bd-modal-body" id="prodFloorBody" style="background:#fff !important;padding:14px 18px">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:14px">Pick a station above to see open work orders.</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  window._prodFloorState_ = { work_center_id: null, operator: '' };
+  // Load stations first
+  try {
+    const wcs = await groundApi('listWorkCenters', {});
+    const chipsEl = document.getElementById('prodFloorStationChips');
+    if (wcs && wcs.ok && Array.isArray(wcs.work_centers) && wcs.work_centers.length) {
+      chipsEl.innerHTML = wcs.work_centers.map(wc =>
+        '<button onclick="_prodFloorPickStation_(' + wc.work_center_id + ',&quot;' + esc(wc.code) + '&quot;,&quot;' + esc(wc.name) + '&quot;)" '
+        + 'id="pfStation-' + wc.work_center_id + '" '
+        + 'style="padding:10px 14px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;'
+        + 'border:2px solid #ccc !important;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;min-height:44px">'
+        + esc(wc.code) + ' · ' + esc(wc.name) + '</button>'
+      ).join('');
+    } else {
+      chipsEl.innerHTML = '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important">No work centers configured. Run supabase/work_orders.sql (v10.958) to seed the canonical set.</div>';
+    }
+  } catch (e) {
+    document.getElementById('prodFloorStationChips').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">Failed to load stations: ' + esc(e.message) + '</div>';
+  }
+  window._prodFloorPickStation_ = async function (wcId, code, name) {
+    window._prodFloorState_.work_center_id = wcId;
+    // Highlight the picked chip
+    document.querySelectorAll('[id^="pfStation-"]').forEach(el => {
+      el.style.border = '2px solid #ccc';
+      el.style.background = '#fff';
+    });
+    const active = document.getElementById('pfStation-' + wcId);
+    if (active) { active.style.border = '2px solid #00b04f'; active.style.background = '#e8f5e9'; }
+    await _prodFloorRefresh_();
+  };
+  window._prodFloorRefresh_ = async function () {
+    const wcId = window._prodFloorState_.work_center_id;
+    const body = document.getElementById('prodFloorBody');
+    if (!wcId) { body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Pick a station.</div>'; return; }
+    body.innerHTML = '<div style="text-align:center;padding:20px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading work orders…</div>';
+    try {
+      const r = await groundApi('listWorkOrders', { work_center_id: wcId, openOnly: true });
+      if (!r || !r.ok) { body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Failed: ' + esc((r && r.error) || 'unknown') + '</div>'; return; }
+      const wos = r.work_orders || [];
+      if (!wos.length) { body.innerHTML = '<div style="text-align:center;padding:40px;color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f !important;font-size:16px;font-weight:800">✓ Queue empty. Nothing waiting at this station.</div>'; return; }
+      let html = '';
+      wos.forEach(wo => {
+        const stateColors = {
+          ready:       { bg: '#e8f5e9', border: '#0a7a3f', color: '#0a5c1a' },
+          in_progress: { bg: '#e3f2fd', border: '#1565c0', color: '#0a3d78' },
+          pending:     { bg: '#f5f5f7', border: '#999',    color: '#666' },
+          on_hold:     { bg: '#fff3cd', border: '#ff8f00', color: '#7a4c00' },
+        };
+        const sc = stateColors[wo.state] || stateColors.pending;
+        const productionRef = wo.production_ref || '';
+        const orderNumber = wo.order_number || '';
+        html += '<div style="background:' + sc.bg + ' !important;border:2px solid ' + sc.border + ' !important;border-radius:12px;padding:16px;margin-bottom:12px;color:' + sc.color + ' !important;-webkit-text-fill-color:' + sc.color + ' !important">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">';
+        html += '<div style="flex:1;min-width:200px">';
+        html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(wo.sku) + ' × ' + esc(wo.qty) + '</div>';
+        html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-top:4px">STATE · ' + esc(wo.state) + ' · SEQ ' + esc(wo.sequence);
+        if (wo.duration_expected_min) html += ' · EST ' + esc(wo.duration_expected_min) + ' min';
+        html += '</div>';
+        if (productionRef) html += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:2px">ref: ' + esc(productionRef) + '</div>';
+        if (orderNumber) html += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important">order: <b>#' + esc(orderNumber) + '</b></div>';
+        if (wo.notes) html += '<div style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.6);border-radius:4px">' + esc(wo.notes) + '</div>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:8px">';
+        if (wo.state === 'ready' || wo.state === 'on_hold') {
+          html += '<button onclick="_prodFloorStart_(' + wo.work_order_id + ')" style="padding:14px 22px;background:#00b04f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">▶ START</button>';
+        } else if (wo.state === 'in_progress') {
+          html += '<button onclick="_prodFloorDone_(' + wo.work_order_id + ')" style="padding:14px 22px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">✓ DONE</button>';
+        } else {
+          html += '<span style="padding:14px 22px;font-size:13px;color:#999 !important;-webkit-text-fill-color:#999 !important">waiting</span>';
+        }
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+      });
+      body.innerHTML = html;
+    } catch (e) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message) + '</div>';
+    }
+  };
+  window._prodFloorStart_ = async function (woId) {
+    try {
+      const r = await groundApi('startWorkOrder', { work_order_id: woId, operator: (localStorage.getItem('mbd_ground_packer') || '') });
+      if (r && r.ok) { if (typeof showToast === 'function') showToast('▶ Started'); await _prodFloorRefresh_(); }
+      else alert('Start failed: ' + ((r && r.error) || 'unknown'));
+    } catch (e) { alert('Start error: ' + e.message); }
+  };
+  window._prodFloorDone_ = async function (woId) {
+    try {
+      const r = await groundApi('completeWorkOrder', { work_order_id: woId, operator: (localStorage.getItem('mbd_ground_packer') || '') });
+      if (r && r.ok) {
+        if (typeof showToast === 'function') showToast('✓ Done' + (r.auto_promoted ? ' · next step ready' : ''));
+        await _prodFloorRefresh_();
+      } else alert('Done failed: ' + ((r && r.error) || 'unknown'));
+    } catch (e) { alert('Done error: ' + e.message); }
+  };
 }
 
 // v10.930 — Lot/Serial Search modal. Warranty + recall triage surface.
