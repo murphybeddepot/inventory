@@ -1728,6 +1728,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.968 — orphan shipment audit + bulk void one-touch. Real money -->
+    <button onclick="closeMoreMenu();openOrphanVoidsModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">💸</span>
+      <div style="flex:1">
+        <div>Orphan Voids</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Find + bulk-void orphan V2 shipments from before v10.950 — money back (v10.968)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <!-- v10.962 — Manufacturing tablet mode (Katana Shop Floor App / Odoo Work Orders tablet). Post-July primary UI. -->
     <button onclick="closeMoreMenu();openProductionFloorModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
@@ -16796,6 +16805,113 @@ async function openV1LabelDryRunModal(preFillOrder) {
   };
   setTimeout(() => { const el = document.getElementById('v1DryRunOrder'); if (el) el.focus(); }, 100);
   if (preFillOrder) setTimeout(() => window._v1DryRunGo_(), 200);
+}
+
+// v10.968 — Orphan shipment audit + bulk void one-touch UI. Wraps the
+// v10.957 runDiagOrphanShipments + runVoidOrphanShipments endpoints
+// so Zac can recover money on pre-v10.950 V2 orphan shipments without
+// opening the Apps Script editor.
+async function openOrphanVoidsModal() {
+  let backdrop = document.getElementById('orphanVoidsBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'orphanVoidsBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:900px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">💸</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Orphan Voids</div><div style="font-size:11px;opacity:.85;margin-top:2px">Recover money on pre-v10.950 orphan shipments</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('orphanVoidsBackdrop').remove()">Close</button>
+      </div>
+      <div style="padding:14px 18px;display:flex;gap:10px;align-items:center;background:#f5f5f7;border-bottom:1px solid #e0e0e0">
+        <label style="font-size:11px;font-weight:800;color:#333 !important;-webkit-text-fill-color:#333 !important;text-transform:uppercase;letter-spacing:.5px">Days back</label>
+        <input id="orphanDaysBack" type="number" min="1" max="60" value="14" style="width:70px;padding:8px 10px;font-size:14px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px">
+        <button class="bd-btn-primary" onclick="_orphanAudit_()">🔍 Audit</button>
+        <div id="orphanAuditStatus" style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important"></div>
+      </div>
+      <div class="bd-modal-body" id="orphanVoidsBody" style="background:#fff !important;padding:14px 18px">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:14px">Set days-back (default 14) and tap Audit to see the orphans + $ at risk.</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  window._orphanAudit_ = async function () {
+    const days = Math.max(1, Math.min(60, Number(document.getElementById('orphanDaysBack').value) || 14));
+    const st = document.getElementById('orphanAuditStatus');
+    const body = document.getElementById('orphanVoidsBody');
+    st.textContent = 'Scanning ShipStation…';
+    body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading…</div>';
+    try {
+      const r = await groundApi('runDiagOrphanShipments', { daysBack: days });
+      if (!r || !r.ok) { st.textContent = ''; body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">' + esc((r && r.error) || 'unknown') + '</div>'; return; }
+      window._orphanLastAudit_ = r;
+      const orphans = r.orphans || [];
+      st.textContent = 'Scanned ' + (r.total_shipments_scanned || 0) + ' shipments · ' + orphans.length + ' orphan(s)';
+      let html = '';
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+      html += _orphanKpi_('Orphan count', orphans.length, orphans.length ? '#c33' : '#0a5c1a');
+      html += _orphanKpi_('$ at risk', '$' + (r.total_orphan_cost || 0).toFixed(2), orphans.length ? '#c33' : '#0a5c1a');
+      html += _orphanKpi_('Voidable', r.voidable_count || 0, '#0a5c9a');
+      html += _orphanKpi_('Already voided', r.already_voided_count || 0, '#666');
+      html += '</div>';
+      if (!orphans.length) {
+        html += '<div style="text-align:center;padding:20px;color:#0a5c1a !important;-webkit-text-fill-color:#0a5c1a !important;font-weight:800;font-size:15px">✓ No orphan shipments in the last ' + days + ' days.</div>';
+      } else {
+        html += '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">';
+        html += '<button onclick="_orphanBulkVoid_(true)" class="bd-btn-secondary" style="padding:10px 14px;font-size:13px">🧪 Dry run</button>';
+        html += '<button onclick="_orphanBulkVoid_(false)" style="padding:10px 14px;background:#c33 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer">💸 Void all voidable (PIN)</button>';
+        html += '</div>';
+        html += '<div style="font-size:11px;font-weight:800;color:#333 !important;-webkit-text-fill-color:#333 !important;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Orphans (top 25 by cost)</div>';
+        html += '<div style="max-height:40vh;overflow:auto;border:1px solid #e0e0e0 !important;border-radius:8px">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+        html += '<thead><tr style="background:#f5f5f7 !important"><th style="text-align:left;padding:6px 8px;color:#333 !important;-webkit-text-fill-color:#333 !important">Ship ID</th><th style="text-align:left;padding:6px 8px;color:#333 !important;-webkit-text-fill-color:#333 !important">Tracking</th><th style="text-align:left;padding:6px 8px;color:#333 !important;-webkit-text-fill-color:#333 !important">Carrier</th><th style="text-align:left;padding:6px 8px;color:#333 !important;-webkit-text-fill-color:#333 !important">Service</th><th style="text-align:right;padding:6px 8px;color:#333 !important;-webkit-text-fill-color:#333 !important">Cost</th><th style="padding:6px 8px;color:#333 !important;-webkit-text-fill-color:#333 !important">State</th></tr></thead>';
+        html += '<tbody>';
+        orphans.slice(0, 25).forEach(o => {
+          html += '<tr style="border-top:1px solid #f0f0f0"><td style="padding:6px 8px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(o.shipmentId) + '</td><td style="padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(o.tracking || '—') + '</td><td style="padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(o.carrier || '—') + '</td><td style="padding:6px 8px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(o.service || '—') + '</td><td style="padding:6px 8px;text-align:right;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-weight:800">$' + (Number(o.cost) || 0).toFixed(2) + '</td><td style="padding:6px 8px">' + (o.voided ? '<span style="color:#666 !important;-webkit-text-fill-color:#666 !important">voided</span>' : (o.voidable ? '<span style="color:#0a5c9a !important;-webkit-text-fill-color:#0a5c9a !important">voidable</span>' : '<span style="color:#666 !important;-webkit-text-fill-color:#666 !important">—</span>')) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+      body.innerHTML = html;
+    } catch (e) {
+      st.textContent = '';
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message || String(e)) + '</div>';
+    }
+  };
+  window._orphanBulkVoid_ = async function (dryRun) {
+    const days = Math.max(1, Math.min(60, Number(document.getElementById('orphanDaysBack').value) || 14));
+    if (!dryRun) {
+      if (!window.confirm('Void ALL voidable orphan shipments from the last ' + days + ' days?\n\n⚠ Real money — refund only processes if the label was actually never used.\n\nShipStation policy: usually credits within 7-14 days.')) return;
+    }
+    const pin = window.ensurePin('Manager PIN to bulk-void orphans:');
+    if (!pin) return;
+    const body = document.getElementById('orphanVoidsBody');
+    body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + (dryRun ? 'Running dry run…' : 'Voiding…') + '</div>';
+    try {
+      const r = await groundApi('runVoidOrphanShipments', { manager_pin: pin, dryRun: !!dryRun, daysBack: days });
+      if (!r || !r.ok) { body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Failed: ' + esc((r && r.error) || 'unknown') + '</div>'; return; }
+      let html = '<div style="padding:16px;background:' + (dryRun ? '#e3f2fd' : '#e8f5e9') + ' !important;border:2px solid ' + (dryRun ? '#1565c0' : '#0a5c1a') + ' !important;border-radius:10px;margin-bottom:14px;color:' + (dryRun ? '#0a3d78' : '#0a5c1a') + ' !important;-webkit-text-fill-color:' + (dryRun ? '#0a3d78' : '#0a5c1a') + ' !important">';
+      if (dryRun) {
+        html += '<div style="font-weight:900;font-size:16px;margin-bottom:6px">Dry run · would void ' + (r.would_void_count || 0) + ' shipment(s)</div>';
+        html += '<div>Total refund estimate: $' + (r.would_void_total_cost || 0).toFixed(2) + '</div>';
+        html += '<div style="margin-top:8px;font-size:12px">Re-tap 💸 Void all voidable to execute for real.</div>';
+      } else {
+        html += '<div style="font-weight:900;font-size:16px;margin-bottom:6px">✓ Voided ' + (r.voided_count || 0) + ' shipment(s)</div>';
+        html += '<div>Estimated refund: $' + (r.total_refunded_estimate || 0).toFixed(2) + ' (posts within 7-14 days)</div>';
+        if (r.failed_count) html += '<div style="margin-top:6px;color:#c33 !important;-webkit-text-fill-color:#c33 !important">' + r.failed_count + ' failed — see log</div>';
+      }
+      html += '</div>';
+      html += '<button onclick="_orphanAudit_()" class="bd-btn-secondary" style="padding:10px 14px;font-size:13px">🔄 Re-audit</button>';
+      body.innerHTML = html;
+    } catch (e) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message || String(e)) + '</div>';
+    }
+  };
+}
+function _orphanKpi_(label, val, color) {
+  return '<div style="padding:10px;background:#f5f5f7 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;letter-spacing:.5px">' + label + '</div><div style="font-size:22px;font-weight:900;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important">' + val + '</div></div>';
 }
 
 // v10.966 — Katana-style Scheduler Board. Kanban of open work orders
