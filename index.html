@@ -17352,6 +17352,8 @@ async function openProductionFloorModal() {
           html += '<button onclick="_prodFloorStart_(' + wo.work_order_id + ')" style="padding:14px 22px;background:#00b04f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">▶ START</button>';
         } else if (wo.state === 'in_progress') {
           html += '<button onclick="_prodFloorDone_(' + wo.work_order_id + ')" style="padding:14px 22px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">✓ DONE</button>';
+          // v10.987 — QC FAIL button. Only surfaced at QC stations (or if user is currently at any station — QC-flag any WO). Prompt for reason.
+          html += '<button onclick="_prodFloorQcFail_(' + wo.work_order_id + ')" style="padding:14px 18px;background:#c33 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px" title="Mark this WO as QC failed">✗ QC FAIL</button>';
         } else {
           html += '<span style="padding:14px 22px;font-size:13px;color:#999 !important;-webkit-text-fill-color:#999 !important">waiting</span>';
         }
@@ -17370,6 +17372,23 @@ async function openProductionFloorModal() {
       if (r && r.ok) { if (typeof showToast === 'function') showToast('▶ Started'); await _prodFloorRefresh_(); }
       else alert('Start failed: ' + ((r && r.error) || 'unknown'));
     } catch (e) { alert('Start error: ' + e.message); }
+  };
+  // v10.987 — QC FAIL prompt + call server. On success flip UI to
+  // show WO as on_hold + Slack fires from server side.
+  window._prodFloorQcFail_ = async function (woId) {
+    const reason = window.prompt('QC fail reason (visible on Scheduler Board + Slacked to Zac + Seth):');
+    if (!reason || !reason.trim()) return;
+    try {
+      const r = await groundApi('qcFailWorkOrder', {
+        work_order_id: woId,
+        reason: reason.trim(),
+        operator: (localStorage.getItem('mbd_ground_packer') || ''),
+      });
+      if (r && r.ok) {
+        if (typeof showToast === 'function') showToast('✗ QC fail logged · Seth + Zac notified');
+        await _prodFloorRefresh_();
+      } else alert('QC fail submit failed: ' + ((r && r.error) || 'unknown'));
+    } catch (e) { alert('QC fail error: ' + e.message); }
   };
   window._prodFloorDone_ = async function (woId) {
     try {
