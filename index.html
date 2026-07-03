@@ -1746,6 +1746,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.1016 — reorder-rule inspection UI (endpoint v10.1015) -->
+    <button onclick="closeMoreMenu();openReorderInspectionModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📉</span>
+      <div style="flex:1">
+        <div>Reorder Inspector</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Per-SKU velocity + days of stock remaining + suggested reorder qty (v10.1016)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <!-- v10.962 — Manufacturing tablet mode (Katana Shop Floor App / Odoo Work Orders tablet). Post-July primary UI. -->
     <button onclick="closeMoreMenu();openProductionFloorModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
@@ -16964,6 +16973,81 @@ async function openRoutingLibraryModal() {
       } else alert('Save failed: ' + ((r && r.error) || 'unknown'));
     } catch (e) { alert('Save error: ' + e.message); }
   };
+}
+
+// v10.1016 — Reorder Inspector UI. Calls getReorderRuleInspection
+// (v10.1015) and renders a sortable list of SKUs with velocity trend
+// + days of stock + suggested qty. Focus: at-risk SKUs bubble up.
+async function openReorderInspectionModal() {
+  let backdrop = document.getElementById('reorderInspectBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'reorderInspectBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:1100px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">📉</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Reorder Inspector</div><div style="font-size:11px;opacity:.85;margin-top:2px">SKUs at risk of stockout · sorted by shortest days-of-stock</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('reorderInspectBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" id="reorderInspectBody" style="background:#fff !important;padding:14px 18px">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  try {
+    const r = await groundApi('getReorderRuleInspection', { limit: 500 });
+    if (!r || !r.ok) {
+      document.getElementById('reorderInspectBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Failed: ' + esc((r && r.error) || 'unknown') + '</div>';
+      return;
+    }
+    const rows = r.rows || [];
+    const belowCount = rows.filter(x => x.below_reorder).length;
+    const stockoutRisk = rows.filter(x => (x.days_of_stock_remaining || 9999) < 14).length;
+    let html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+    html += _riKpi_('SKUs w/ reorder pt', rows.length, '#1a1a1a');
+    html += _riKpi_('Below reorder', belowCount, belowCount > 0 ? '#c33' : '#0a5c1a');
+    html += _riKpi_('< 14 days stock', stockoutRisk, stockoutRisk > 0 ? '#c33' : '#0a5c1a');
+    html += _riKpi_('Txns scanned', r.scanned_txns || 0, '#666');
+    html += '</div>';
+    html += '<div style="max-height:60vh;overflow:auto;border:1px solid #e0e0e0 !important;border-radius:8px">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<thead><tr style="background:#f5f5f7 !important">'
+      + '<th style="text-align:left;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">SKU</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">On hand</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Reorder pt</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">30d ship</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">90d ship</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Days stock</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Suggested</th>'
+      + '</tr></thead><tbody>';
+    rows.slice(0, 200).forEach(r => {
+      const bgTint = r.below_reorder ? '#fff5f5' : ((r.days_of_stock_remaining || 9999) < 14 ? '#fff8e1' : '#fff');
+      const dosCell = r.days_of_stock_remaining === null ? '—' : r.days_of_stock_remaining + 'd';
+      const dosColor = r.days_of_stock_remaining === null ? '#999' : (r.days_of_stock_remaining < 14 ? '#c33' : (r.days_of_stock_remaining < 30 ? '#ff8f00' : '#0a5c1a'));
+      html += '<tr style="border-top:1px solid #f0f0f0;background:' + bgTint + ' !important">'
+        + '<td style="padding:6px 10px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-weight:800">' + esc(r.sku) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(r.on_hand) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(r.reorder_point) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(r.velocity_30d) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(r.velocity_90d) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:' + dosColor + ' !important;-webkit-text-fill-color:' + dosColor + ' !important;font-weight:800">' + dosCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-weight:800">' + esc(r.computed_suggested_qty) + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
+    if (rows.length > 200) html += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;padding:8px;text-align:center">Showing 200 of ' + rows.length + '. Filter via SKU search or narrow days threshold.</div>';
+    document.getElementById('reorderInspectBody').innerHTML = html;
+  } catch (e) {
+    document.getElementById('reorderInspectBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+function _riKpi_(label, val, color) {
+  return '<div style="padding:10px;background:#f5f5f7 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;letter-spacing:.5px">' + label + '</div><div style="font-size:22px;font-weight:900;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important">' + val + '</div></div>';
 }
 
 // v10.976 — Reprint label modal. Wraps reprintLabelForShipment endpoint
