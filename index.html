@@ -1755,6 +1755,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.978 — Routing library: define production steps for each SKU (P1 wknd) -->
+    <button onclick="closeMoreMenu();openRoutingLibraryModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🗺</span>
+      <div style="flex:1">
+        <div>Routing Library</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Define production steps per SKU (station + minutes). Feeds auto-assembly on Shopify orders (v10.978)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openInstructionsMapPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:14px;border-bottom:2px solid #f0f0f0;padding-bottom:18px">
       <span style="font-size:22px">📑</span>
       <div style="flex:1">
@@ -16805,6 +16814,147 @@ async function openV1LabelDryRunModal(preFillOrder) {
   };
   setTimeout(() => { const el = document.getElementById('v1DryRunOrder'); if (el) el.focus(); }, 100);
   if (preFillOrder) setTimeout(() => window._v1DryRunGo_(), 200);
+}
+
+// v10.978 — Routing Library modal. Define production steps per SKU
+// (which stations + expected minutes at each) via Bedrock UI instead
+// of editor JSON. Feeds v10.961 auto-assembly.
+async function openRoutingLibraryModal() {
+  let backdrop = document.getElementById('routingLibBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'routingLibBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:1000px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🗺</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Routing Library</div><div style="font-size:11px;opacity:.85;margin-top:2px">Production steps per SKU — feeds auto-assembly</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('routingLibBackdrop').remove()">Close</button>
+      </div>
+      <div style="padding:14px 18px;background:#f5f5f7;border-bottom:1px solid #e0e0e0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="routingLibFilter" placeholder="Filter by SKU (partial)" style="flex:1;min-width:200px;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:8px;font-size:14px" oninput="_routingLibRender_()">
+        <button onclick="_routingLibAddStep_()" class="bd-btn-primary" style="padding:10px 14px;font-size:13px">➕ Add step</button>
+      </div>
+      <div class="bd-modal-body" id="routingLibBody" style="background:#fff !important;padding:14px 18px">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading routings…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  window._routingLibState_ = { steps: [], workCenters: [] };
+  try {
+    const [routResp, wcResp] = await Promise.all([
+      groundApi('listRoutings', {}),
+      groundApi('listWorkCenters', {}),
+    ]);
+    window._routingLibState_.steps = (routResp && routResp.ok && routResp.steps) || [];
+    window._routingLibState_.workCenters = (wcResp && wcResp.ok && wcResp.work_centers) || [];
+    window._routingLibRender_();
+  } catch (e) {
+    document.getElementById('routingLibBody').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Load failed: ' + esc(e.message) + '</div>';
+  }
+  window._routingLibRender_ = function () {
+    const filter = (document.getElementById('routingLibFilter').value || '').trim().toUpperCase();
+    const steps = (window._routingLibState_.steps || []).filter(s => !filter || String(s.sku || '').toUpperCase().includes(filter));
+    const wcs = window._routingLibState_.workCenters || [];
+    const wcById = {}; wcs.forEach(wc => wcById[wc.work_center_id] = wc);
+    // Group by SKU
+    const bySku = {};
+    steps.forEach(s => { if (!bySku[s.sku]) bySku[s.sku] = []; bySku[s.sku].push(s); });
+    Object.keys(bySku).forEach(sku => bySku[sku].sort((a,b) => a.step_sequence - b.step_sequence));
+    const body = document.getElementById('routingLibBody');
+    if (!Object.keys(bySku).length) {
+      body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:14px">No routings defined yet' + (filter ? ' matching "' + esc(filter) + '"' : '') + '. Tap ➕ Add step to define one.</div>';
+      return;
+    }
+    let html = '';
+    Object.keys(bySku).sort().forEach(sku => {
+      const stepList = bySku[sku];
+      const totalMin = stepList.reduce((s, x) => s + Number(x.duration_expected_min || 0), 0);
+      html += '<div style="border:1px solid #e0e0e0 !important;border-radius:10px;padding:12px;margin-bottom:12px;background:#fafafa !important">';
+      html += '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">';
+      html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + esc(sku) + '</div>';
+      html += '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-transform:uppercase;letter-spacing:.5px;font-weight:800">' + stepList.length + ' steps · ' + totalMin + ' min total</div>';
+      html += '</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+      stepList.forEach(step => {
+        const wc = wcById[step.work_center_id];
+        const wcLabel = wc ? wc.code + ' · ' + wc.name : '(unknown wc ' + step.work_center_id + ')';
+        html += '<div style="background:#fff !important;border:1px solid #ccc !important;border-radius:6px;padding:6px 10px;font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
+        html += '<span style="font-weight:800;color:#666 !important;-webkit-text-fill-color:#666 !important">' + step.step_sequence + '.</span> ';
+        html += esc(wcLabel) + ' · ' + esc(step.duration_expected_min || 0) + ' min';
+        if (!step.active) html += ' <span style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:10px;font-weight:800">(inactive)</span>';
+        html += ' <button onclick="_routingLibEditStep_(' + step.routing_id + ')" style="background:none;border:none;color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important;cursor:pointer;padding:0 4px;font-size:12px;font-weight:800">Edit</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '</div>';
+    });
+    body.innerHTML = html;
+  };
+  window._routingLibAddStep_ = function () { _routingLibEditStep_(null); };
+  window._routingLibEditStep_ = function (routingId) {
+    const wcs = window._routingLibState_.workCenters || [];
+    const step = routingId ? (window._routingLibState_.steps || []).find(s => s.routing_id === routingId) : null;
+    const sku = step ? step.sku : '';
+    const seq = step ? step.step_sequence : 1;
+    const wcid = step ? step.work_center_id : (wcs[0] ? wcs[0].work_center_id : '');
+    const dur = step ? step.duration_expected_min : 30;
+    const active = step ? step.active !== false : true;
+    let editModal = document.getElementById('routingEditModal');
+    if (editModal) editModal.remove();
+    editModal = document.createElement('div');
+    editModal.id = 'routingEditModal';
+    editModal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10020;display:flex;align-items:center;justify-content:center;padding:24px';
+    editModal.innerHTML = `
+      <div style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:min(500px,100%);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.5);overflow:hidden">
+        <div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:12px 16px;font-weight:800">${step ? 'Edit' : 'New'} routing step</div>
+        <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+          <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#333 !important;-webkit-text-fill-color:#333 !important">SKU</label>
+          <input id="reStepSku" value="${esc(sku)}" style="padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px;font-family:'JetBrains Mono',monospace">
+          <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#333 !important;-webkit-text-fill-color:#333 !important">Step sequence (order)</label>
+          <input id="reStepSeq" type="number" min="1" value="${seq}" style="padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px">
+          <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#333 !important;-webkit-text-fill-color:#333 !important">Work center</label>
+          <select id="reStepWc" style="padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc !important;border-radius:6px">
+            ${wcs.map(wc => '<option value="' + wc.work_center_id + '"' + (wc.work_center_id === wcid ? ' selected' : '') + '>' + esc(wc.code) + ' · ' + esc(wc.name) + '</option>').join('')}
+          </select>
+          <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#333 !important;-webkit-text-fill-color:#333 !important">Duration expected (minutes)</label>
+          <input id="reStepDur" type="number" min="1" value="${dur}" style="padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#333 !important;-webkit-text-fill-color:#333 !important"><input id="reStepActive" type="checkbox" ${active ? 'checked' : ''}> Active</label>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <button onclick="_routingLibSave_()" style="flex:1;padding:12px;background:#00b04f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-weight:800;cursor:pointer">✓ Save</button>
+            <button onclick="document.getElementById('routingEditModal').remove()" class="bd-btn-secondary" style="padding:12px 16px">Cancel</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(editModal);
+  };
+  window._routingLibSave_ = async function () {
+    const skuIn = (document.getElementById('reStepSku').value || '').trim().toUpperCase();
+    const seq = Number(document.getElementById('reStepSeq').value) || 1;
+    const wcid = Number(document.getElementById('reStepWc').value) || 0;
+    const dur = Number(document.getElementById('reStepDur').value) || 30;
+    const active = document.getElementById('reStepActive').checked;
+    if (!skuIn) { alert('SKU required'); return; }
+    const pin = window.ensurePin('Manager PIN to save routing step:');
+    if (!pin) return;
+    try {
+      const r = await groundApi('upsertRoutingStep', {
+        manager_pin: pin, sku: skuIn, step_sequence: seq,
+        work_center_id: wcid, duration_expected_min: dur, active: active,
+      });
+      if (r && r.ok) {
+        showToast('✓ Saved ' + skuIn + ' step ' + seq);
+        document.getElementById('routingEditModal').remove();
+        const routResp = await groundApi('listRoutings', {});
+        window._routingLibState_.steps = (routResp && routResp.ok && routResp.steps) || [];
+        window._routingLibRender_();
+      } else alert('Save failed: ' + ((r && r.error) || 'unknown'));
+    } catch (e) { alert('Save error: ' + e.message); }
+  };
 }
 
 // v10.968 — Orphan shipment audit + bulk void one-touch UI. Wraps the
