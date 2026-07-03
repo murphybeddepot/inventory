@@ -1764,6 +1764,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.1047 — Revenue vs COGS margin dashboard (v10.1029 endpoint) -->
+    <button onclick="closeMoreMenu();openRevCogsModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📈</span>
+      <div style="flex:1">
+        <div>Margin Dashboard</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">30-day revenue vs COGS per shipped order · Norm's dashboard (v10.1047)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <!-- v10.962 — Manufacturing tablet mode (Katana Shop Floor App / Odoo Work Orders tablet). Post-July primary UI. -->
     <button onclick="closeMoreMenu();openProductionFloorModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
@@ -17037,6 +17046,95 @@ function _cpCol_(icon, label, val, color, sub) {
     + '<div style="font-size:22px;font-weight:900;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important">' + val + '</div>'
     + '<div style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-top:6px;line-height:1.3">' + esc(sub) + '</div>'
     + '</div>';
+}
+
+// v10.1047 — Revenue vs COGS margin dashboard. Wraps getRevenueVsCogsReport
+// (v10.1029). Norm-facing: overall pill, per-order table, uncosted alert.
+async function openRevCogsModal() {
+  let backdrop = document.getElementById('revCogsBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'revCogsBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:1100px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">📈</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Margin Dashboard</div><div style="font-size:11px;opacity:.85;margin-top:2px">Revenue vs COGS · last 30 shipped orders (window configurable)</div></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="revCogsDays" onchange="_revCogsReload_(this.value)" style="padding:6px 10px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border-radius:5px;font-size:12px;font-weight:700">
+            <option value="7">7d</option>
+            <option value="30" selected>30d</option>
+            <option value="60">60d</option>
+            <option value="90">90d</option>
+          </select>
+          <button class="bd-close-btn" onclick="document.getElementById('revCogsBackdrop').remove()">Close</button>
+        </div>
+      </div>
+      <div class="bd-modal-body" id="revCogsBody" style="background:#fff !important;padding:14px 18px">
+        <div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading spine + Shopify + BOM…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  _revCogsReload_(30);
+}
+async function _revCogsReload_(days) {
+  const body = document.getElementById('revCogsBody');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading…</div>';
+  try {
+    const r = await groundApi('getRevenueVsCogsReport', { days: Number(days) || 30 });
+    if (!r || !r.ok) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Failed: ' + esc((r && r.error) || 'unknown') + '</div>';
+      return;
+    }
+    const t = r.totals || {};
+    const fmt = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const pctColor = t.overall_margin_pct >= 30 ? '#0a5c1a' : (t.overall_margin_pct >= 15 ? '#ff8f00' : '#c33');
+    let html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+    html += _rcKpi_('Orders shipped', t.order_count || 0, '#1a1a1a');
+    html += _rcKpi_('Revenue', fmt(t.revenue_usd), '#0a5c1a');
+    html += _rcKpi_('COGS', fmt(t.total_cogs_usd), '#c33');
+    html += _rcKpi_('Margin ' + (t.overall_margin_pct != null ? t.overall_margin_pct + '%' : '—'), fmt(t.total_margin_usd), pctColor);
+    html += '</div>';
+    if (t.orders_missing_cost > 0) {
+      html += '<div style="padding:10px 12px;background:#fff8e1 !important;border-left:3px solid #ff8f00;border-radius:6px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:12px;margin-bottom:14px">⚠ ' + t.orders_missing_cost + ' orders have COGS=0 (BOM not costed) · ' + t.orders_no_shopify + ' orders skipped (no Shopify match). Total costed: ' + t.orders_costed + '.</div>';
+    }
+    html += '<div style="max-height:55vh;overflow:auto;border:1px solid #e0e0e0 !important;border-radius:8px">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<thead><tr style="background:#f5f5f7 !important">'
+      + '<th style="text-align:left;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Order</th>'
+      + '<th style="text-align:left;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Customer</th>'
+      + '<th style="text-align:left;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Ship date</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Revenue</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">COGS</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">Margin</th>'
+      + '<th style="text-align:right;padding:8px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">%</th>'
+      + '</tr></thead><tbody>';
+    (r.sample_orders || []).forEach(o => {
+      const rowColor = o.margin_pct >= 30 ? '#0a5c1a' : (o.margin_pct >= 15 ? '#ff8f00' : (o.margin_pct != null ? '#c33' : '#999'));
+      html += '<tr style="border-top:1px solid #f0f0f0">'
+        + '<td style="padding:6px 10px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-weight:800">' + esc(o.order_number) + '</td>'
+        + '<td style="padding:6px 10px;color:#333 !important;-webkit-text-fill-color:#333 !important">' + esc(o.customer || '—') + '</td>'
+        + '<td style="padding:6px 10px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(o.ship_date || '') + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:#0a5c1a !important;-webkit-text-fill-color:#0a5c1a !important">' + fmt(o.revenue) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:#c33 !important;-webkit-text-fill-color:#c33 !important">' + fmt(o.cogs) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:' + rowColor + ' !important;-webkit-text-fill-color:' + rowColor + ' !important;font-weight:800">' + fmt(o.margin_usd) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:' + rowColor + ' !important;-webkit-text-fill-color:' + rowColor + ' !important;font-weight:800">' + (o.margin_pct != null ? o.margin_pct + '%' : '—') + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-top:10px">Since ' + esc(r.ship_date_since) + '. ' + esc(r.note || '') + '</div>';
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+function _rcKpi_(label, val, color) {
+  return '<div style="padding:10px;background:#f5f5f7 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;letter-spacing:.5px">' + esc(label) + '</div><div style="font-size:20px;font-weight:900;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important;margin-top:4px">' + val + '</div></div>';
 }
 
 // v10.1016 — Reorder Inspector UI. Calls getReorderRuleInspection
