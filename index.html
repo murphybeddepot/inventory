@@ -1737,6 +1737,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.976 — reprint any label by shipment_id / tracking / order# -->
+    <button onclick="closeMoreMenu();openReprintLabelModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🔄</span>
+      <div style="flex:1">
+        <div>Reprint Label</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Label torn? Enter order # or tracking → reprints from Drive (v10.976)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <!-- v10.962 — Manufacturing tablet mode (Katana Shop Floor App / Odoo Work Orders tablet). Post-July primary UI. -->
     <button onclick="closeMoreMenu();openProductionFloorModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
@@ -16954,6 +16963,71 @@ async function openRoutingLibraryModal() {
         window._routingLibRender_();
       } else alert('Save failed: ' + ((r && r.error) || 'unknown'));
     } catch (e) { alert('Save error: ' + e.message); }
+  };
+}
+
+// v10.976 — Reprint label modal. Wraps reprintLabelForShipment endpoint
+// so packer taps → enters order # → prints. Handles multi-box orders
+// (reprints all labels tied to the order).
+async function openReprintLabelModal() {
+  let backdrop = document.getElementById('reprintLabelBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'reprintLabelBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:600px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🔄</span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:800">Reprint Label</div><div style="font-size:11px;opacity:.85;margin-top:2px">Label torn? Enter order # or tracking</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('reprintLabelBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" id="reprintBody" style="background:#fff !important;padding:16px 20px">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#333 !important;-webkit-text-fill-color:#333 !important">Order # (preferred — reprints all boxes on the order)</label>
+          <input id="reprintOrder" placeholder="e.g. 32600" style="padding:12px 14px;font-size:16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:8px;font-family:'JetBrains Mono',monospace">
+          <div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;text-align:center;margin:4px 0">— or —</div>
+          <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#333 !important;-webkit-text-fill-color:#333 !important">Tracking number (single label)</label>
+          <input id="reprintTracking" placeholder="tracking #" style="padding:12px 14px;font-size:16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:8px;font-family:'JetBrains Mono',monospace">
+          <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#333 !important;-webkit-text-fill-color:#333 !important">Copies</label>
+          <input id="reprintCopies" type="number" min="1" max="5" value="1" style="padding:12px 14px;font-size:16px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:8px;width:100px">
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button onclick="_reprintGo_()" style="flex:1;padding:14px;background:#0a8a3f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-weight:900;font-size:14px;cursor:pointer">🖨 Reprint</button>
+          </div>
+          <div id="reprintResult" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  setTimeout(() => { const el = document.getElementById('reprintOrder'); if (el) el.focus(); }, 100);
+  window._reprintGo_ = async function () {
+    const orderN = (document.getElementById('reprintOrder').value || '').trim();
+    const tracking = (document.getElementById('reprintTracking').value || '').trim();
+    const copies = Math.max(1, Math.min(5, Number(document.getElementById('reprintCopies').value) || 1));
+    const resEl = document.getElementById('reprintResult');
+    if (!orderN && !tracking) {
+      resEl.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:8px">Enter order # or tracking.</div>';
+      return;
+    }
+    resEl.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;padding:8px">📤 Submitting to PrintNode…</div>';
+    try {
+      const r = await groundApi('reprintLabelForShipment', {
+        orderNumber: orderN || undefined,
+        tracking: tracking || undefined,
+        copies: copies,
+      });
+      if (r && r.ok) {
+        resEl.innerHTML = '<div class="bd-callout-ok" style="padding:12px;font-weight:800">✓ Reprinted ' + r.printed + ' label(s) × ' + copies + ' cop' + (copies === 1 ? 'y' : 'ies') + '</div>';
+        if (typeof showToast === 'function') showToast('✓ ' + r.printed + ' label(s) reprinting');
+      } else {
+        resEl.innerHTML = '<div class="bd-callout-bad" style="padding:12px">❌ ' + esc((r && r.error) || 'unknown error') + '</div>';
+      }
+    } catch (e) {
+      resEl.innerHTML = '<div class="bd-callout-bad" style="padding:12px">❌ ' + esc(e.message || String(e)) + '</div>';
+    }
   };
 }
 
