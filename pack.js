@@ -9046,6 +9046,15 @@ function openHowItWorks() {
     + '</div>'
     + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.1050 (2026-07-03).</div>'
 
+    + H('🆕 Diagnostics + Dashboards (v10.1015–v10.1091)')
+    + pill('live', '🩺 Diagnostics', 'More menu → 🩺 · runs 22 subsystem diags in one tap · verdict ALL_GREEN / PARTIAL / ALL_RED. Answers "is everything wired up?" — after activating triggers or a Supabase migration, tap this to verify.')
+    + pill('live', '🏦 Cash Position', 'More menu → 🏦 · A/P owed to vendors + A/R owed by customers + inventory FIFO value + net asset position. Same numbers as the Monday 10am Slack digest but on-demand.')
+    + pill('live', '📈 Margin Dashboard', 'More menu → 📈 · 30/60/90-day revenue vs COGS per shipped order + rollup totals. Color-coded per-order margin. Norm\'s dashboard.')
+    + pill('live', '🔧 Warranty Dashboard', 'More menu → 🔧 · Remakes rolled up by damage source / carrier / SKU. Jessica\'s CS-VP view + carrier-claim ammunition.')
+    + pill('live', '📉 Reorder Inspector', 'More menu → 📉 · Per-SKU velocity + days_of_stock_remaining + suggested reorder qty. Red-tinted rows below reorder_point. Weekly PO-tuning workflow.')
+    + pill('live', '🧪 Fire Digest Now', 'More menu → 🧪 · Test any of the 12 recurring Slack digests immediately without waiting for cron. Bulletproof way to verify newly-installed triggers.')
+    + pill('live', '📊 Reporting stack — 12 digests to #claude_bedrock', 'Morning Brief M-F 7am rollup + Aged A/P Mon 9am + Cash forecast Mon 10am + Warranty Mon 11am + Cycle count Sun 7pm + Production forecast Sun 6pm + Orphan void Sun 5pm + daily spine reconcile 5am + reorder auto-draft 6am + oversell check 7am. Vendor scorecards Mon 8am + capacity Mon 9am. See docs/SLACK_DIGEST_CADENCE.md.')
+
     + H('🆕 Money-path + Odoo wave (v10.938–v10.1050)')
     + pill('live', '💸 V1 label creation (shipments now tie to orders)', 'Every Bedrock label buy switched from ShipStation V2 to V1 /orders/createlabelfororder. Shipments now show Order # + items in ShipStation UI, listV1ShipmentsForOrder finds them, void actually voids. Auto-fallback to V2 with Slack alert if V1 rejects an edge case. Orphan V2 shipments from before the switch: More menu → 💸 Orphan Voids to audit + bulk-void (money back). Auto-insures orders ≥ $250 for 90% of sale via ShipSurance. Reprint any label by order # / tracking via More → 🔄 Reprint Label.')
     + pill('live', '🏭 In-house manufacturing scaffold (Katana + Odoo)', 'work_centers + work_orders + routings + auto-assembly-on-Shopify-order + tablet-mode Start/Done + auto-state-promotion + backflush BOM components + produce a lot on final step. More menu → 🏭 Production Floor for operators, 📅 Scheduler Board for Seth\'s kanban, 🗺 Routing Library for defining steps. QC FAIL button flags an on-hold state + Slacks Seth + Zac. Ready for July machines.')
