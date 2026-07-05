@@ -17334,6 +17334,7 @@ async function openWarrantyDashboardModal() {
             <option value="180">180d</option>
             <option value="365">365d</option>
           </select>
+          <button onclick="openClaimActionModal()" style="padding:6px 10px;background:#0a5c1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer" title="Advance a carrier claim through open→submitted→approved/denied">📄 Claim Action</button>
           <button class="bd-close-btn" onclick="document.getElementById('warrDashBackdrop').remove()">Close</button>
         </div>
       </div>
@@ -17403,6 +17404,95 @@ async function _warrDashReload_(days) {
     body.innerHTML = html;
   } catch (e) {
     body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+
+// v10.1113 — Carrier claim action helper. Advances a remake through
+// carrier_claim_status transitions. Wraps v10.1112 updateCarrierClaim.
+function openClaimActionModal() {
+  let backdrop = document.getElementById('claimActionBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'claimActionBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:520px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">📄</span>
+        <div style="flex:1"><div style="font-size:16px;font-weight:800">Carrier Claim Action</div><div style="font-size:11px;opacity:.85;margin-top:2px">Advance a claim through its lifecycle</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('claimActionBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" style="background:#fff !important;padding:16px 18px">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <label style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;font-weight:700">Remake ID
+            <input id="claimRemakeId" type="text" placeholder="R-…" style="width:100%;padding:9px 11px;font-family:'JetBrains Mono',monospace;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px;margin-top:4px">
+          </label>
+          <label style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;font-weight:700">New status
+            <select id="claimNewStatus" onchange="_claimShowExtras_()" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc !important;border-radius:6px;margin-top:4px">
+              <option value="open">📄 Open (needs claim ID)</option>
+              <option value="submitted">📤 Submitted</option>
+              <option value="approved">✅ Approved (needs \$ recovered · PIN)</option>
+              <option value="denied">❌ Denied (PIN)</option>
+            </select>
+          </label>
+          <div id="claimClaimIdRow" style="display:none">
+            <label style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;font-weight:700">Carrier claim ID
+              <input id="claimClaimId" type="text" placeholder="carrier's claim reference" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px;margin-top:4px">
+            </label>
+          </div>
+          <div id="claimRecoveredRow" style="display:none">
+            <label style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;font-weight:700">Recovered \$
+              <input id="claimRecovered" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px;margin-top:4px">
+            </label>
+          </div>
+          <div id="claimPinRow" style="display:none">
+            <label style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;font-weight:700">Manager PIN
+              <input id="claimPin" type="password" placeholder="required for approve/deny" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px;margin-top:4px">
+            </label>
+          </div>
+          <label style="font-size:12px;color:#333 !important;-webkit-text-fill-color:#333 !important;font-weight:700">Notes (optional)
+            <textarea id="claimNotes" rows="2" placeholder="What changed — appended to remake notes with timestamp" style="width:100%;padding:9px 11px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px;margin-top:4px;font-family:inherit;resize:vertical"></textarea>
+          </label>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="document.getElementById('claimActionBackdrop').remove()" style="padding:9px 14px;background:transparent;color:#666 !important;-webkit-text-fill-color:#666 !important;border:1px solid #ccc;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Cancel</button>
+            <button onclick="_submitClaimAction_()" style="padding:9px 16px;background:#0a5c1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer">Apply</button>
+          </div>
+          <div id="claimResult" style="display:none"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  _claimShowExtras_();
+}
+function _claimShowExtras_() {
+  const status = document.getElementById('claimNewStatus').value;
+  document.getElementById('claimClaimIdRow').style.display = (status === 'open') ? 'block' : 'none';
+  document.getElementById('claimRecoveredRow').style.display = (status === 'approved') ? 'block' : 'none';
+  document.getElementById('claimPinRow').style.display = (status === 'approved' || status === 'denied') ? 'block' : 'none';
+}
+async function _submitClaimAction_() {
+  const remakeId = document.getElementById('claimRemakeId').value.trim();
+  const status = document.getElementById('claimNewStatus').value;
+  if (!remakeId) { alert('Remake ID required'); return; }
+  const body = { remake_id: remakeId, new_status: status };
+  if (status === 'open') body.carrier_claim_id = document.getElementById('claimClaimId').value.trim();
+  if (status === 'approved') body.recovered_usd = Number(document.getElementById('claimRecovered').value);
+  if (status === 'approved' || status === 'denied') body.manager_pin = document.getElementById('claimPin').value;
+  const notes = document.getElementById('claimNotes').value.trim();
+  if (notes) body.notes = notes;
+  const resultEl = document.getElementById('claimResult');
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<div style="padding:10px;background:#e3f2fd !important;color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important;border-radius:6px;font-size:12px">Submitting…</div>';
+  try {
+    const r = await groundApi('updateCarrierClaim', body);
+    if (r && r.ok) {
+      resultEl.innerHTML = '<div style="padding:12px;background:#e8f5e9 !important;color:#0a5c1a !important;-webkit-text-fill-color:#0a5c1a !important;border-radius:6px;font-size:12px">✓ ' + esc(r.remake_id) + ': ' + esc(r.prev_status || '(empty)') + ' → <b>' + esc(r.new_status) + '</b></div>';
+    } else {
+      resultEl.innerHTML = '<div style="padding:12px;background:#ffebee !important;color:#c33 !important;-webkit-text-fill-color:#c33 !important;border-radius:6px;font-size:12px">✗ ' + esc((r && r.error) || 'unknown error') + '</div>';
+    }
+  } catch (e) {
+    resultEl.innerHTML = '<div style="padding:12px;background:#ffebee !important;color:#c33 !important;-webkit-text-fill-color:#c33 !important;border-radius:6px;font-size:12px">Error: ' + esc(e.message || String(e)) + '</div>';
   }
 }
 
@@ -30658,7 +30748,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1110"></script>
+<script src="./pack.js?v=10.1113"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -30669,7 +30759,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1110<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1113<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
