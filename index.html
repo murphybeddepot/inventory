@@ -1809,6 +1809,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.1118 — AI Scaffolds tester -->
+    <button onclick="closeMoreMenu();openAiScaffoldTester()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🧠</span>
+      <div style="flex:1">
+        <div>AI Scaffolds</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Test Häfele PDF parser + damage classifier (needs Cloudflare Worker)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <!-- v10.962 — Manufacturing tablet mode (Katana Shop Floor App / Odoo Work Orders tablet). Post-July primary UI. -->
     <button onclick="closeMoreMenu();openProductionFloorModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
@@ -17407,6 +17416,69 @@ async function _warrDashReload_(days) {
   }
 }
 
+// v10.1118 — AI Scaffolds tester. Simple form to hit both AI endpoints
+// (parseHafeleQuotePdf + classifyDamagePhoto). Returns stub or real
+// depending on whether Zac wired the Cloudflare Worker + Claude API.
+function openAiScaffoldTester() {
+  let backdrop = document.getElementById('aiScaffoldBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'aiScaffoldBackdrop';
+  backdrop.className = 'bd-modal-backdrop';
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+  backdrop.innerHTML = `
+    <div class="bd-modal-shell" style="max-width:640px">
+      <div class="bd-modal-header">
+        <span style="font-size:22px">🧠</span>
+        <div style="flex:1"><div style="font-size:16px;font-weight:800">AI Scaffolds</div><div style="font-size:11px;opacity:.85;margin-top:2px">v10.1115 Häfele PDF parser + v10.1116 damage photo classifier</div></div>
+        <button class="bd-close-btn" onclick="document.getElementById('aiScaffoldBackdrop').remove()">Close</button>
+      </div>
+      <div class="bd-modal-body" style="background:#fff !important;padding:16px 18px">
+        <div style="padding:10px;background:#fffbe6 !important;border-left:3px solid #ff8f00;border-radius:6px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:12px;margin-bottom:14px">⚠ Both endpoints return STUB data until Zac sets CLOUDFLARE_AI_ENDPOINT + AI_SHARED_SECRET Script Properties and deploys the Worker. See <code>HafeleClaudeParser.js</code> docstring.</div>
+
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div>
+            <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#333 !important;-webkit-text-fill-color:#333 !important;letter-spacing:.5px;margin-bottom:6px">📄 Häfele PDF Parser</div>
+            <input id="aiHafelePdfUrl" type="url" placeholder="https://drive.google.com/…/hafele-quote.pdf" style="width:100%;padding:9px 11px;font-family:'JetBrains Mono',monospace;font-size:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px">
+            <button onclick="_aiTestHafele_()" style="margin-top:6px;padding:8px 14px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Parse</button>
+          </div>
+
+          <div>
+            <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#333 !important;-webkit-text-fill-color:#333 !important;letter-spacing:.5px;margin-bottom:6px">📸 Damage Photo Classifier</div>
+            <input id="aiDamagePhotoUrl" type="url" placeholder="https://drive.google.com/…/damage-photo.jpg" style="width:100%;padding:9px 11px;font-family:'JetBrains Mono',monospace;font-size:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;caret-color:#1565c0 !important;border:1.5px solid #ccc !important;border-radius:6px">
+            <button onclick="_aiTestDamage_()" style="margin-top:6px;padding:8px 14px;background:#c33 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Classify</button>
+          </div>
+
+          <div id="aiResult" style="display:none;margin-top:8px"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+}
+async function _aiCallEndpoint_(action, body, label) {
+  const el = document.getElementById('aiResult');
+  el.style.display = 'block';
+  el.innerHTML = '<div style="padding:10px;background:#e3f2fd !important;color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important;border-radius:6px;font-size:12px">Calling ' + esc(action) + '…</div>';
+  try {
+    const r = await groundApi(action, body);
+    const bg = r && r.ok ? (r.simulated ? '#fffbe6' : '#e8f5e9') : '#ffebee';
+    const fg = r && r.ok ? (r.simulated ? '#8f6b00' : '#0a5c1a') : '#c33';
+    el.innerHTML = '<div style="padding:12px;background:' + bg + ' !important;color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border-radius:6px;font-size:12px"><b>' + esc(label) + '</b> — <b>' + (r && r.ok ? (r.simulated ? 'stub' : 'live') : 'error') + '</b><pre style="margin:8px 0 0;white-space:pre-wrap;font-size:11px;font-family:\'JetBrains Mono\',monospace">' + esc(JSON.stringify(r, null, 2)) + '</pre></div>';
+  } catch (e) {
+    el.innerHTML = '<div style="padding:12px;background:#ffebee !important;color:#c33 !important;-webkit-text-fill-color:#c33 !important;border-radius:6px;font-size:12px">Error: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+async function _aiTestHafele_() {
+  const url = document.getElementById('aiHafelePdfUrl').value.trim();
+  if (!url) { alert('PDF URL required'); return; }
+  _aiCallEndpoint_('parseHafeleQuotePdf', { pdf_url: url }, 'Häfele PDF Parser');
+}
+async function _aiTestDamage_() {
+  const url = document.getElementById('aiDamagePhotoUrl').value.trim();
+  if (!url) { alert('Photo URL required'); return; }
+  _aiCallEndpoint_('classifyDamagePhoto', { photo_url: url }, 'Damage Photo Classifier');
+}
+
 // v10.1113 — Carrier claim action helper. Advances a remake through
 // carrier_claim_status transitions. Wraps v10.1112 updateCarrierClaim.
 function openClaimActionModal() {
@@ -30748,7 +30820,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1113"></script>
+<script src="./pack.js?v=10.1118"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -30759,7 +30831,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1113<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1118<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
