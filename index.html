@@ -16968,6 +16968,14 @@ async function openRoutingLibraryModal() {
         html += '<span style="font-weight:800;color:#666 !important;-webkit-text-fill-color:#666 !important">' + step.step_sequence + '.</span> ';
         html += esc(wcLabel) + ' · ' + esc(step.duration_expected_min || 0) + ' min';
         if (!step.active) html += ' <span style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:10px;font-weight:800">(inactive)</span>';
+        // v10.1124 — ↑/↓ reorder (disabled at boundaries)
+        const idxHere = stepList.findIndex(function(s2){return s2.routing_id===step.routing_id;});
+        if (idxHere > 0) {
+          html += ' <button onclick="_routingLibSwap_(\'' + esc(sku) + '\',' + step.step_sequence + ',' + stepList[idxHere - 1].step_sequence + ')" style="background:none;border:none;color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important;cursor:pointer;padding:0 4px;font-size:14px;font-weight:800" title="Move earlier">↑</button>';
+        }
+        if (idxHere < stepList.length - 1) {
+          html += ' <button onclick="_routingLibSwap_(\'' + esc(sku) + '\',' + step.step_sequence + ',' + stepList[idxHere + 1].step_sequence + ')" style="background:none;border:none;color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important;cursor:pointer;padding:0 4px;font-size:14px;font-weight:800" title="Move later">↓</button>';
+        }
         html += ' <button onclick="_routingLibEditStep_(' + step.routing_id + ')" style="background:none;border:none;color:#1565c0 !important;-webkit-text-fill-color:#1565c0 !important;cursor:pointer;padding:0 4px;font-size:12px;font-weight:800">Edit</button>';
         html += ' <button onclick="_routingLibDeleteStep_(' + step.routing_id + ',\'' + esc(sku) + '\',' + step.step_sequence + ')" style="background:none;border:none;color:#c33 !important;-webkit-text-fill-color:#c33 !important;cursor:pointer;padding:0 4px;font-size:12px;font-weight:800" title="Delete this step">✕</button>';
         html += '</div>';
@@ -16978,6 +16986,28 @@ async function openRoutingLibraryModal() {
     body.innerHTML = html;
   };
   window._routingLibAddStep_ = function () { _routingLibEditStep_(null); };
+  // v10.1124 — Reorder step by swapping sequence with adjacent step.
+  window._routingLibSwap_ = async function (sku, seqA, seqB) {
+    const pin = await ensurePin('Reorder routing steps');
+    if (!pin) return;
+    try {
+      const r = await groundApi('swapRoutingSequence', { sku: sku, seq_a: seqA, seq_b: seqB, manager_pin: pin });
+      if (r && r.ok) {
+        // Locally swap the sequences + re-render.
+        const stepsRef = window._routingLibState_.steps || [];
+        stepsRef.forEach(s => {
+          if (String(s.sku).toUpperCase() === sku && s.step_sequence === seqA) s.step_sequence = seqB;
+          else if (String(s.sku).toUpperCase() === sku && s.step_sequence === seqB) s.step_sequence = seqA;
+        });
+        toast('Swapped ' + seqA + ' ↔ ' + seqB, 'success');
+        window._routingLibRender_();
+      } else {
+        alert('Swap failed: ' + ((r && r.error) || 'unknown'));
+      }
+    } catch (e) {
+      alert('Swap error: ' + e.message);
+    }
+  };
   // v10.1123 — Delete a routing step (PIN gate via ensurePin, then server-side gate too).
   window._routingLibDeleteStep_ = async function (routingId, sku, seq) {
     if (!routingId) return;
@@ -30841,7 +30871,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1123"></script>
+<script src="./pack.js?v=10.1124"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -30852,7 +30882,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1123<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1124<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
