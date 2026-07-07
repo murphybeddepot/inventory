@@ -1687,6 +1687,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.1172 (Zac 2026-07-07): editable SAMPLES packing slip -->
+    <button onclick="closeMoreMenu();openSamplesSlipEditor()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🎨</span>
+      <div style="flex:1">
+        <div>SAMPLES Packing Slip</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Edit the thank-you / promo lines on the slip that prints inside every SAMPLES box</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openBomToolsModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🧱</span>
       <div style="flex:1">
@@ -18935,6 +18944,91 @@ async function openBomToolsModal() {
   };
 }
 
+// v10.1172 (Zac 2026-07-07): editable SAMPLES packing slip modal.
+// Two text areas — header (renders BEFORE the "MURPHY BED DEPOT"
+// title) + footer (renders below the colors list). Manager PIN
+// required to save.
+async function openSamplesSlipEditor() {
+  const prior = document.getElementById('samplesSlipOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'samplesSlipOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  const panel = document.createElement('div');
+  panel.className = 'keep-dark-text';
+  panel.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;max-width:640px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);padding:24px;margin-top:24px';
+  panel.innerHTML = ''
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🎨 SAMPLES Packing Slip</div>'
+    +   '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">Prints inside every SAMPLES box + on the label printer just before the shipping label (bulk-print).</div></div>'
+    +   '<button onclick="document.getElementById(\'samplesSlipOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666;cursor:pointer;padding:0 8px">✕</button>'
+    + '</div>'
+    + '<div id="samplesSlipEditBody" style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px;padding:24px 12px;text-align:center">Loading current template…</div>';
+  ov.appendChild(panel);
+  document.body.appendChild(ov);
+  try {
+    const cur = await groundApi('getSamplesSlipTemplate', {});
+    if (!cur || !cur.ok) {
+      document.getElementById('samplesSlipEditBody').textContent = 'Load failed: ' + ((cur && cur.error) || 'unknown');
+      return;
+    }
+    _renderSamplesSlipForm_(cur);
+  } catch (e) {
+    document.getElementById('samplesSlipEditBody').textContent = 'Load error: ' + e.message;
+  }
+}
+function _renderSamplesSlipForm_(cur) {
+  const body = document.getElementById('samplesSlipEditBody');
+  if (!body) return;
+  body.innerHTML = ''
+    + '<div style="display:flex;flex-direction:column;gap:14px;text-align:left">'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;color:#4C1D95 !important;-webkit-text-fill-color:#4C1D95 !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Header (before "Murphy Bed Depot")</label>'
+    +     '<textarea id="samplesSlipHeader" rows="3" style="width:100%;padding:12px;background:#f8f8ff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #4C1D95;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;resize:vertical" placeholder="Optional greeting line, promo message, etc. Leave blank for none.">' + (cur.header || '').replace(/</g, '&lt;') + '</textarea>'
+    +     '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">One line per newline. Rendered in Murphy purple (#4C1D95) centered above the title.</div>'
+    +   '</div>'
+    +   '<div>'
+    +     '<label style="display:block;font-size:11px;font-weight:800;color:#4C1D95 !important;-webkit-text-fill-color:#4C1D95 !important;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Footer (below colors list)</label>'
+    +     '<textarea id="samplesSlipFooter" rows="4" style="width:100%;padding:12px;background:#f8f8ff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #4C1D95;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;resize:vertical" placeholder="Thank-you note, promo code, contact info, etc.">' + (cur.footer || '').replace(/</g, '&lt;') + '</textarea>'
+    +     '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px">Default: "' + (cur.default_footer || '') + '". Clear to fall back to default. One line per newline. Rendered italic gray centered.</div>'
+    +   '</div>'
+    +   '<div style="display:flex;gap:10px;margin-top:8px">'
+    +     '<button onclick="document.getElementById(\'samplesSlipOverlay\').remove()" style="flex:1;padding:14px;background:#f0f0f0 !important;color:#333 !important;-webkit-text-fill-color:#333 !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer">Cancel</button>'
+    +     '<button onclick="_saveSamplesSlipTemplate_()" id="samplesSlipSaveBtn" style="flex:2;padding:14px;background:linear-gradient(135deg,#7C3AED,#4C1D95) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px">💾 Save Template (manager PIN)</button>'
+    +   '</div>'
+    + '</div>';
+}
+async function _saveSamplesSlipTemplate_() {
+  const headerEl = document.getElementById('samplesSlipHeader');
+  const footerEl = document.getElementById('samplesSlipFooter');
+  if (!headerEl || !footerEl) return;
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('save SAMPLES slip template')
+    : window.prompt('Manager PIN:');
+  if (!pin) return;
+  const btn = document.getElementById('samplesSlipSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  try {
+    const res = await groundApi('setSamplesSlipTemplate', {
+      manager_pin: pin,
+      header: headerEl.value,
+      footer: footerEl.value,
+    });
+    if (!res || !res.ok) {
+      if (res && /pin/i.test(res.error || '') && typeof clearManagerPin_ === 'function') clearManagerPin_();
+      showToast('✕ Save failed: ' + ((res && res.error) || 'unknown'));
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Save Template (manager PIN)'; }
+      return;
+    }
+    showToast('✓ Slip template saved');
+    document.getElementById('samplesSlipOverlay').remove();
+  } catch (e) {
+    showToast('✕ Save error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Save Template (manager PIN)'; }
+  }
+}
+
 async function openEmailTemplatesEditor() {
   // Pre-load Quill in background while we fetch the template list —
   // first edit is then instant rather than waiting on a CDN round-trip.
@@ -31417,7 +31511,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1171"></script>
+<script src="./pack.js?v=10.1172"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31428,7 +31522,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1171<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1172<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
