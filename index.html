@@ -29226,6 +29226,24 @@ function renderGroundPackItemsPreview(orderRow) {
       'margin-top:12px;padding:14px;background:var(--surface-2);color:var(--text);'
       + '-webkit-text-fill-color:var(--text);'
       + 'border:1.5px solid #FFB300;border-radius:8px');
+    // v10.1170 (Zac 2026-07-07): if the queue row already carries the
+    // enriched samples payload (from _enrichSamplesForQueue_ at queue-
+    // load time), paint from it INSTANTLY instead of firing another
+    // Shopify lookup. Zac: 'it doesn't make sense that the colors are
+    // all previewed on the ground screen but then take 10-15 seconds
+    // to be re-pulled from the order detail screen'.
+    if (orderRow.samples && Array.isArray(orderRow.samples.colors) && orderRow.samples.colors.length) {
+      const colors = orderRow.samples.colors;
+      const suggested = orderRow.samples.box || (colors.length > 1 ? 'SAMPLES-MULTI-BOX' : 'SAMPLES-SINGLE-BOX');
+      colorBlock.innerHTML = '<div style="font-size:13px;font-weight:700;color:#FFB300;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📦 Colors to Box (' + colors.length + ')</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
+        +   colors.map(c => '<span style="padding:4px 10px;background:rgba(255,179,0,.15);border:1px solid #FFB300;border-radius:999px;font-size:12px;font-weight:800;color:#FFB300">' + escapeHtml(c) + '</span>').join('')
+        + '</div>'
+        + '<div style="font-size:11px;color:#9AAAC0;font-weight:600">Suggested box: ' + escapeHtml(suggested) + '</div>';
+      list.appendChild(colorBlock);
+      return;
+    }
+    // Fallback: no cached payload, look up from server.
     colorBlock.innerHTML = '<div style="font-size:13px;font-weight:700;color:#FFB300;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📦 Colors to Box</div>'
       + '<div id="groundSamplesColorsContent" style="font-size:14px;color:#9AAAC0">Looking up from Shopify…</div>';
     list.appendChild(colorBlock);
@@ -31392,7 +31410,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1169"></script>
+<script src="./pack.js?v=10.1170"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31403,7 +31421,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1169<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1170<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
