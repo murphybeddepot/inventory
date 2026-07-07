@@ -14415,7 +14415,11 @@ function findCabinets(query) {
     pool.push({
       uuid: 'upcoming:' + u.session_id + ':' + u.cabinet_num,
       cabinet: u.cabinet_num,
-      location: '',
+      // v10.1140 (Zac 2026-07-07): Shane moved cabinets in the
+      // receiving list; the sheet has the new location but search
+      // showed 'in receiving' because we hardcoded ''. Now use
+      // u.location (returned by listUpcomingCabinets since v10.1140).
+      location: String(u.location || ''),
       addedAt: '',
       _upcoming: true,
       _status: u.status || 'upcoming',
