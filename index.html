@@ -28846,7 +28846,14 @@ async function startGroundPack(orderRow) {
   const loadingEl = document.getElementById('groundPackLoading');
   loadingEl.style.display = 'none';
 
-  const isResume = orderRow.pack_status === 'In Progress' || orderRow.pack_status === 'Packed';
+  // v10.1137 (Zac 2026-07-07 08:10): 'When one clicks on an order
+  // that already has a purchased label shouldn't that screen just
+  // come up.' Previously only 'In Progress' + 'Packed' triggered
+  // resume — orders with 'Shipped' or 'Hold' or ANY pack_status
+  // other than default 'Awaiting' would still show the fresh-order
+  // Create Labels button. Fix: resume on ANY known non-default state.
+  const _ps = String(orderRow.pack_status || '').trim();
+  const isResume = _ps && _ps !== 'Awaiting' && _ps !== '';
 
   if (isResume) {
     // Resume: server returns existing labels, no extra spend. Go directly to box scanning.
