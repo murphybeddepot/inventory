@@ -18948,6 +18948,82 @@ async function openBomToolsModal() {
 // Two text areas — header (renders BEFORE the "MURPHY BED DEPOT"
 // title) + footer (renders below the colors list). Manager PIN
 // required to save.
+// v10.1173 (Zac 2026-07-07): translate common raw ShipStation / carrier
+// error strings to actionable plain English. Keeps raw text collapsible.
+function _translateGroundError_(raw) {
+  var s = String(raw || '');
+  // USPS Ground Advantage + flat rate box (today's 32460 error)
+  if (/GroundAdvantage/i.test(s) && /Flat_Rate_Box|Small_Flat_Rate|Medium_Flat_Rate|Large_Flat_Rate/i.test(s)) {
+    return {
+      title: 'USPS service + box mismatch',
+      body: 'USPS Ground Advantage does not accept flat-rate boxes. The rulebook has this box as a flat-rate SKU but the service_hint resolved to ground_advantage.',
+      action: 'Ship auto-retries once v10.1167 is deployed. If this persists, check the box\'s service_hint in the rulebook — it should say "Priority Mail…" for flat-rate boxes.',
+    };
+  }
+  // Invalid service_code
+  if (/invalid service_code/i.test(s)) {
+    return {
+      title: 'Carrier rejected service code',
+      body: 'The service_code sent to ShipStation isn\'t recognized for the carrier. Often means a rulebook service_hint hasn\'t been translated to the V2-format code.',
+      action: 'Rulebook service_hint values must be either V2 codes (usps_priority_mail) or one of the known human phrases (see LabelProvider._normSvc for the map). Fix rulebook or add a mapping.',
+    };
+  }
+  // Address error
+  if (/address|postal|zip|city|state/i.test(s) && /invalid|not found|required/i.test(s)) {
+    return {
+      title: 'Ship-to address rejected',
+      body: 'The carrier couldn\'t validate the customer\'s address. Common causes: missing state, wrong zip, or a PO Box for a service that doesn\'t deliver to PO Boxes.',
+      action: 'Check the address on the order in ShipStation. Correct it there, then retry pack-start.',
+    };
+  }
+  // Aborted / timeout
+  if (/abort|timeout|timed out|signal is aborted/i.test(s)) {
+    return {
+      title: 'Carrier call timed out',
+      body: 'ShipStation didn\'t respond in time (usually Shopify or ShipStation is slow). Labels may or may not have been bought server-side.',
+      action: 'Check the order in ShipStation before retrying. If a label already exists, use Reprint Label instead of retrying pack-start (would double-charge).',
+    };
+  }
+  // Insufficient funds
+  if (/insufficient|funds|balance|payment/i.test(s)) {
+    return {
+      title: 'ShipStation balance too low',
+      body: 'ShipStation\'s label balance couldn\'t cover this label.',
+      action: 'Top up the ShipStation label-purchase balance, then retry.',
+    };
+  }
+  // Rate not available
+  if (/rate|no.*services|no.*available/i.test(s)) {
+    return {
+      title: 'No rates returned',
+      body: 'The carrier returned no valid rates for the box + address combination. Often means the package dimensions/weight exceed the service limits.',
+      action: 'Double-check package weight + dimensions vs the service\'s limits. Try a different service or box.',
+    };
+  }
+  // Duplicate / already shipped
+  if (/already ship|duplicate|already exist/i.test(s)) {
+    return {
+      title: 'Order already has labels',
+      body: 'ShipStation already has one or more labels for this order.',
+      action: 'Use Reprint Label (More menu) to reprint. Do NOT retry pack-start (would buy another set + double-charge).',
+    };
+  }
+  // Unknown SKU / hold
+  if (/hold|unknown.*sku|no.*rule/i.test(s)) {
+    return {
+      title: 'Order needs a rulebook rule',
+      body: 'One or more SKUs on this order don\'t have a packing rule.',
+      action: 'Add a rule via Configure Box & Pack (inline), or Seth adds one in the Sheets rulebook.',
+    };
+  }
+  // Default: raw text, no translation
+  return {
+    title: 'Could not start pack',
+    body: s.slice(0, 240),
+    action: 'Check the raw error below for details. Slack Zac if unfamiliar.',
+  };
+}
+
 async function openSamplesSlipEditor() {
   const prior = document.getElementById('samplesSlipOverlay');
   if (prior) prior.remove();
@@ -30078,9 +30154,17 @@ async function callStartPackAndRender(orderRow) {
       return;
     }
     if (!data.ok) {
+      // v10.1173 (Zac 2026-07-07): translate common raw carrier errors
+      // to actionable plain-English + keep raw text collapsible below.
+      const rawErr = String(data.error || 'Unknown error');
+      const friendly = _translateGroundError_(rawErr);
       const details = (data.details || []).map(d => '• ' + escapeHtml(d)).join('<br>');
-      document.getElementById('groundErrorBody').innerHTML =
-        escapeHtml(data.error || 'Unknown error') + (details ? '<br><br>' + details : '');
+      document.getElementById('groundErrorBody').innerHTML = ''
+        + '<div style="font-weight:800;font-size:15px;margin-bottom:8px">' + escapeHtml(friendly.title) + '</div>'
+        + '<div style="line-height:1.5">' + escapeHtml(friendly.body) + '</div>'
+        + (friendly.action ? '<div style="margin-top:10px;padding:10px;background:rgba(255,255,255,.6);border:1px solid #C43030;border-radius:6px;font-weight:800">→ ' + escapeHtml(friendly.action) + '</div>' : '')
+        + (details ? '<br>' + details : '')
+        + '<details style="margin-top:14px;font-size:11px;font-weight:600;opacity:.85"><summary style="cursor:pointer">Show raw error text</summary><pre style="white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.05);padding:8px;border-radius:6px;margin-top:6px;font-family:monospace;font-size:11px">' + escapeHtml(rawErr) + '</pre></details>';
       showGroundView('error');
       return;
     }
@@ -31511,7 +31595,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1172"></script>
+<script src="./pack.js?v=10.1173"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31522,7 +31606,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1172<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1173<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
