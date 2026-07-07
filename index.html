@@ -3636,6 +3636,19 @@ function switchTab(name) {
   // v10.143: persist active tab so refresh / re-open stays on the
   // same screen instead of bouncing back to the default (Zac ask).
   try { localStorage.setItem('mbd_active_tab', name); } catch (e) {}
+  // v10.1158 (Zac 2026-07-07): 'on refresh it won't stay on cabinets
+  // for me but keeps going to https://…/#/orders/pack'. Root cause:
+  // the URL hash was stuck at #/orders/pack from a prior navigation
+  // to the Orders tab. On boot, the hash router runs AFTER the
+  // savedTab restore and overrides it. Fix: when switching to a
+  // non-Orders tab, clear the hash so refresh honors savedTab.
+  if (name !== 'orders') {
+    try {
+      if (location.hash && location.hash.indexOf('#/orders/') === 0) {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
+    } catch (_e) {}
+  }
   // v10.711 (Zac 2026-06-19) — clear the planner-open LS flag whenever
   // the user explicitly switches tabs. Without this, opening the
   // planner once + switching tabs (instead of tapping the ✕) leaves
@@ -14580,7 +14593,50 @@ function renderRecentSearches() {
       }).join('');
 }
 
+// v10.1158 (Zac 2026-07-07): bulk-restore any cabinet corrupted by the
+// v10.1142 auto-repair. My v10.1149 undo only ran when someone searched
+// a cabinet individually — which meant hours of team moves were still
+// scrambled. This runs across the whole cabinets[] array in one pass +
+// returns a report so Zac knows what was recovered vs unrecoverable.
+function runBulkUndoAutoRepair_() {
+  const report = { total: cabinets.length, corrupted_found: 0, restored: 0, unrestorable: [], restored_list: [] };
+  cabinets.forEach(c => {
+    if (c.deleted) return;
+    if (String(c.movedBy || '') !== '(receive-session-repair)') return;
+    report.corrupted_found++;
+    if (!c.prevLoc) {
+      report.unrestorable.push(c.cabinet);
+      return;
+    }
+    report.restored_list.push({ cab: c.cabinet, from: c.location, to: c.prevLoc });
+    c.location = c.prevLoc;
+    c.prevLoc = '';
+    c.movedAt = '';
+    c.movedBy = '';
+    c.updatedAt = nowStamp();
+    report.restored++;
+  });
+  if (report.restored > 0) {
+    try { saveCabinets(); } catch (_e) {}
+    if (typeof syncCabinetsNow === 'function') {
+      setTimeout(() => { try { syncCabinetsNow(true); } catch (_e) {} }, 300);
+    }
+  }
+  console.log('DIAG-V10.1158-BULK-UNDO ' + JSON.stringify(report));
+  return report;
+}
+
 function renderCabinets() {
+  // v10.1158: run the bulk undo on every renderCabinets so any
+  // corruption still sitting in cabinets[] gets healed the moment
+  // Zac opens the tab. One-shot per cabinet (movedBy signature
+  // gets cleared on restore).
+  try {
+    const r = runBulkUndoAutoRepair_();
+    if (r.restored > 0) {
+      showToast('✓ Recovered ' + r.restored + ' cabinet location(s) — see console');
+    }
+  } catch (_e) {}
   syncShowPulledToggle();
   syncShowDamagedToggle();
   refreshSyncStatus();
@@ -31196,7 +31252,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1157"></script>
+<script src="./pack.js?v=10.1158"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31207,7 +31263,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1157<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1158<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
