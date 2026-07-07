@@ -2190,6 +2190,14 @@ input::placeholder, textarea::placeholder {
        v9.75: transition fade so it doesn't jolt the page when populated -->
   <div id="cabAttentionStrip" style="display:none;margin-bottom:12px;gap:6px;flex-wrap:wrap;transition:opacity .25s ease-out"></div>
 
+  <!-- v10.1156 (Zac 2026-07-07): visible ⟳ Sync button.
+       Was buried under Admin Tools → Sync card. Terrible discoverability
+       when devices got out of step. This is the compact top-tab version. -->
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;align-items:center">
+    <span id="cabSyncTopStatus" style="font-size:11px;color:var(--text-dim);font-weight:600"></span>
+    <button onclick="(async () => { const b = document.getElementById('cabSyncTopBtn'); if (b) { b.disabled = true; b.textContent = '⟳ Syncing…'; } try { if (typeof syncCabinetsNow === 'function') await syncCabinetsNow(true); showToast('✓ Synced'); if (typeof renderCabinets === 'function') renderCabinets(); } catch (e) { showToast('Sync failed: ' + e.message); } finally { if (b) { b.disabled = false; b.textContent = '⟳ Sync'; } } })()" id="cabSyncTopBtn" style="background:#003087;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">⟳ Sync</button>
+  </div>
+
   <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
   <div class="search-rig" style="margin-bottom:16px">
     <div class="search-rig-label">
@@ -24467,7 +24475,7 @@ async function _prefetchReceiveSessions_() {
   try {
     const resp = await groundApi('listOpenReceiveSessions', { window_days: 21 });
     if (!resp || !resp.ok || !Array.isArray(resp.sessions)) return;
-    _mergeServerReceiveSessions_(resp.sessions);
+    _mergeServerReceiveSessionsWithPrune_(resp.sessions);   // v10.1156
     saveReceiveSessions();
     renderActiveSessionBadge();
   } catch (e) { /* silent — badge will appear next time */ }
@@ -24483,6 +24491,40 @@ async function _prefetchReceiveSessions_() {
 //      copy still says "Auto-loaded" (stale cache from before v10.287).
 //   3. Final pass dedupes receiveSessions by deliveryDate — last write
 //      wins. Closes the May-21-twice case.
+// v10.1156 (Zac 2026-07-07): version of the merge that ALSO prunes
+// local sessions the server no longer returns as open. When Shane
+// approves-archives a session on his phone, server drops it from
+// listOpenReceiveSessions; Zac's device should stop showing it.
+// Only called from the fresh-server-response path (not from cached).
+function _mergeServerReceiveSessionsWithPrune_(sessions) {
+  _mergeServerReceiveSessions_(sessions);
+  // Build a presence set from the server's response.
+  const serverSids = new Set();
+  const serverDds = new Set();
+  (sessions || []).forEach(ss => {
+    if (ss.session_id) serverSids.add(String(ss.session_id));
+    if (ss.delivery_date) serverDds.add(String(ss.delivery_date));
+  });
+  // Drop any local session that:
+  // * Has a serverSessionId (was known to the server previously)
+  // * Isn't in the current server response
+  // * Isn't the actively-edited session on this device
+  const before = receiveSessions.length;
+  receiveSessions = receiveSessions.filter(l => {
+    if (!l) return false;
+    if (l.id === activeSessionId) return true;   // don't nuke what's open
+    if (!l.serverSessionId) return true;         // never had server presence, keep
+    if (serverSids.has(String(l.serverSessionId))) return true;
+    if (l.deliveryDate && serverDds.has(String(l.deliveryDate))) return true;
+    return false;   // finalized on another device → drop
+  });
+  const pruned = before - receiveSessions.length;
+  if (pruned > 0) {
+    try { saveReceiveSessions(); } catch (_e) {}
+    console.log('_mergeServerReceiveSessionsWithPrune_ dropped ' + pruned + ' stale sessions');
+  }
+}
+
 function _mergeServerReceiveSessions_(sessions) {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const formatDateName = (iso) => {
@@ -24728,7 +24770,9 @@ async function openReceiveShipment() {
     // v10.290 — use shared merge+dedup helper (handles match-by-
     // deliveryDate fallback + stale Auto-loaded heal + dedup-by-date
     // final pass). Was: inline merge that allowed dups.
-    _mergeServerReceiveSessions_(serverSessions);
+    // v10.1156 — with-prune variant drops finalized sessions Shane
+    // archived on another device.
+    _mergeServerReceiveSessionsWithPrune_(serverSessions);
     const stillActive = existing && receiveSessions.some(s => s.id === existing.id);
     if (!stillActive) {
       const top = serverSessions[0];
@@ -31144,7 +31188,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1155"></script>
+<script src="./pack.js?v=10.1156"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31155,7 +31199,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1155<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1156<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
