@@ -27972,7 +27972,10 @@ async function groundApi(action, payload) {
   const _actStr = String(action || '');
   const _needsMore = /sample/i.test(_actStr) ||
     /startGroundPack|createLabel|buyLabel|buildOrderPack|listAwaiting|recordPackage|GroundSync/i.test(_actStr);
-  const _timeoutMs = _needsMore ? 90000 : 45000;
+  // v10.1161 (Zac 2026-07-07): 90s still tripping on samples pack-start
+  // — enrichment can serially fetch Shopify for each color, blowing past.
+  // Bump samples/pack-heavy to 180s. Genuine hangs still get caught.
+  const _timeoutMs = _needsMore ? 180000 : 45000;
   const _api_timer = setTimeout(() => _api_ctrl.abort(), _timeoutMs);
   let usedRelay = false;
   try {
@@ -30283,6 +30286,11 @@ function renderGroundPackBoxes() {
     // Inside-items sub-list, only when there ARE inside items.
     let insideHtml = '';
     if (insideItems.length > 0) {
+      // v10.1161 (Zac 2026-07-07): tap-per-color for SAMPLES. Whole
+      // row is the button; tap = mark that color packed, no PIN, no
+      // scan, no MGR. When all colors are scanned, server also flips
+      // the outer to Scanned automatically.
+      const _isSamplesInside = /SAMPLE/i.test(String(p.box_sku || ''));
       const itemRows = insideItems.map((it, iidx) => {
         const itemScanned = !!it.scanned;
         const dot = itemScanned
@@ -30290,6 +30298,25 @@ function renderGroundPackBoxes() {
           : '<div style="width:18px;height:18px;background:transparent;border:2px solid #5C7390;border-radius:50%;flex-shrink:0"></div>';
         const itemSkuColor = itemScanned ? '#00E676' : '#9AAAC0';
         const itemDecoration = itemScanned ? '' : ';opacity:.85';
+        if (_isSamplesInside) {
+          const rowBg = itemScanned
+            ? 'linear-gradient(135deg,rgba(0,200,83,.32),rgba(26,92,26,.28))'
+            : 'linear-gradient(135deg,rgba(0,48,135,.30),rgba(0,48,135,.16))';
+          const rowBorder = itemScanned ? '2px solid #00E676' : '2px solid #4A6FA5';
+          const rowClick = itemScanned
+            ? ''  // tap once more to un-mark; leave same handler
+            : 'cursor:pointer;';
+          return '<div ' + (itemScanned ? '' : 'onclick="_tapSampleColor_(' + idx + ',' + iidx + ')" ')
+            + 'style="display:flex;align-items:center;gap:10px;padding:14px 12px;'
+            + 'background:' + rowBg + ';border:' + rowBorder + ';border-radius:8px;min-height:56px;' + rowClick + '">'
+            +   dot
+            +   '<div style="flex:1;min-width:0">'
+            +     '<div style="font-size:15px;font-weight:900;color:' + itemSkuColor + ';-webkit-text-fill-color:' + itemSkuColor + ';font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.5px;line-height:1.1">' + escapeHtml(it.sku || '') + '</div>'
+            +     (it.label_text ? '<div style="font-size:12px;color:#E8EDF4;-webkit-text-fill-color:#E8EDF4;margin-top:2px;font-weight:700">' + escapeHtml(it.label_text) + '</div>' : '')
+            +   '</div>'
+            +   (itemScanned ? '' : '<div style="font-size:11px;font-weight:800;color:#9AAAC0;text-transform:uppercase;letter-spacing:.5px">Tap ↦</div>')
+            + '</div>';
+        }
         const itemMgrBtn = !itemScanned
           ? '<button onclick="managerCheckOff(' + idx + ',' + iidx + ')" class="no-dark keep-dark-text" '
             + 'style="padding:5px 9px;background:rgba(124,58,237,.18);color:#C4B5FD;'
@@ -30438,6 +30465,46 @@ async function confirmCustomBoxPacked(idx) {
     p._confirmInFlight = false;
     renderGroundPackBoxes();
     showToast('Confirm error: ' + e.message);
+  }
+}
+
+// v10.1161 (Zac 2026-07-07): tap-per-color for SAMPLES inside items.
+// Whole row is the tap target. Server call reuses confirmSamplesPacked
+// with insideIdx set — no PIN, no scan.
+async function _tapSampleColor_(idx, insideIdx) {
+  const p = groundCurrentPackages && groundCurrentPackages[idx];
+  if (!p) { showToast('Package not found'); return; }
+  const orderId = groundPendingOrder && (groundPendingOrder.order_id || groundPendingOrder.orderId);
+  if (!orderId) { showToast('Order ID missing'); return; }
+  const flightKey = '_sampleTapInFlight_' + insideIdx;
+  if (p[flightKey]) { showToast('Already marking that color…'); return; }
+  p[flightKey] = true;
+  try {
+    const res = await groundApi('confirmSamplesPacked', {
+      orderId: orderId,
+      sequence: p.sequence,
+      insideIdx: insideIdx,
+      by: groundPackerName || '',
+    });
+    p[flightKey] = false;
+    if (!res || !res.ok) {
+      showToast('Tap failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    // Local optimistic update: mark that inside_item scanned; if server
+    // reported all_scanned, also flip outer.
+    if (Array.isArray(p.inside_items) && p.inside_items[insideIdx]) {
+      p.inside_items[insideIdx].scanned = true;
+    }
+    if (res.all_scanned) {
+      p.status_scanned = true;
+      if (res.is_ready_to_print) p.is_ready_to_print = true;
+    }
+    renderGroundPackBoxes();
+    showToast(res.all_scanned ? '✓ All colors packed' : '✓ Color marked');
+  } catch (e) {
+    p[flightKey] = false;
+    showToast('Tap error: ' + e.message);
   }
 }
 
@@ -31268,7 +31335,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1160"></script>
+<script src="./pack.js?v=10.1161"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31279,7 +31346,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1160<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1161<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
