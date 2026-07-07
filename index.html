@@ -29833,14 +29833,43 @@ async function fetchGroundSamplesColors_(orderNumber) {
 }
 
 // "Create Labels & Start Pack" button handler — this is where money gets spent.
+// v10.1166 (Zac 2026-07-07 EMERGENCY): guard against duplicate
+// label-buy money spend. 32460 incident: my abort/retry logic caused
+// 10 labels to be bought for one order ($57.30). This lock ensures
+// only ONE buy-label operation per order can be in flight. Second
+// tap while first is pending = no-op with a clear message. Also
+// disables the button visually the moment it's tapped.
+window._buyLabelInFlight = window._buyLabelInFlight || new Set();
 async function createLabelsForCurrentOrder() {
   if (!groundPendingOrder) return;
-  // Hide the preview, show loading
+  const orderKey = String(groundPendingOrder.order_number || groundPendingOrder.orderId || '');
+  if (window._buyLabelInFlight.has(orderKey)) {
+    showToast('⏳ Already buying labels — one moment');
+    return;
+  }
+  const btn = document.getElementById('groundPackCreateLabelsBtn');
+  window._buyLabelInFlight.add(orderKey);
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '.55';
+    btn.style.cursor = 'not-allowed';
+    btn.textContent = '⏳ Generating labels — do NOT retap';
+  }
   document.getElementById('groundPackPreview').style.display = 'none';
   const loadingEl = document.getElementById('groundPackLoading');
-  loadingEl.textContent = 'Generating labels… (rating + paying carriers, ~3–8s per box)';
+  loadingEl.innerHTML = 'Generating labels… (rating + paying carriers, ~10–90s per box)<br><br><strong style="color:#FFB300">Do NOT close or reload this page while labels are being bought. Each label is real money.</strong>';
   loadingEl.style.display = 'block';
-  await callStartPackAndRender(groundPendingOrder);
+  try {
+    await callStartPackAndRender(groundPendingOrder);
+  } finally {
+    window._buyLabelInFlight.delete(orderKey);
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.style.cursor = '';
+      btn.innerHTML = '🚀 Create Labels &amp; Start Pack';
+    }
+  }
 }
 
 // v10.90 (task #61): the orchestrator returns the RAW structured
@@ -31351,7 +31380,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1165"></script>
+<script src="./pack.js?v=10.1166"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31362,7 +31391,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1165<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1166<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
