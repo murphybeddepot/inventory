@@ -30481,6 +30481,15 @@ async function _tapSampleColor_(idx, insideIdx) {
   const flightKey = '_sampleTapInFlight_' + insideIdx;
   if (p[flightKey]) { showToast('Already marking that color…'); return; }
   p[flightKey] = true;
+  // v10.1165 (Zac 2026-07-07): optimistic UI. Server roundtrip runs
+  // 5-10s + no in-progress indicator = looked broken. Now: mark
+  // scanned locally + re-render IMMEDIATELY so the row turns green.
+  // Revert if server fails.
+  const wasScanned = !!(p.inside_items && p.inside_items[insideIdx] && p.inside_items[insideIdx].scanned);
+  if (Array.isArray(p.inside_items) && p.inside_items[insideIdx]) {
+    p.inside_items[insideIdx].scanned = true;
+  }
+  renderGroundPackBoxes();
   try {
     const res = await groundApi('confirmSamplesPacked', {
       orderId: orderId,
@@ -30490,23 +30499,26 @@ async function _tapSampleColor_(idx, insideIdx) {
     });
     p[flightKey] = false;
     if (!res || !res.ok) {
-      showToast('Tap failed: ' + ((res && res.error) || 'unknown'));
+      if (Array.isArray(p.inside_items) && p.inside_items[insideIdx]) {
+        p.inside_items[insideIdx].scanned = wasScanned;
+      }
+      renderGroundPackBoxes();
+      showToast('✕ Tap failed — reverted: ' + ((res && res.error) || 'unknown'));
       return;
-    }
-    // Local optimistic update: mark that inside_item scanned; if server
-    // reported all_scanned, also flip outer.
-    if (Array.isArray(p.inside_items) && p.inside_items[insideIdx]) {
-      p.inside_items[insideIdx].scanned = true;
     }
     if (res.all_scanned) {
       p.status_scanned = true;
       if (res.is_ready_to_print) p.is_ready_to_print = true;
+      renderGroundPackBoxes();
     }
-    renderGroundPackBoxes();
-    showToast(res.all_scanned ? '✓ All colors packed' : '✓ Color marked');
+    showToast(res.all_scanned ? '✓ All colors packed' : '✓ Saved');
   } catch (e) {
     p[flightKey] = false;
-    showToast('Tap error: ' + e.message);
+    if (Array.isArray(p.inside_items) && p.inside_items[insideIdx]) {
+      p.inside_items[insideIdx].scanned = wasScanned;
+    }
+    renderGroundPackBoxes();
+    showToast('✕ Tap error — reverted: ' + e.message);
   }
 }
 
@@ -31339,7 +31351,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1163"></script>
+<script src="./pack.js?v=10.1165"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31350,7 +31362,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1163<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1165<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
