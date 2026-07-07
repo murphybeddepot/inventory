@@ -23868,6 +23868,17 @@ function confirmBulkMove() {
   });
 
   saveCabinets();
+  // v10.1139 — Shane 2026-07-07 via Zac: "he moves cabinets out of
+  // receiving into certain bays but later when he looks them up they
+  // don't show the moved-to location." Root cause: saveCabinets is
+  // localStorage-only. If any device (or an auto-sync tick) hits the
+  // server between his move + his lookup, the server response
+  // OVERWRITES his local move (v23150 line: cabinets = data.cabinets).
+  // Fix: fire an immediate sync after the move so the change lands
+  // on the server before any read.
+  if (typeof syncCabinetsNow === 'function') {
+    try { syncCabinetsNow(true); } catch (_e) {}
+  }
   closeCabModal();
   FB.success();
   if (FB.visuals) spawnScorePop('+' + (movedCount + addedCount), '#FF9100');
