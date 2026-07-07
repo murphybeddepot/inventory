@@ -18952,6 +18952,16 @@ async function openBomToolsModal() {
 // error strings to actionable plain English. Keeps raw text collapsible.
 function _translateGroundError_(raw) {
   var s = String(raw || '');
+  // v10.1176 (Zac 2026-07-07): concurrent-request lock rejection (v10.1174).
+  // Server refuses a second concurrent buy-label — critical to explain
+  // clearly so the packer doesn't retry blindly.
+  if (/another buy-label request.*already in flight/i.test(s)) {
+    return {
+      title: 'Another Create Labels is already in flight',
+      body: 'The server is still processing your first Create Labels click. Retrying now would risk a duplicate charge — please wait.',
+      action: 'Wait 30-60 seconds, then check ShipStation. If a label already appeared for this order, use Reprint Label. Only retry Create Labels if ShipStation shows no label after 90 seconds.',
+    };
+  }
   // USPS Ground Advantage + flat rate box (today's 32460 error)
   if (/GroundAdvantage/i.test(s) && /Flat_Rate_Box|Small_Flat_Rate|Medium_Flat_Rate|Large_Flat_Rate/i.test(s)) {
     return {
@@ -29140,7 +29150,12 @@ function _renderGroundBulkResult(res) {
     body += '<div style="flex:1;min-width:0">';
     body += '<div style="font-size:15px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">#' + escapeHtml(String(r.order_number || '')) + ' · ' + escapeHtml(r.customer_name || '') + '</div>';
     if (r.tracking_number) body += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#444 !important;-webkit-text-fill-color:#444 !important;margin-top:2px">' + escapeHtml(r.tracking_number) + (r.carrier_code ? ' · ' + escapeHtml(r.carrier_code) : '') + '</div>';
-    const flagStr = (r.label_gen_ok ? '✓ label ' : '✗ label ') + (r.print_ok ? '✓ print ' : '✗ print ') + (r.ship_ok ? '✓ ship' : (res.skip_ship ? '— ship' : '✗ ship'));
+    // v10.1176 (Zac 2026-07-07 overnight): surface slip status when any
+    // package on this order had slip_ok set (samples boxes). Prior
+    // renderer only showed label/print/ship flags.
+    var _anySlip = Array.isArray(r.packages) && r.packages.some(function (p) { return typeof p.slip_ok !== 'undefined'; });
+    var _allSlip = _anySlip && r.packages.every(function (p) { return typeof p.slip_ok === 'undefined' || p.slip_ok === true; });
+    const flagStr = (r.label_gen_ok ? '✓ label ' : '✗ label ') + (r.print_ok ? '✓ print ' : '✗ print ') + (r.ship_ok ? '✓ ship' : (res.skip_ship ? '— ship' : '✗ ship')) + (_anySlip ? (_allSlip ? ' ✓ slip' : ' ✗ slip') : '');
     body += '<div style="font-size:12px;color:' + okText + ' !important;-webkit-text-fill-color:' + okText + ' !important;font-weight:700;margin-top:4px">' + escapeHtml(flagStr) + '</div>';
     if (r.error) body += '<div style="font-size:11px;color:#7A1818 !important;-webkit-text-fill-color:#7A1818 !important;margin-top:2px;font-weight:600">' + escapeHtml(String(r.error)) + '</div>';
     body += '</div>';
@@ -31595,7 +31610,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1173"></script>
+<script src="./pack.js?v=10.1176"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31606,7 +31621,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1173<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1176<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
