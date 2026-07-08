@@ -1696,6 +1696,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.1215 (Zac 2026-07-08): Shelf Entry — batch inventory recount by shelf -->
+    <button onclick="closeMoreMenu();openShelfEntryModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📋</span>
+      <div style="flex:1">
+        <div>Shelf Entry</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Batch-write inventory counts for a shelf (paste your paper list, auto-match SKUs, save all in one tap)</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openBomToolsModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🧱</span>
       <div style="flex:1">
@@ -19146,6 +19155,179 @@ function _translateGroundError_(raw) {
   };
 }
 
+// v10.1215 — Shelf Entry: batch inventory recount by shelf.
+// Zac 2026-07-08: paper inventory of ~50 items across 9 shelves.
+// Existing recount UI is one-at-a-time.
+async function openShelfEntryModal() {
+  const prior = document.getElementById('shelfEntryOverlay');
+  if (prior) prior.remove();
+  const html = `<div id="shelfEntryOverlay" class="no-dark keep-dark-text" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto">
+    <div style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:12px;width:100%;max-width:900px;max-height:95vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:2px solid #003087;position:sticky;top:0;background:#fff !important;z-index:2">
+        <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:900;color:#003087 !important;-webkit-text-fill-color:#003087 !important;text-transform:uppercase;letter-spacing:.5px">📋 Shelf Entry</div>
+        <button onclick="document.getElementById('shelfEntryOverlay').remove()" style="background:#eee !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:800;cursor:pointer">✕ Close</button>
+      </div>
+      <div style="padding:18px">
+        <div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px;line-height:1.5">Pick a shelf, paste your list (one item per line, "92 flip nuts" or "92x flip nuts" or "394+418 Butt Hinges"). Bedrock matches against existing items and lets you create new ones for anything unmatched. One save writes everything.</div>
+
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#003087 !important;-webkit-text-fill-color:#003087 !important">Shelf</label>
+            <select id="shelfEntryLocation" onchange="_shelfCustomToggle_()" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #999;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace;font-weight:700;margin-top:4px">
+              <option value="A1">A1 (bottom, left unit)</option>
+              <option value="A2">A2</option>
+              <option value="A3">A3</option>
+              <option value="A4">A4 (top, left unit)</option>
+              <option value="B1">B1 (bottom, center unit)</option>
+              <option value="B2">B2</option>
+              <option value="B3">B3</option>
+              <option value="B4">B4 (top, center unit)</option>
+              <option value="CUSTOM">— Custom (pallet, other) —</option>
+            </select>
+            <input type="text" id="shelfEntryCustomLoc" placeholder="e.g. 4.18, AA.01" style="display:none;width:100%;padding:10px;font-size:14px;border:2px solid #003087;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace;font-weight:700;margin-top:6px">
+          </div>
+          <div style="flex:1;min-width:180px">
+            <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#003087 !important;-webkit-text-fill-color:#003087 !important">Counted by</label>
+            <input type="text" id="shelfEntryBy" placeholder="Zac" value="${(localStorage.getItem('mbd_ground_packer')||'').replace(/"/g,'&quot;')}" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #999;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-top:4px">
+          </div>
+        </div>
+
+        <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#003087 !important;-webkit-text-fill-color:#003087 !important">Your list (one item per line)</label>
+        <textarea id="shelfEntryText" placeholder="92 flip nuts
+76 flip bolts
+53 flip latches
+394+418 butt hinges
+2100+3590 1.25 screws" style="width:100%;min-height:200px;padding:12px;font-size:14px;border:2px solid #003087;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace;line-height:1.5;margin-top:4px;box-sizing:border-box"></textarea>
+
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <button onclick="_shelfEntryPreview_()" style="flex:1;padding:14px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">🔍 Match SKUs</button>
+        </div>
+
+        <div id="shelfEntryPreview" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function _shelfCustomToggle_() {
+  const sel = document.getElementById('shelfEntryLocation');
+  const cust = document.getElementById('shelfEntryCustomLoc');
+  if (sel.value === 'CUSTOM') { cust.style.display = 'block'; cust.focus(); }
+  else { cust.style.display = 'none'; }
+}
+
+function _shelfEntryParseLines_(text) {
+  const lines = String(text || '').split(/\n/).map(l => l.trim()).filter(Boolean);
+  return lines.map(line => {
+    // Peel off "e.g." qty prefix — supports "92", "92x", "394+418", "2100+3590x"
+    const m = line.match(/^(\d+(?:\+\d+)*)\s*x?\s+(.+)$/i);
+    if (!m) return { raw: line, qty: null, name: line, ok: false };
+    const qty = m[1].split('+').reduce((a,b) => a + Number(b), 0);
+    const name = m[2].trim().replace(/^x\s+/i, '');
+    return { raw: line, qty: qty, name: name, ok: true };
+  });
+}
+
+function _shelfMatchToElement_(parsedName) {
+  if (typeof ELEMENTS === 'undefined' || !Array.isArray(ELEMENTS)) return null;
+  const q = String(parsedName || '').toLowerCase().trim();
+  if (!q) return null;
+  // Simple normalized substring match, both directions.
+  const normalize = s => String(s || '').toLowerCase().replace(/[()]/g, ' ').replace(/[-_.]/g, ' ').replace(/\s+/g, ' ').trim();
+  const nq = normalize(q);
+  const tokens = nq.split(' ').filter(t => t.length > 1);
+  let best = null; let bestScore = 0;
+  for (const el of ELEMENTS) {
+    const elName = normalize(el.name);
+    let score = 0;
+    // exact / substring
+    if (elName === nq) score += 100;
+    else if (elName.indexOf(nq) !== -1 || nq.indexOf(elName) !== -1) score += 50;
+    // per-token
+    for (const t of tokens) {
+      if (elName.indexOf(' ' + t + ' ') !== -1 || elName.startsWith(t + ' ') || elName.endsWith(' ' + t) || elName === t) score += 10;
+    }
+    if (score > bestScore) { bestScore = score; best = el; }
+  }
+  return bestScore >= 20 ? { element: best, score: bestScore } : null;
+}
+
+function _shelfEntryPreview_() {
+  const text = document.getElementById('shelfEntryText').value;
+  const parsed = _shelfEntryParseLines_(text);
+  const preview = document.getElementById('shelfEntryPreview');
+  if (!parsed.length) { preview.innerHTML = '<div style="padding:14px;background:#f5f5f5;border-radius:8px;color:#666">Nothing to parse yet — type or paste some lines above.</div>'; return; }
+  const rows = parsed.map((p, i) => {
+    if (!p.ok) return `<tr><td colspan="4" style="padding:8px;color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:12px">⚠ Could not parse: <code>${p.raw.replace(/</g,'&lt;')}</code> — expected "QTY name"</td></tr>`;
+    const m = _shelfMatchToElement_(p.name);
+    if (m) {
+      const el = m.element;
+      return `<tr data-idx="${i}" data-mode="match" data-sku="${(el.name || '').replace(/"/g,'&quot;')}" style="border-top:1px solid #eee"><td style="padding:8px 6px;font-family:'JetBrains Mono',monospace;font-weight:700">${p.qty}</td><td style="padding:8px 6px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">${p.name.replace(/</g,'&lt;')}</td><td style="padding:8px 6px;font-size:12px;color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f !important">✓ ${el.name.replace(/</g,'&lt;')} <span style="opacity:.7">(was ${el.lastCount ?? '—'})</span></td><td style="padding:8px 6px"><button onclick="_shelfSkipRow_(${i})" style="background:#eee !important;color:#666 !important;-webkit-text-fill-color:#666 !important;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer">Skip</button></td></tr>`;
+    } else {
+      return `<tr data-idx="${i}" data-mode="new" data-sku="" style="border-top:1px solid #eee"><td style="padding:8px 6px;font-family:'JetBrains Mono',monospace;font-weight:700">${p.qty}</td><td style="padding:8px 6px">${p.name.replace(/</g,'&lt;')}</td><td style="padding:8px 6px"><input type="text" placeholder="New SKU (e.g. BUTT-HINGE)" data-newsku="${i}" style="width:100%;padding:5px 8px;font-size:12px;border:1.5px solid #7a5500;border-radius:4px;background:#fffbea !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace"></td><td style="padding:8px 6px;font-size:11px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500 !important">🆕 new</td></tr>`;
+    }
+  }).join('');
+  const matchCount = parsed.filter(p => p.ok && _shelfMatchToElement_(p.name)).length;
+  const newCount = parsed.filter(p => p.ok && !_shelfMatchToElement_(p.name)).length;
+  const parseErrCount = parsed.filter(p => !p.ok).length;
+  preview.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="background:#DFF3E4;color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f !important;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:800">${matchCount} matched</span>
+      <span style="background:#FFF3D6;color:#7a5500 !important;-webkit-text-fill-color:#7a5500 !important;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:800">${newCount} new</span>
+      ${parseErrCount ? `<span style="background:#ffebee;color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:800">${parseErrCount} parse errors</span>` : ''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;background:#fff !important" id="shelfEntryTable">
+      <thead><tr style="background:#f5f5f7"><th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">Qty</th><th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">Your line</th><th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">SKU</th><th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important"></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:14px;display:flex;gap:10px">
+      <button onclick="_shelfEntrySave_()" style="flex:1;padding:16px;background:linear-gradient(135deg,#00C853,#1A5C1A) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.2)">💾 Save All to Inventory</button>
+    </div>
+    <div id="shelfEntryResult" style="margin-top:10px"></div>`;
+}
+
+function _shelfSkipRow_(idx) {
+  const row = document.querySelector('#shelfEntryTable tr[data-idx="' + idx + '"]');
+  if (row) row.setAttribute('data-mode', 'skip');
+  if (row) row.style.opacity = '0.35';
+}
+
+async function _shelfEntrySave_() {
+  const sel = document.getElementById('shelfEntryLocation');
+  const shelf = sel.value === 'CUSTOM' ? (document.getElementById('shelfEntryCustomLoc').value || '').trim() : sel.value;
+  if (!shelf) { showToast('Pick a shelf first'); return; }
+  const by = (document.getElementById('shelfEntryBy').value || 'operator').trim();
+  const rows = Array.from(document.querySelectorAll('#shelfEntryTable tbody tr[data-idx]'));
+  const counts = [];
+  for (const row of rows) {
+    const mode = row.getAttribute('data-mode');
+    if (mode === 'skip') continue;
+    const idx = row.getAttribute('data-idx');
+    const qty = Number(row.children[0].textContent.trim());
+    const rawName = row.children[1].textContent.trim();
+    if (mode === 'match') {
+      const sku = row.getAttribute('data-sku');
+      if (sku) counts.push({ itemSku: sku, countedQty: qty, name: sku });
+    } else if (mode === 'new') {
+      const inp = row.querySelector('input[data-newsku]');
+      const newSku = (inp && inp.value.trim()) || rawName.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+      counts.push({ itemSku: newSku, countedQty: qty, name: rawName });
+    }
+  }
+  if (!counts.length) { showToast('Nothing to save'); return; }
+  const result = document.getElementById('shelfEntryResult');
+  result.innerHTML = '<div style="padding:12px;background:#e3f2fd;border-radius:8px;color:#0a5c9a !important;-webkit-text-fill-color:#0a5c9a !important;font-weight:700">⏳ Writing ' + counts.length + ' item counts to shelf ' + shelf + '…</div>';
+  try {
+    const res = await groundApi('batchRecordInventoryCount', { shelf: shelf, by: by, counts: counts });
+    if (!res || !res.ok) { result.innerHTML = '<div style="padding:12px;background:#ffebee;border-radius:8px;color:#8b0000 !important;-webkit-text-fill-color:#8b0000 !important;font-weight:700">✕ Save failed: ' + ((res && res.error) || 'unknown') + '</div>'; return; }
+    const failCount = (res.results || []).filter(r => !r.ok).length;
+    result.innerHTML = '<div style="padding:12px;background:#DFF3E4;border-radius:8px;color:#0a5c9a !important;-webkit-text-fill-color:#0a5c9a !important;font-weight:700">✓ Saved ' + res.ok_count + ' / ' + res.total + ' to shelf ' + shelf + (failCount ? ' — ' + failCount + ' failed (see console)' : '') + '</div>';
+    console.log('DIAG-V10.1215-SAVE', res);
+  } catch (e) {
+    result.innerHTML = '<div style="padding:12px;background:#ffebee;border-radius:8px;color:#8b0000 !important;-webkit-text-fill-color:#8b0000 !important;font-weight:700">✕ Save error: ' + e.message + '</div>';
+  }
+}
+
 async function openSamplesSlipEditor() {
   const prior = document.getElementById('samplesSlipOverlay');
   if (prior) prior.remove();
@@ -32065,7 +32247,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1214"></script>
+<script src="./pack.js?v=10.1215"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32076,7 +32258,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1214<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1215<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
