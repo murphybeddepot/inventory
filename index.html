@@ -2205,12 +2205,10 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;align-items:center">
     <span id="cabSyncTopStatus" style="font-size:11px;color:var(--text-dim);font-weight:600"></span>
     <button onclick="(async () => { const b = document.getElementById('cabSyncTopBtn'); if (b) { b.disabled = true; b.textContent = '⟳ Syncing…'; } try { const tasks = []; if (typeof syncCabinetsNow === 'function') tasks.push(syncCabinetsNow(true).catch(()=>{})); if (typeof _prefetchReceiveSessions_ === 'function') tasks.push(_prefetchReceiveSessions_(true).catch(()=>{})); await Promise.all(tasks); showToast('✓ Synced (cabinets + shipments)'); if (typeof renderCabinets === 'function') renderCabinets(); } catch (e) { showToast('Sync failed: ' + e.message); } finally { if (b) { b.disabled = false; b.textContent = '⟳ Sync'; } } })()" id="cabSyncTopBtn" style="background:#003087;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">⟳ Sync</button>
-    <!-- v10.1205 (Zac 2026-07-08): manual escape hatch. When sync
-         doesn't clear stale sessions from receiveSessions[], tap this
-         to nuke every entry with delivery_date < today, regardless of
-         serverSessionId. Independent of the prune logic — cannot be
-         wrong. Uses !important + -webkit-text-fill-color per contrast rule. -->
-    <button onclick="(function(){ if(!confirm('Nuke all past-dated shipments from this device? (Server unaffected — this only cleans this device.)'))return; try{ const today=(function(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})(); const before=(Array.isArray(receiveSessions)?receiveSessions.length:0); receiveSessions=(receiveSessions||[]).filter(s=>s&&(s.id===activeSessionId||!s.deliveryDate||s.deliveryDate>=today)); const after=receiveSessions.length; if(typeof saveReceiveSessions==='function')saveReceiveSessions(); try{localStorage.removeItem('mbd_receive_open_sessions_v1');}catch(e){} if(typeof renderCabinets==='function')renderCabinets(); showToast('✓ Nuked '+(before-after)+' past shipments (server unaffected).'); }catch(e){showToast('Failed: '+e.message);} })()" class="no-dark keep-dark-text" style="background:#8B0000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;margin-left:6px" title="Nuke stale past-dated shipments from THIS device only. Server unaffected.">✕ Nuke Stale</button>
+    <!-- v10.1207: ✕ Nuke Stale button (v10.1205) removed. Server-side
+         archive (runArchiveAllPastReceiveSessions) + client-side prune
+         (v10.1204) both correct now — the escape hatch was clutter.
+         If zombies return: run the editor helper + refresh. -->
   </div>
 
   <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
@@ -31948,7 +31946,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1205"></script>
+<script src="./pack.js?v=10.1207"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31959,7 +31957,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1205<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1207<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
