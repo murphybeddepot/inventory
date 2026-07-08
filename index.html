@@ -8063,13 +8063,17 @@ function saveZones() {
 // Includes a small ⚙ button to open the manage-zones modal.
 function zoneChipsHtml(targetInputId) {
   if (!savedZones.length) return '';
+  // v10.1198 (Zac 2026-07-08): the chips + Manage cog had no !important
+  // or -webkit-text-fill-color so the global dark-theme override was
+  // making them invisible (the "black dot after Staging" Zac flagged).
+  // Now: keep-dark-text on every button, forced colors.
   const chips = savedZones.map(z =>
-    '<button type="button" onclick="(function(el,v){el.value=v;el.dispatchEvent(new Event(\'input\',{bubbles:true}));el.dispatchEvent(new Event(\'change\',{bubbles:true}));})(document.getElementById(\''+targetInputId+'\'),\''+esc(z)+'\')" '
-    + 'style="padding:7px 12px;background:#EAF0FB;color:#003087;border:1.5px solid #003087;border-radius:999px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif">'
+    '<button type="button" class="no-dark keep-dark-text" onclick="(function(el,v){el.value=v;el.dispatchEvent(new Event(\'input\',{bubbles:true}));el.dispatchEvent(new Event(\'change\',{bubbles:true}));})(document.getElementById(\''+targetInputId+'\'),\''+esc(z)+'\')" '
+    + 'style="padding:7px 12px;background:#EAF0FB !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:1.5px solid #003087;border-radius:999px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif">'
     + esc(z) + '</button>'
   ).join('');
-  const manage = '<button type="button" onclick="manageZones()" '
-    + 'style="padding:7px 10px;background:#fff;color:#666;border:1.5px solid #ccc;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer" title="Manage saved zones">⚙</button>';
+  const manage = '<button type="button" class="no-dark keep-dark-text" onclick="manageZones()" '
+    + 'style="padding:7px 12px;background:#fff !important;color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:1.5px solid #003087;border-radius:999px;font-size:13px;font-weight:800;cursor:pointer" title="Manage saved zones">⚙ Manage</button>';
   return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">' + chips + manage + '</div>';
 }
 
@@ -23316,14 +23320,14 @@ function personPickerHtml(inputId) {
     return '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px;font-size:12px;color:#8B4000;line-height:1.5">'
       + '⚠ No team members yet. Type a name below or tap "Manage Team" to add some.'
       + '</div>'
-      + '<input type="text" id="'+inputId+'" placeholder="Type your name…" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-top:8px;-webkit-appearance:none">';
+      + '<input type="text" id="'+inputId+'" class="no-dark keep-dark-text" placeholder="Type your name…" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #999;border-radius:8px;outline:none;margin-top:8px;-webkit-appearance:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
   }
   return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
     + cabTeam.map(p =>
         '<button type="button" data-name="'+esc(p)+'" onclick="cabPickPerson(this,\''+inputId+'\')" style="background:#fff;border:1.5px solid #ccc;border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;color:#1a1a1a">'+esc(p)+'</button>'
       ).join('')
     + '</div>'
-    + '<input type="text" id="'+inputId+'" placeholder="Or type another name…" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #ccc;border-radius:8px;outline:none;-webkit-appearance:none">';
+    + '<input type="text" id="'+inputId+'" class="no-dark keep-dark-text" placeholder="Or type another name…" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #999;border-radius:8px;outline:none;-webkit-appearance:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
 }
 function cabPickPerson(btn, targetId) {
   const wrap = btn.parentNode;
@@ -25837,8 +25841,8 @@ function renderReceiveSession() {
     // on, with matching numbers. Now just a compact utility bar with the
     // Sync button + optional truck count.
     + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;padding:0 4px">'
-    +   '<div style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important">'
-    +     (session.truckCount > 0 ? '🚚 ' + session.truckCount + ' trucks' : '')
+    +   '<div style="font-size:14px;font-weight:800;color:#E8EDF4 !important;-webkit-text-fill-color:#E8EDF4 !important;letter-spacing:.3px">'
+    +     (session.truckCount > 0 ? '🚚 ' + session.truckCount + ' truck' + (session.truckCount === 1 ? '' : 's') : '')
     +   '</div>'
     +   '<button onclick="event.stopPropagation();(async () => { try { if (typeof syncCabinetsNow === \'function\') { await syncCabinetsNow(true); } if (typeof _prefetchReceiveSessions_ === \'function\') { await _prefetchReceiveSessions_(true); } if (typeof renderReceiveSession === \'function\') renderReceiveSession(); showToast(\'✓ Synced\'); } catch (_e) { showToast(\'Sync failed: \' + _e.message); } })()" '
     +       'style="background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px" title="Refresh from server">⟳ Sync</button>'
@@ -31894,7 +31898,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1196"></script>
+<script src="./pack.js?v=10.1198"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31905,7 +31909,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1196<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1198<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
