@@ -25041,6 +25041,29 @@ async function openReceiveShipment() {
 }
 
 // v10.287 — switch active session from the chooser strip in renderReceiveSession.
+// v10.1193 — helper for the ✕ Dismiss button. Reads session identifiers
+// from data attributes to avoid inline-onclick escaping hell.
+function _dismissReceiveShipment_(btn) {
+  try {
+    const sidB64 = btn.getAttribute('data-sid') || '';
+    const ssid = btn.getAttribute('data-ssid') || '';
+    const dd = btn.getAttribute('data-dd') || '';
+    const sid = sidB64 ? decodeURIComponent(escape(atob(sidB64))) : '';
+    if (!confirm('Dismiss this shipment from THIS device only?\n\n(Server will still show it as open. Other devices unaffected.)')) return;
+    if (typeof muteReceiveSession === 'function') {
+      muteReceiveSession({ serverSessionId: ssid, deliveryDate: dd });
+    }
+    if (Array.isArray(receiveSessions) && sid) {
+      receiveSessions = receiveSessions.filter(x => x && x.id !== sid);
+    }
+    if (typeof saveReceiveSessions === 'function') saveReceiveSessions();
+    if (typeof renderReceiveSession === 'function') renderReceiveSession();
+    if (typeof showToast === 'function') showToast('✓ Dismissed from this device');
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Dismiss failed: ' + e.message);
+  }
+}
+
 function switchActiveReceiveSession(sessionId) {
   const s = receiveSessions.find(r => r.id === sessionId);
   if (!s) { showToast('Session not found'); return; }
@@ -25718,7 +25741,12 @@ function renderReceiveSession() {
       // mute the session from his device without needing the
       // server to update (mutedReceiveSessions makes future merges
       // skip it).
-      +     '<button onclick="event.stopPropagation();(function(){ if (!confirm(\'Dismiss this shipment from THIS device only? (server will still show it as open)\')) return; try { muteReceiveSession(' + JSON.stringify({serverSessionId:s.serverSessionId||'', deliveryDate:s.deliveryDate||''}) + '); receiveSessions = receiveSessions.filter(x => x.id !== \'' + esc(s.id) + '\'); saveReceiveSessions(); if (typeof renderReceiveSession === \'function\') renderReceiveSession(); showToast(\'✓ Dismissed from this device\'); } catch(e){ showToast(\'Dismiss failed: \'+e.message); } })()" style="background:transparent;border:1px solid ' + accent + ';color:' + accent + ';border-radius:6px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;margin-top:6px" title="Hide this shipment from THIS device (not from other devices)">✕ Dismiss</button>'
+      // v10.1193 (Zac 2026-07-08): the inline onclick from v10.1159
+      // interpolated s.id (which contains 'srv:Thu Jun 18 …' with
+      // colons/parens/spaces) unescaped, breaking the attribute. Raw
+      // JS spilled into the visible card. Now: data attributes + helper
+      // fn read them.
+      +     '<button data-sid="' + esc(btoa(unescape(encodeURIComponent(s.id)))) + '" data-ssid="' + esc(s.serverSessionId || '') + '" data-dd="' + esc(s.deliveryDate || '') + '" onclick="event.stopPropagation();_dismissReceiveShipment_(this)" style="background:transparent;border:1px solid ' + accent + ';color:' + accent + ';border-radius:6px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;margin-top:6px" title="Hide this shipment from THIS device (not from other devices)">✕ Dismiss</button>'
       +   '</div>'
       +   approveBtn
       + '</div>'
@@ -31791,7 +31819,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1192"></script>
+<script src="./pack.js?v=10.1193"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31802,7 +31830,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1192<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1193<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
