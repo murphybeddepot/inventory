@@ -25758,8 +25758,13 @@ function renderReceiveSession() {
       : (isIncompletePast
           ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:#B84A00;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:999px;margin-left:6px">UNFINISHED</span>'
           : (isThisWeek ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:999px;margin-left:6px">THIS WEEK</span>' : ''));
-    const approveBtn = s.serverSessionId
-      ? '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;margin-left:8px" title="Manager PIN: approve + archive this list">✓ Approve</button>'
+    // v10.1195 (Zac 2026-07-08): Approve button was invisible due to
+    // global dark-theme override winning against plain `color:#1A5C1A`.
+    // Now: !important + -webkit-text-fill-color + keep-dark-text class.
+    // Also hide on the ACTIVE card since the ✓ All Done button in the
+    // finish-flow does the same thing.
+    const approveBtn = (s.serverSessionId && !isActive)
+      ? '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" class="no-dark keep-dark-text" style="background:#1A5C1A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:900;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,.15)" title="Manager PIN: mark this shipment ALL DONE. Drops from all devices.">✓ All Done</button>'
       : '';
     const openLabel = isActive ? '✓ Active below' : 'Tap to open ↓';
     // v10.288 — larger date + numbers + a visual progress fill bar
@@ -25797,7 +25802,14 @@ function renderReceiveSession() {
       // colons/parens/spaces) unescaped, breaking the attribute. Raw
       // JS spilled into the visible card. Now: data attributes + helper
       // fn read them.
-      +     '<button data-sid="' + esc(btoa(unescape(encodeURIComponent(s.id)))) + '" data-ssid="' + esc(s.serverSessionId || '') + '" data-dd="' + esc(s.deliveryDate || '') + '" onclick="event.stopPropagation();_dismissReceiveShipment_(this)" style="background:transparent;border:1px solid ' + accent + ';color:' + accent + ';border-radius:6px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;margin-top:6px" title="Hide this shipment from THIS device (not from other devices)">✕ Dismiss</button>'
+      // v10.1195 (Zac 2026-07-08): Dismiss dropped entirely. It was
+      // device-local mute with different semantics from Approve/All Done,
+      // and three-button design was confusing ('what's the difference?').
+      // Consolidated to ONE per-card action: ✓ All Done (Approve+Archive
+      // + drops from all devices via manager PIN). If someone needs to
+      // "hide this from my device only", they can close the modal — the
+      // muted-set is still available via editor if truly needed.
+      +     ''
       +   '</div>'
       +   approveBtn
       + '</div>'
@@ -31876,7 +31888,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1194"></script>
+<script src="./pack.js?v=10.1195"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31887,7 +31899,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1194<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1195<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
