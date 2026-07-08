@@ -25041,6 +25041,42 @@ async function openReceiveShipment() {
 }
 
 // v10.287 — switch active session from the chooser strip in renderReceiveSession.
+// v10.1194 — consolidated "All Done" action. Commits anything received,
+// then archives on server (manager PIN, drops from all devices).
+// Replaces the old flow of clicking "Save to Inventory" then hunting
+// for the "Approve" button on the shipment card + entering PIN.
+async function finishReceiveShipmentAllDone_() {
+  const session = (typeof getActiveSession === 'function') ? getActiveSession() : null;
+  if (!session) { showToast('No active shipment'); return; }
+  const stats = (typeof sessionStats === 'function') ? sessionStats(session) : { done: 0, total: 0 };
+  const remaining = Math.max(0, stats.total - stats.done);
+  let msg = 'Finish this shipment as ALL DONE?\n\n';
+  if (stats.done > 0) msg += '• ' + stats.done + ' checked cabinets will be saved to inventory\n';
+  if (remaining > 0) msg += '• ⚠ ' + remaining + ' unchecked cabinets will be left as missed\n';
+  msg += '\nThis marks the shipment DONE on the server + drops from every device. Manager PIN required.';
+  if (!confirm(msg)) return;
+  // Step 1: commit anything received (idempotent if nothing new).
+  if (stats.done > 0 && typeof commitReceiveSession === 'function') {
+    try { commitReceiveSession(); }
+    catch (e) { showToast('Save failed: ' + e.message); return; }
+  }
+  // Step 2: reuse the existing approveArchiveReceiveSession flow which
+  // has the manager-PIN dance + server-side archive + local mute.
+  if (typeof approveArchiveReceiveSession === 'function') {
+    await approveArchiveReceiveSession(session.id);
+  } else {
+    showToast('approveArchiveReceiveSession not available');
+  }
+}
+
+// v10.1194 — cancel confirmation. Renamed from bare cancelReceiveSession
+// so it's a clearly-marked destructive action behind the More Options
+// disclosure.
+function cancelReceiveShipmentConfirm_() {
+  if (!confirm('Discard the entire shipment?\n\nAnything already saved to inventory stays saved. But the shipment list itself is thrown away — you\'ll need to reload it if you want to receive against it later.\n\n(Usually you want Pause / Close instead.)')) return;
+  if (typeof cancelReceiveSession === 'function') cancelReceiveSession();
+}
+
 // v10.1193 — helper for the ✕ Dismiss button. Reads session identifiers
 // from data attributes to avoid inline-onclick escaping hell.
 function _dismissReceiveShipment_(btn) {
@@ -25704,37 +25740,52 @@ function renderReceiveSession() {
     const isReady = st.total > 0 && st.done >= st.total;
     const isIncompletePast = isPast && !isReady;
     const isThisWeek = s.deliveryDate && s.deliveryDate >= _weekBoundsMod_.mon && s.deliveryDate <= _weekBoundsMod_.sun;
+    // v10.1194 (Zac 2026-07-08): opaque backgrounds instead of low-alpha
+    // rgba (which let the dark modal background bleed through, killing
+    // contrast). Now every card has its own solid surface.
     const accent = isActive
       ? '#003087'
-      : (isReady ? '#1A5C1A' : (isIncompletePast ? '#FF9100' : 'rgba(0,48,135,.6)'));
+      : (isReady ? '#1A5C1A' : (isIncompletePast ? '#B84A00' : '#4A6FA5'));
     const bgAccent = isActive
-      ? 'rgba(0,48,135,.10)'
-      : (isReady ? 'rgba(26,92,26,.10)' : (isIncompletePast ? 'rgba(255,145,0,.10)' : 'rgba(0,48,135,.04)'));
+      ? '#D9E4F5'                                // active — pale blue
+      : (isReady ? '#DFF3E4'                     // ready — pale green
+                 : (isIncompletePast ? '#FFE8D1' // stale — pale amber
+                                     : '#EAF0F8'));// upcoming — pale slate
+    const textColor = '#1a1a1a';
+    const subTextColor = '#555';
     const tag = isReady
-      ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#1A5C1A;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">✓ READY</span>'
+      ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:#1A5C1A;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:999px;margin-left:6px">✓ READY</span>'
       : (isIncompletePast
-          ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#FF9100;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">UNFINISHED</span>'
-          : (isThisWeek ? '<span style="font-size:9px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff;padding:1px 6px;border-radius:999px;margin-left:6px">THIS WEEK</span>' : ''));
+          ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:#B84A00;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:999px;margin-left:6px">UNFINISHED</span>'
+          : (isThisWeek ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:999px;margin-left:6px">THIS WEEK</span>' : ''));
     const approveBtn = s.serverSessionId
       ? '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#1A5C1A;border:1.5px solid #1A5C1A;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;margin-left:8px" title="Manager PIN: approve + archive this list">✓ Approve</button>'
       : '';
     const openLabel = isActive ? '✓ Active below' : 'Tap to open ↓';
     // v10.288 — larger date + numbers + a visual progress fill bar
     // under each card, per Zac 10:18 EDT.
+    // v10.1194: active card gets a stronger visual (2.5px border + "VIEWING" chip)
+    // so it's obvious which one you're operating on.
+    const borderStyle = isActive ? '2.5px solid ' + accent : '1.5px solid ' + accent;
+    const viewingChip = isActive
+      ? '<span style="font-size:10px;font-weight:900;letter-spacing:.5px;background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:999px;margin-left:6px">◉ VIEWING</span>'
+      : '';
     return '<div onclick="switchActiveReceiveSession(\'' + esc(s.id) + '\')" '
-      + 'style="position:relative;overflow:hidden;background:' + bgAccent + ';border:1.5px solid ' + accent + ';border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:' + (isActive ? 'default' : 'pointer') + '">'
-      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:' + accent + '22;transition:width .25s ease;pointer-events:none"></div>'
+      + 'class="no-dark keep-dark-text" '
+      + 'style="position:relative;overflow:hidden;background:' + bgAccent + ' !important;color:' + textColor + ' !important;-webkit-text-fill-color:' + textColor + ' !important;border:' + borderStyle + ';border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:' + (isActive ? 'default' : 'pointer') + '">'
+      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:rgba(0,0,0,.06);transition:width .25s ease;pointer-events:none"></div>'
       + '<div style="position:relative;display:flex;justify-content:space-between;align-items:center;gap:10px">'
       +   '<div style="min-width:0;flex:1">'
       +     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'
-      +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:' + accent + ';letter-spacing:.5px;line-height:1.05">' + esc(_safeRecvDisplayName_(s)) + '</span>'
+      +       '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;color:' + accent + ' !important;-webkit-text-fill-color:' + accent + ' !important;letter-spacing:.5px;line-height:1.05">' + esc(_safeRecvDisplayName_(s)) + '</span>'
+      +       viewingChip
       +       tag
       +     '</div>'
-      +     '<div style="font-size:13px;color:#444;margin-top:4px;font-weight:700">' + (isActive ? '✓ Active — detail below' : openLabel) + '</div>'
+      +     '<div style="font-size:13px;color:' + subTextColor + ' !important;-webkit-text-fill-color:' + subTextColor + ' !important;margin-top:4px;font-weight:700">' + (isActive ? '✓ Cabinets shown below · tap another to switch' : openLabel) + '</div>'
       +   '</div>'
       +   '<div style="text-align:right;flex-shrink:0">'
-      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:' + accent + ';line-height:1">' + st.done + ' / ' + st.total + '</div>'
-      +     '<div style="font-size:11px;font-weight:800;color:#666;margin-top:2px">' + st.pct + '% done</div>'
+      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:900;color:' + accent + ' !important;-webkit-text-fill-color:' + accent + ' !important;line-height:1">' + st.done + ' / ' + st.total + '</div>'
+      +     '<div style="font-size:11px;font-weight:800;color:' + subTextColor + ' !important;-webkit-text-fill-color:' + subTextColor + ' !important;margin-top:2px">' + st.pct + '% done</div>'
       // v10.1159 (Zac 2026-07-07): dismiss-locally button on each
       // chooser card. When the server considers a session open but
       // it's been physically finalized elsewhere, this lets Zac
@@ -25752,37 +25803,33 @@ function renderReceiveSession() {
       + '</div>'
       + '</div>';
   };
-  const chooserStrip = receiveSessions.length > 1
-    ? '<div style="margin-bottom:10px">'
-      + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:6px">📥 Open Shipments (' + receiveSessions.length + ')</div>'
-      + receiveSessions.map(s => sessionCard_(s, s.id === session.id)).join('')
+  // v10.1194 (Zac 2026-07-08): sort active FIRST so it renders at the
+  // top of the chooser strip (not scattered mid-list). Also render even
+  // when there's just one session — the card is nice context.
+  const _sortedRecv = receiveSessions.slice().sort((a, b) => {
+    const aa = a.id === session.id ? 0 : 1;
+    const bb = b.id === session.id ? 0 : 1;
+    return aa - bb;
+  });
+  const chooserStrip = receiveSessions.length > 0
+    ? '<div style="margin-bottom:12px">'
+      + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:8px">📥 Open Shipments (' + receiveSessions.length + ')</div>'
+      + _sortedRecv.map(s => sessionCard_(s, s.id === session.id)).join('')
       + '</div>'
     : '';
 
   const body = chooserStrip
-    // Compact header — shipment name + progress in one row
-    + '<div style="background:linear-gradient(135deg,#0D1520,#111D2E);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
-    +   '<div style="min-width:0;flex:1">'
-    +     '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.85">Active Shipment</div>'
-    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.1;margin-top:1px">'+esc(_safeRecvDisplayName_(session))+'</div>'
-    +     (session.truckCount > 0
-            ? '<div style="font-size:11px;font-weight:700;opacity:.85;margin-top:3px">🚚 ' + session.truckCount + ' trucks</div>'
-            : '')
+    // v10.1194 (Zac 2026-07-08): dropped the redundant dark-gradient
+    // "Active Shipment" header block. The ◉ VIEWING chip on the active
+    // card in the chooser strip already tells you what you're operating
+    // on, with matching numbers. Now just a compact utility bar with the
+    // Sync button + optional truck count.
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;padding:0 4px">'
+    +   '<div style="font-size:11px;font-weight:700;color:#666 !important;-webkit-text-fill-color:#666 !important">'
+    +     (session.truckCount > 0 ? '🚚 ' + session.truckCount + ' trucks' : '')
     +   '</div>'
-    +   '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">'
-    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;line-height:1">'+done+' / '+total+'</div>'
-    +     '<div style="font-size:11px;font-weight:700;opacity:.85">'+pct+'% done</div>'
-    // v10.1155 (Zac 2026-07-07): sync button on the receive-modal
-    // header. Was buried under Cabinets tab → Admin Tools accordion.
-    // Now one tap here refreshes cabinets[] from server so locations
-    // catch up to other devices' moves.
-    +     '<button onclick="event.stopPropagation();(async () => { try { if (typeof syncCabinetsNow === \'function\') { await syncCabinetsNow(true); } if (typeof renderReceiveSession === \'function\') renderReceiveSession(); showToast(\'✓ Synced\'); } catch (_e) { showToast(\'Sync failed: \' + _e.message); } })()" '
-    +       'style="background:#fff;color:#003087;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;margin-top:2px" title="Refresh locations from other devices">⟳ Sync</button>'
-    +   '</div>'
-    + '</div>'
-    + '<div style="position:relative;background:rgba(0,48,135,.10);border-radius:8px;height:18px;overflow:hidden;margin-bottom:12px;border:1px solid rgba(0,48,135,.18)">'
-    +   '<div style="background:linear-gradient(90deg,#00C853,#1A5C1A);height:100%;width:'+pct+'%;transition:width .25s ease"></div>'
-    +   '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:'+(pct>=50?'#fff':'#003087')+';letter-spacing:.5px;text-shadow:'+(pct>=50?'0 1px 2px rgba(0,0,0,.4)':'none')+'">' + done + ' of ' + total + ' · ' + pct + '%</div>'
+    +   '<button onclick="event.stopPropagation();(async () => { try { if (typeof syncCabinetsNow === \'function\') { await syncCabinetsNow(true); } if (typeof _prefetchReceiveSessions_ === \'function\') { await _prefetchReceiveSessions_(true); } if (typeof renderReceiveSession === \'function\') renderReceiveSession(); showToast(\'✓ Synced\'); } catch (_e) { showToast(\'Sync failed: \' + _e.message); } })()" '
+    +       'style="background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px" title="Refresh from server">⟳ Sync</button>'
     + '</div>'
 
     // Compact controls — collapsible if you want to see more list
@@ -25822,19 +25869,29 @@ function renderReceiveSession() {
     + rows
     + '<button onclick="addUnexpectedCabinet()" style="width:100%;padding:12px;background:#fff;color:#FF6B00;border:1.5px dashed #FF6B00;border-radius:10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;margin-top:8px;margin-bottom:14px">+ Add Unexpected Cabinet (notifies manager)</button>'
 
+    // v10.1194 (Zac 2026-07-08): consolidated finish flow. Was 5
+    // buttons (Save to Inventory / Save & Close / Pause / Complete /
+    // Cancel) with unclear semantics. Now: two primary actions +
+    // one collapsed "More options".
     + (done > 0
-        ? '<div style="display:flex;gap:8px;margin-bottom:8px">'
-          + '<button onclick="commitReceiveSession()" style="flex:1;padding:16px;background:#1A5C1A;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">✓ Save to Inventory ('+done+')</button>'
-          + '<button onclick="saveAndCloseReceiveSession()" style="flex:1;padding:16px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">✓ Save &amp; Close</button>'
+        ? '<div style="padding:12px 14px;background:linear-gradient(135deg,rgba(26,92,26,.10),rgba(0,200,83,.06));border:1.5px solid #1A5C1A;border-radius:10px;margin-bottom:10px">'
+          + '<div style="font-size:11px;font-weight:800;color:#1A5C1A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">' + done + ' cabinet' + (done === 1 ? '' : 's') + ' checked — pick one</div>'
+          + '<div style="display:flex;gap:8px">'
+          + '<button onclick="saveAndCloseReceiveSession()" style="flex:1;padding:16px 12px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.2)" title="Save what you have received so far. Session stays open. Come back later to finish the rest.">💾 Save Progress</button>'
+          + '<button onclick="finishReceiveShipmentAllDone_()" style="flex:1;padding:16px 12px;background:linear-gradient(135deg,#00C853,#1A5C1A);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.2)" title="Fully finish this shipment. Marks it done on server + drops from all devices. Manager PIN required.">✓ All Done</button>'
+          + '</div>'
           + '</div>'
         : '<div style="padding:14px;background:#f5f5f5;border-radius:10px;text-align:center;color:#444;font-size:13px;font-weight:600;margin-bottom:8px">Tap a cabinet row above to mark it received. Each tap auto-syncs to other devices.</div>')
 
-    + '<div style="display:flex;gap:8px;margin-bottom:8px">'
-    +   '<button onclick="closeCabModal()" style="flex:1;padding:12px;background:#fff;color:#444;border:1.5px solid #999;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Pause / Close</button>'
-    +   '<button onclick="completeReceiveSession()" style="flex:1;padding:12px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">✓ Complete Shipment</button>'
-    + '</div>'
-
-    + '<button onclick="cancelReceiveSession()" style="width:100%;padding:8px;background:#fff;color:#8B0000;border:none;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline">✕ Cancel this shipment</button>';
+    // Collapsed More Options for edge cases (Pause/close without saving,
+    // Cancel entire shipment). Rare paths.
+    + '<details style="margin-bottom:6px;background:#fafafa;border:1px solid #e0e0e0;border-radius:8px">'
+    +   '<summary style="cursor:pointer;padding:9px 12px;font-size:11px;font-weight:800;color:#666;text-transform:uppercase;letter-spacing:.5px;list-style:none">▸ More options</summary>'
+    +   '<div style="padding:8px 12px 12px 12px;display:flex;flex-direction:column;gap:6px">'
+    +     '<button onclick="closeCabModal()" style="width:100%;padding:10px;background:#fff;color:#444;border:1.5px solid #999;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer" title="Close without saving. Anything already saved stays saved.">⏸ Pause / Close</button>'
+    +     '<button onclick="cancelReceiveShipmentConfirm_()" style="width:100%;padding:10px;background:#fff;color:#8B0000;border:1.5px solid #8B0000;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer" title="Discard the entire shipment (rarely correct — usually you want Pause / Close instead).">✕ Cancel Entire Shipment</button>'
+    +   '</div>'
+    + '</details>';
 
   openCabModal('📥 Receiving Shipment', body);
 
@@ -31819,7 +31876,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1193"></script>
+<script src="./pack.js?v=10.1194"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31830,7 +31887,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1193<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1194<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
