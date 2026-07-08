@@ -23320,14 +23320,14 @@ function personPickerHtml(inputId) {
     return '<div style="background:#FFF8E1;border:1px solid #FFC107;border-radius:8px;padding:10px;font-size:12px;color:#8B4000;line-height:1.5">'
       + '⚠ No team members yet. Type a name below or tap "Manage Team" to add some.'
       + '</div>'
-      + '<input type="text" id="'+inputId+'" class="no-dark keep-dark-text" placeholder="Type your name…" style="width:100%;padding:12px;font-size:15px;border:1.5px solid #999;border-radius:8px;outline:none;margin-top:8px;-webkit-appearance:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
+      + '<input type="text" id="'+inputId+'" class="no-dark keep-dark-text" placeholder="Type your name here…" style="width:100%;padding:14px 16px;font-size:15px;border:2px solid #003087;border-radius:8px;outline:none;margin-top:8px;-webkit-appearance:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-shadow:0 1px 3px rgba(0,0,0,.15) inset">';
   }
   return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
     + cabTeam.map(p =>
         '<button type="button" data-name="'+esc(p)+'" onclick="cabPickPerson(this,\''+inputId+'\')" style="background:#fff;border:1.5px solid #ccc;border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;color:#1a1a1a">'+esc(p)+'</button>'
       ).join('')
     + '</div>'
-    + '<input type="text" id="'+inputId+'" class="no-dark keep-dark-text" placeholder="Or type another name…" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #999;border-radius:8px;outline:none;-webkit-appearance:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">';
+    + '<input type="text" id="'+inputId+'" class="no-dark keep-dark-text" placeholder="Or type another name here…" style="width:100%;padding:12px 14px;font-size:14px;border:2px solid #003087;border-radius:8px;outline:none;-webkit-appearance:none;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-shadow:0 1px 3px rgba(0,0,0,.15) inset">';
 }
 function cabPickPerson(btn, targetId) {
   const wrap = btn.parentNode;
@@ -25747,11 +25747,14 @@ function renderReceiveSession() {
     // v10.1194 (Zac 2026-07-08): opaque backgrounds instead of low-alpha
     // rgba (which let the dark modal background bleed through, killing
     // contrast). Now every card has its own solid surface.
+    // v10.1199 (Zac 2026-07-08): active card was too similar to upcoming
+    // (pale blue vs pale slate). Now: distinctive pale yellow. Every
+    // state is visually unique at a glance.
     const accent = isActive
-      ? '#003087'
+      ? '#7A5200'
       : (isReady ? '#1A5C1A' : (isIncompletePast ? '#B84A00' : '#4A6FA5'));
     const bgAccent = isActive
-      ? '#D9E4F5'                                // active — pale blue
+      ? '#FFF2C4'                                // active — pale yellow (distinct)
       : (isReady ? '#DFF3E4'                     // ready — pale green
                  : (isIncompletePast ? '#FFE8D1' // stale — pale amber
                                      : '#EAF0F8'));// upcoming — pale slate
@@ -25782,7 +25785,11 @@ function renderReceiveSession() {
     return '<div onclick="switchActiveReceiveSession(\'' + esc(s.id) + '\')" '
       + 'class="no-dark keep-dark-text" '
       + 'style="position:relative;overflow:hidden;background:' + bgAccent + ' !important;color:' + textColor + ' !important;-webkit-text-fill-color:' + textColor + ' !important;border:' + borderStyle + ';border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:' + (isActive ? 'default' : 'pointer') + '">'
-      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:rgba(0,0,0,.06);transition:width .25s ease;pointer-events:none"></div>'
+      // v10.1199 (Zac 2026-07-08): bump progress bar visibility. Was
+      // rgba(0,0,0,.06) — barely there. Now rgba(0,0,0,.18) — subtle
+      // enough to still feel like a background, strong enough to
+      // read at a glance.
+      + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + st.pct + '%;background:rgba(0,0,0,.18);transition:width .25s ease;pointer-events:none"></div>'
       + '<div style="position:relative;display:flex;justify-content:space-between;align-items:center;gap:10px">'
       +   '<div style="min-width:0;flex:1">'
       +     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'
@@ -25819,13 +25826,15 @@ function renderReceiveSession() {
       + '</div>'
       + '</div>';
   };
-  // v10.1194 (Zac 2026-07-08): sort active FIRST so it renders at the
-  // top of the chooser strip (not scattered mid-list). Also render even
-  // when there's just one session — the card is nice context.
+  // v10.1199 (Zac 2026-07-08): revert the active-first sort from v10.1194.
+  // Zac: "out of order is just as confusing as it being down at the
+  // bottom." Keep chronological order (by delivery date); the active
+  // card's distinctive yellow + border + VIEWING chip make it obvious
+  // where it is without moving it.
   const _sortedRecv = receiveSessions.slice().sort((a, b) => {
-    const aa = a.id === session.id ? 0 : 1;
-    const bb = b.id === session.id ? 0 : 1;
-    return aa - bb;
+    const ad = a.deliveryDate || '';
+    const bd = b.deliveryDate || '';
+    return ad < bd ? -1 : ad > bd ? 1 : 0;
   });
   const chooserStrip = receiveSessions.length > 0
     ? '<div style="margin-bottom:12px">'
@@ -31898,7 +31907,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1198"></script>
+<script src="./pack.js?v=10.1199"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31909,7 +31918,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1198<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1199<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
