@@ -16587,22 +16587,82 @@ function _mgRenderAddrBook_() {
   const row = document.getElementById('mgAddrBookRow');
   if (!row) return;
   const addrs = _mgRecentGet_(_MG_RECENT_ADDR_KEY_).slice(0, 6);
-  if (!addrs.length) {
-    // v10.940 — Zac 2026-07-02: 'address doesn't auto-complete'. When
-    // no saved addresses exist yet, don't hide silently — hint at how
-    // addresses get populated so the empty state is legible.
+  // v10.1212 (Zac 2026-07-08): also surface recent Shopify orders from
+  // the v10.1210 prefetch cache. Names+cities alone are useless when
+  // you need to reference by order #. Sorted by created_at desc,
+  // shown as tappable chips with order # + customer name.
+  let shopifyRecent = [];
+  try {
+    const raw = localStorage.getItem('mbd_shopify_lookup_v1');
+    if (raw) {
+      const cache = JSON.parse(raw);
+      shopifyRecent = Object.keys(cache).map(k => ({ key: k, ...cache[k].summary || {}, at: cache[k].at || 0 }))
+        .filter(o => o.shipping_address && o.shipping_address.address1)
+        .sort((a, b) => {
+          const ac = a.created_at || '';
+          const bc = b.created_at || '';
+          if (ac && bc) return bc.localeCompare(ac);
+          return (b.at || 0) - (a.at || 0);
+        })
+        .slice(0, 8);
+    }
+  } catch (e) {}
+
+  const shopifyHtml = shopifyRecent.length
+    ? `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;margin-bottom:4px;margin-top:${addrs.length ? '10px' : '0'}">Recent Shopify orders (tap to fill order # + address)</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${
+        shopifyRecent.map(o => {
+          const bare = String(o.order_number_bare || o.key || '').replace(/^#/, '');
+          const custShort = String(o.customer_name || 'unknown').substring(0, 18);
+          const state = (o.shipping_address && o.shipping_address.province) || '';
+          const city = (o.shipping_address && o.shipping_address.city) || '';
+          return `<button onclick="_mgFillFromShopifyRecent_('${bare}')" class="bd-btn-secondary" style="padding:6px 10px;font-size:11px;min-height:32px;text-align:left;background:#EAF0F8 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #003087" title="${(o.shipping_address && o.shipping_address.address1 || '').replace(/"/g, '&quot;')}, ${city.replace(/"/g, '&quot;')} ${state}"><b style="font-family:'JetBrains Mono',monospace">#${bare}</b> · ${custShort}${(o.customer_name || '').length > 18 ? '…' : ''} · ${city} ${state}</button>`;
+        }).join('')
+      }</div>`
+    : '';
+
+  if (!addrs.length && !shopifyRecent.length) {
     row.style.display = 'block';
-    row.innerHTML = '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;margin-bottom:4px">Recent addresses</div>' +
-      '<div style="font-size:11px;color:#999;line-height:1.4;padding:4px 8px;background:#f5f5f7;border-radius:6px">No saved addresses yet. Type a real Shopify order # above to auto-fill from that order, tap an installer chip below, or type manually — every successful order saves its ship-to for next time.</div>';
+    row.innerHTML = '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;margin-bottom:4px">Recent addresses</div>' +
+      '<div style="font-size:11px;color:#999 !important;-webkit-text-fill-color:#999 !important;line-height:1.4;padding:4px 8px;background:#f5f5f7 !important;border-radius:6px">No saved addresses yet. Type a real Shopify order # above to auto-fill, tap an installer chip below, or type manually.</div>';
     return;
   }
   row.style.display = 'block';
-  row.innerHTML = `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;font-weight:800;margin-bottom:4px">Recent addresses (tap to fill)</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${
-      addrs.map((a, i) =>
-        `<button onclick="_mgFillAddr_(${i})" class="bd-btn-secondary" style="padding:6px 10px;font-size:11px;min-height:32px;text-align:left" title="${(a.street1||'').replace(/"/g,'&quot;')}, ${(a.city||'').replace(/"/g,'&quot;')}, ${(a.state||'')}">${(a.name||'').substring(0,22)}${(a.name||'').length>22?'…':''} · ${(a.city||'')} ${(a.state||'')}</button>`
-      ).join('')
-    }</div>`;
+  const addrHtml = addrs.length
+    ? `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;margin-bottom:4px">Recent addresses (tap to fill)</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${
+        addrs.map((a, i) =>
+          `<button onclick="_mgFillAddr_(${i})" class="bd-btn-secondary" style="padding:6px 10px;font-size:11px;min-height:32px;text-align:left" title="${(a.street1||'').replace(/"/g,'&quot;')}, ${(a.city||'').replace(/"/g,'&quot;')}, ${(a.state||'')}">${(a.name||'').substring(0,22)}${(a.name||'').length>22?'…':''} · ${(a.city||'')} ${(a.state||'')}</button>`
+        ).join('')
+      }</div>`
+    : '';
+  row.innerHTML = shopifyHtml + addrHtml;
+}
+
+// v10.1212 — tap handler for a Recent Shopify order chip. Fills order # + address.
+function _mgFillFromShopifyRecent_(orderNumberBare) {
+  try {
+    const raw = localStorage.getItem('mbd_shopify_lookup_v1');
+    if (!raw) return;
+    const cache = JSON.parse(raw);
+    const rec = cache[orderNumberBare];
+    if (!rec || !rec.summary) return;
+    const o = rec.summary;
+    const sa = o.shipping_address || {};
+    document.getElementById('mgOrderNumber').value = orderNumberBare;
+    const setIf = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    setIf('mgName', o.customer_name);
+    setIf('mgStreet1', sa.address1);
+    setIf('mgStreet2', sa.address2);
+    setIf('mgCity', sa.city);
+    setIf('mgState', String(sa.province || '').toUpperCase());
+    setIf('mgZip', sa.zip);
+    setIf('mgPhone', o.customer_phone);
+    setIf('mgEmail', o.customer_email);
+    if (typeof showToast === 'function') showToast('✓ Filled from Shopify order ' + orderNumberBare);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Fill failed: ' + e.message);
+  }
 }
 
 function _mgFillAddr_(idx) {
@@ -31987,7 +32047,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1210"></script>
+<script src="./pack.js?v=10.1212"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31998,7 +32058,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1210<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1212<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
