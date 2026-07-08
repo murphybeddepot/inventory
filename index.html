@@ -30193,6 +30193,37 @@ async function callStartPackAndRender(orderRow) {
       // v10.1173 (Zac 2026-07-07): translate common raw carrier errors
       // to actionable plain-English + keep raw text collapsible below.
       const rawErr = String(data.error || 'Unknown error');
+      // v10.1182 (Zac 2026-07-07 overnight round 9): if server flagged
+      // concurrent_lock=true (v10.1174), extend the button's disabled
+      // window on the client so the packer can't spam-retry within
+      // the server's 120s lock TTL. Server's lock protects against
+      // duplicate charges anyway, but visual guard reinforces
+      // "wait — don't panic-click".
+      if (data.concurrent_lock === true) {
+        const btn = document.getElementById('groundPackCreateLabelsBtn');
+        if (btn && window._buyLabelInFlight) {
+          const orderKey = String(groundPendingOrder && (groundPendingOrder.order_number || groundPendingOrder.orderId) || '');
+          window._buyLabelInFlight.add(orderKey);
+          btn.disabled = true;
+          btn.style.opacity = '.55';
+          btn.style.cursor = 'not-allowed';
+          const _lockUntil = Date.now() + 60000;
+          const _tick = () => {
+            const remain = Math.max(0, Math.ceil((_lockUntil - Date.now()) / 1000));
+            if (remain > 0) {
+              btn.textContent = '⏳ Server locked — wait ' + remain + 's';
+              setTimeout(_tick, 1000);
+            } else {
+              btn.disabled = false;
+              btn.style.opacity = '';
+              btn.style.cursor = '';
+              btn.innerHTML = '🚀 Create Labels &amp; Start Pack';
+              window._buyLabelInFlight.delete(orderKey);
+            }
+          };
+          _tick();
+        }
+      }
       const friendly = _translateGroundError_(rawErr);
       const details = (data.details || []).map(d => '• ' + escapeHtml(d)).join('<br>');
       document.getElementById('groundErrorBody').innerHTML = ''
@@ -31631,7 +31662,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1181"></script>
+<script src="./pack.js?v=10.1182"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -31642,7 +31673,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1181<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1182<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
