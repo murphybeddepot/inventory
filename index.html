@@ -8677,12 +8677,19 @@ function _frameRunwayOpen_() {
     +   '<button class="runway-btn" onclick="_frameRunwayReload_()" title="Reload" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     +   '<button class="runway-btn" onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" title="Receive container" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥<span class="runway-btn-label"> Receive…</span></button>'
     +   '<button class="runway-btn" onclick="_frameRunwayOpenPoGenerator_()" title="Generate PO" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦<span class="runway-btn-label"> Generate PO</span></button>'
-    +   '<button class="runway-btn" onclick="_frameRunwayOpenPoHistory_()" title="PO history" style="background:rgba(123,44,191,.10) !important;border:1px solid rgba(199,125,255,.6);color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📚<span class="runway-btn-label"> PO history</span></button>'
-    +   '<button class="runway-btn" onclick="_frameRunwayOpenLedger_()" title="Inventory ledger — audit trail of every qty change" style="background:rgba(120,140,170,.10) !important;border:1px solid rgba(120,140,170,.6);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📜<span class="runway-btn-label"> Ledger</span></button>'
-    +   '<button class="runway-btn" onclick="_frameRunwayOpenBomDiag_()" title="Diagnose BOMs" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">🔬<span class="runway-btn-label"> Diagnose BOMs</span></button>'
-    +   '<button class="runway-btn" id="frameRunwayBackfillBtn" onclick="_frameRunwayBackfillShipBom_()" style="background:rgba(255,193,7,.18) !important;border:1px solid #FFC107;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer" title="Re-decompose last 90d of Shopify orders into BOM-leaf inventory consumption. Tap ? for full explanation.">⚙<span class="runway-btn-label"> Backfill ledger</span></button>'
-    +   '<button class="runway-btn" onclick="_frameRunwayShowBackfillHelp_()" title="What does Backfill ledger do?" style="background:transparent !important;border:1px solid rgba(255,193,7,.5);color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:50%;padding:0;width:26px;height:26px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center">?</button>'
-    +   '<button class="runway-btn" onclick="_frameRunwayOpenUnmappedInbox_()" title="Unmapped SKU inbox" style="background:rgba(255,179,0,.18) !important;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📥<span class="runway-btn-label"> Unmapped inbox</span></button>'
+    // v10.1218 (Zac 2026-07-08): 5 secondary buttons collapsed into a
+    // ⋯ dropdown. Kept top 3 visible: Compute Velocity, Receive (when
+    // container is landed), Generate PO. Rest into the menu.
+    +   '<div style="position:relative;display:inline-block">'
+    +     '<button class="runway-btn" onclick="_frameRunwayToolbarMoreToggle_()" id="frameRunwayMoreBtn" title="More options" style="background:rgba(120,140,170,.15) !important;border:1px solid rgba(120,140,170,.6);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border-radius:6px;padding:6px 12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⋯<span class="runway-btn-label"> More</span></button>'
+    +     '<div id="frameRunwayMoreMenu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:#1a1a1a !important;border:1px solid rgba(120,140,170,.5);border-radius:8px;padding:6px;min-width:200px;z-index:1000;box-shadow:0 8px 24px rgba(0,0,0,.5)">'
+    +       '<button onclick="_frameRunwayMoreClose_();_frameRunwayOpenPoHistory_()" style="display:flex;align-items:center;gap:8px;width:100%;background:transparent !important;border:none;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;padding:9px 12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;border-radius:5px;text-align:left">📚 <span>PO history</span></button>'
+    +       '<button onclick="_frameRunwayMoreClose_();_frameRunwayOpenLedger_()" style="display:flex;align-items:center;gap:8px;width:100%;background:transparent !important;border:none;color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;padding:9px 12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;border-radius:5px;text-align:left" title="Inventory ledger — audit trail of every qty change">📜 <span>Ledger</span></button>'
+    +       '<button onclick="_frameRunwayMoreClose_();_frameRunwayOpenBomDiag_()" style="display:flex;align-items:center;gap:8px;width:100%;background:transparent !important;border:none;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;padding:9px 12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;border-radius:5px;text-align:left">🔬 <span>Diagnose BOMs</span></button>'
+    +       '<button id="frameRunwayBackfillBtn" onclick="_frameRunwayMoreClose_();_frameRunwayBackfillShipBom_()" style="display:flex;align-items:center;gap:8px;width:100%;background:transparent !important;border:none;color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;padding:9px 12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;border-radius:5px;text-align:left" title="Re-decompose last 90d of Shopify orders into BOM-leaf inventory consumption. Tap the ? on the row for full explanation.">⚙ <span>Backfill ledger</span> <span onclick="event.stopPropagation();_frameRunwayShowBackfillHelp_()" style="margin-left:auto;background:transparent !important;border:1px solid rgba(255,193,7,.5);color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important;border-radius:50%;padding:0;width:20px;height:20px;font-size:11px;display:inline-flex;align-items:center;justify-content:center">?</span></button>'
+    +       '<button onclick="_frameRunwayMoreClose_();_frameRunwayOpenUnmappedInbox_()" style="display:flex;align-items:center;gap:8px;width:100%;background:transparent !important;border:none;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;padding:9px 12px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;border-radius:5px;text-align:left">📥 <span>Unmapped inbox</span></button>'
+    +     '</div>'
+    +   '</div>'
     + '</div>'
     // v10.735 — search bar below the header. Filters table rows by
     // SKU, bin location, or category tag substring.
@@ -8906,6 +8913,35 @@ function _frameRunwayApplyQuickFilter_(query) {
 
 // v10.717 — Reload always bypasses the response cache.
 async function _frameRunwayReload_() { _frameRunwayLoad_(true); }
+
+// v10.1218 — ⋯ More dropdown for the runway toolbar.
+function _frameRunwayToolbarMoreToggle_() {
+  const m = document.getElementById('frameRunwayMoreMenu');
+  if (!m) return;
+  const showing = m.style.display !== 'none';
+  m.style.display = showing ? 'none' : 'block';
+  if (!showing) {
+    // Close on outside click.
+    setTimeout(() => {
+      document.addEventListener('click', _frameRunwayMoreOutsideClick_, { once: true });
+    }, 0);
+  }
+}
+function _frameRunwayMoreClose_() {
+  const m = document.getElementById('frameRunwayMoreMenu');
+  if (m) m.style.display = 'none';
+}
+function _frameRunwayMoreOutsideClick_(e) {
+  const menu = document.getElementById('frameRunwayMoreMenu');
+  const btn = document.getElementById('frameRunwayMoreBtn');
+  if (!menu) return;
+  if (menu.contains(e.target) || (btn && btn.contains(e.target))) {
+    // Re-arm listener for next outside click.
+    setTimeout(() => document.addEventListener('click', _frameRunwayMoreOutsideClick_, { once: true }), 0);
+    return;
+  }
+  menu.style.display = 'none';
+}
 // v10.716 — operator changes the displayed window. Cheap reload (uses
 // cached payload if available — different window = different cache key).
 async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
@@ -32252,7 +32288,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1216"></script>
+<script src="./pack.js?v=10.1218"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32263,7 +32299,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1216<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1218<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
