@@ -3731,7 +3731,7 @@ function switchTab(name) {
   if (name==='items') renderItems();
   if (name==='cycle') renderCycleTab();
   if (name==='recount' && typeof renderRecountTab === 'function') renderRecountTab();
-  if (name==='ground') renderGroundTab();
+  if (name==='ground') { renderGroundTab(); _mgPrefetchShopifyRecent_(); }
   if (name==='scan') PROGRESS.refresh();
   // v10.327 — Orders tab: load pipeline cache + render lens.
   if (name==='orders') {
@@ -16621,6 +16621,43 @@ function _mgFillAddr_(idx) {
 // Chip row shown just below Recent addresses. Tap fills the ship-to.
 // "+ Add" opens a small nested form to persist a new installer.
 let _mgInstallers_ = [];
+/**
+ * v10.1210 (Zac 2026-07-08): prefetch recent Shopify orders on Ground
+ * tab open so the manual-order modal's lookup is instant. Populates
+ * the same mbd_shopify_lookup_v1 cache the modal already checks first.
+ * Throttled: only runs once per 5min per session.
+ */
+let _mgShopifyPrefetchAt = 0;
+async function _mgPrefetchShopifyRecent_() {
+  if (Date.now() - _mgShopifyPrefetchAt < 300000) return;
+  _mgShopifyPrefetchAt = Date.now();
+  if (typeof groundApi !== 'function' || !GROUND_ORCH_URL) return;
+  try {
+    const res = await groundApi('listRecentShopifyOrderSummaries', { limit: 100 });
+    if (!res || !res.ok || !Array.isArray(res.summaries)) return;
+    const raw = localStorage.getItem('mbd_shopify_lookup_v1');
+    const cache = raw ? JSON.parse(raw) : {};
+    const now = Date.now();
+    let inserted = 0;
+    res.summaries.forEach(o => {
+      const key = String(o.order_number_bare || '').replace(/^#/, '').trim();
+      if (!key) return;
+      cache[key] = { at: now, summary: o };
+      inserted++;
+    });
+    // Trim to 250 most recent to bound localStorage growth.
+    const keys = Object.keys(cache);
+    if (keys.length > 250) {
+      keys.sort((a,b) => (cache[b].at||0) - (cache[a].at||0))
+        .slice(250).forEach(k => delete cache[k]);
+    }
+    localStorage.setItem('mbd_shopify_lookup_v1', JSON.stringify(cache));
+    console.log('DIAG-V10.1210 prefetched ' + inserted + ' Shopify orders → cache');
+  } catch (e) {
+    console.log('Shopify prefetch failed: ' + e.message);
+  }
+}
+
 async function _mgLoadInstallers_() {
   try {
     const r = await groundApi('listInstallers', {});
