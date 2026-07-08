@@ -19199,6 +19199,48 @@ function _translateGroundError_(raw) {
 // v10.1215 — Shelf Entry: batch inventory recount by shelf.
 // Zac 2026-07-08: paper inventory of ~50 items across 9 shelves.
 // Existing recount UI is one-at-a-time.
+// v10.1225 (Zac 2026-07-08 overnight): draft persistence — text
+// persists per-shelf for 24h so mid-counting close doesn't lose work.
+const _SHELF_DRAFT_KEY = 'mbd_shelf_entry_draft_v1';
+function _shelfDraftSave_(shelf, text) {
+  try {
+    const raw = localStorage.getItem(_SHELF_DRAFT_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    if (!text) delete map[shelf];
+    else map[shelf] = { text: text, at: Date.now() };
+    const cutoff = Date.now() - 86400000;
+    Object.keys(map).forEach(k => { if ((map[k].at || 0) < cutoff) delete map[k]; });
+    localStorage.setItem(_SHELF_DRAFT_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+function _shelfDraftLoad_(shelf) {
+  try {
+    const raw = localStorage.getItem(_SHELF_DRAFT_KEY);
+    if (!raw) return '';
+    const map = JSON.parse(raw);
+    const rec = map[shelf];
+    if (!rec) return '';
+    if (Date.now() - (rec.at || 0) > 86400000) return '';
+    return rec.text || '';
+  } catch (e) { return ''; }
+}
+function _shelfEntryOnShelfChange_() {
+  const sel = document.getElementById('shelfEntryLocation');
+  if (!sel) return;
+  _shelfCustomToggle_();
+  const shelfKey = sel.value === 'CUSTOM' ? '__custom__' : sel.value;
+  const draft = _shelfDraftLoad_(shelfKey);
+  const ta = document.getElementById('shelfEntryText');
+  if (ta) ta.value = draft || '';
+}
+function _shelfEntryOnTextInput_() {
+  const sel = document.getElementById('shelfEntryLocation');
+  const ta = document.getElementById('shelfEntryText');
+  if (!sel || !ta) return;
+  const shelfKey = sel.value === 'CUSTOM' ? '__custom__' : sel.value;
+  _shelfDraftSave_(shelfKey, ta.value);
+}
+
 async function openShelfEntryModal() {
   const prior = document.getElementById('shelfEntryOverlay');
   if (prior) prior.remove();
@@ -19214,7 +19256,7 @@ async function openShelfEntryModal() {
         <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
           <div style="flex:1;min-width:200px">
             <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#003087 !important;-webkit-text-fill-color:#003087 !important">Shelf</label>
-            <select id="shelfEntryLocation" onchange="_shelfCustomToggle_()" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #999;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace;font-weight:700;margin-top:4px">
+            <select id="shelfEntryLocation" onchange="_shelfEntryOnShelfChange_()" style="width:100%;padding:10px;font-size:14px;border:1.5px solid #999;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace;font-weight:700;margin-top:4px">
               <option value="A1">A1 (bottom, left unit)</option>
               <option value="A2">A2</option>
               <option value="A3">A3</option>
@@ -19234,11 +19276,12 @@ async function openShelfEntryModal() {
         </div>
 
         <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#003087 !important;-webkit-text-fill-color:#003087 !important">Your list (one item per line)</label>
-        <textarea id="shelfEntryText" placeholder="92 flip nuts
+        <textarea id="shelfEntryText" oninput="_shelfEntryOnTextInput_()" placeholder="92 flip nuts
 76 flip bolts
 53 flip latches
 394+418 butt hinges
 2100+3590 1.25 screws" style="width:100%;min-height:200px;padding:12px;font-size:14px;border:2px solid #003087;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace;line-height:1.5;margin-top:4px;box-sizing:border-box"></textarea>
+        <div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:4px;font-style:italic">Draft saves automatically per-shelf — safe to close mid-count.</div>
 
         <div style="display:flex;gap:10px;margin-top:12px">
           <button onclick="_shelfEntryPreview_()" style="flex:1;padding:14px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;cursor:pointer">🔍 Match SKUs</button>
@@ -19363,6 +19406,9 @@ async function _shelfEntrySave_() {
     if (!res || !res.ok) { result.innerHTML = '<div style="padding:12px;background:#ffebee;border-radius:8px;color:#8b0000 !important;-webkit-text-fill-color:#8b0000 !important;font-weight:700">✕ Save failed: ' + ((res && res.error) || 'unknown') + '</div>'; return; }
     const failCount = (res.results || []).filter(r => !r.ok).length;
     result.innerHTML = '<div style="padding:12px;background:#DFF3E4;border-radius:8px;color:#0a5c9a !important;-webkit-text-fill-color:#0a5c9a !important;font-weight:700">✓ Saved ' + res.ok_count + ' / ' + res.total + ' to shelf ' + shelf + (failCount ? ' — ' + failCount + ' failed (see console)' : '') + '</div>';
+    // v10.1225 — clear the shelf's draft on successful save so
+    // reopening starts fresh instead of showing the just-saved list.
+    if (failCount === 0) { _shelfDraftSave_(shelf, ''); const ta = document.getElementById('shelfEntryText'); if (ta) ta.value = ''; }
     console.log('DIAG-V10.1215-SAVE', res);
   } catch (e) {
     result.innerHTML = '<div style="padding:12px;background:#ffebee;border-radius:8px;color:#8b0000 !important;-webkit-text-fill-color:#8b0000 !important;font-weight:700">✕ Save error: ' + e.message + '</div>';
@@ -32288,7 +32334,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1218"></script>
+<script src="./pack.js?v=10.1225"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32299,7 +32345,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1218<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1225<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
