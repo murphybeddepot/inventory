@@ -2254,25 +2254,23 @@ input::placeholder, textarea::placeholder {
       <span style="display:flex;align-items:center;gap:8px"><span class="brass-led"></span>Tap to search again</span>
       <span style="color:var(--green-bright);font-family:'JetBrains Mono',monospace;letter-spacing:2px">▲</span>
     </div>
-    <div class="help-tip" style="font-size:11px;color:var(--tape-cream);opacity:.7;margin-top:10px;letter-spacing:.3px;padding:0 2px;text-align:center">
-      Scan · tap keypad · or ⌨ type e.g. <span style="color:var(--shellac);font-family:'JetBrains Mono',monospace;font-weight:700">001.005</span>
+    <!-- v10.1214 (Zac 2026-07-08): hint was too faint (opacity .7 on
+         wood-grain background). Bumped to bright cream + full opacity +
+         weight 600 so it's legible. -->
+    <div class="help-tip" style="font-size:11px;color:#F5E6C8 !important;-webkit-text-fill-color:#F5E6C8 !important;opacity:1;margin-top:10px;font-weight:600;letter-spacing:.3px;padding:0 2px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.5)">
+      Scan · tap keypad · or ⌨ type e.g. <span style="color:#FFB84D !important;-webkit-text-fill-color:#FFB84D !important;font-family:'JetBrains Mono',monospace;font-weight:800">001.005</span>
     </div>
   </div>
 
   <!-- RESULT AREA -->
   <div id="cabResult"></div>
 
-  <!-- v10.678 (Zac: "cleaner and less cluttered") — actions
-       restructured into hierarchy. Receive Shipment is the most-
-       used: full-width on top with bigger tap target. The other 3
-       (Add, Bulk Move, Damage Log) live as a 3-up secondary row
-       underneath — equal weights, smaller, less visual noise. -->
-  <div id="receiveButtonContainer">
-    <button onclick="openReceiveShipment()" class="amp-btn info" style="width:100%;margin-bottom:8px">
-      📥 Receive Shipment
-    </button>
-  </div>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px">
+  <!-- v10.1214 (Zac 2026-07-08): daily-action buttons moved ABOVE the
+       receive bars/RECEIVE SHIPMENT so they sit closer to the top
+       navigation. Add/Move/Damage are used every day; Receive is
+       weekly. Grouping: receive bars stay just above the RECEIVE
+       SHIPMENT button. -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px">
     <button onclick="openAddCabinet()" style="padding:11px 6px;background:rgba(0,200,83,.12);color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:1.5px solid #00C853;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.6px;line-height:1.2;white-space:nowrap">
       + Add
     </button>
@@ -2281,6 +2279,15 @@ input::placeholder, textarea::placeholder {
     </button>
     <button onclick="openDamageLog()" id="damageLogOpener" style="padding:11px 6px;background:rgba(139,0,0,.08);color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border:1.5px solid rgba(255,82,82,.45);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.6px;line-height:1.2;white-space:nowrap">
       🚫 Damage <span id="damageLogBadge" style="opacity:.7;font-weight:600"></span>
+    </button>
+  </div>
+
+  <!-- v10.678 — Receive Shipment full-width button. Open-shipment
+       bars insert ABOVE this via renderActiveSessionBadge (they
+       prepend into #receiveButtonContainer). -->
+  <div id="receiveButtonContainer">
+    <button onclick="openReceiveShipment()" class="amp-btn info" style="width:100%;margin-bottom:8px">
+      📥 Receive Shipment
     </button>
   </div>
 
@@ -23414,6 +23421,12 @@ function openCabModal(title, body) {
 }
 function closeCabModal() {
   document.getElementById('cabModalOverlay').style.display = 'none';
+  // v10.1214 (Zac 2026-07-08): re-render the Cabinets tab shipment
+  // bars on modal close so progress from receive taps shows up
+  // without waiting for a full refresh.
+  try {
+    if (typeof renderActiveSessionBadge === 'function') renderActiveSessionBadge();
+  } catch (_e) {}
 }
 
 function personPickerHtml(inputId) {
@@ -32052,7 +32065,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1213"></script>
+<script src="./pack.js?v=10.1214"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32063,7 +32076,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1213<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1214<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
