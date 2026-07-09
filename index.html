@@ -29120,7 +29120,39 @@ function paintGroundQueue_(queue, list, empty) {
   // v10.733 — re-apply the search filter if the operator had one
   // active before refresh. Otherwise refreshing wipes their filter.
   _groundSearchReapply_();
+  // v10.1229 — instrument the pre-flight SKU check. Read-only,
+  // fire-and-forget. Just console.logs findings so we can verify the
+  // endpoint returns useful data before wiring UI in a later round.
+  try {
+    _groundPreflightSkuCheck_(queue);
+  } catch (_e) {}
   return queue;
+}
+
+// v10.1229 — pre-flight SKU status check. Collects all SKUs from queue
+// line_items, calls checkSkusMapped once, console.logs the unmapped set.
+// No UI changes yet — that comes in a later round once shape is verified.
+async function _groundPreflightSkuCheck_(queue) {
+  if (typeof groundApi !== 'function' || !Array.isArray(queue) || queue.length === 0) return;
+  const skus = new Set();
+  queue.forEach(o => {
+    if (Array.isArray(o.line_items)) {
+      o.line_items.forEach(li => {
+        const s = String((li && li.sku) || '').trim();
+        if (s) skus.add(s);
+      });
+    }
+  });
+  if (skus.size === 0) return;
+  try {
+    const res = await groundApi('checkSkusMapped', { skus: Array.from(skus) });
+    if (res && res.ok) {
+      console.log('DIAG-V10.1229-PREFLIGHT mapped=' + (res.mapped || []).length
+        + ' unmapped=' + (res.unmapped || []).length
+        + ' ignored=' + (res.ignored || []).length,
+        (res.unmapped || []).length ? { unmapped: res.unmapped } : '');
+    }
+  } catch (e) { console.log('DIAG-V10.1229 preflight failed: ' + e.message); }
 }
 
 // v10.466 — Force ShipStation to pull new Shopify orders, then reload
@@ -32367,7 +32399,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1226"></script>
+<script src="./pack.js?v=10.1229"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32378,7 +32410,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1226<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1229<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
