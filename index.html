@@ -19346,26 +19346,57 @@ function _shelfEntryParseLines_(text) {
   });
 }
 
+// v10.1232 (Zac 2026-07-08 overnight): matcher rewrite. The old
+// version silently failed on plurals ("Butt Hinges" ≠ "BUTT HINGE")
+// and ambiguously matched shorter names ("Inset Hinge Plates" matched
+// "INSET HINGE" not "INSET HINGE PLATE"). Bugs found via new
+// scripts/test-shelf-matcher.js (29 assertions).
+//
+// Fixes:
+// 1. Strip trailing 's' on tokens length >= 4 (hinges → hinge, plates → plate)
+// 2. Common abbreviation expansion (adj → adjustable)
+// 3. Length-weighted tiebreak: longer element names win ties (so PLATE
+//    variant beats generic HINGE when the query says "plates")
 function _shelfMatchToElement_(parsedName) {
   if (typeof ELEMENTS === 'undefined' || !Array.isArray(ELEMENTS)) return null;
   const q = String(parsedName || '').toLowerCase().trim();
   if (!q) return null;
-  // Simple normalized substring match, both directions.
   const normalize = s => String(s || '').toLowerCase().replace(/[()]/g, ' ').replace(/[-_.]/g, ' ').replace(/\s+/g, ' ').trim();
-  const nq = normalize(q);
+  // v10.1232 — plural strip + abbreviation expand for both sides.
+  const canonToken = t => {
+    // Common warehouse abbreviations — both directions collapse to same canonical
+    if (t === 'adj' || t === 'adjustable') return 'adjustable';
+    if (t === 'flip' || t === 'flipup') return 'flipup';
+    // -es plural for sibilant-ending words: latches → latch, boxes → box
+    if (t.length >= 5 && (/([hxsz]es)$/.test(t))) return t.slice(0, -2);
+    // Standard -s plural: strip trailing 's' if length >= 4 (keeps 'as', 'is', 'us' intact)
+    if (t.length >= 4 && t.endsWith('s') && !t.endsWith('ss')) return t.slice(0, -1);
+    return t;
+  };
+  const canonicalize = s => normalize(s).split(' ').map(canonToken).filter(Boolean).join(' ');
+  const nq = canonicalize(q);
+  if (!nq) return null;
   const tokens = nq.split(' ').filter(t => t.length > 1);
-  let best = null; let bestScore = 0;
+  let best = null; let bestScore = 0; let bestLen = 0;
   for (const el of ELEMENTS) {
-    const elName = normalize(el.name);
+    const elCanon = canonicalize(el.name);
     let score = 0;
-    // exact / substring
-    if (elName === nq) score += 100;
-    else if (elName.indexOf(nq) !== -1 || nq.indexOf(elName) !== -1) score += 50;
-    // per-token
+    if (elCanon === nq) score += 100;
+    else if (elCanon.indexOf(nq) !== -1 || nq.indexOf(elCanon) !== -1) score += 50;
     for (const t of tokens) {
-      if (elName.indexOf(' ' + t + ' ') !== -1 || elName.startsWith(t + ' ') || elName.endsWith(' ' + t) || elName === t) score += 10;
+      if (elCanon.indexOf(' ' + t + ' ') !== -1 || elCanon.startsWith(t + ' ') || elCanon.endsWith(' ' + t) || elCanon === t) score += 10;
     }
-    if (score > bestScore) { bestScore = score; best = el; }
+    // Tiebreak: prefer the element whose canonicalized name is CLOSER
+    // in length to the query. Prevents "Inset Hinge Plates" from
+    // matching "INSET HINGE" when "INSET HINGE PLATE" is present.
+    const elLen = elCanon.split(' ').length;
+    const qLen = nq.split(' ').length;
+    const lenPenalty = Math.abs(elLen - qLen);
+    if (score > bestScore || (score === bestScore && lenPenalty < bestLen)) {
+      bestScore = score;
+      bestLen = lenPenalty;
+      best = el;
+    }
   }
   return bestScore >= 20 ? { element: best, score: bestScore } : null;
 }
@@ -32399,7 +32430,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1229"></script>
+<script src="./pack.js?v=10.1232"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32410,7 +32441,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1229<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1232<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
