@@ -11331,8 +11331,8 @@ function _poEdit_(poId) {
     ov.style.cssText = 'position:fixed;inset:0;z-index:10010;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:18px';
     const STATUSES = ['ordered','paid','shipped','partially_received','received','cancelled'];
     ov.innerHTML = ''
-      + '<div style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:10px;padding:18px 22px;max-width:760px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit">'
-      +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;margin-bottom:14px">✏ Edit PO</div>'
+      + '<div class="no-dark keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:10px;padding:18px 22px;max-width:760px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit">'
+      +   '<div style="font-size:20px;font-weight:900;letter-spacing:.6px;margin-bottom:14px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">✏ Edit PO</div>'
       +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">PO Name</label>'
       +   '<input id="poEditName" type="text" value="' + esc(po.po_name) + '" style="width:100%;padding:8px 11px;border:1.5px solid #ccc;border-radius:5px;font-size:14px;margin-bottom:12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box">'
       +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important">Status</label>'
@@ -11348,11 +11348,15 @@ function _poEdit_(poId) {
       +   '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-top:6px">Lines</label>'
       +   '<div id="poEditLinesWrap" style="margin-bottom:8px;border:1px solid #ddd;border-radius:6px;overflow:hidden">'
       +     '<table id="poEditLinesTbl" style="width:100%;border-collapse:collapse;font-size:12px">'
-      +       '<thead><tr style="background:#f5f5f5;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
-      +         '<th style="padding:5px 6px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800">SKU</th>'
-      +         '<th style="padding:5px 6px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;width:70px">Qty</th>'
-      +         '<th style="padding:5px 6px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;width:80px">Unit $</th>'
-      +         '<th style="padding:5px 6px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800">Note</th>'
+      // v10.1248 (Zac 2026-07-14): 'header on that table has 0 contrast'.
+      // Root cause: bg #f5f5f5 (light grey) but the global dark-theme
+      // override rewrote each <th>'s color despite the parent tr's !important.
+      // Fix: put !important + -webkit-text-fill-color on EACH th individually.
+      +       '<thead><tr style="background:#f5f5f5 !important">'
+      +         '<th style="padding:5px 6px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">SKU · Name</th>'
+      +         '<th style="padding:5px 6px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;width:70px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">Qty</th>'
+      +         '<th style="padding:5px 6px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;width:80px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">Unit $</th>'
+      +         '<th style="padding:5px 6px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">Note</th>'
       +         '<th style="padding:5px 6px;width:32px"></th>'
       +       '</tr></thead><tbody id="poEditLinesBody"></tbody></table>'
       +   '</div>'
@@ -11372,10 +11376,24 @@ function _poEdit_(poId) {
       ? po.lines_json
       : (typeof po.lines_json === 'string' ? (function () { try { return JSON.parse(po.lines_json); } catch (e) { return []; } })() : []);
     const body = document.getElementById('poEditLinesBody');
+    // v10.1248: look up item name from the runway items cache so the
+    // Edit PO screen shows "010.72.948 · 1.25 Screw" instead of just
+    // the bare Häfele part number.
+    function _poLookupItemName_(sku) {
+      const items = window._frameRunwayItemsCache || [];
+      const s = String(sku || '').trim();
+      if (!s) return '';
+      const hit = items.find(it => String(it.sku || it.item_sku || '').trim() === s);
+      return hit ? (hit.name || '') : '';
+    }
     function _poLineRowHtml_(L) {
+      const name = _poLookupItemName_(L.sku);
+      const nameLine = (name && name !== L.sku)
+        ? '<div style="font-size:10px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:\'Barlow Condensed\',Arial,sans-serif;font-weight:600;margin-top:2px;padding-left:2px">' + esc(name) + '</div>'
+        : '';
       return ''
         + '<tr style="border-bottom:1px solid #eee">'
-        +   '<td style="padding:3px 4px"><input type="text" data-field="sku" value="' + esc(L.sku || '') + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;box-sizing:border-box"></td>'
+        +   '<td style="padding:3px 4px"><input type="text" data-field="sku" value="' + esc(L.sku || '') + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;box-sizing:border-box">' + nameLine + '</td>'
         +   '<td style="padding:3px 4px"><input type="number" inputmode="numeric" data-field="qty" value="' + (Number(L.qty) || 0) + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;text-align:right;box-sizing:border-box"></td>'
         +   '<td style="padding:3px 4px"><input type="number" step="0.01" inputmode="decimal" data-field="unit_cost" value="' + (L.unit_cost != null ? Number(L.unit_cost) : '') + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;text-align:right;box-sizing:border-box"></td>'
         +   '<td style="padding:3px 4px"><input type="text" data-field="note" value="' + esc(L.note || L.discount || '') + '" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;background:#fff !important;box-sizing:border-box"></td>'
@@ -32471,7 +32489,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1244"></script>
+<script src="./pack.js?v=10.1248"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32482,7 +32500,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1244<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1248<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
