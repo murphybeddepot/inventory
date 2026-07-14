@@ -10226,6 +10226,78 @@ function _copyToClipboardWithToast_(text, toastMsg) {
   } catch (e) { cleanup(false); }
 }
 
+// v10.1249 — Generate PO include-checkbox + manual-qty state helpers.
+// State lives on window._poGenLineState = { [sku]: {include:bool, manualQty:num|null} }.
+function _poGenSetInclude_(sku, checked) {
+  if (!window._poGenLineState) window._poGenLineState = {};
+  if (!window._poGenLineState[sku]) window._poGenLineState[sku] = { include: true, manualQty: null };
+  window._poGenLineState[sku].include = !!checked;
+  // Recompute totals badge without full re-render (so cursor doesn't jump in qty inputs)
+  _poGenUpdateTotalsBadge_();
+  // Dim/undim the row
+  const row = document.querySelector('tr[data-po-sku="' + sku.replace(/"/g, '\\"') + '"]');
+  if (row) {
+    const skuCell = row.children[1];
+    if (skuCell) skuCell.style.opacity = checked ? '' : '.4';
+  }
+}
+function _poGenSetQty_(sku, val) {
+  if (!window._poGenLineState) window._poGenLineState = {};
+  if (!window._poGenLineState[sku]) window._poGenLineState[sku] = { include: true, manualQty: null };
+  const n = Number(val);
+  // If user types the auto-suggest value or empty, clear the override
+  const inp = document.querySelector('tr[data-po-sku="' + sku.replace(/"/g, '\\"') + '"] input[data-po-qty]');
+  const auto = inp ? Number(inp.getAttribute('data-suggest')) : NaN;
+  if (!val || val === '' || (Number.isFinite(auto) && n === auto)) {
+    window._poGenLineState[sku].manualQty = null;
+  } else {
+    window._poGenLineState[sku].manualQty = Math.max(0, Math.floor(n) || 0);
+  }
+  if (inp) {
+    const isOverride = window._poGenLineState[sku].manualQty != null;
+    inp.style.color = isOverride ? '#7B2CBF' : '#1A5C1A';
+    inp.style.webkitTextFillColor = isOverride ? '#7B2CBF' : '#1A5C1A';
+  }
+  _poGenUpdateTotalsBadge_();
+}
+function _poGenToggleAll_(checked) {
+  if (!window._poGenLineState) window._poGenLineState = {};
+  document.querySelectorAll('tr[data-po-sku] input[data-po-include]').forEach(cb => {
+    cb.checked = !!checked;
+    const sku = cb.closest('tr').getAttribute('data-po-sku');
+    if (sku) _poGenSetInclude_(sku, checked);
+  });
+}
+function _poGenUpdateTotalsBadge_() {
+  const badge = document.getElementById('poTotalsBadge');
+  if (!badge) return;
+  const rows = document.querySelectorAll('tr[data-po-sku]');
+  let lines = 0, units = 0, usd = 0;
+  rows.forEach(row => {
+    const sku = row.getAttribute('data-po-sku');
+    const state = (window._poGenLineState && window._poGenLineState[sku]) || { include: true, manualQty: null };
+    if (!state.include) return;
+    lines++;
+    const qtyInp = row.querySelector('input[data-po-qty]');
+    const q = qtyInp ? Number(qtyInp.value) || 0 : 0;
+    units += q;
+    // Line $ cell is the last cell; read displayed unit_cost from row
+    // via the "Unit $" cell (index 8 with new checkbox column).
+    const unitCell = row.children[8];
+    if (unitCell) {
+      const m = String(unitCell.textContent || '').replace(/[^0-9.]/g, '');
+      const u = Number(m) || 0;
+      usd += q * u;
+    }
+  });
+  // Preserve the existing venTag + windowDays context from the initial render
+  const current = String(badge.textContent || '');
+  const winMatch = current.match(/velocity \d+d/);
+  const vendorMatch = current.match(/·\s+[^·]+$/);
+  const tail = (winMatch ? ' · ' + winMatch[0] : '') + (vendorMatch ? vendorMatch[0] : '');
+  badge.textContent = lines + ' lines · ' + units.toLocaleString() + ' units · $' + Math.round(usd).toLocaleString() + tail;
+}
+
 function _frameRunwayRecomputePo_() {
   const body = document.getElementById('poGeneratorTable');
   if (!body) return;
@@ -10263,7 +10335,12 @@ function _frameRunwayRecomputePo_() {
     return;
   }
   let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  // v10.1249 (Zac 2026-07-14): 'choose which ones to include + enter
+  // manual qty's when generating the email'. Add ☑ include checkbox +
+  // editable qty column. State stored in window._poGenLineState keyed
+  // by SKU so recomputes preserve user overrides.
   html += '<thead><tr style="background:rgba(123,44,191,.08);text-align:left">'
+       +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;width:28px"><input type="checkbox" id="poGenSelectAll" checked onchange="_poGenToggleAll_(this.checked)" title="Include/exclude all"></th>'
        +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px">SKU</th>'
        +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">On hand</th>'
        +   '<th style="padding:6px 8px;font-weight:800;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;text-transform:uppercase;letter-spacing:.4px;font-size:10px;text-align:right">On order</th>'
@@ -10288,14 +10365,20 @@ function _frameRunwayRecomputePo_() {
     const skuLabel = L.name && L.name !== L.sku
       ? '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(L.sku) + '</span><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-weight:600;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-left:6px">' + esc(L.name) + '</span>'
       : '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(L.sku) + '</span>';
-    html += '<tr style="border-bottom:1px solid #eee;' + rowBg + '">'
-         +   '<td style="padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + skuLabel + skuTag + '</td>'
+    // v10.1249: read user override state
+    if (!window._poGenLineState) window._poGenLineState = {};
+    const ls = window._poGenLineState[L.sku] || { include: true, manualQty: null };
+    window._poGenLineState[L.sku] = ls; // ensure exists
+    const displayQty = ls.manualQty != null ? ls.manualQty : L.suggest_qty;
+    html += '<tr data-po-sku="' + esc(L.sku) + '" style="border-bottom:1px solid #eee;' + rowBg + '">'
+         +   '<td style="padding:6px 8px;text-align:center"><input type="checkbox" data-po-include ' + (ls.include ? 'checked' : '') + ' onchange="_poGenSetInclude_(\'' + esc(L.sku).replace(/\'/g, "\\'") + '\', this.checked)"></td>'
+         +   '<td style="padding:6px 8px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;' + (ls.include ? '' : 'opacity:.4;') + '">' + skuLabel + skuTag + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.on_hand + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.on_order + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.velocity_per_day + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + L.target_units + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#C43030 !important;-webkit-text-fill-color:#C43030 !important">' + L.gap_units + '</td>'
-         +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">' + L.suggest_qty + '</td>'
+         +   '<td style="padding:6px 8px;text-align:right"><input type="number" data-po-qty inputmode="numeric" value="' + displayQty + '" data-suggest="' + L.suggest_qty + '" onchange="_poGenSetQty_(\'' + esc(L.sku).replace(/\'/g, "\\'") + '\', this.value)" style="width:70px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;font-family:\'JetBrains Mono\',monospace;font-weight:800;text-align:right;color:' + (ls.manualQty != null ? '#7B2CBF' : '#1A5C1A') + ' !important;-webkit-text-fill-color:' + (ls.manualQty != null ? '#7B2CBF' : '#1A5C1A') + ' !important;background:#fff !important" title="' + (ls.manualQty != null ? 'Manual override (auto = ' + L.suggest_qty + ')' : 'Auto-suggested — edit to override') + '"></td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important;-webkit-text-fill-color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important">' + (L.no_price ? '—' : '$' + L.unit_cost_usd.toFixed(2)) + '</td>'
          +   '<td style="padding:6px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important;-webkit-text-fill-color:' + (L.no_price ? '#999' : '#1a1a1a') + ' !important">' + (L.no_price ? '—' : '$' + L.line_total_usd.toLocaleString()) + '</td>'
          + '</tr>';
@@ -10326,8 +10409,20 @@ function _frameRunwayPoBuildEmailBody_() {
   }
   const includePricesEl = document.getElementById('poIncludePrices');
   const includePrices = includePricesEl ? includePricesEl.checked : true;
-  const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
-  const totalUsd = r.lines.reduce((s, L) => s + L.line_total_usd, 0);
+  // v10.1249: apply user's include-checkbox + manualQty overrides.
+  // Effective lines = only lines with include=true; each L gets an
+  // `effective_qty` derived from manualQty ?? suggest_qty.
+  const state = window._poGenLineState || {};
+  const effectiveLines = r.lines
+    .filter(L => (state[L.sku] ? state[L.sku].include !== false : true))
+    .map(L => {
+      const s = state[L.sku] || {};
+      const qty = s.manualQty != null ? s.manualQty : L.suggest_qty;
+      const line_total_usd = L.no_price ? 0 : (qty * L.unit_cost_usd);
+      return Object.assign({}, L, { effective_qty: qty, effective_line_total_usd: line_total_usd });
+    });
+  const totalUnits = effectiveLines.reduce((s, L) => s + L.effective_qty, 0);
+  const totalUsd = effectiveLines.reduce((s, L) => s + L.effective_line_total_usd, 0);
   const today = new Date().toISOString().slice(0, 10);
   // v10.755 — vendor-specific greeting + contact + subject label.
   const vendor = r.vendorFilter || '';
@@ -10337,16 +10432,17 @@ function _frameRunwayPoBuildEmailBody_() {
   const toEmail = (contact && contact.email) || '';
   let body = 'Hi ' + greetName + ',\n\n';
   body += 'Murphy Bed Depot ' + (poName ? '— ' + poName + ' — ' : '— ') + 'please quote production + shipping for the following:\n\n';
-  r.lines.forEach((L, idx) => {
+  effectiveLines.forEach((L, idx) => {
     const num = (idx + 1) + '.';
     // v10.1244: include name after SKU so vendor sees "010.72.948 · 1.25 Screw"
     const skuLine = (L.name && L.name !== L.sku) ? (L.sku + '  ·  ' + L.name) : L.sku;
-    let line = num + ' ' + skuLine + '  —  ' + L.suggest_qty + ' units';
+    // v10.1249: use effective_qty (respects manual override)
+    let line = num + ' ' + skuLine + '  —  ' + L.effective_qty + ' units';
     if (includePrices) {
       if (L.no_price) {
         line += '   (price TBD)';
       } else {
-        line += '   @ $' + L.unit_cost_usd.toFixed(2) + ' = $' + L.line_total_usd.toLocaleString();
+        line += '   @ $' + L.unit_cost_usd.toFixed(2) + ' = $' + Math.round(L.effective_line_total_usd).toLocaleString();
       }
     }
     body += line + '\n';
@@ -10422,19 +10518,31 @@ function _frameRunwayPoCopyToClipboard_() {
 async function _frameRunwaySavePoToHistory_(emailObj, sentVia) {
   try {
     const r = _frameRunwayComputePoLines_();
-    const totalUnits = r.lines.reduce((s, L) => s + L.suggest_qty, 0);
-    const totalUsd = r.lines.reduce((s, L) => s + L.line_total_usd, 0);
-    const linesPayload = r.lines.map(L => ({
+    // v10.1249: same include/manualQty filter used by the email body,
+    // so the saved PO history reflects what actually got emailed.
+    const state = window._poGenLineState || {};
+    const effective = r.lines
+      .filter(L => (state[L.sku] ? state[L.sku].include !== false : true))
+      .map(L => {
+        const s = state[L.sku] || {};
+        const q = s.manualQty != null ? s.manualQty : L.suggest_qty;
+        const lt = L.no_price ? null : (q * L.unit_cost_usd);
+        return Object.assign({}, L, { _effQty: q, _effLineTotal: lt });
+      });
+    const totalUnits = effective.reduce((s, L) => s + L._effQty, 0);
+    const totalUsd = effective.reduce((s, L) => s + (L._effLineTotal || 0), 0);
+    const linesPayload = effective.map(L => ({
       sku: L.sku,
-      qty: L.suggest_qty,
+      qty: L._effQty,
       on_hand: L.on_hand,
       on_order: L.on_order,
       velocity_per_day: L.velocity_per_day,
       target_units: L.target_units,
       gap_units: L.gap_units,
       unit_cost: L.no_price ? null : L.unit_cost_usd,
-      line_total: L.no_price ? null : L.line_total_usd,
+      line_total: L._effLineTotal,
       below_threshold_only: !!L.below_threshold_only,
+      manual_qty_override: state[L.sku] && state[L.sku].manualQty != null,
     }));
     const poName = (document.getElementById('poNameInput') || {}).value || '';
     const row = {
@@ -32489,7 +32597,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1248"></script>
+<script src="./pack.js?v=10.1249"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32500,7 +32608,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1248<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1249<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
