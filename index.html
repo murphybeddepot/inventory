@@ -1663,6 +1663,17 @@ input::placeholder, textarea::placeholder {
       <span style="color:#999;font-size:18px">›</span>
     </button>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Print Tools</div>
+    <!-- v10.1261 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
+         Apps Script editor round-trip for changing which PrintNode printer
+         receives shipping labels / pick lists / instructions / kanban tags. -->
+    <button onclick="closeMoreMenu();openPrinterPickerModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🖨</span>
+      <div style="flex:1">
+        <div>Printers</div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Change which PrintNode printer receives labels / pick lists / instructions / kanban tags</div>
+      </div>
+      <span style="color:#999;font-size:18px">›</span>
+    </button>
     <button onclick="closeMoreMenu();openBarcodeTagPrinter('colors')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🎨</span>
       <div style="flex:1">
@@ -13054,7 +13065,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
   }
 }
 
-// v10.1260 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
+// v10.1261 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
 // directly for Runway loads. Before: PWA → Apps Script → Worker → Supabase
 // (4 UrlFetchApp charges from Apps Script per load). After: PWA → Worker →
 // Supabase (0 UrlFetchApp charges). The fn was referenced in the two error
@@ -13148,7 +13159,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   }
   if (sub && !window._frameRunwayItemsCache) sub.textContent = 'Loading…';
   try {
-    // v10.1260 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
+    // v10.1261 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
     // 4 Apps Script UrlFetchApp calls per Runway load (was
     // PWA→AppsScript→4× fetchAll→Supabase; now PWA→Worker→Supabase).
     // Fall back to Apps Script if worker relay config is missing or the
@@ -18913,6 +18924,126 @@ window.ensurePin = function ensurePin(promptText) {
   window._managerPinCache_.lastUsedAt = now;
   return p;
 };
+
+// v10.1261 — in-Bedrock printer picker. Replaces the Apps Script editor
+// round-trip Zac had to take today to change which PrintNode printer any
+// given job type routes to. Reads current assignments + the full printer
+// list in parallel; save is PIN-gated (setPrintNodePrinterIds validates
+// each ID against PrintNode's account before writing the Script Property).
+// Roles routed here: default, label, instructions, picklist, kanban.
+async function openPrinterPickerModal() {
+  let backdrop = document.getElementById('printerPickerBackdrop');
+  if (backdrop) backdrop.remove();
+  backdrop = document.createElement('div');
+  backdrop.id = 'printerPickerBackdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10010;display:flex;align-items:center;justify-content:center;padding:24px';
+  const _onEsc = (e) => { if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  document.addEventListener('keydown', _onEsc);
+  backdrop.onclick = (e) => { if (e.target === backdrop) { backdrop.remove(); document.removeEventListener('keydown', _onEsc); } };
+  backdrop.innerHTML = `
+    <div class="keep-dark-text" style="background:#fff !important;-webkit-text-fill-color:#1a1a1a;color:#1a1a1a;width:min(700px,100%);max-height:92vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+      <div style="background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:22px">🖨</span>
+        <div style="flex:1">
+          <div style="font-size:17px;font-weight:800;color:#fff !important;-webkit-text-fill-color:#fff">Printers</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);font-weight:500">Route each print-job type to a PrintNode printer</div>
+        </div>
+        <button onclick="document.getElementById('printerPickerBackdrop').remove()" style="background:transparent !important;color:#fff !important;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">Close</button>
+      </div>
+      <div id="printerPickerBody" style="padding:18px;overflow-y:auto;flex:1">
+        <div style="font-size:13px;color:#666 !important;-webkit-text-fill-color:#666;padding:14px 16px;text-align:center">Loading printers…</div>
+      </div>
+      <div style="border-top:1.5px solid #eee;padding:14px 18px;background:#f5f5f7 !important;display:flex;justify-content:flex-end;gap:10px">
+        <button onclick="document.getElementById('printerPickerBackdrop').remove()" style="padding:10px 18px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;border:1.5px solid #ccc;border-radius:8px;cursor:pointer;font-weight:700">Cancel</button>
+        <button id="printerPickerSaveBtn" onclick="_printerPickerSave_()" disabled style="padding:10px 18px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;opacity:.5">Save (PIN)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const body = document.getElementById('printerPickerBody');
+  const saveBtn = document.getElementById('printerPickerSaveBtn');
+  const [listRes, assignRes] = await Promise.all([
+    groundApi('listPrinters', {}),
+    groundApi('getPrintNodePrinterIds', {}),
+  ]);
+  if (!listRes || !listRes.ok) {
+    body.innerHTML = '<div style="padding:16px;background:#ffe6e6 !important;border:1.5px solid #c33;border-radius:8px;color:#a00 !important;-webkit-text-fill-color:#a00;font-size:13px;font-weight:700">Failed to load printer list: ' + esc((listRes && listRes.error) || 'unknown error') + '</div>'
+      + '<div style="margin-top:12px;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666">Check that PRINTNODE_API_KEY is set in the orchestrator Script Properties.</div>';
+    return;
+  }
+  const printers = (listRes.printers || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const currentIds = assignRes && assignRes.ok ? assignRes : {};
+  // Role definitions — order matters, this is the UI order.
+  const ROLES = [
+    { key: 'label',        prop: 'PRINTNODE_LABEL_PRINTER_ID',        title: 'Shipping labels',        icon: '📮', help: 'Zebra 4×6 — every carrier label + hardware label' },
+    { key: 'default',      prop: 'PRINTNODE_DEFAULT_PRINTER_ID',      title: 'Default (fallback)',     icon: '⭐', help: 'Used when a job doesn\'t specify a printer' },
+    { key: 'instructions', prop: 'PRINTNODE_INSTRUCTIONS_PRINTER_ID', title: 'Pack instructions',      icon: '📄', help: 'Paper printer — printed with each Pack job' },
+    { key: 'picklist',     prop: 'PRINTNODE_PICK_LIST_PRINTER_ID',    title: 'Pick lists',             icon: '📋', help: 'Paper printer — cabinet pick-list PDFs' },
+    { key: 'kanban',       prop: 'PRINTNODE_KANBAN_PRINTER_ID',       title: 'Kanban / stock tags',    icon: '🏷️', help: '4×6 label — kanban re-order tiles + stock tags' },
+  ];
+  const opts = printers.map(p => {
+    const label = (p.name || '(unnamed)')
+      + (p.description ? ' — ' + p.description : '')
+      + (p.computer_name ? ' · on ' + p.computer_name : '')
+      + (p.state && p.state !== 'online' ? ' · ' + p.state : '');
+    return { id: p.id, label };
+  });
+  body.innerHTML = ROLES.map(r => {
+    const currentId = Number(currentIds[r.prop]) || 0;
+    const optHtml = ['<option value="0">— unset —</option>']
+      .concat(opts.map(o => '<option value="' + o.id + '"' + (o.id === currentId ? ' selected' : '') + '>' + esc(o.label) + '</option>'))
+      .join('');
+    return '<div style="margin-bottom:14px;padding:12px 14px;background:#f5f5f7 !important;border-radius:10px">'
+      +   '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">'
+      +     '<span style="font-size:18px">' + r.icon + '</span>'
+      +     '<div style="font-weight:800;font-size:14px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">' + esc(r.title) + '</div>'
+      +   '</div>'
+      +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666;margin:2px 0 8px 26px;line-height:1.4">' + esc(r.help) + '</div>'
+      +   '<select id="printerPick_' + r.key + '" data-original="' + currentId + '" onchange="_printerPickerDirty_()" style="width:100%;padding:10px 12px;font-size:13px;border:1.5px solid #ccc;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:inherit">'
+      +     optHtml
+      +   '</select>'
+      + '</div>';
+  }).join('')
+   + '<div style="margin-top:8px;padding:10px 12px;background:#fff8e1 !important;border:1px solid #ffb300;border-radius:8px;font-size:11px;color:#7a5c00 !important;-webkit-text-fill-color:#7a5c00;line-height:1.5">'
+   +   '<b>Note:</b> Saving requires a manager PIN. Each printer ID is validated against PrintNode before it\'s written — you can\'t bake in a phantom.'
+   + '</div>';
+  window._printerPickerDirty_ = function () {
+    let dirty = false;
+    ROLES.forEach(r => {
+      const sel = document.getElementById('printerPick_' + r.key);
+      if (sel && Number(sel.value) !== Number(sel.getAttribute('data-original'))) dirty = true;
+    });
+    saveBtn.disabled = !dirty;
+    saveBtn.style.opacity = dirty ? '1' : '.5';
+  };
+  window._printerPickerSave_ = async function () {
+    const pin = window.ensurePin('Manager PIN required to change printer routing:');
+    if (!pin) return;
+    const payload = { manager_pin: pin };
+    let changes = 0;
+    ROLES.forEach(r => {
+      const sel = document.getElementById('printerPick_' + r.key);
+      if (!sel) return;
+      const v = Number(sel.value) || 0;
+      const orig = Number(sel.getAttribute('data-original')) || 0;
+      if (v !== orig && v > 0) { payload[r.key] = v; changes++; }
+    });
+    if (!changes) { showToast('Nothing changed'); return; }
+    saveBtn.disabled = true;
+    saveBtn.innerText = 'Saving…';
+    const res = await groundApi('setPrintNodePrinterIds', payload);
+    if (res && res.ok) {
+      const setKeys = Object.keys(res.set || {});
+      showToast('✓ ' + setKeys.length + ' printer' + (setKeys.length === 1 ? '' : 's') + ' updated');
+      backdrop.remove();
+      document.removeEventListener('keydown', _onEsc);
+    } else {
+      const errs = (res && res.errors && res.errors.length) ? res.errors.join(' · ') : (res && res.error) || 'save failed';
+      alert('Failed to save: ' + errs);
+      saveBtn.disabled = false;
+      saveBtn.innerText = 'Save (PIN)';
+    }
+  };
+}
 
 // v10.888 — BOM Tools modal: Postgres-canonical edits for variant_map +
 // bundle_bom. The Sheet→Postgres sync (`pickListSyncStoresToPostgres`) is
@@ -32669,7 +32800,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1260"></script>
+<script src="./pack.js?v=10.1261"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32680,7 +32811,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1260<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1261<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
