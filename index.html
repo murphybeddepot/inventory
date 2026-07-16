@@ -1663,7 +1663,7 @@ input::placeholder, textarea::placeholder {
       <span style="color:#999;font-size:18px">›</span>
     </button>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Print Tools</div>
-    <!-- v10.1261 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
+    <!-- v10.1262 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
          Apps Script editor round-trip for changing which PrintNode printer
          receives shipping labels / pick lists / instructions / kanban tags. -->
     <button onclick="closeMoreMenu();openPrinterPickerModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
@@ -13065,7 +13065,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
   }
 }
 
-// v10.1261 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
+// v10.1262 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
 // directly for Runway loads. Before: PWA → Apps Script → Worker → Supabase
 // (4 UrlFetchApp charges from Apps Script per load). After: PWA → Worker →
 // Supabase (0 UrlFetchApp charges). The fn was referenced in the two error
@@ -13159,7 +13159,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   }
   if (sub && !window._frameRunwayItemsCache) sub.textContent = 'Loading…';
   try {
-    // v10.1261 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
+    // v10.1262 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
     // 4 Apps Script UrlFetchApp calls per Runway load (was
     // PWA→AppsScript→4× fetchAll→Supabase; now PWA→Worker→Supabase).
     // Fall back to Apps Script if worker relay config is missing or the
@@ -18925,7 +18925,7 @@ window.ensurePin = function ensurePin(promptText) {
   return p;
 };
 
-// v10.1261 — in-Bedrock printer picker. Replaces the Apps Script editor
+// v10.1262 — in-Bedrock printer picker. Replaces the Apps Script editor
 // round-trip Zac had to take today to change which PrintNode printer any
 // given job type routes to. Reads current assignments + the full printer
 // list in parallel; save is PIN-gated (setPrintNodePrinterIds validates
@@ -18998,9 +18998,12 @@ async function openPrinterPickerModal() {
       +     '<div style="font-weight:800;font-size:14px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a">' + esc(r.title) + '</div>'
       +   '</div>'
       +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666;margin:2px 0 8px 26px;line-height:1.4">' + esc(r.help) + '</div>'
-      +   '<select id="printerPick_' + r.key + '" data-original="' + currentId + '" onchange="_printerPickerDirty_()" style="width:100%;padding:10px 12px;font-size:13px;border:1.5px solid #ccc;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:inherit">'
-      +     optHtml
-      +   '</select>'
+      +   '<div style="display:flex;gap:8px;align-items:stretch">'
+      +     '<select id="printerPick_' + r.key + '" data-original="' + currentId + '" data-role-title="' + esc(r.title) + '" onchange="_printerPickerDirty_()" style="flex:1;min-width:0;padding:10px 12px;font-size:13px;border:1.5px solid #ccc;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;font-family:inherit">'
+      +       optHtml
+      +     '</select>'
+      +     '<button onclick="_printerPickerTest_(\'' + r.key + '\')" title="Send a test page to the currently-selected printer" style="flex:0 0 auto;padding:10px 14px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;font-size:13px;white-space:nowrap">🖨 Test</button>'
+      +   '</div>'
       + '</div>';
   }).join('')
    + '<div style="margin-top:8px;padding:10px 12px;background:#fff8e1 !important;border:1px solid #ffb300;border-radius:8px;font-size:11px;color:#7a5c00 !important;-webkit-text-fill-color:#7a5c00;line-height:1.5">'
@@ -19014,6 +19017,28 @@ async function openPrinterPickerModal() {
     });
     saveBtn.disabled = !dirty;
     saveBtn.style.opacity = dirty ? '1' : '.5';
+  };
+  window._printerPickerTest_ = async function (roleKey) {
+    const sel = document.getElementById('printerPick_' + roleKey);
+    if (!sel) return;
+    const printerId = Number(sel.value) || 0;
+    if (!printerId) { alert('No printer selected — pick one first.'); return; }
+    const roleTitle = sel.getAttribute('data-role-title') || roleKey;
+    const printerLabel = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+    // find the button in the same row
+    const btn = sel.parentElement && sel.parentElement.querySelector('button');
+    let origHtml = '';
+    if (btn) { origHtml = btn.innerHTML; btn.disabled = true; btn.innerHTML = '⏳'; }
+    const res = await groundApi('testPrintPrinter', {
+      printer_id: printerId,
+      role_label: roleTitle,
+    });
+    if (btn) { btn.disabled = false; btn.innerHTML = origHtml || '🖨 Test'; }
+    if (res && res.ok) {
+      showToast('✓ Test sent to ' + (res.printer_name || printerLabel) + ' (job ' + res.job_id + ')');
+    } else {
+      alert('Test print failed: ' + ((res && res.error) || 'unknown error'));
+    }
   };
   window._printerPickerSave_ = async function () {
     const pin = window.ensurePin('Manager PIN required to change printer routing:');
@@ -32811,7 +32836,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1261<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1262<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
