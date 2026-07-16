@@ -13053,6 +13053,39 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
     return { ok: false, error: 'Worker fetch error: ' + e.message };
   }
 }
+
+// v10.1260 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
+// directly for Runway loads. Before: PWA → Apps Script → Worker → Supabase
+// (4 UrlFetchApp charges from Apps Script per load). After: PWA → Worker →
+// Supabase (0 UrlFetchApp charges). The fn was referenced in the two error
+// branches of the Runway loader but never defined — undefined-fn crash on
+// quota-exhaust days. Now both defined AND used as the PRIMARY path.
+async function _frameRunwayLoadViaWorker_(windowDays) {
+  const cfg = await _getPrintRelayConfig_();
+  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
+    return { ok: false, error: 'Worker relay config not in localStorage — tap More → Set Print Relay first.' };
+  }
+  try {
+    const resp = await fetch(cfg.worker_url + '/inventory/dashboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: cfg.stamp_secret,
+        velocity_days: windowDays || 30,
+      }),
+    });
+    const text = await resp.text();
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { return { ok: false, error: 'Worker non-JSON: ' + text.substring(0, 200) }; }
+    if (resp.status !== 200 || !parsed.ok) {
+      return { ok: false, error: 'Worker HTTP ' + resp.status + ': ' + (parsed.error || text.substring(0, 200)) };
+    }
+    return parsed;
+  } catch (e) {
+    return { ok: false, error: 'Worker fetch error: ' + e.message };
+  }
+}
 // v10.809 — Re-render runway when window resizes across the
 // mobile/desktop breakpoint (e.g. landscape ↔ portrait rotation, or
 // expanding a narrow window). Debounced 200ms so it doesn't thrash.
@@ -13115,13 +13148,35 @@ async function _frameRunwayLoad_(forceRefresh) {
   }
   if (sub && !window._frameRunwayItemsCache) sub.textContent = 'Loading…';
   try {
-    // v10.717 — forceRefresh skips the 60s server-side response cache
-    // (set by the ⟳ Reload button after a count correction etc.).
-    let res = await groundApi('listFrameRunwayDashboard', {
-      velocity_days: windowDays,
-      force_refresh: !!forceRefresh
-    });
+    // v10.1260 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
+    // 4 Apps Script UrlFetchApp calls per Runway load (was
+    // PWA→AppsScript→4× fetchAll→Supabase; now PWA→Worker→Supabase).
+    // Fall back to Apps Script if worker relay config is missing or the
+    // worker call fails — same shape either way.
+    // Flag `mbd_runway_via_worker` in localStorage lets Zac force back
+    // to Apps Script if the worker path regresses.
+    const preferWorker = (localStorage.getItem('mbd_runway_via_worker') !== 'false');
+    let res = null;
+    if (preferWorker) {
+      try {
+        const workerRes = await _frameRunwayLoadViaWorker_(windowDays);
+        if (workerRes && workerRes.ok) res = workerRes;
+        else console.log('DIAG-V10.1260 worker returned no-ok, falling back to Apps Script:', workerRes && workerRes.error);
+      } catch (e) {
+        console.log('DIAG-V10.1260 worker threw, falling back to Apps Script:', e.message);
+      }
+    }
+    if (!res) {
+      // v10.717 — forceRefresh skips the 60s server-side response cache
+      // (set by the ⟳ Reload button after a count correction etc.).
+      res = await groundApi('listFrameRunwayDashboard', {
+        velocity_days: windowDays,
+        force_refresh: !!forceRefresh
+      });
+    }
     // v10.720 — orchestrator dead from GAS quota? Try the worker direct.
+    // Still useful as a secondary safety net if Apps Script fell back and
+    // ALSO failed but worker wasn't tried yet.
     if (!res || !res.ok) {
       const errStr = (res && res.error) || '';
       if (_looksLikeUrlFetchQuota_(errStr) || /fetchAll threw/i.test(errStr)) {
@@ -32614,7 +32669,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1254"></script>
+<script src="./pack.js?v=10.1260"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32625,7 +32680,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1254<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1260<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
