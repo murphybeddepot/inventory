@@ -1663,7 +1663,7 @@ input::placeholder, textarea::placeholder {
       <span style="color:#999;font-size:18px">›</span>
     </button>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Print Tools</div>
-    <!-- v10.1264 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
+    <!-- v10.1265 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
          Apps Script editor round-trip for changing which PrintNode printer
          receives shipping labels / pick lists / instructions / kanban tags. -->
     <button onclick="closeMoreMenu();openPrinterPickerModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
@@ -8839,7 +8839,7 @@ function _runwayPopulateVendorBar_() {
     const sel = (v === cur) ? ' selected' : '';
     options += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + ' (' + counts[v] + ')</option>';
   }
-  // v10.1264 (Zac 2026-07-16): make the dropdown obviously a dropdown.
+  // v10.1265 (Zac 2026-07-16): make the dropdown obviously a dropdown.
   // Was 12px font in a rgba(0,0,0,.30) box with a 10px 'Vendor' hint —
   // vanished into the dark theme so Zac had to hunt for it. Now: full-
   // width chip that reads '🏢 FILTER BY VENDOR: All (n) ▾' by default,
@@ -12763,6 +12763,71 @@ function _renderBomDiag_() {
   list.innerHTML = html;
 }
 
+// v10.1265 (Zac 2026-07-16): pre-receive count modal. Called when worker
+// returns needs_pre_count for a container. Renders one row per questionable
+// SKU with a numeric input; 0 or negative allowed per Zac's spec. Resolves
+// with { sku: qty } object or null if canceled.
+function _promptPreReceiveCounts_(containerId, questionableSkus) {
+  return new Promise((resolve) => {
+    let backdrop = document.getElementById('preReceiveCountBackdrop');
+    if (backdrop) backdrop.remove();
+    backdrop = document.createElement('div');
+    backdrop.id = 'preReceiveCountBackdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10020;display:flex;align-items:center;justify-content:center;padding:24px';
+    let rowsHtml = '';
+    for (const q of questionableSkus) {
+      const reasonPill = q.reason === 'never_counted'
+        ? '<span style="background:#7C3AED !important;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">never counted</span>'
+        : '<span style="background:#FF5252 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">runway ≤ 0 (' + (q.live_on_hand == null ? '—' : Number(q.live_on_hand).toFixed(1)) + ')</span>';
+      rowsHtml += '<div style="padding:12px 14px;margin-bottom:10px;background:#f5f5f7 !important;border-radius:10px;border:1.5px solid #e0e0e0">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+        +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;flex:1;min-width:120px">' + esc(q.sku) + '</div>'
+        +   reasonPill
+        + '</div>'
+        + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:8px;line-height:1.4">Arriving +' + Number(q.arriving_qty).toFixed(1) + ' from ' + esc(containerId) + '. Enter what\'s on the shelf RIGHT NOW (before receiving), even if 0 or negative.</div>'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        +   '<label style="font-size:11px;font-weight:700;color:#333 !important;-webkit-text-fill-color:#333 !important">Count on shelf:</label>'
+        +   '<input type="number" step="1" data-sku="' + esc(q.sku) + '" placeholder="e.g. 0 or -20" style="flex:1;max-width:180px;padding:9px 12px;font-size:15px;font-weight:800;font-family:\'JetBrains Mono\',monospace;border:1.5px solid #003087;border-radius:6px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+        + '</div>'
+        + '</div>';
+    }
+    backdrop.innerHTML = ''
+      + '<div class="keep-dark-text" style="background:#fff !important;-webkit-text-fill-color:#1a1a1a;color:#1a1a1a;width:min(560px,100%);max-height:90vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.6)">'
+      +   '<div style="background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;padding:14px 18px">'
+      +     '<div style="font-size:18px;font-weight:900;letter-spacing:.3px">📦 Confirm shelf counts before receiving ' + esc(containerId) + '</div>'
+      +     '<div style="font-size:11px;color:rgba(255,255,255,.85) !important;-webkit-text-fill-color:rgba(255,255,255,.85) !important;margin-top:4px;line-height:1.4">These SKUs have no reliable count. Enter what\'s already on the shelf so Runway math works after receipt. Zero is fine. Negative is fine (means we owed some).</div>'
+      +   '</div>'
+      +   '<div style="padding:14px 18px;overflow-y:auto;flex:1">' + rowsHtml + '</div>'
+      +   '<div style="border-top:1.5px solid #eee;padding:14px 18px;background:#f5f5f7 !important;display:flex;justify-content:flex-end;gap:10px">'
+      +     '<button id="preReceiveCancel" style="padding:11px 20px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px">Cancel</button>'
+      +     '<button id="preReceiveOk" style="padding:11px 22px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;cursor:pointer;font-weight:900;font-size:14px">Save counts & receive</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(backdrop);
+    const _cleanup = () => { try { backdrop.remove(); } catch (_) {} };
+    document.getElementById('preReceiveCancel').onclick = () => { _cleanup(); resolve(null); };
+    document.getElementById('preReceiveOk').onclick = () => {
+      const inputs = backdrop.querySelectorAll('input[data-sku]');
+      const out = {};
+      const missing = [];
+      inputs.forEach(inp => {
+        const sku = inp.getAttribute('data-sku');
+        const raw = inp.value.trim();
+        if (raw === '') { missing.push(sku); return; }
+        const n = Number(raw);
+        if (!isFinite(n)) { missing.push(sku); return; }
+        out[sku] = n;
+      });
+      if (missing.length) {
+        alert('Missing count for: ' + missing.join(', ') + '\n\nEnter 0 if the shelf is empty.');
+        return;
+      }
+      _cleanup();
+      resolve(out);
+    };
+  });
+}
+
 //   5. Worker writes +RECV txns + deletes on_order rows.
 //   6. Reload dashboard.
 async function _frameRunwayOpenReceive_() {
@@ -12802,18 +12867,30 @@ async function _frameRunwayOpenReceive_() {
     '  • Dashboard reloads showing the new on_hand.'
   );
   if (!confirmed) return;
+
+  // v10.1265 (Zac 2026-07-16): if worker flagged needs_pre_count, prompt
+  // for pre-receipt counts on questionable SKUs before commit. Server
+  // will refuse commit without them. Zac's spec: allow zero, negative,
+  // any number — don't second-guess the operator.
+  let preReceiveCounts = null;
+  if (preview.needs_pre_count && Array.isArray(preview.questionable_skus) && preview.questionable_skus.length) {
+    preReceiveCounts = await _promptPreReceiveCounts_(cid, preview.questionable_skus);
+    if (preReceiveCounts === null) return;  // operator canceled
+  }
   // 2. Commit.
   let result;
   try {
+    const commitBody = {
+      secret: cfg.stamp_secret,
+      container_id: cid,
+      confirm: 'RECEIVE-CONFIRMED',
+      received_by: 'operator',
+    };
+    if (preReceiveCounts) commitBody.pre_receive_counts = preReceiveCounts;
     const resp = await fetch(cfg.worker_url + '/inventory/receive-container', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        secret: cfg.stamp_secret,
-        container_id: cid,
-        confirm: 'RECEIVE-CONFIRMED',
-        received_by: 'operator'
-      })
+      body: JSON.stringify(commitBody)
     });
     const text = await resp.text();
     try { result = JSON.parse(text); }
@@ -13082,7 +13159,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
   }
 }
 
-// v10.1264 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
+// v10.1265 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
 // directly for Runway loads. Before: PWA → Apps Script → Worker → Supabase
 // (4 UrlFetchApp charges from Apps Script per load). After: PWA → Worker →
 // Supabase (0 UrlFetchApp charges). The fn was referenced in the two error
@@ -13176,7 +13253,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   }
   if (sub && !window._frameRunwayItemsCache) sub.textContent = 'Loading…';
   try {
-    // v10.1264 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
+    // v10.1265 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
     // 4 Apps Script UrlFetchApp calls per Runway load (was
     // PWA→AppsScript→4× fetchAll→Supabase; now PWA→Worker→Supabase).
     // Fall back to Apps Script if worker relay config is missing or the
@@ -13332,7 +13409,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     }
   }
 }
-// v10.1264 (Zac 2026-07-16 overnight): 'Also round to one decimal numbers
+// v10.1265 (Zac 2026-07-16 overnight): 'Also round to one decimal numbers
 // on runway.' Sums of ledger quantity_change come back as IEEE floats
 // (e.g. 840.2000000000266). Round to 1dp; drop trailing '.0' so integers
 // still look integer. Used for on_hand, on_order, and bin qty in Runway.
@@ -18954,7 +19031,7 @@ window.ensurePin = function ensurePin(promptText) {
   return p;
 };
 
-// v10.1264 — in-Bedrock printer picker. Replaces the Apps Script editor
+// v10.1265 — in-Bedrock printer picker. Replaces the Apps Script editor
 // round-trip Zac had to take today to change which PrintNode printer any
 // given job type routes to. Reads current assignments + the full printer
 // list in parallel; save is PIN-gated (setPrintNodePrinterIds validates
@@ -32854,7 +32931,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1264"></script>
+<script src="./pack.js?v=10.1265"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32865,7 +32942,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1264<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1265<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
