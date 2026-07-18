@@ -1663,7 +1663,7 @@ input::placeholder, textarea::placeholder {
       <span style="color:#999;font-size:18px">›</span>
     </button>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Print Tools</div>
-    <!-- v10.1265 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
+    <!-- v10.1266 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
          Apps Script editor round-trip for changing which PrintNode printer
          receives shipping labels / pick lists / instructions / kanban tags. -->
     <button onclick="closeMoreMenu();openPrinterPickerModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
@@ -8839,7 +8839,7 @@ function _runwayPopulateVendorBar_() {
     const sel = (v === cur) ? ' selected' : '';
     options += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + ' (' + counts[v] + ')</option>';
   }
-  // v10.1265 (Zac 2026-07-16): make the dropdown obviously a dropdown.
+  // v10.1266 (Zac 2026-07-16): make the dropdown obviously a dropdown.
   // Was 12px font in a rgba(0,0,0,.30) box with a 10px 'Vendor' hint —
   // vanished into the dark theme so Zac had to hunt for it. Now: full-
   // width chip that reads '🏢 FILTER BY VENDOR: All (n) ▾' by default,
@@ -9691,6 +9691,80 @@ async function _stockV2AddNewItemSave_(pin) {
   } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '+ Add to inventory'; }
   }
+}
+
+// v10.1266 (Zac 2026-07-17 10:35pm): mobile-friendly on-hand edit modal.
+// Wraps the runApplyCountBaseline endpoint I shipped in round 1. Overwrites
+// items.on_hand + last_counted_at (now) + last_counted_by (Bedrock device
+// id or 'Bedrock'). Emits a CYCLE_COUNT audit txn so we can trace who
+// changed it. Same math semantics as the C24 point-fix.
+async function _frameRunwayOpenOnHandEdit_(sku, currentQty, itemName) {
+  const prior = document.getElementById('frameRunwayOhEditOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'frameRunwayOhEditOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10012;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  const currentStr = (currentQty == null || Number.isNaN(currentQty)) ? '' : String(currentQty);
+  ov.innerHTML = ''
+    + '<div class="keep-dark-text" onclick="event.stopPropagation()" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:22px;max-width:440px;width:100%">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#003087 !important;-webkit-text-fill-color:#003087 !important;letter-spacing:.5px;margin-bottom:6px">✏️ Edit on hand</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-weight:800;word-break:break-word;margin-bottom:2px">' + esc(sku) + '</div>'
+    +   (itemName && itemName !== sku ? '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px">' + esc(itemName) + '</div>' : '<div style="margin-bottom:14px"></div>')
+    +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;font-weight:800">Current on hand</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin-bottom:14px">' + (currentQty == null ? '—' : String(currentQty)) + '</div>'
+    +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;font-weight:800">New on hand</div>'
+    +   '<input id="frameRunwayOhEditInput" type="number" step="1" value="' + esc(currentStr) + '" style="width:100%;padding:12px 14px;font-size:20px;font-weight:900;font-family:\'JetBrains Mono\',monospace;border:2px solid #003087;border-radius:8px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;box-sizing:border-box;margin-bottom:6px">'
+    +   '<div style="font-size:10px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:16px;line-height:1.4">This is what\'s on the shelf right now. Runway will subtract SHIPs from here going forward. Zero and negative are OK. Logs a CYCLE_COUNT audit row.</div>'
+    +   '<div style="display:flex;gap:10px;justify-content:flex-end">'
+    +     '<button id="frameRunwayOhEditCancel" style="padding:11px 18px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px">Cancel</button>'
+    +     '<button id="frameRunwayOhEditSave" style="padding:11px 22px;background:#0a7a3f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;cursor:pointer;font-weight:900;font-size:14px">Save count</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const inp = document.getElementById('frameRunwayOhEditInput');
+  setTimeout(() => { if (inp) { inp.focus(); inp.select(); } }, 50);
+  document.getElementById('frameRunwayOhEditCancel').onclick = () => ov.remove();
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.getElementById('frameRunwayOhEditSave').onclick = async () => {
+    const raw = inp.value.trim();
+    if (raw === '') { alert('Enter a number (0 or any including negative).'); return; }
+    const n = Number(raw);
+    if (!isFinite(n)) { alert('Not a valid number.'); return; }
+    const btn = document.getElementById('frameRunwayOhEditSave');
+    btn.disabled = true; btn.innerText = 'Saving…';
+    let deviceId = '';
+    try { deviceId = localStorage.getItem('mbd_device_id') || ''; } catch (e) {}
+    const res = await groundApi('runApplyCountBaseline', {
+      sku: sku,
+      on_hand: n,
+      counted_at: new Date().toISOString(),
+      counted_by: deviceId ? ('Bedrock:' + deviceId) : 'Bedrock',
+      reason: 'Runway mobile on-hand edit',
+    });
+    if (res && res.ok) {
+      showToast('✓ ' + sku + ' set to ' + n);
+      ov.remove();
+      // Optimistically update in cache + repaint
+      if (window._frameRunwayItemsCache) {
+        for (const cachedIt of window._frameRunwayItemsCache) {
+          if (cachedIt.sku === sku) {
+            cachedIt.on_hand = n;
+            cachedIt.on_hand_base = n;
+            cachedIt.last_counted_at = new Date().toISOString();
+            cachedIt.last_counted_by = deviceId ? ('Bedrock:' + deviceId) : 'Bedrock';
+            if (cachedIt.flags) delete cachedIt.flags.needs_recount;
+            break;
+          }
+        }
+        const body = document.getElementById('frameRunwayBody');
+        if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
+      }
+    } else {
+      btn.disabled = false;
+      btn.innerText = 'Save count';
+      alert('Save failed: ' + ((res && res.error) || 'unknown'));
+    }
+  };
 }
 
 function _frameRunwayOpenBinEdit_(sku, location, currentQty, isDnu) {
@@ -12763,7 +12837,7 @@ function _renderBomDiag_() {
   list.innerHTML = html;
 }
 
-// v10.1265 (Zac 2026-07-16): pre-receive count modal. Called when worker
+// v10.1266 (Zac 2026-07-16): pre-receive count modal. Called when worker
 // returns needs_pre_count for a container. Renders one row per questionable
 // SKU with a numeric input; 0 or negative allowed per Zac's spec. Resolves
 // with { sku: qty } object or null if canceled.
@@ -12868,7 +12942,7 @@ async function _frameRunwayOpenReceive_() {
   );
   if (!confirmed) return;
 
-  // v10.1265 (Zac 2026-07-16): if worker flagged needs_pre_count, prompt
+  // v10.1266 (Zac 2026-07-16): if worker flagged needs_pre_count, prompt
   // for pre-receipt counts on questionable SKUs before commit. Server
   // will refuse commit without them. Zac's spec: allow zero, negative,
   // any number — don't second-guess the operator.
@@ -13159,7 +13233,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
   }
 }
 
-// v10.1265 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
+// v10.1266 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
 // directly for Runway loads. Before: PWA → Apps Script → Worker → Supabase
 // (4 UrlFetchApp charges from Apps Script per load). After: PWA → Worker →
 // Supabase (0 UrlFetchApp charges). The fn was referenced in the two error
@@ -13253,7 +13327,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   }
   if (sub && !window._frameRunwayItemsCache) sub.textContent = 'Loading…';
   try {
-    // v10.1265 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
+    // v10.1266 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
     // 4 Apps Script UrlFetchApp calls per Runway load (was
     // PWA→AppsScript→4× fetchAll→Supabase; now PWA→Worker→Supabase).
     // Fall back to Apps Script if worker relay config is missing or the
@@ -13409,7 +13483,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     }
   }
 }
-// v10.1265 (Zac 2026-07-16 overnight): 'Also round to one decimal numbers
+// v10.1266 (Zac 2026-07-16 overnight): 'Also round to one decimal numbers
 // on runway.' Sums of ledger quantity_change come back as IEEE floats
 // (e.g. 840.2000000000266). Round to 1dp; drop trailing '.0' so integers
 // still look integer. Used for on_hand, on_order, and bin qty in Runway.
@@ -13532,6 +13606,11 @@ function _frameRunwayRender_(items, containerBanner) {
       // infinite (huge stock + tiny vel) so we stop slapping ∞ on every
       // stagnant SKU. Server caps both cases at 999; we recover intent here.
       let runM = '—', runColorM = 'var(--text-dim)';
+      // v10.1266 (Zac 2026-07-17 10:37pm): mobile card now shows current
+      // runway AND runway-with-on-order together, matching desktop table
+      // pattern. 'Xd → Yd' when on_order > 0 pulls the coverage number in
+      // from ETA-aware math without needing to open desktop.
+      let runWithM = null, runWithColorM = null;
       if (noBomM) {
         runM = '—';
       } else if (it.velocity_per_day === 0 && (it.on_hand || 0) > 0) {
@@ -13541,7 +13620,19 @@ function _frameRunwayRender_(items, containerBanner) {
         const r = Math.round(it.days_of_runway);
         runM = r >= 999 ? '∞' : (r + 'd');
         runColorM = r < 30 ? '#FF5252' : (r < 60 ? '#FFB300' : '#00E676');
+        if (it.on_order > 0 && it.days_of_runway_with_on_order != null) {
+          const rWith = Math.round(it.days_of_runway_with_on_order);
+          if (rWith !== r) {
+            runWithM = rWith >= 999 ? '∞' : (rWith + 'd');
+            runWithColorM = rWith < 30 ? '#FF5252' : (rWith < 60 ? '#FFB300' : '#00E676');
+          }
+        }
       }
+      const runDispM = runWithM
+        ? '<span style="color:' + runColorM + ' !important;-webkit-text-fill-color:' + runColorM + ' !important">' + runM + '</span>'
+          + '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:500;padding:0 4px">→</span>'
+          + '<span style="color:' + runWithColorM + ' !important;-webkit-text-fill-color:' + runWithColorM + ' !important">' + runWithM + '</span>'
+        : '<span style="color:' + runColorM + ' !important;-webkit-text-fill-color:' + runColorM + ' !important">' + runM + '</span>';
       const aliasM = (typeof _ITEM_TO_BOM_ALIAS !== 'undefined' && _ITEM_TO_BOM_ALIAS[it.sku]) || null;
       const fl = it.flags || {};
       const thrM = Number(fl.threshold || 0);
@@ -13586,9 +13677,9 @@ function _frameRunwayRender_(items, containerBanner) {
         +   '</div>'
         + '</div>'
         + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">'
-        +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">On hand</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:' + (belowThr ? '#FF5252' : 'var(--text)') + ' !important;-webkit-text-fill-color:' + (belowThr ? '#FF5252' : 'var(--text)') + ' !important">' + onHandM + (it.on_order > 0 ? '<span style="font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important"> +' + onOrderM + '</span>' : '') + '</div></div>'
+        +   '<div onclick="_frameRunwayOpenOnHandEdit_(\'' + esc(it.sku).replace(/\'/g, "\\\'") + '\',' + (it.on_hand == null ? 'null' : Number(it.on_hand)) + ',\'' + esc(it.name || it.sku).replace(/\'/g, "\\\'") + '\')" style="cursor:pointer" title="Tap to edit on_hand"><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">On hand ✏️</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:' + (belowThr ? '#FF5252' : 'var(--text)') + ' !important;-webkit-text-fill-color:' + (belowThr ? '#FF5252' : 'var(--text)') + ' !important">' + onHandM + (it.on_order > 0 ? '<span style="font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important"> +' + onOrderM + '</span>' : '') + '</div></div>'
         +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">Velocity</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900">' + velM + '<span style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">/d</span></div></div>'
-        +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">Runway</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:900;color:' + runColorM + ' !important;-webkit-text-fill-color:' + runColorM + ' !important">' + runM + '</div></div>'
+        +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">Runway</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:' + (runWithM ? '15' : '18') + 'px;font-weight:900;line-height:1.1">' + runDispM + '</div></div>'
         + '</div>'
         + '<div style="margin-top:8px;font-size:11px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;display:flex;align-items:center;justify-content:space-between;gap:8px"><span>📍 ' + binsM + '</span>'
         +   ((it.bins && it.bins.length) ? '<button onclick="event.stopPropagation();_binMoveOpen_(\'' + esc(it.sku) + '\')" style="background:rgba(66,165,245,.10);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:900;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.4px" title="Move qty between bins">↹ Move</button>' : '')
@@ -14640,7 +14731,24 @@ async function renderStockV2Dashboard_() {
       list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Load failed: ' + esc((res && res.error) || 'unknown') + '<br><br><button onclick="renderStockV2Dashboard_()" style="margin-top:10px;padding:8px 14px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">↻ Retry</button></div>';
       return;
     }
-    const items = res.items || [];
+    // v10.1266 (Zac 2026-07-17 10:39pm): 'on stock 2 a whole list of
+    // non-inventory items are listed with "never". Like instructions
+    // and mattress.' INST-* items have vendor='INSTRUCTIONS' — they're
+    // PDFs printed on demand, not physical inventory. Mattress SKUs
+    // that dropship from Mattress Firm have flags.dropship=true. Both
+    // classes have no on-shelf presence so shouldn't clutter the
+    // "needs attention" bucket.
+    const items = (res.items || []).filter(it => {
+      const fl = it.flags || {};
+      const vendor = fl.vendor || it.vendor || '';
+      if (vendor === 'INSTRUCTIONS') return false;
+      if (fl.dropship) return false;
+      if (fl.is_instructions) return false;
+      // Also filter items whose SKU starts INST- (defensive — some may
+      // not have vendor set)
+      if (/^INST-/i.test(it.item_sku || '')) return false;
+      return true;
+    });
     if (items.length === 0) {
       list.innerHTML = '';
       if (empty) {
@@ -19031,7 +19139,7 @@ window.ensurePin = function ensurePin(promptText) {
   return p;
 };
 
-// v10.1265 — in-Bedrock printer picker. Replaces the Apps Script editor
+// v10.1266 — in-Bedrock printer picker. Replaces the Apps Script editor
 // round-trip Zac had to take today to change which PrintNode printer any
 // given job type routes to. Reads current assignments + the full printer
 // list in parallel; save is PIN-gated (setPrintNodePrinterIds validates
@@ -32931,7 +33039,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1265"></script>
+<script src="./pack.js?v=10.1266"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -32942,7 +33050,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1265<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1266<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
