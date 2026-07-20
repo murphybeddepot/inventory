@@ -17693,3 +17693,145 @@ function openOrdersGuide() {
   document.body.appendChild(ov);
 }
 window.openOrdersGuide = openOrdersGuide;
+
+// v10.1274 (Zac 2026-07-20 12:03pm EDT): "check check check them all
+// again and add more helps and guides on all of them". Ground Tab Guide
+// — every button, every workflow, every gotcha on the Ground tab
+// (Jonah/Peter/Shane's home for parcel labels + Seth's booking overrides).
+function openGroundGuide() {
+  const prior = document.getElementById('groundGuideOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'groundGuideOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const H = (id, t) => '<div id="' + id + '" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.10)">' + t + '</div>';
+  const H2 = (t) => '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px">' + t + '</div>';
+  const P = (t) => '<div style="font-size:13px;line-height:1.55;color:#C7D2E0;margin-bottom:8px">' + t + '</div>';
+  const step = (n, t, d) => '<div style="display:flex;gap:10px;margin-bottom:8px"><div style="flex:0 0 22px;height:22px;border-radius:50%;background:rgba(66,165,245,.20);color:#5BB3FF;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;font-size:13px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + t + '</b> — ' + d + '</div></div>';
+  const chip = (icon, label, detail) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'
+    + '<span style="flex:0 0 32px;text-align:center;font-size:18px">' + icon + '</span>'
+    + '<div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + label + '</b> — ' + detail + '</div></div>';
+  const gotcha = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(255,179,0,.09);border-left:3px solid #FFB300;border-radius:4px"><span style="flex:0 0 20px">⚠️</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#F5E6C0">' + t + '</div></div>';
+  const tip = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(0,200,83,.08);border-left:3px solid #00C853;border-radius:4px"><span style="flex:0 0 20px">💡</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7EED0">' + t + '</div></div>';
+
+  const toc = '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(66,165,245,.08);border:1px solid rgba(66,165,245,.25);border-radius:10px;margin-bottom:14px">'
+    + '<div style="flex:1 1 100%;font-size:11px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Jump to</div>'
+    + '<button onclick="document.getElementById(\'ggTop\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🏠 Overview</button>'
+    + '<button onclick="document.getElementById(\'ggHeader\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">⚙ Header</button>'
+    + '<button onclick="document.getElementById(\'ggFlow\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Pack Flow</button>'
+    + '<button onclick="document.getElementById(\'ggManual\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🚨 Manual Orders</button>'
+    + '<button onclick="document.getElementById(\'ggPrinters\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🖨 Printers</button>'
+    + '<button onclick="document.getElementById(\'ggFedex\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🚚 FedEx Pickups</button>'
+    + '<button onclick="document.getElementById(\'ggVoid\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">💸 Void / Bulk</button>'
+    + '<button onclick="document.getElementById(\'ggFaq\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
+    + '</div>';
+
+  // OVERVIEW
+  const secTop = H('ggTop', '🏠 What the Ground tab IS')
+    + P('The <b>Ground tab</b> (🚚 in the main nav) is the packer\'s home for <b>parcel shipments</b> — FedEx / UPS / USPS labels bought and printed one order at a time. Cabinet + freight orders never appear here (ShipStation\'s "cabinet tag not imported" rule blocks them from V1). Ground = boxes, not skids.')
+    + H2('Who uses it')
+    + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.6"><b style="color:#fff">Jonah / Peter / Shane:</b> Pack an order → scan every box → buy label → print → ship<br><b style="color:#fff">Seth:</b> Bulk-print for a run of orders · void bad labels · manage FedEx pickups<br><b style="color:#fff">Jessica:</b> Add a manual order for a replacement / damaged item that shipped in Ground<br><b style="color:#fff">Zac:</b> Toggle SS ↔ FedEx-direct booking mode · settings</div>'
+    + P('Auto-syncs from ShipStation every hour 8am–4pm ET (via <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">runGroundSync</code> cron). Manual force-sync via the 🔄 SYNC SS button.');
+
+  // HEADER
+  const secHeader = H('ggHeader', '⚙ Header row · every button')
+    + chip('📊', 'Ground Pack status line', 'Top-left. Shows "N in queue" + last sync time. Deploy debug (build id) shows just below.')
+    + chip('🔍 VOID #', 'Void an order\'s labels', 'Manager PIN. Type an order#, confirms which labels get voided (real ShipStation void call — money-path). Use for repack, wrong-address, wrong-box.')
+    + chip('👤 BULK', 'Manager bulk mode', 'Toggle checkboxes on each card + a sticky orange action bar. Manager PIN. Bulk-print + ship in one action.')
+    + chip('🔄 SYNC SS', 'Force ShipStation refresh', 'Immediately calls ShipStation "sync from stores" then reloads the queue. Use if you just added a Shopify order and want it now (otherwise wait for the hourly cron).')
+    + chip('🚚 PICKUPS', 'FedEx Express pickup manager', 'Manages today\'s auto-scheduled FedEx courier pickup. Override cutoff, schedule manually, cancel. Small dot badge on button shows current pickup state at a glance. Detail in §FedEx Pickups.')
+    + chip('📦 SS ↔ FedEx toggle', 'Booking mode', 'Switches between ShipStation and FedEx-direct label buying. localStorage-persisted per device. Default SS. FedEx-direct still in cert phase — leave on SS unless Zac says otherwise.')
+    + chip('⟳', 'Refresh queue', 'Big blue circular button, right edge. Reloads the queue from the local cache without hitting ShipStation. Use when you\'ve packed something and want the badge to update.')
+    + H2('Below the header')
+    + chip('📦', 'Create new ground order', 'Green full-width button. Opens the manual-order modal (§Manual Orders). Posts a new order into ShipStation → lands in this queue on the next sync.');
+
+  // FLOW
+  const secFlow = H('ggFlow', '📋 The pack flow (Jonah\'s day)')
+    + step(1, 'Order lands in queue', 'Shopify order syncs to ShipStation → next 15-min ground sync ingests it → appears as a card here. Card shows order#, customer, ship state, SKU summary, weight estimate.')
+    + step(2, 'Tap the card', 'Opens the pack workflow — scan-to-verify. Each box in the order gets an expected SKU. Scan the box barcode → checks off.')
+    + step(3, 'Scan every box', 'Wrong SKU scan → manager approval modal (packer can\'t override alone — protects against wrong-item ships). Unknown SKU scan → prompt to alias or reject.')
+    + step(4, 'Buy label + print', 'When all boxes are checked, "Buy Label" button lights up. Tap it → ShipStation buys the label → PrintNode fires the label print automatically. Also stamps the order# huge on the label (v10.119).')
+    + step(5, 'Auto-inserts pickup for FedEx Express', 'If it\'s a FedEx Express order, Bedrock also books a courier pickup for that day automatically (unless past the 12pm cutoff, then rolls to next biz day). See §FedEx Pickups.')
+    + step(6, 'Mark shipped', 'Label buy also flips spine status to shipped + fires customer tracking email (in shadow-mode Phase 1). Order drops from the queue on next refresh.')
+    + tip('Empty queue? Tap ⟳ or 🔄 SYNC SS. If still empty and you know an order should be there — check the ⚠ Needs Attention lens on the Orders tab. Order may be on hold.');
+
+  // MANUAL ORDERS
+  const secManual = H('ggManual', '🚨 Manual orders (A1 — CS replacements + damaged items)')
+    + P('Two entry points for creating a manual Ground order:')
+    + H2('1. From the Ground tab')
+    + chip('📦', 'Create new ground order', 'Big green button below the header. Blank form — you fill in shipTo + items + weight.')
+    + H2('2. From Lookup or Orders detail (v10.1269 A1 flow)')
+    + chip('🚨', 'Send Replacement / Damaged', 'Red button on any order\'s detail panel. Opens the same manual-order modal but <b>pre-filled</b> with the original order\'s shipTo + a note tagging it as a replacement.')
+    + P('The pre-fill flow is designed for this scenario: <em>"customer calls Seth or Jessica about a missing/damaged part on order 32605. Seth pulls up 32605 in Lookup → taps 🚨 Send Replacement → modal opens pre-filled with their address + a note that says \'REPLACEMENT for order #32605\'. Seth picks the SKU (the hinge that was missing) + qty → Create. Order lands in ShipStation as RPL-32605-HHmm."</em>')
+    + H2('Then the packer flow')
+    + step(1, 'Sync ShipStation', 'Manual-created order appears in Ground queue on next sync (or force with 🔄 SYNC SS).')
+    + step(2, 'Pack it like a normal order', 'Same scan-to-verify → buy-label flow. No special handling.')
+    + step(3, 'Weight + dims', 'Packer enters weight + dimensions in the buy-label flow before hitting Buy. ShipStation uses them for the rate calc.')
+    + tip('The RPL-<orig>-HHmm naming is intentional. Search "RPL-" in the queue to see all outstanding replacements. Also appears in Reporting for CS-cost tracking.');
+
+  // PRINTERS
+  const secPrinters = H('ggPrinters', '🖨 Printers (A3 — day-start test + roles)')
+    + P('Bedrock talks to your physical printers via PrintNode (small daemon on the office machine). Every print job hits PrintNode → PrintNode spools to the actual printer.')
+    + H2('Roles')
+    + chip('🏷', 'LABEL printer', 'Where shipping labels print. 4×6 thermal. Set to your Zebra / Rollo.')
+    + chip('📄', 'DEFAULT printer', 'Fallback for anything that doesn\'t have a role. Usually same as LABEL.')
+    + chip('📑', 'INSTRUCTIONS printer', 'Multi-page assembly/installation PDFs. Office stapler-printer, usually. Also where overnight print (B2) sends pick lists + instructions at 3am.')
+    + chip('📋', 'PICK LIST printer', 'Pick list PDFs. Usually same as INSTRUCTIONS.')
+    + chip('📊', 'KANBAN printer', 'Optional — for the Katana-style scheduler board printouts. Leave null if you don\'t use it.')
+    + H2('☀ Start-of-day printer test (A3)')
+    + P('The day should start with confirming every printer is alive. Bedrock has a one-tap check for that.')
+    + step(1, 'More menu → 🖨 Printers → ▶ Start-of-Day Test', 'Fires a test page to every role that\'s configured.')
+    + step(2, 'Watch the modal', 'Per role, shows ✓ (accepted by PrintNode) / ✗ (rejected — see error) / ▶ (still trying). Summary banner: "N/N accepted, investigate before packing."')
+    + step(3, 'Fix any red before packing starts', 'If a printer\'s offline, restart it or swap paper. If PrintNode is down, restart the daemon on the office machine.')
+    + tip('Overnight print (B2) has the same failure modes but you don\'t see them until morning. The A3 day-start check prevents "3am cron submitted everything, printer was out of paper, whole stack failed" scenarios.');
+
+  // FEDEX
+  const secFedex = H('ggFedex', '🚚 FedEx Express auto-pickup')
+    + P('When Bedrock buys a FedEx Express label (Priority Overnight, 2-Day, etc.), it automatically books a courier pickup with FedEx for that day. Prevents the "labels bought but not scanned" tail scenario.')
+    + H2('Cutoff logic')
+    + chip('12pm', 'ET cutoff', 'Labels bought before noon ET → pickup for today. After noon → pickup for next business day (skips weekends + holidays).')
+    + chip('⏰ 6pm', 'ET verification cron', 'Cloudflare cron checks every Express tracking number at 6pm ET. If FedEx doesn\'t show a pickup scan, Slacks Seth so he knows to grab the box.')
+    + H2('The 🚚 PICKUPS button on the Ground tab')
+    + step(1, 'Small dot badge', 'Shows current state at a glance. Gray=none scheduled, orange=scheduled, green=picked up, red=failed.')
+    + step(2, 'Tap to manage', 'Modal opens with today\'s pickup detail. Override cutoff (force today), schedule manually, edit courier notes, 🗑 cancel (real FedEx CancelPickup call).')
+    + gotcha('<b>Never cancel a pickup without confirming with Zac / Seth.</b> Real money-path — FedEx will charge if the courier shows up expecting a box that\'s not there.')
+    + tip('The 🚚 PICKUPS button also shows for non-Express carrier days when there\'s a manual pickup scheduled. It\'s the one place all Ground pickup state lives.');
+
+  // VOID / BULK
+  const secVoid = H('ggVoid', '💸 Void + Bulk (manager tools)')
+    + H2('🔍 VOID # (single-order void)')
+    + step(1, 'Tap 🔍 VOID # in the header', 'Prompts for order#.')
+    + step(2, 'Bedrock finds the shipment', 'Shows every label on the order with tracking + cost. Manager PIN.')
+    + step(3, 'Confirm void', 'Real ShipStation void call — you get the money back if the label wasn\'t used. Also un-marks the order shipped in the spine.')
+    + gotcha('<b>ShipStation only refunds unused labels.</b> If the package already scanned into FedEx/UPS, void succeeds but no refund. That\'s a carrier rule, not Bedrock.')
+    + H2('👤 BULK (manager bulk print + ship)')
+    + step(1, 'Tap 👤 BULK', 'Checkboxes appear on every card.')
+    + step(2, 'Select the run', 'Manager PIN (cached 10 min in memory).')
+    + step(3, 'Tap 🖨 PRINT + SHIP in the orange action bar', 'Every selected order: buys label → prints → marks shipped, in sequence. Progress modal shows N/M with errors surfaced.')
+    + gotcha('<b>Money-path.</b> Every buy is a real ShipStation charge. Bulk on 50 orders = 50 label buys. Selection UI shows total estimated cost before you confirm.');
+
+  // FAQ
+  const secFaq = H('ggFaq', '❓ Frequently asked')
+    + '<div style="font-size:13px;line-height:1.6;color:#C7D2E0">'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: I bought a label and PrintNode said success but nothing printed.</b><br>PrintNode "success" = spooled. If the physical printer is offline / out of paper, it\'ll queue on PrintNode and print when the printer comes back. Check the PrintNode dashboard. Also see <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">runPrintNodeJobWatcher</code> — the cron alerts on errored / stuck jobs every 5 min.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Order shows in ShipStation but not in Ground queue.</b><br>Two possibilities: (a) hasn\'t synced yet — tap 🔄 SYNC SS; (b) it\'s a cabinet order — those are blocked from V1 by the ShipStation "cabinet tag not imported" rule and go through the Orders tab flow instead.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: I voided a label but the order still shows shipped.</b><br>Refresh (⟳). Void un-marks in spine but the queue cache takes a few seconds. If it persists → the void failed silently in ShipStation. Check the void modal error message, escalate to Seth.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Wrong SKU scan — manager approval keeps failing.</b><br>The approval endpoint is PIN-gated (<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">requireManagerPin_</code> helper). If PIN prompt is silently rejecting the correct PIN, refresh — the manager PIN Script Property may have been rotated.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: FedEx Express pickup got scheduled for the wrong day.</b><br>Tap 🚚 PICKUPS → 🗑 cancel the wrong one → schedule manually for the right day. Or override the cutoff to "today" if you buy late-day and want same-day.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: How do I add a replacement for a missing / damaged item?</b><br>Lookup the original order → tap 🚨 Send Replacement / Damaged on the detail panel. Pre-fills shipTo. See §Manual Orders.</div>'
+    + '<div><b style="color:#fff">Q: I want to switch to FedEx-direct labels instead of ShipStation.</b><br>Tap the 📦/📦 toggle in the header (SS ↔ FedEx). Currently FedEx-direct is in cert phase — leave on SS unless Zac says the certification passed.</div>'
+    + '</div>';
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Ground Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every flow, every gotcha · v10.1274</div></div>'
+    +   '<button onclick="document.getElementById(\'groundGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
+    + '</div>'
+    + toc + secTop + secHeader + secFlow + secManual + secPrinters + secFedex + secVoid + secFaq
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1274.</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+window.openGroundGuide = openGroundGuide;

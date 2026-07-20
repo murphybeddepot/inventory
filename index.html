@@ -1884,6 +1884,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
     </button>
+    <!-- v10.1274 — Ground Tab Guide (pack flow, printers, pickups, void, bulk) -->
+    <button onclick="closeMoreMenu();openGroundGuide()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📖</span>
+      <div style="flex:1">
+        <div>Ground Tab Guide</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.85);font-weight:600;margin-top:2px">Pack flow, printers, FedEx pickups, void, bulk, replacement orders (v10.1274)</div>
+      </div>
+      <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
+    </button>
     <!-- v10.1272 — Scheduler Guide (Schedule lens + Board + Overnight Print) -->
     <button onclick="closeMoreMenu();openSchedulerGuide()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📖</span>
@@ -2668,6 +2677,8 @@ input::placeholder, textarea::placeholder {
     <!-- v10.601 — SS ↔ FedEx booking-mode toggle. localStorage-persisted -->
     <button id="groundCarrierToggleBtn" onclick="toggleGroundCarrierMode()" title="Switch booking between ShipStation and FedEx-direct. Default SS." style="padding:14px 14px;background:#1a1a1a;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;border:1.5px solid var(--border);border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span id="groundCarrierToggleIcon" style="font-size:18px">📦</span><span id="groundCarrierToggleLbl" style="font-size:9px">SS</span></button>
     <button onclick="refreshGroundQueue()" title="Reload queue (uses ShipStation's current state)" style="padding:14px 18px;background:#003087;color:#fff;border:none;border-radius:10px;font-size:22px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0">⟳</button>
+    <!-- v10.1274 (Zac 2026-07-20 12:03pm): Ground Tab Guide entry point. -->
+    <button onclick="openGroundGuide()" title="Guide — every button, flow, and gotcha on the Ground tab" style="padding:14px 14px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">📖</span><span style="font-size:9px">GUIDE</span></button>
   </div>
 
   <!-- v10.922 — Zac 2026-07-01: "some of the menu items don't fit on
@@ -33191,7 +33202,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1273"></script>
+<script src="./pack.js?v=10.1274"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33202,7 +33213,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1273<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1274<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
