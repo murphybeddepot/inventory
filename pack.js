@@ -17415,3 +17415,136 @@ function _recountPrefill_(sku) {
   const skuInput = document.getElementById('recountSku');
   if (skuInput) { skuInput.value = sku; recountLookup(); }
 }
+
+// v10.1272 — Visual Scheduler Guide. Covers all three scheduling surfaces
+// in one modal: Schedule tab (Kim + Seth's calendar), Scheduler Board (Katana
+// kanban), and Overnight Print B2 (Seth's evening list-build → 3am cron).
+// Entry points: More menu, Scheduler Board header, Schedule tab header.
+function openSchedulerGuide(anchor) {
+  const prior = document.getElementById('schedGuideOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'schedGuideOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const H = (id, t) => '<div id="' + id + '" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.10)">' + t + '</div>';
+  const H2 = (t) => '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px">' + t + '</div>';
+  const P = (t) => '<div style="font-size:13px;line-height:1.55;color:#C7D2E0;margin-bottom:8px">' + t + '</div>';
+  const step = (n, t, d) => '<div style="display:flex;gap:10px;margin-bottom:8px"><div style="flex:0 0 22px;height:22px;border-radius:50%;background:rgba(66,165,245,.20);color:#5BB3FF;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;font-size:13px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + t + '</b> — ' + d + '</div></div>';
+  const chip = (icon, label, detail) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'
+    + '<span style="flex:0 0 32px;text-align:center;font-size:18px">' + icon + '</span>'
+    + '<div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + label + '</b> — ' + detail + '</div></div>';
+  const gotcha = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(255,179,0,.09);border-left:3px solid #FFB300;border-radius:4px"><span style="flex:0 0 20px">⚠️</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#F5E6C0">' + t + '</div></div>';
+  const tip = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(0,200,83,.08);border-left:3px solid #00C853;border-radius:4px"><span style="flex:0 0 20px">💡</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7EED0">' + t + '</div></div>';
+
+  const toc = '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(66,165,245,.08);border:1px solid rgba(66,165,245,.25);border-radius:10px;margin-bottom:14px">'
+    + '<div style="flex:1 1 100%;font-size:11px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Jump to</div>'
+    + '<button onclick="document.getElementById(\'sgSec1\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📅 Schedule tab</button>'
+    + '<button onclick="document.getElementById(\'sgSec2\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🗂 Scheduler Board</button>'
+    + '<button onclick="document.getElementById(\'sgSec3\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🌙 Overnight Print</button>'
+    + '<button onclick="document.getElementById(\'sgSec4\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
+    + '</div>';
+
+  // ── SECTION 1 — SCHEDULE TAB ────────────────────────────────────────────
+  const sec1 = H('sgSec1', '📅 Schedule tab · Kim & Seth\'s calendar')
+    + P('The <b>Schedule tab</b> (main nav → 📅) is the daily calendar view. Shows freight + cabinet shipments day-by-day for the current week and next few weeks. This is where <b>Kim works the "to book" list</b> — for every unbooked order she taps in, quotes FedEx Freight, and books.')
+    + H2('When to use it')
+    + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.5"><b style="color:#fff">Kim (daily):</b> Book carriers · confirm customer-ready dates · resolve stalls<br><b style="color:#fff">Seth (daily):</b> Plan the pack day · glance-check ship-out targets · flag priorities<br><b style="color:#fff">Norm (weekly):</b> Skim upcoming volume by day</div>'
+    + H2('What you\'ll see')
+    + chip('📋', 'N TO BOOK chip', 'Top of header. Hover/tap to see per-carrier breakdown (FedEx / ABF / Estes / manual). Zero = nothing to book right now.')
+    + chip('📆', 'Day columns', 'Mon–Fri (weekends collapsed by default — toggle "Show weekends"). Each column stacks the day\'s shipments as cards, sorted by carrier then customer.')
+    + chip('🎨', 'Carrier color', 'Card left border = carrier. FedEx=purple, ABF=orange, WG-PAY=yellow, KIM=gray (unassigned/needs booking). A <b>real carrier name = it\'s booked</b> (v10.46 derives booked_at from this).')
+    + chip('🔴', 'Stall banner', 'Red banner at top if any order is past its ship date without a carrier. Sub-filters: Past Due / Needs Booking / Needs Customer / No Instructions.')
+    + chip('◀ ▶', 'Week nav', 'Arrows to shift 1 week at a time. "Today" button snaps back. 14-day past-lookback keeps recently-shipped visible.')
+    + chip('🗓', 'Past Weeks caret', 'Below the current week. Tap to expand — shows the last 14 days for reconciliation. Preference persisted in localStorage.')
+    + H2('Kim\'s book-flow (2 clicks)')
+    + step(1, 'Tap a card', 'Opens the FedEx Freight modal with the order\'s ZIP + weight + class pre-filled.')
+    + step(2, 'Get quote', 'Modal calls fedexFreightRate. Rate appears in ~2s. Simulated by default until FEDEX_FREIGHT_LIVE=true (see docs).')
+    + step(3, 'Book + schedule pickup', 'Explicit second tap — deliberate two-click for money-path safety. Auto-sets calendar event carrier field to "FedEx Freight" → card reflects booked state.')
+    + H2('Cards you\'ll hover on')
+    + chip('👤', 'Customer name', 'Big + bold on every card. Same source used by the pick-list.')
+    + chip('📦', 'SKUs summary', 'Below customer — top 2 SKUs abbreviated. Full list on tap (v10.395 SKU summary Phase 2).')
+    + chip('🚚', 'Carrier + status', 'Right side. Empty = needs Kim. Filled = booked (derived from calendar carrier field).')
+    + chip('⏰', 'Ship date', 'Small text bottom-left. Red if past due.')
+    + H2('Kim gotchas')
+    + gotcha('<b>KIM / SETH / WG-PAY / unassigned in the carrier field ≠ booked.</b> Only a real carrier name (FedEx Freight, ABF, Estes, XPO, etc.) counts as booked.')
+    + gotcha('<b>Calendar is the source of truth for freight.</b> If Kim books in a carrier\'s portal but forgets to update the gcal event, Bedrock will still show "needs booking." She has to touch both.')
+    + gotcha('<b>Two orders same day same customer</b> = one card per order-number (not merged). If a customer needs both shipments coordinated, use the Lookup tab for the 360-view.')
+    + tip('Sun 6pm cron posts the "production forecast" (upcoming freight volume) to #claude_bedrock — glance-check to see what\'s coming.');
+
+  // ── SECTION 2 — SCHEDULER BOARD ─────────────────────────────────────────
+  const sec2 = H('sgSec2', '🗂 Scheduler Board · Seth\'s Katana-style kanban')
+    + P('More menu → <b>📅 Scheduler Board</b>. Live work-orders by <b>station × state</b>. Seth\'s whiteboard, digital. This is <b>production floor</b>, not shipping — it maps orders to router / assembly / QC / pack stations.')
+    + P('<b>Auto-refreshes every 30s</b> while open. Data from Supabase <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">work_orders</code> + <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">work_centers</code> tables.')
+    + H2('Board layout')
+    + chip('📍', 'Columns = work centers', 'Router / Assembly / Finish / Pack (whatever Seth has defined in <b>🗺 Routing Library</b>).')
+    + chip('🔀', 'Rows within a column = state', '<b>READY</b> (blue) → <b>IN PROGRESS</b> (green) → <b>PENDING</b> (gray, blocked upstream) → <b>ON HOLD</b> (red, needs Seth). State auto-promotes as operators tap Start/Done in tablet-mode.')
+    + chip('❓', 'Unassigned bucket', 'Left-most column. Work orders that don\'t have a work_center_id yet. Drag onto a real column to assign.')
+    + chip('📊', 'Load indicator', 'Per-column header — total open minutes vs. capacity. Red if over-capacity for the day.')
+    + H2('How work orders get here')
+    + step(1, 'Shopify order lands', 'Every line item with a routing gets auto-populated into work_orders (see 🗺 Routing Library to define per-SKU routes).')
+    + step(2, 'READY when upstream done', 'A work order flips from PENDING → READY the moment its predecessor step completes. Domino chain.')
+    + step(3, 'Operator taps Start (Production Floor tablet)', 'More → 🏭 Production Floor. State → IN PROGRESS, ticker starts, timings auto-capture.')
+    + step(4, 'Operator taps Done', 'State → done, next downstream WO flips to READY. Backflushes BOM components. On the final step, produces the lot (adds to on_hand).')
+    + step(5, 'QC FAIL button', 'Flips state → ON HOLD + Slacks Seth + Zac with the WO id and reason.')
+    + H2('Board buttons')
+    + chip('🔄', 'Refresh', 'Manual re-pull (auto-refreshes anyway).')
+    + chip('🎯', 'Filter chips', 'Header: state filters (READY only / all / on hold only). Column filters: by SKU family.')
+    + chip('✕', 'Close', 'Kills the 30s timer (via _schedBoardStop_) so it doesn\'t poll in the background.')
+    + H2('Board gotchas')
+    + gotcha('<b>If board says "Failed to load board data" mentioning a missing table:</b> Zac needs to run <code style="background:rgba(255,255,255,.10);padding:1px 5px;border-radius:3px">supabase/work_orders.sql</code> once. Board surfaces the exact SQL file to run.')
+    + gotcha('<b>WORK_ORDERS_ENABLED Script Property</b> must be set to activate. If off, board loads empty — see "off" hint in error message.')
+    + gotcha('<b>Not for shipping.</b> Kim uses the Schedule tab for freight bookings — the Board is upstream of that (making the stuff that ships).')
+    + tip('The Board is designed for a <b>wall-mounted TV in the shop</b>. F11 fullscreen → auto-refresh runs indefinitely. Same architecture as /inventory/board.html.');
+
+  // ── SECTION 3 — OVERNIGHT PRINT B2 ──────────────────────────────────────
+  const sec3 = H('sgSec3', '🌙 Overnight Print · Seth\'s "print these tonight"')
+    + P('B2 workflow (v10.1268–v10.1271). Seth builds tomorrow\'s pack list in the evening, taps the printer test, closes the shop. At <b>3am ET the next weekday</b>, a cron fires the print job for every order on the active list. Everyone walks in the next morning to a stack of pick lists + instructions ready to pack — no waiting on printers.')
+    + H2('Why we built it')
+    + P('Printer issues were killing warehouse mornings — Jonah/Peter/Shane would arrive, tap Print, wait for PrintNode to boot, watch labels stall, restart the printer, lose 30min before anyone could actually pack. Overnight print sidesteps ALL of that: if a printer is going to fail, it fails at 3am and Seth sees the morning report before he leaves the house.')
+    + H2('Seth\'s evening flow')
+    + step(1, 'Open Orders tab (main nav)', 'Skim tomorrow\'s cabinet/pack orders.')
+    + step(2, 'Manager PIN → "+ Add to List"', 'Header button. Picks the next N in-flight orders by ship_date. Repeat until the list matches tomorrow\'s plan.')
+    + step(3, 'Test printers first (A3 flow)', 'More → 🖨 Printers → <b>▶ Start-of-Day Test</b>. Fires a test print on every configured printer (label / default / instructions / pick_list / kanban). See green ✓ per role or red ✗ with the error. Fix now, not tomorrow morning.')
+    + step(4, 'Walk out the door', 'That\'s it. Cron takes over.')
+    + H2('The cron (3am ET, weekdays only)')
+    + chip('⏰', 'Trigger', '<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">runOvernightPackInstructionsPrint</code> — installed once via <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">installOvernightPrintTrigger</code> in the Apps Script editor.')
+    + chip('📅', 'Weekday guard', 'Cron fires daily but the handler bails immediately on Sat/Sun (server-side check via <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">Utilities.formatDate</code> → EEE). Uses 1 trigger slot, not 5 (saves 4 slots against Apps Script\'s 20-trigger cap).')
+    + chip('🖨', 'What prints', 'For every order on the active list: pick_list_pdf_url (fetched from Drive as base64) + INST-* instruction PDFs. Sorted by ship_date so packets stack in pack order.')
+    + chip('🎯', 'Which printer', '<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">PRINTNODE_INSTRUCTIONS_PRINTER_ID</code> Script Property (the office stapler-printer). Falls back to <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">PRINTNODE_DEFAULT_PRINTER_ID</code>.')
+    + chip('📊', 'Morning report', 'Posts to <b>#claude_bedrock</b> at ~3:02am with per-order pass/fail. Seth reads it with coffee.')
+    + H2('One-time setup (Zac only)')
+    + step(1, 'Set PRINTNODE_INSTRUCTIONS_PRINTER_ID', 'Script Properties (or More → 🖨 Printers → pick from dropdown → Save).')
+    + step(2, 'Run installOvernightPrintTrigger()', 'Once, from the Apps Script editor. Idempotent — deletes any existing trigger of the same name first.')
+    + step(3, 'Verify', 'Apps Script → Triggers → confirm <b>runOvernightPackInstructionsPrint · Time-driven · Day timer</b> at ~3am. Never touches again unless Zac wants to change the hour.')
+    + H2('Overnight print gotchas')
+    + gotcha('<b>Empty active list = no-op.</b> If Seth forgets to build the list, cron runs but prints zero. Morning report will say "0 orders on today\'s active list." Not silent — Slack post confirms cron fired.')
+    + gotcha('<b>Printer offline at 3am</b> = jobs queue in PrintNode. When printer comes back online they\'ll spool. Morning report shows "submitted, awaiting spool."')
+    + gotcha('<b>Paper jam / out of paper</b> is invisible to Bedrock. PrintNode reports "submitted" for anything successfully queued. Physical failure only visible in the morning when Jonah sees the stack.')
+    + tip('The active-list flag (<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">on_active_list=TRUE</code>) does NOT auto-replenish as orders complete. Seth taps + Add to List to top up the next day.')
+    + tip('Cabinet orders + freight orders both flow through this. Ground orders use the pack-on-demand flow — labels print at scan-time, not overnight.');
+
+  // ── SECTION 4 — FAQ ─────────────────────────────────────────────────────
+  const sec4 = H('sgSec4', '❓ Frequently asked')
+    + '<div style="font-size:13px;line-height:1.6;color:#C7D2E0">'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Where\'s the Ground tab in all this?</b><br>Ground = parcel shipments imported from ShipStation V1. Uses its own queue + BOM decomposition, NOT the Schedule tab or Scheduler Board. Cabinet/freight orders are blocked from V1 by the "cabinet tag not imported" rule, so the two never overlap.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: What if I need to pull a printed pick list out of the pile?</b><br>Every printed page has the order # printed huge at the top (v10.119). Sorted by ship_date so oldest = top of pile.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: How do I compare the native pick list to the gcal PDF pick list?</b><br>B1 (native vs GCal PDF compare + inline edit) is <b>designed but not yet built</b>. Right now the native pick list (Postgres bundle/BOM) is the source. If a gcal PDF differs, tell Zac and he\'ll add it to variant_map / bundle_bom.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: What if the cron misses a night (Apps Script outage, etc.)?</b><br>Backup: Zac can fire it manually with <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">runOvernightPackInstructionsPrint()</code> from the editor. Also <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">printTodaysPackInstructions</code> endpoint for one-off from CLI.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Can I bulk-mark orders packed/shipped from Orders tab?</b><br>Yes — Manager PIN → 👤 bulk mode → check boxes → orange action bar → Mark Packed / Mark Shipped. One PIN entry, cached 10min. Also lets you flip pending → packed for planning cleanup.</div>'
+    + '<div><b style="color:#fff">Q: Where\'s the "Pack" tab? I remember one.</b><br>Retired v10.341+. All packing-flow features moved to the Orders tab. The Pack tab still exists in DOM but is dead — don\'t use it.</div>'
+    + '</div>';
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Scheduler Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every scheduling surface, every button, every gotcha · v10.1272</div></div>'
+    +   '<button onclick="document.getElementById(\'schedGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
+    + '</div>'
+    + toc + sec1 + sec2 + sec3 + sec4
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Something wrong or missing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1272 — updated when scheduler surfaces change.</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+// Expose to inline HTML onclick handlers.
+window.openSchedulerGuide = openSchedulerGuide;

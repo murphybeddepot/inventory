@@ -1875,6 +1875,15 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
+    <!-- v10.1272 — Visual Scheduler Guide (covers Schedule + Board + Overnight Print) -->
+    <button onclick="closeMoreMenu();openSchedulerGuide()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📖</span>
+      <div style="flex:1">
+        <div>Scheduler Guide</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.85);font-weight:600;margin-top:2px">Visual walkthrough of Schedule tab + Scheduler Board + Overnight Print (v10.1272)</div>
+      </div>
+      <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
+    </button>
     <!-- v10.978 — Routing library: define production steps for each SKU (P1 wknd) -->
     <button onclick="closeMoreMenu();openRoutingLibraryModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🗺</span>
@@ -2023,6 +2032,7 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">📅 Shipping Schedule</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="openSchedulerGuide()" class="amp-btn" style="font-size:13px;padding:8px 16px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);color:#fff;-webkit-text-fill-color:#fff;border:none" title="Visual walkthrough of every scheduling surface">📖 Guide</button>
       <button onclick="exportScheduleCsv_()" class="amp-btn" style="font-size:13px;padding:8px 16px" title="Download the loaded schedule as a CSV">⬇ CSV</button>
       <button onclick="refreshScheduleTab()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
     </div>
@@ -18747,6 +18757,7 @@ async function openSchedulerBoardModal() {
       <div class="bd-modal-header">
         <span style="font-size:22px">📅</span>
         <div style="flex:1"><div style="font-size:17px;font-weight:800">Scheduler Board</div><div style="font-size:11px;opacity:.85;margin-top:2px">Live work orders by station × state · auto-refresh 30s</div></div>
+        <button onclick="openSchedulerGuide()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);border-radius:8px;color:#fff;font-size:12px;font-weight:800;cursor:pointer;margin-right:8px;flex-shrink:0" title="Open the Scheduler Guide">📖 Guide</button>
         <button class="bd-close-btn" onclick="_schedBoardStop_();document.getElementById('schedBoardBackdrop').remove()">Close</button>
       </div>
       <div class="bd-modal-body" id="schedBoardBody" style="background:#fff !important;padding:12px;max-height:82vh;overflow:auto">
@@ -33145,7 +33156,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1269"></script>
+<script src="./pack.js?v=10.1272"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33156,7 +33167,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1269<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1272<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
