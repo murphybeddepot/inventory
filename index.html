@@ -1663,7 +1663,7 @@ input::placeholder, textarea::placeholder {
       <span style="color:#999;font-size:18px">›</span>
     </button>
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#888;margin:6px 2px 10px;text-transform:uppercase;letter-spacing:1.5px">Print Tools</div>
-    <!-- v10.1268 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
+    <!-- v10.1269 (Zac 2026-07-15): in-Bedrock printer picker — replaces the
          Apps Script editor round-trip for changing which PrintNode printer
          receives shipping labels / pick lists / instructions / kanban tags. -->
     <button onclick="closeMoreMenu();openPrinterPickerModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
@@ -1674,7 +1674,7 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <!-- v10.1268 (Zac 2026-07-20 8:26am "day needs to start with a
+    <!-- v10.1269 (Zac 2026-07-20 8:26am "day needs to start with a
          'confirm and test printer' routine that prints a test label"). -->
     <button onclick="closeMoreMenu();openStartOfDayPrinterTest()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#003087,#0056b3);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🌅</span>
@@ -8849,7 +8849,7 @@ function _runwayPopulateVendorBar_() {
     const sel = (v === cur) ? ' selected' : '';
     options += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + ' (' + counts[v] + ')</option>';
   }
-  // v10.1268 (Zac 2026-07-16): make the dropdown obviously a dropdown.
+  // v10.1269 (Zac 2026-07-16): make the dropdown obviously a dropdown.
   // Was 12px font in a rgba(0,0,0,.30) box with a 10px 'Vendor' hint —
   // vanished into the dark theme so Zac had to hunt for it. Now: full-
   // width chip that reads '🏢 FILTER BY VENDOR: All (n) ▾' by default,
@@ -9703,7 +9703,7 @@ async function _stockV2AddNewItemSave_(pin) {
   }
 }
 
-// v10.1268 (Zac 2026-07-17 10:35pm): mobile-friendly on-hand edit modal.
+// v10.1269 (Zac 2026-07-17 10:35pm): mobile-friendly on-hand edit modal.
 // Wraps the runApplyCountBaseline endpoint I shipped in round 1. Overwrites
 // items.on_hand + last_counted_at (now) + last_counted_by (Bedrock device
 // id or 'Bedrock'). Emits a CYCLE_COUNT audit txn so we can trace who
@@ -12847,7 +12847,7 @@ function _renderBomDiag_() {
   list.innerHTML = html;
 }
 
-// v10.1268 (Zac 2026-07-16): pre-receive count modal. Called when worker
+// v10.1269 (Zac 2026-07-16): pre-receive count modal. Called when worker
 // returns needs_pre_count for a container. Renders one row per questionable
 // SKU with a numeric input; 0 or negative allowed per Zac's spec. Resolves
 // with { sku: qty } object or null if canceled.
@@ -12952,7 +12952,7 @@ async function _frameRunwayOpenReceive_() {
   );
   if (!confirmed) return;
 
-  // v10.1268 (Zac 2026-07-16): if worker flagged needs_pre_count, prompt
+  // v10.1269 (Zac 2026-07-16): if worker flagged needs_pre_count, prompt
   // for pre-receipt counts on questionable SKUs before commit. Server
   // will refuse commit without them. Zac's spec: allow zero, negative,
   // any number — don't second-guess the operator.
@@ -13243,7 +13243,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
   }
 }
 
-// v10.1268 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
+// v10.1269 (Zac 2026-07-16): make PWA call worker /inventory/dashboard
 // directly for Runway loads. Before: PWA → Apps Script → Worker → Supabase
 // (4 UrlFetchApp charges from Apps Script per load). After: PWA → Worker →
 // Supabase (0 UrlFetchApp charges). The fn was referenced in the two error
@@ -13337,7 +13337,7 @@ async function _frameRunwayLoad_(forceRefresh) {
   }
   if (sub && !window._frameRunwayItemsCache) sub.textContent = 'Loading…';
   try {
-    // v10.1268 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
+    // v10.1269 (Zac 2026-07-16 quota audit): try worker FIRST. Saves
     // 4 Apps Script UrlFetchApp calls per Runway load (was
     // PWA→AppsScript→4× fetchAll→Supabase; now PWA→Worker→Supabase).
     // Fall back to Apps Script if worker relay config is missing or the
@@ -13493,7 +13493,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     }
   }
 }
-// v10.1268 (Zac 2026-07-16 overnight): 'Also round to one decimal numbers
+// v10.1269 (Zac 2026-07-16 overnight): 'Also round to one decimal numbers
 // on runway.' Sums of ledger quantity_change come back as IEEE floats
 // (e.g. 840.2000000000266). Round to 1dp; drop trailing '.0' so integers
 // still look integer. Used for on_hand, on_order, and bin qty in Runway.
@@ -13616,7 +13616,7 @@ function _frameRunwayRender_(items, containerBanner) {
       // infinite (huge stock + tiny vel) so we stop slapping ∞ on every
       // stagnant SKU. Server caps both cases at 999; we recover intent here.
       let runM = '—', runColorM = 'var(--text-dim)';
-      // v10.1268 (Zac 2026-07-17 10:37pm): mobile card now shows current
+      // v10.1269 (Zac 2026-07-17 10:37pm): mobile card now shows current
       // runway AND runway-with-on-order together, matching desktop table
       // pattern. 'Xd → Yd' when on_order > 0 pulls the coverage number in
       // from ETA-aware math without needing to open desktop.
@@ -14741,7 +14741,7 @@ async function renderStockV2Dashboard_() {
       list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Load failed: ' + esc((res && res.error) || 'unknown') + '<br><br><button onclick="renderStockV2Dashboard_()" style="margin-top:10px;padding:8px 14px;background:#003087;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">↻ Retry</button></div>';
       return;
     }
-    // v10.1268 (Zac 2026-07-17 10:39pm): 'on stock 2 a whole list of
+    // v10.1269 (Zac 2026-07-17 10:39pm): 'on stock 2 a whole list of
     // non-inventory items are listed with "never". Like instructions
     // and mattress.' INST-* items have vendor='INSTRUCTIONS' — they're
     // PDFs printed on demand, not physical inventory. Mattress SKUs
@@ -16804,7 +16804,14 @@ function _mgRecentPushItem_(item) {
   try { localStorage.setItem(_MG_RECENT_ITEM_KEY_, JSON.stringify(arr)); } catch(e) {}
 }
 
-async function openManualGroundOrderModal() {
+// v10.1269 (Zac 2026-07-20 8:26am "biggest ground pain — someone
+// calls/emails that they're missing this or that or that this or
+// that was damaged. Seth and Jessica and I need to be able to
+// easily add that thing"). Optional `opts.prefill` pre-fills shipTo
+// from an existing order + tags internalNotes as REPLACEMENT.
+async function openManualGroundOrderModal(opts) {
+  opts = opts || {};
+  const prefill = opts.prefill || null;
   let backdrop = document.getElementById('mgOrderBackdrop');
   if (backdrop) backdrop.remove();
   backdrop = document.createElement('div');
@@ -16906,6 +16913,36 @@ async function openManualGroundOrderModal() {
       </div>
     </div>`;
   document.body.appendChild(backdrop);
+
+  // v10.1269 — pre-fill from original order when opened as replacement
+  if (prefill) {
+    const setV = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = String(v); };
+    setV('mgName', prefill.name);
+    setV('mgStreet1', prefill.street1);
+    setV('mgStreet2', prefill.street2);
+    setV('mgCity', prefill.city);
+    setV('mgState', prefill.state);
+    setV('mgZip', prefill.zip || prefill.postalCode);
+    setV('mgPhone', prefill.phone);
+    setV('mgEmail', prefill.email);
+    if (prefill.original_order_number) {
+      // Tag the internal notes so the packer sees it's a replacement, and
+      // give the order # a suggestive prefix so it groups visually.
+      const notesEl = document.getElementById('mgNotes');
+      if (notesEl && !notesEl.value.trim()) {
+        notesEl.value = 'REPLACEMENT for order #' + prefill.original_order_number
+          + (prefill.reason ? ' — ' + prefill.reason : '');
+      }
+      const ordNumEl = document.getElementById('mgOrderNumber');
+      if (ordNumEl) ordNumEl.value = 'RPL-' + prefill.original_order_number + '-' + (function () {
+        const d = new Date(), z = n => String(n).padStart(2, '0');
+        return z(d.getHours()) + z(d.getMinutes());
+      })();
+    }
+    // Optional: replace header text with "Replacement / damaged item"
+    const hdrTextEl = backdrop.querySelector('.bd-modal-header > div > div');
+    if (hdrTextEl) hdrTextEl.innerText = '🚨 Send Replacement / Damaged Item';
+  }
 
   _mgAddItemRow_();
   _mgRenderAddrBook_();
@@ -19149,13 +19186,13 @@ window.ensurePin = function ensurePin(promptText) {
   return p;
 };
 
-// v10.1268 — in-Bedrock printer picker. Replaces the Apps Script editor
+// v10.1269 — in-Bedrock printer picker. Replaces the Apps Script editor
 // round-trip Zac had to take today to change which PrintNode printer any
 // given job type routes to. Reads current assignments + the full printer
 // list in parallel; save is PIN-gated (setPrintNodePrinterIds validates
 // each ID against PrintNode's account before writing the Script Property).
 // Roles routed here: default, label, instructions, picklist, kanban.
-// v10.1268 (Zac 2026-07-20 8:26am): Start-of-day printer test modal.
+// v10.1269 (Zac 2026-07-20 8:26am): Start-of-day printer test modal.
 // Fires runTestAllPrinters → server tests every configured PRINTNODE_*
 // printer + returns per-role pass/fail. Operator confirms each test page
 // arrived at the physical printer.
@@ -33108,7 +33145,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1268"></script>
+<script src="./pack.js?v=10.1269"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33119,7 +33156,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1268<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1269<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

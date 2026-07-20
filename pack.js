@@ -456,6 +456,7 @@ function _orderDetailHtml_(o) {
     + '</div>'
     + '<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">'
     +   '<button onclick="_openPackWorkflowFromOrders_(\'' + ord + '\')" class="amp-btn" style="padding:12px 18px;font-size:13px;font-weight:800">📦 Open Pack Workflow →</button>'
+    +   '<button onclick="_openReplacementFromOrder_(\'' + ord + '\')" style="padding:12px 18px;font-size:13px;font-weight:800;background:linear-gradient(135deg,#FF5252,#c62828);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;box-shadow:0 2px 8px rgba(198,40,40,.35)" title="Customer called about missing/damaged item — create a replacement ground order pre-filled with this ship-to">🚨 Send Replacement / Damaged</button>'
     + '</div>'
     + '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.18);border-radius:8px;font-size:11px;color:var(--text-dim);line-height:1.5">This is the Orders-tab unified detail. The Pack Workflow button opens the existing Pack tab for scan/photos/checker (those flows haven\'t been migrated into the Orders tab yet — separate ship). All admin actions (assign booker, mark booked, view status) live here.</div>';
 }
@@ -1184,6 +1185,39 @@ function _quickPullCabinetFromPacker_(cabinetNum, orderNumber) {
   // Re-render the packer detail so the row flips to ✓ Pulled.
   const o = getCachedPipelineOrder(orderNumber);
   if (o) _renderInOrdersPackerDetail_(o);
+}
+
+// v10.1269 (Zac 2026-07-20 8:26am): open the manual-ground-order modal
+// pre-filled with THIS order's shipTo — for CS "customer called about
+// missing/damaged item" workflow.
+function _openReplacementFromOrder_(orderNumber) {
+  const key = String(orderNumber || '').trim();
+  if (!key) return;
+  const cached = getCachedPipelineOrder(key);
+  if (!cached) {
+    if (typeof showToast === 'function') showToast('Order #' + key + ' not in current window — cannot pre-fill');
+    return;
+  }
+  // Extract shipTo from cached order shape (order-pipeline projection)
+  const st = cached.ship_to || {};
+  // Common fallbacks — pipeline stores flat fields for some carriers
+  const prefill = {
+    name: st.name || cached.customer_name || cached.customer || '',
+    street1: st.street1 || st.address1 || cached.ship_street1 || '',
+    street2: st.street2 || st.address2 || cached.ship_street2 || '',
+    city: st.city || cached.ship_city || '',
+    state: st.state || st.province || cached.ship_state || '',
+    zip: st.postal_code || st.postalCode || st.zip || cached.ship_zip || '',
+    phone: st.phone || cached.customer_phone || '',
+    email: cached.customer_email || '',
+    original_order_number: key,
+    reason: 'CS follow-up (missing/damaged item)',
+  };
+  if (typeof openManualGroundOrderModal !== 'function') {
+    if (typeof showToast === 'function') showToast('Manual order modal not loaded — try refreshing');
+    return;
+  }
+  openManualGroundOrderModal({ prefill: prefill });
 }
 
 // Replaces the v10.341 "Open Pack Workflow" routing. Now opens the
