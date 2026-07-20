@@ -456,6 +456,14 @@ function _orderDetailHtml_(o) {
     + '</div>'
     + '<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">'
     +   '<button onclick="_openPackWorkflowFromOrders_(\'' + ord + '\')" class="amp-btn" style="padding:12px 18px;font-size:13px;font-weight:800">📦 Open Pack Workflow →</button>'
+    // v10.1279 (Zac 2026-07-20 1:05pm EDT: "there's no clear way to
+    // release it"). Prominent Release Claim button when the order is
+    // claimed. Shows even if not by this device — manager can
+    // force-release (the server-side releasePackJob endpoint doesn't
+    // enforce device match).
+    +   (String(o.status || '').toLowerCase() === 'in_progress'
+        ? '<button onclick="releasePackOrder(\'' + ord + '\')" style="padding:12px 18px;font-size:13px;font-weight:800;background:linear-gradient(135deg,#FF9100,#F57C00);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;box-shadow:0 2px 8px rgba(255,145,0,.35)" title="Release the pack claim so someone else (or you tomorrow) can pick it up. Scan progress is preserved.">↩ Release Claim' + (o.started_by ? ' (claimed by ' + esc(String(o.started_by).slice(0, 24)) + ')' : '') + '</button>'
+        : '')
     +   '<button onclick="_openReplacementFromOrder_(\'' + ord + '\')" style="padding:12px 18px;font-size:13px;font-weight:800;background:linear-gradient(135deg,#FF5252,#c62828);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;box-shadow:0 2px 8px rgba(198,40,40,.35)" title="Customer called about missing/damaged item — create a replacement ground order pre-filled with this ship-to">🚨 Send Replacement / Damaged</button>'
     + '</div>'
     + '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.18);border-radius:8px;font-size:11px;color:var(--text-dim);line-height:1.5">This is the Orders-tab unified detail. The Pack Workflow button opens the existing Pack tab for scan/photos/checker (those flows haven\'t been migrated into the Orders tab yet — separate ship). All admin actions (assign booker, mark booked, view status) live here.</div>';
@@ -5191,14 +5199,22 @@ async function resetTodaysPackList() {
   if (!confirm('Reset the entire pack list?\n\n' + (inflight ? ('All ' + inflight + ' in-flight order' + (inflight === 1 ? '' : 's') + ' will be removed from the list.') : 'Every order with on_active_list=TRUE will be flipped to FALSE (the client cache may be stale — let the server tell us the true count).') + ' Status is unchanged — they can be re-added.\n\nPacked orders awaiting ship are NOT affected.')) return;
   const pin = promptManagerPin_('reset entire list');
   if (!pin) return;
+  // v10.1279 (Zac 2026-07-20 12:53pm EDT): "clicked clear list and put
+  // in pin but there's no indication whether it's working on it in the
+  // background". Announce via toast + banner so the packer knows the
+  // request is in flight even if the tab hosting the banner is hidden.
+  if (typeof showToast === 'function') showToast('↺ Clearing list…');
+  if (typeof showPackBanner_ === 'function') showPackBanner_('↺ Clearing list — please wait…', '#42a5f5');
   try {
     const res = await groundApi('clearTodaysPackList', { manager_pin: pin });
     if (!res || !res.ok) {
       if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      if (typeof showPackBanner_ === 'function') showPackBanner_(((res && res.error) || 'Reset failed'), '#ff5252');
       showToast(((res && res.error) || 'Reset failed'));
       return;
     }
     _packBulkSelection.clear();
+    if (typeof showPackBanner_ === 'function') showPackBanner_('↺ Cleared ' + res.cleared + ' — refreshing…', '#42a5f5');
     await refreshPackQueue();
     // v10.543 — when reset is invoked from the Orders tab, also force
     // a pipeline refresh so the Pack lens reflects the cleared state.
