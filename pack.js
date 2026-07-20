@@ -17440,15 +17440,15 @@ function openSchedulerGuide(anchor) {
 
   const toc = '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(66,165,245,.08);border:1px solid rgba(66,165,245,.25);border-radius:10px;margin-bottom:14px">'
     + '<div style="flex:1 1 100%;font-size:11px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Jump to</div>'
-    + '<button onclick="document.getElementById(\'sgSec1\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📅 Schedule tab</button>'
+    + '<button onclick="document.getElementById(\'sgSec1\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📅 Schedule lens</button>'
     + '<button onclick="document.getElementById(\'sgSec2\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🗂 Scheduler Board</button>'
     + '<button onclick="document.getElementById(\'sgSec3\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🌙 Overnight Print</button>'
     + '<button onclick="document.getElementById(\'sgSec4\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:150px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
     + '</div>';
 
-  // ── SECTION 1 — SCHEDULE TAB ────────────────────────────────────────────
-  const sec1 = H('sgSec1', '📅 Schedule tab · Kim & Seth\'s calendar')
-    + P('The <b>Schedule tab</b> (main nav → 📅) is the daily calendar view. Shows freight + cabinet shipments day-by-day for the current week and next few weeks. This is where <b>Kim works the "to book" list</b> — for every unbooked order she taps in, quotes FedEx Freight, and books.')
+  // ── SECTION 1 — SCHEDULE LENS (inside Orders tab) ───────────────────────
+  const sec1 = H('sgSec1', '📅 Schedule lens · inside the Orders tab')
+    + P('The <b>Schedule lens</b> lives inside the <b>Orders tab</b> — main nav → 📦 Orders → tap the <b>📅 Schedule</b> chip. Shows freight + cabinet shipments day-by-day for the current week and next few weeks. This is where <b>Kim works the "to book" list</b> — for every unbooked order she taps in, quotes FedEx Freight, and books.')
     + H2('When to use it')
     + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.5"><b style="color:#fff">Kim (daily):</b> Book carriers · confirm customer-ready dates · resolve stalls<br><b style="color:#fff">Seth (daily):</b> Plan the pack day · glance-check ship-out targets · flag priorities<br><b style="color:#fff">Norm (weekly):</b> Skim upcoming volume by day</div>'
     + H2('What you\'ll see')
@@ -17495,7 +17495,7 @@ function openSchedulerGuide(anchor) {
     + H2('Board gotchas')
     + gotcha('<b>If board says "Failed to load board data" mentioning a missing table:</b> Zac needs to run <code style="background:rgba(255,255,255,.10);padding:1px 5px;border-radius:3px">supabase/work_orders.sql</code> once. Board surfaces the exact SQL file to run.')
     + gotcha('<b>WORK_ORDERS_ENABLED Script Property</b> must be set to activate. If off, board loads empty — see "off" hint in error message.')
-    + gotcha('<b>Not for shipping.</b> Kim uses the Schedule tab for freight bookings — the Board is upstream of that (making the stuff that ships).')
+    + gotcha('<b>Not for shipping.</b> Kim uses the Schedule lens (Orders tab) for freight bookings — the Board is upstream of that (making the stuff that ships).')
     + tip('The Board is designed for a <b>wall-mounted TV in the shop</b>. F11 fullscreen → auto-refresh runs indefinitely. Same architecture as /inventory/board.html.');
 
   // ── SECTION 3 — OVERNIGHT PRINT B2 ──────────────────────────────────────
@@ -17548,3 +17548,148 @@ function openSchedulerGuide(anchor) {
 }
 // Expose to inline HTML onclick handlers.
 window.openSchedulerGuide = openSchedulerGuide;
+
+// v10.1273 (Zac 2026-07-20 10:56am EDT): "add a guide in the 'orders'
+// tab that covers every single thing it does also". Comprehensive
+// walkthrough of every button, lens, workflow, and gotcha in the Orders
+// tab (main home for Kim + Seth + Jonah/Peter/Shane pack flow).
+function openOrdersGuide() {
+  const prior = document.getElementById('ordersGuideOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'ordersGuideOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const H = (id, t) => '<div id="' + id + '" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.10)">' + t + '</div>';
+  const H2 = (t) => '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px">' + t + '</div>';
+  const P = (t) => '<div style="font-size:13px;line-height:1.55;color:#C7D2E0;margin-bottom:8px">' + t + '</div>';
+  const step = (n, t, d) => '<div style="display:flex;gap:10px;margin-bottom:8px"><div style="flex:0 0 22px;height:22px;border-radius:50%;background:rgba(66,165,245,.20);color:#5BB3FF;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;font-size:13px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + t + '</b> — ' + d + '</div></div>';
+  const chip = (icon, label, detail) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'
+    + '<span style="flex:0 0 32px;text-align:center;font-size:18px">' + icon + '</span>'
+    + '<div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + label + '</b> — ' + detail + '</div></div>';
+  const gotcha = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(255,179,0,.09);border-left:3px solid #FFB300;border-radius:4px"><span style="flex:0 0 20px">⚠️</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#F5E6C0">' + t + '</div></div>';
+  const tip = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(0,200,83,.08);border-left:3px solid #00C853;border-radius:4px"><span style="flex:0 0 20px">💡</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7EED0">' + t + '</div></div>';
+
+  const toc = '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(66,165,245,.08);border:1px solid rgba(66,165,245,.25);border-radius:10px;margin-bottom:14px">'
+    + '<div style="flex:1 1 100%;font-size:11px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Jump to</div>'
+    + '<button onclick="document.getElementById(\'ogTop\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🏠 Overview</button>'
+    + '<button onclick="document.getElementById(\'ogLenses\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🎯 The 4 Lenses</button>'
+    + '<button onclick="document.getElementById(\'ogHeader\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">⚙ Header</button>'
+    + '<button onclick="document.getElementById(\'ogSearch\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🔍 Search</button>'
+    + '<button onclick="document.getElementById(\'ogCards\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Order Cards</button>'
+    + '<button onclick="document.getElementById(\'ogDetail\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🔬 Order Detail</button>'
+    + '<button onclick="document.getElementById(\'ogPlanner\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Planner</button>'
+    + '<button onclick="document.getElementById(\'ogBulk\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">👤 Manager Mode</button>'
+    + '<button onclick="document.getElementById(\'ogFaq\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
+    + '</div>';
+
+  // ── SECTION: OVERVIEW ──────────────────────────────────────────────────
+  const secTop = H('ogTop', '🏠 What the Orders tab IS')
+    + P('The <b>Orders tab</b> (📦 in the main nav) is the <b>home for everything that happens between "order lands" and "it ships"</b>. It replaces the old Pack tab (retired v10.341+), the old standalone Schedule tab (hidden), and consolidates Kim\'s freight booking + Seth\'s pack-day planning + Jonah\'s scan-to-verify + Jessica\'s customer-service lookups into one surface.')
+    + H2('Who uses it')
+    + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.6"><b style="color:#fff">Kim:</b> Freight booking (Schedule lens) · confirm customer-ready dates<br><b style="color:#fff">Seth:</b> Pack-day planning (Planner button + Pack Today lens) · overnight print list build<br><b style="color:#fff">Jonah / Peter / Shane:</b> Pack Today lens → tap into order → scan/verify/ship<br><b style="color:#fff">Jessica:</b> Customer service lookups (Needs Attention lens for on-hold + tap-search)<br><b style="color:#fff">Zac / Norm:</b> Glance-check volume + stalls</div>'
+    + H2('The core idea — LENSES, not sub-tabs')
+    + P('The same list of orders shows through <b>4 different lenses</b> — same data, different filters. This means every order is always findable from whichever lens fits your job. Search overrides the current lens (goes across everything).');
+
+  // ── SECTION: HEADER ────────────────────────────────────────────────────
+  const secHeader = H('ogHeader', '⚙ Header row · buttons + wordmark')
+    + chip('📦', 'Orders wordmark', 'Big "📦 ORDERS" text on the left. <b>Tap it</b> to snap back to the Schedule lens home view (like clicking a logo).')
+    + chip('📖', 'Guide (this thing)', 'Blue gradient. Opens this walkthrough. Bookmark = tap it any time you forget how something works.')
+    + chip('📋', 'Planner', 'Purple gradient. Opens the Make Today / Pack Today planner (manager surface). See §Planner below.')
+    + chip('↻', 'Refresh', 'Forces a refresh of the order pipeline cache. Use if you just added an order in ShipStation or Shopify and want it to appear immediately (otherwise it lands within ~15 min via auto-sync).');
+
+  // ── SECTION: LENSES ────────────────────────────────────────────────────
+  const secLenses = H('ogLenses', '🎯 The 4 Lenses (2×2 grid)')
+    + P('Each lens button shows a <b>live count badge</b> top-right. Active lens is highlighted. Tap once to switch.')
+    + H2('📅 Schedule lens (home / default)')
+    + P('Kim\'s freight booking view — the same content the old Schedule tab used to be. Shows freight + cabinet shipments day-by-day for current week + next few weeks.')
+    + chip('📋', 'N TO BOOK chip', 'Header count of orders needing a carrier booked. Hover for per-carrier breakdown (FedEx / ABF / Estes / manual).')
+    + chip('🎨', 'Carrier color', 'Left border of each card = carrier. FedEx=purple, ABF=orange, WG-PAY=yellow, KIM=gray (needs booking). Real carrier name = booked (v10.46 derives booked_at from calendar).')
+    + chip('◀ ▶', 'Week nav', 'Arrows to shift weeks. "Today" snaps back. Past Weeks caret expands last 14 days for reconciliation.')
+    + chip('🔴', 'Stall banner', 'Top red banner if any order is past its ship date without a carrier. Sub-filters: Past Due / Needs Booking / Needs Customer / No Instructions.')
+    + tip('For the full Schedule + Board + Overnight Print walkthrough, tap <b>📖 Scheduler Guide</b> from the More menu.')
+    + H2('🔧 Pre-Pack Today lens')
+    + P('Zoe\'s station. Shows orders that need <b>pre-pack work</b> (frame assembly, sub-assembly, etc.) BEFORE they hit the main pack station. Filtered by day.')
+    + H2('📦 Pack Today lens')
+    + P('Jonah/Peter/Shane\'s station. Shows the <b>active pack list for today</b> — orders Seth has flagged on_active_list=true via the Planner. This is what packers work through order-by-order.')
+    + chip('+', 'Add to List', 'Manager PIN. Picks next N in-flight orders by ship_date + flips their on_active_list flag. Header button. Repeat until list matches tomorrow.')
+    + chip('👤', 'Manager Mode', 'PIN-gated. Enables checkboxes on cards + sticky action bar (Mark Packed / Mark Shipped / Remove / Reset). See §Manager Mode.')
+    + chip('🖨', 'Print All Instructions', 'Bulk-fires PrintNode for every order on today\'s list. Sorted by ship_date so packets stack in pack order. Also runs overnight via 3am cron — see Scheduler Guide.')
+    + H2('⚠ Needs Attention lens')
+    + P('Jessica\'s + Seth\'s escalation view. Orders with a <b>hold</b>, <b>past-due ship date without carrier</b>, <b>missing instructions</b>, or <b>customer-not-ready</b>. Fix here → order drops off the lens automatically.');
+
+  // ── SECTION: SEARCH ────────────────────────────────────────────────────
+  const secSearch = H('ogSearch', '🔍 Search bar (sticky)')
+    + P('Sits under the lens grid, <b>sticky</b> so it survives list-scroll. Searches across order#, customer name, cal_label, and task_line — <b>always all lenses</b>, not just the active one.')
+    + chip('🔤', 'Text input', 'Type or scan. Live-filter as you type. Highlights whichever card matches first.')
+    + chip('📷', 'Camera scanner', 'Blue button, right side. Opens the device camera to scan the order# barcode printed on the instructions cover page. Auto-opens the Pack workflow for that order — designed for the packer to grab a packet + scan directly into work.')
+    + chip('× Clear', 'Only visible when a search is active. Clears the input + returns to whichever lens was active before.');
+
+  // ── SECTION: ORDER CARDS ───────────────────────────────────────────────
+  const secCards = H('ogCards', '📋 Order cards (in the list)')
+    + P('Every order in the current lens renders as a card. Card structure is consistent across lenses — details differ by what data\'s populated for that order type.')
+    + chip('👤', 'Customer name (top)', 'Big + bold. Same source as the pick-list.')
+    + chip('📦', 'SKU summary', 'Top 2 SKUs abbreviated. Full list on tap-through to detail (v10.395 SKU summary Phase 2).')
+    + chip('🚚', 'Carrier + status', 'Right side. Empty = needs booking. Filled = booked. Small tracking # if shipped.')
+    + chip('⏰', 'Ship date', 'Bottom-left. Red if past due.')
+    + chip('🔥', '"1ST" badge', 'Orange chip if the order was manager-flagged 1st-priority (v10.44 flag). Also shows on the /inventory/board.html TV.')
+    + chip('H B P L', 'GCal status letters', 'Dismissible legend at top of list. <b>H</b>=instructions printed → <b>B</b>=boxed → <b>P</b>=packed → <b>L</b>=labels printed. Reflects the calendar-event letter tags Seth uses.')
+    + tip('<b>Tap any card</b> to open the detail panel INLINE (in the Orders tab). Does not switch to Pack tab (v10.341 fix — Zac: "your plan is still to take a packer to the old pack tab? that\'s not what I thought we were doing").');
+
+  // ── SECTION: ORDER DETAIL ──────────────────────────────────────────────
+  const secDetail = H('ogDetail', '🔬 Order detail panel (inline)')
+    + P('Tapping a card opens the detail panel <b>inline</b> (renders below the card). Not a modal, not a tab switch. Everything you need for one order lives here.')
+    + H2('Detail sections')
+    + chip('📋', 'SKU list + qty', 'Every line item from Shopify + derived BOM leaves (cabinets, hardware, packaging bundles). Grouped by category.')
+    + chip('📅', 'Timeline', 'Every order_event from the spine (v10.347+). "order.imported → js2.status.synced → pack.completed → ship.completed" etc.')
+    + chip('📄', 'Pick list PDF link', 'Direct link to the gcal event PDF pick list. Also 🖨 Print button routes to PrintNode.')
+    + chip('📑', 'Instructions link', 'Deep link to the build/assembly PDF from the Instructions Map (SKU → PDF).')
+    + chip('🚨', 'Send Replacement / Damaged', 'Red button (v10.1269). Opens the manual-ground-order modal pre-filled with this order\'s shipTo + notes. For CS to send a missing/damaged replacement in ~2 taps.')
+    + chip('📞', 'Add CS Note', 'Log a customer-service touchpoint against the order (v10.343). Appears in the timeline.')
+    + chip('🔥', 'Priority toggle', 'Manager PIN. Flips the 1st-priority flag on/off. Shows on the TV board.')
+    + chip('📧', 'Send Tracking Email', 'Preview + shadow-log a tracking email (v10.348 tracking-email work). Shadow-mode by default — real send is Phase 2.')
+    + chip('▶', 'Open Pack Workflow', 'Deep-links to the (deprecated) Pack tab for the scan/photo/checker flow. Being migrated inline next.');
+
+  // ── SECTION: PLANNER ───────────────────────────────────────────────────
+  const secPlanner = H('ogPlanner', '📋 Planner (purple header button)')
+    + P('Seth\'s day-planning surface. Manager-only. Opens as a full-screen overlay from the Orders tab header.')
+    + H2('What it does')
+    + step(1, 'Show upcoming orders by day', 'Grouped by ship_date. Cards show customer + SKU summary + current status.')
+    + step(2, 'Manager assigns priorities + drops', 'Tap into a day → drop orders onto Pack Today\'s active list. Or bulk-add from the future queue.')
+    + step(3, 'Persist to server', 'Every drop flips on_active_list=true in PackingQueue. Debounced via scheduleLock (v10.628) — double-taps don\'t create duplicate writes.')
+    + tip('Planner is the "morning-plan-the-day" surface. Pack Today lens is the "in-the-moment work-through-the-list" surface. Same data, different mindsets.');
+
+  // ── SECTION: MANAGER MODE ──────────────────────────────────────────────
+  const secBulk = H('ogBulk', '👤 Manager Mode (bulk actions)')
+    + P('Toggle from Pack Today lens → ⋯ overflow menu → <b>👤 Manager Mode</b>. Requires manager PIN (cached 10 min in memory, NOT localStorage). Adds checkboxes to every card + a sticky orange action bar.')
+    + H2('Bulk action buttons')
+    + chip('✓', 'Mark Packed', 'Flips selected orders → packed status. Bypasses the checker-scans-complete check.')
+    + chip('📦', 'Mark Shipped', 'Flips selected orders → shipped. PIN-gated. No precondition on current status (manager can short-circuit cleanup).')
+    + chip('🗑', 'Remove', 'Drops orders from today\'s active list (on_active_list=false). Does NOT change their pack status.')
+    + chip('↺', 'Reset List', 'Clears the entire today\'s active list. Manager PIN. Use for a fresh Monday start.')
+    + gotcha('<b>PIN cache is in-memory only.</b> Refresh the PWA → PIN prompt again. Deliberate — bulk actions are high-consequence, we don\'t want a bookmarked-open device to be a bulk-shipping weapon.');
+
+  // ── SECTION: FAQ ───────────────────────────────────────────────────────
+  const secFaq = H('ogFaq', '❓ Frequently asked')
+    + '<div style="font-size:13px;line-height:1.6;color:#C7D2E0">'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Where\'s the old Pack tab?</b><br>Retired v10.341+. Everything lives here now. If you land on the Pack tab from an old bookmark, tap Orders — no data was moved, just the surface.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: The Schedule chip shows "0 TO BOOK" but I know we have unbooked orders.</b><br>Refresh (↻ header button). The count comes from the cached order pipeline. Auto-refresh is 15 min.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: I tapped an order and nothing happened.</b><br>Two possibilities: (a) an overlay is stuck on top — as of v10.1273 tapping any nav tab auto-clears stuck overlays as a defense-in-depth fix; (b) pack.js failed to load — try force-refresh.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Where does the Ground tab fit?</b><br>Ground = parcel shipments (FedEx/UPS/USPS). Cabinet + freight orders are blocked from ShipStation V1 by the "cabinet tag not imported" automation rule. So Ground has its own separate flow — Orders here is for cabinet/freight/pack-then-ship orders.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Does refreshing lose my active lens?</b><br>No. localStorage remembers the last active tab AND the last lens (v10.143 + v10.327). You come back to exactly where you were.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Where do I bulk-add orders to today\'s list without doing them one at a time?</b><br>⋯ overflow menu (Pack Today lens header) → <b>+ Batch Add</b>. Paste a list of order numbers, one per line.</div>'
+    + '<div><b style="color:#fff">Q: What about the schedule + printing walkthrough?</b><br>Separate guide focused on that: More menu → <b>📖 Scheduler Guide</b>. Covers Schedule lens + Scheduler Board + Overnight Print in depth.</div>'
+    + '</div>';
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Orders Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every lens, every workflow · v10.1273</div></div>'
+    +   '<button onclick="document.getElementById(\'ordersGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
+    + '</div>'
+    + toc + secTop + secHeader + secLenses + secSearch + secCards + secDetail + secPlanner + secBulk + secFaq
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1273.</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+window.openOrdersGuide = openOrdersGuide;

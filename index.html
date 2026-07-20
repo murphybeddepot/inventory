@@ -1875,12 +1875,21 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <!-- v10.1272 — Visual Scheduler Guide (covers Schedule + Board + Overnight Print) -->
+    <!-- v10.1273 — Orders Tab Guide (comprehensive: lenses + planner + everything) -->
+    <button onclick="closeMoreMenu();openOrdersGuide()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">📖</span>
+      <div style="flex:1">
+        <div>Orders Tab Guide</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.85);font-weight:600;margin-top:2px">Every button, lens, and workflow in the Orders tab (v10.1273)</div>
+      </div>
+      <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
+    </button>
+    <!-- v10.1272 — Scheduler Guide (Schedule lens + Board + Overnight Print) -->
     <button onclick="closeMoreMenu();openSchedulerGuide()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📖</span>
       <div style="flex:1">
         <div>Scheduler Guide</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.85);font-weight:600;margin-top:2px">Visual walkthrough of Schedule tab + Scheduler Board + Overnight Print (v10.1272)</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.85);font-weight:600;margin-top:2px">Deep dive on Schedule lens + Scheduler Board + Overnight Print (v10.1272)</div>
       </div>
       <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
     </button>
@@ -2032,7 +2041,8 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">📅 Shipping Schedule</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="openSchedulerGuide()" class="amp-btn" style="font-size:13px;padding:8px 16px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);color:#fff;-webkit-text-fill-color:#fff;border:none" title="Visual walkthrough of every scheduling surface">📖 Guide</button>
+      <!-- v10.1273: Guide button removed from the hidden Schedule tab.
+           Reachable via Orders tab header + More menu instead. -->
       <button onclick="exportScheduleCsv_()" class="amp-btn" style="font-size:13px;padding:8px 16px" title="Download the loaded schedule as a CSV">⬇ CSV</button>
       <button onclick="refreshScheduleTab()" class="amp-btn" style="font-size:13px;padding:8px 16px">↻ Refresh</button>
     </div>
@@ -2141,6 +2151,9 @@ input::placeholder, textarea::placeholder {
   <div id="ordersHeaderRow" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div onclick="setOrdersLens('schedule')" title="Tap to return to the Schedule home view" style="cursor:pointer;font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">📦 Orders</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <!-- v10.1273 (Zac 2026-07-20 10:56am EDT): "add a guide in the
+           'orders' tab that covers every single thing it does also". -->
+      <button onclick="openOrdersGuide()" class="amp-btn" title="Every button, every lens, every workflow in the Orders tab" style="font-size:13px;padding:8px 16px;background:linear-gradient(135deg,#1E5FA8,#2C7BC7);color:#fff;-webkit-text-fill-color:#fff;border:none;display:inline-flex;align-items:center;flex-shrink:0">📖 Guide</button>
       <!-- v10.610 — Planner button (moved here from the dead Pack tab). -->
       <button onclick="openPackPlanner()" class="amp-btn" title="Make Today / Pack Today planner (manager)" style="font-size:13px;padding:8px 16px;background:linear-gradient(135deg,#7C3AED,#4C1D95);color:#fff;-webkit-text-fill-color:#fff;border:1px solid #7C3AED;display:inline-flex;align-items:center;flex-shrink:0">📋 Planner</button>
       <button onclick="refreshOrderPipeline({force:true}).then(()=>renderOrdersTab())" class="amp-btn" style="font-size:13px;padding:8px 16px;display:inline-flex;align-items:center;flex-shrink:0">↻ Refresh</button>
@@ -3680,6 +3693,28 @@ function _packWarmupHeartbeat_(action) {
 }
 
 function switchTab(name) {
+  // v10.1273 (Zac Mon 2026-07-20 10:47am EDT): "there are tab bugs
+  // again! opened bedrock, on cabinets tag, couldn't click directly to
+  // orders tab". Root cause: a full-viewport modal overlay (usually
+  // systemStatusOverlay, z:9999, inset:0) intercepts nav pointer events.
+  // If ANY tab-bar tap is fired while an overlay is up, close the
+  // overlay first — the user's clear intent is to leave whatever modal
+  // was on top. Legit modal flows already close on tab switch (planner,
+  // frame runway, etc.), so this is defense-in-depth, not a behavior
+  // change. Whitelist of full-viewport overlays we know about.
+  try {
+    var _stuckOverlayIds = [
+      'systemStatusOverlay', 'schedGuideOverlay', 'howItWorksOverlay',
+      'schedBoardBackdrop', 'plannerBackdrop', 'plannerOverlay',
+    ];
+    _stuckOverlayIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.parentNode) {
+        try { el.remove(); } catch (_e) {}
+        try { document.body.style.overflow = ''; } catch (_e) {}
+      }
+    });
+  } catch (_e) {}
   // v10.246 — 'prepack' is no longer its own tab; transparently redirect
   // to Pack + flip to prepack mode. Preserves bookmarks, back-button
   // history, More-menu entries, and the persisted mbd_active_tab key.
@@ -33156,7 +33191,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1272"></script>
+<script src="./pack.js?v=10.1273"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33167,7 +33202,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1272<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1273<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
