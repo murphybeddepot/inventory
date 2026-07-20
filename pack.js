@@ -1895,7 +1895,13 @@ function renderPackCard_(r) {
       ? '<button onclick="event.stopPropagation();confirmMarkPickedUp(\''+esc(r.order_number)+'\')" class="amp-btn" style="padding:10px 16px;font-size:13px;font-weight:900;white-space:nowrap;background:#42a5f5;color:#0a0a0a">🚛 Mark Picked Up</button>'
       : (status === 'packed'
           ? '<button onclick="event.stopPropagation();confirmMarkPackJobShipped(\''+esc(r.order_number)+'\')" class="amp-btn go" style="padding:10px 16px;font-size:13px;font-weight:900;white-space:nowrap">📦 Mark Shipped</button>'
-          : '<div style="color:var(--text-dim);font-size:20px;cursor:pointer" onclick="openPackDetail(\''+esc(r.order_number)+'\')">›</div>')
+          : (status === 'in_progress'
+              // v10.1281 (Zac 2026-07-20 1:20pm EDT: "how do i release a job"). Inline
+              // Release button on the Pack Today card whenever the order is claimed. No
+              // more digging through the Pack tab to release. Confirm modal warns about
+              // scan progress preservation.
+              ? '<button onclick="event.stopPropagation();releasePackOrder(\''+esc(r.order_number)+'\')" style="padding:10px 14px;font-size:12px;font-weight:900;white-space:nowrap;background:linear-gradient(135deg,#FF9100,#F57C00);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer" title="Release your claim on this order — scan progress preserved">↩ Release</button>'
+              : '<div style="color:var(--text-dim);font-size:20px;cursor:pointer" onclick="openPackDetail(\''+esc(r.order_number)+'\')">›</div>'))
     }
   `;
   return card;
