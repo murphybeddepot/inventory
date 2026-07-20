@@ -17835,3 +17835,102 @@ function openGroundGuide() {
   document.body.appendChild(ov);
 }
 window.openGroundGuide = openGroundGuide;
+
+// v10.1275 (Zac Sun 11:44pm ask "melamine inventory and ordering") —
+// C2 Melamine Vendors list surface. Reads via listMelamineVendors
+// (server side seeded 2026-07-20 via runSeedMelamineVendors). Groups by
+// material_type (panel / door_3dl / edgeband). Contact + lead-time
+// editable inline via upsertSupplier (existing endpoint).
+async function openMelamineVendorsModal() {
+  const prior = document.getElementById('melamineVendorsOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'melamineVendorsOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div id="mvContent" onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">🌲 Melamine Vendors</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Panels · 3DL doors · Edgebanding · v10.1275</div></div>'
+    +   '<button onclick="document.getElementById(\'melamineVendorsOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
+    + '</div>'
+    + '<div id="mvBody"><div style="padding:30px;text-align:center;color:#9AAAC0">Loading…</div></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  try {
+    const res = await groundApi('listMelamineVendors', {});
+    if (!res || !res.ok) throw new Error(res && res.error || 'load failed');
+    _renderMelamineVendors_(res.vendors || []);
+  } catch (e) {
+    const body = document.getElementById('mvBody');
+    if (body) body.innerHTML = '<div style="padding:24px;color:#FF8A80">Failed to load vendors: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+window.openMelamineVendorsModal = openMelamineVendorsModal;
+
+function _renderMelamineVendors_(vendors) {
+  const body = document.getElementById('mvBody');
+  if (!body) return;
+  const groups = { panel: [], door_3dl: [], edgeband: [], other: [] };
+  vendors.forEach(v => {
+    const t = v.material_type || 'other';
+    (groups[t] || groups.other).push(v);
+  });
+  const groupMeta = {
+    panel:    { icon: '🪵', label: 'Panels',      accent: '#FFB74D' },
+    door_3dl: { icon: '🚪', label: '3DL Doors',   accent: '#B39DDB' },
+    edgeband: { icon: '📏', label: 'Edgebanding', accent: '#80CBC4' },
+    other:    { icon: '❓', label: 'Other',       accent: '#9AAAC0' },
+  };
+  const renderCard = (v) => {
+    const contact = v.contact ? esc(v.contact) : '<span style="color:#7E8CA0;font-style:italic">— no contact set —</span>';
+    const lead = (v.lead_time_days != null && v.lead_time_days !== '') ? (esc(String(v.lead_time_days)) + ' days lead') : '<span style="color:#7E8CA0;font-style:italic">no lead time</span>';
+    const notes = String(v.notes || '').replace(/^\[MELAMINE:[^\]]+\]\s*/, '').trim();
+    return '<div style="padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px;margin-bottom:8px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">'
+      +   '<div style="flex:1"><div style="font-weight:800;color:#fff;font-size:14px">' + esc(v.name || v.supplier_id) + '</div>'
+      +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#7E8CA0;margin-top:2px">' + esc(v.supplier_id) + '</div></div>'
+      +   '<button onclick="_mvEditVendor_(\'' + esc(v.supplier_id) + '\')" style="padding:6px 10px;background:rgba(66,165,245,.20);border:1px solid rgba(66,165,245,.45);color:#5BB3FF;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">✎ Edit</button>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#C7D2E0;margin-bottom:4px"><b>Contact:</b> ' + contact + '</div>'
+      + '<div style="font-size:12px;color:#C7D2E0;margin-bottom:4px"><b>Lead time:</b> ' + lead + '</div>'
+      + (notes ? '<div style="font-size:12px;color:#9AAAC0;margin-top:4px;font-style:italic">' + esc(notes) + '</div>' : '')
+      + '</div>';
+  };
+  let html = '<div style="font-size:12px;color:#7E8CA0;line-height:1.5;margin-bottom:14px">' + vendors.length + ' vendors seeded 2026-07-20. Tap ✎ Edit on any card to add contact info, lead time, or notes. C3 (PO Generator per vendor) is the next slice.</div>';
+  ['panel', 'door_3dl', 'edgeband', 'other'].forEach(k => {
+    const items = groups[k];
+    if (!items.length) return;
+    const meta = groupMeta[k];
+    html += '<div style="margin-bottom:16px">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid ' + meta.accent + '">'
+      +   '<span style="font-size:20px">' + meta.icon + '</span>'
+      +   '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:17px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:' + meta.accent + '">' + meta.label + ' · ' + items.length + '</span>'
+      + '</div>'
+      + items.map(renderCard).join('')
+      + '</div>';
+  });
+  html += '<div style="margin-top:20px;padding:12px;background:rgba(66,165,245,.06);border:1px solid rgba(66,165,245,.25);border-radius:8px;font-size:12px;color:#C7D2E0;line-height:1.5">'
+    + '<b style="color:#5BB3FF">Next up (C3):</b> per-vendor PO Generator — group melamine items by preferred supplier, draft POs like the existing PO Generator does for non-melamine items. Ping Zac in #claude_bedrock when you want that built.'
+    + '</div>';
+  body.innerHTML = html;
+}
+
+async function _mvEditVendor_(supplierId) {
+  const contactInput = window.prompt('Contact for ' + supplierId + ' (email, phone, or name — anything you want to remember):', '');
+  if (contactInput === null) return;
+  const leadInput = window.prompt('Lead time in days for ' + supplierId + ' (leave blank if unknown):', '');
+  if (leadInput === null) return;
+  const body = { supplierId: supplierId };
+  if (String(contactInput).trim()) body.contact = String(contactInput).trim();
+  if (String(leadInput).trim()) body.leadTimeDays = Number(leadInput);
+  try {
+    const res = await groundApi('upsertSupplier', body);
+    if (!res || !res.ok) throw new Error(res && res.error || 'save failed');
+    if (typeof showToast === 'function') showToast('✓ Saved ' + supplierId);
+    // Reload the list to show the new values.
+    openMelamineVendorsModal();
+  } catch (e) {
+    alert('Save failed: ' + (e.message || String(e)));
+  }
+}
+window._mvEditVendor_ = _mvEditVendor_;
