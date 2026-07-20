@@ -1860,7 +1860,23 @@ function renderPackCard_(r) {
         ${skuCount ? '<span style="color:var(--text-dim)">· '+skuCount+' SKU'+(skuCount===1?'':'s')+'</span>' : ''}
         ${inStock ? '<span style="color:#00e676;font-weight:700">· IN STOCK</span>' : ''}
         ${hwChip}
-        ${r.instructions_printed_at ? '<span style="color:#42a5f5;font-weight:700" title="Printed '+esc(r.instructions_printed_at)+'">· 🖨 Printed</span>' : ''}
+        ${(function(){
+          // v10.1277 (Zac 2026-07-20 12:35pm EDT): "way more clear whether instructions have been printed".
+          // Prominent PRINTED TODAY (green) / PRINTED (blue) / NOT PRINTED (red) pill.
+          if (r.instructions_printed_at) {
+            var _isToday = _pkInstrPrintedToday_(r.instructions_printed_at);
+            var _bg = _isToday ? 'rgba(0,230,118,.18)' : 'rgba(66,165,245,.14)';
+            var _bd = _isToday ? '#00E676' : '#42a5f5';
+            var _lbl = _isToday ? '🖨 PRINTED TODAY' : '🖨 printed earlier';
+            return '<span style="padding:3px 10px;background:' + _bg + ';border:1px solid ' + _bd + '55;color:' + _bd + ';border-radius:999px;font-size:11px;font-weight:900;letter-spacing:1px" title="' + esc(r.instructions_printed_at) + '">' + _lbl + '</span>';
+          }
+          // Not printed — only badge cards that are in-flight (pending / in_progress / ready_for_check / checking)
+          var s = String(r.status || '');
+          if (s === 'pending' || s === 'in_progress' || s === 'ready_for_check' || s === 'checking') {
+            return '<span style="padding:3px 10px;background:rgba(255,82,82,.15);border:1px solid #FF525255;color:#FF7B7B;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:1px" title="Instructions not printed yet">🚫 NOT PRINTED</span>';
+          }
+          return '';
+        })()}
         ${r.picked_up_at ? '<span style="color:#42a5f5;font-weight:700" title="Picked up by '+esc(String(r.picked_up_by || '?'))+' at '+esc(String(r.picked_up_at).slice(0,16))+'">· 🚛 Picked up</span>' : ''}
         ${(r.picked_up_at || String(r.status || '').toLowerCase() === 'shipped') ? '<button onclick="event.stopPropagation();openTrackingEmailComposer(\''+esc(r.order_number)+'\')" title="Compose tracking email for customer" style="margin-left:6px;padding:2px 8px;background:#fff;color:#003087;border:1px solid #003087;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">📧 Tracking email</button>' : ''}
         <span style="margin-left:auto;padding:3px 10px;font-size:12px;font-weight:900;letter-spacing:1.2px;background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}55;border-radius:999px">${meta.label}</span>
@@ -3874,8 +3890,38 @@ async function printInstructionsAndPickList_(orderNumber) {
   }
 }
 
+// v10.1277 (Zac 2026-07-20 12:35pm EDT): "on pack today it should be
+// way more clear whether instructions have been printed, including
+// when you click 'print instructions' and all the jobs show up". This
+// helper answers "was this printed today (America/New_York)?" so cards
+// can badge accordingly + the reprint tap can warn.
+function _pkInstrPrintedToday_(iso) {
+  if (!iso) return false;
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return false;
+    var todayEt = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+    var dEt = d.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+    return todayEt === dEt;
+  } catch (e) { return false; }
+}
+window._pkInstrPrintedToday_ = _pkInstrPrintedToday_;
+
 async function printInstructionsLink_(orderNumber, presetSkus) {
   const orderStr = String(orderNumber);
+  // v10.1277 (Zac 2026-07-20 12:35pm EDT ask): "way more clear whether
+  // instructions have been printed" + reprint should be an explicit
+  // confirm, not a silent double-fire. Check the cache for
+  // instructions_printed_at → if today (America/New_York), prompt.
+  try {
+    var _row = _packQueueCache.find(function (r) { return String(r.order_number) === orderStr; });
+    if (_row && _pkInstrPrintedToday_(_row.instructions_printed_at)) {
+      var _stamp = String(_row.instructions_printed_at || '').slice(11, 16); // HH:MM UTC (good enough for the warning)
+      if (!confirm('Instructions for order ' + orderStr + ' were already printed today.\n\n(Timestamp: ' + _stamp + ' UTC)\n\nReprint anyway?')) {
+        return;
+      }
+    }
+  } catch (_e) { /* swallow — never block print on cache-check error */ }
   // v10.563 — packActionBanner lives inside the Pack tab DOM. When the
   // user taps Print Instructions from the Orders tab card, the Pack
   // tab is hidden and the banner is invisible — Zac saw no progress
