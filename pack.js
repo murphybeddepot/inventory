@@ -6201,6 +6201,17 @@ async function claimPackOrder(orderNumber) {
         // instructions via PrintNode silently (parallels the hardware-label
         // auto-print in Pre-Pack mode). Fire-and-forget — failures don't block
         // the claim and surface as a toast for the packer to retry manually.
+        //
+        // v10.1276 (Zac 2026-07-20 12:32pm EDT bug report): "i clicked an
+        // order and then start packing and i think it's printing the
+        // instructions (again) but not going to the picklist/packing page".
+        // The instructions re-print is intentional per §6 above. The
+        // NOT-ADVANCING part was the bug: openPackDetail manipulates DOM
+        // inside tab-pack, but the user was on tab-orders. The Pack DOM
+        // changes were invisible because tab-pack didn't have the .active
+        // class. Fix: switchTab('pack') FIRST so tab-pack is visible, then
+        // openPackDetail can paint into it.
+        try { if (typeof switchTab === 'function') switchTab('pack'); } catch (_e) {}
         try {
           if (typeof printInstructionsLink_ === 'function') {
             printInstructionsLink_(orderNumber, null);
