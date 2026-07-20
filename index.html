@@ -5732,14 +5732,24 @@ function _renderOrdersCardHtml_(o, lens) {
   const dismissBtn = (lens === 'pack')
     ? '<button onclick="event.stopPropagation();_dismissFromPackLens_(\'' + orderNum + '\')" title="Remove from today\'s pack list (the order isn\'t deleted — it just won\'t show on Pack Today). Operator override; auto-populate stops re-adding it." style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:rgba(255,179,0,.10);color:#FFB300;-webkit-text-fill-color:#FFB300;border:1px solid rgba(255,179,0,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-left:auto">⏭ Not Today</button>'
     : '';
-  // v10.1282 (Zac 2026-07-20 1:30pm EDT: "im on 1281 but don't see any
-  // release buttons"). My v10.1281 Release button was in paintPackQueue_
-  // (deprecated Pack tab render) — but Zac's on the Orders tab lens list
-  // rendered by _renderOrdersCardHtml_ (this function). Add the button
-  // HERE, inline on the card, whenever status is in_progress. Same-row
-  // as ⏭ Not Today.
-  const releaseBtn = (String(o.status || '').toLowerCase() === 'in_progress')
-    ? '<button onclick="event.stopPropagation();releasePackOrder(\'' + orderNum + '\')" title="Release your claim on this order — scan progress preserved, someone else (or you tomorrow) can pick it up" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:linear-gradient(135deg,#FF9100,#F57C00);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:900;cursor:pointer">↩ Release</button>'
+  // v10.1284 (Zac 2026-07-20 3:20pm EDT: after v10.1282 dedup collapsed
+  // 32616 to 1 row, the row was `status='pending'` (my server-side
+  // dedup verified) so my `status === 'in_progress'` gate hid the
+  // button. Meanwhile the ORANGE "PACK IN PROGRESS" chip Zac saw was
+  // `pipeline_status='pack_in_progress'` — a client-side derivation.
+  //
+  // Broader gate: show Release whenever there's ANYTHING to release —
+  // pipeline_status in progress states OR started_by set OR status
+  // indicates active work. The server-side releasePackJob (v10.1283
+  // fix) is idempotent + iterates all matching rows, so calling it on
+  // a "nothing to release" state just no-ops safely.
+  const _statusLc = String(o.status || '').toLowerCase();
+  const _pipelineLc = String(o.pipeline_status || '').toLowerCase();
+  const _hasClaim = !!String(o.started_by || '').trim()
+    || _statusLc === 'in_progress' || _statusLc === 'checking' || _statusLc === 'ready_for_check'
+    || _pipelineLc === 'pack_in_progress';
+  const releaseBtn = _hasClaim
+    ? '<button onclick="event.stopPropagation();releasePackOrder(\'' + orderNum + '\')" title="Release any claim on this order — scan progress preserved, someone else (or you tomorrow) can pick it up" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:6px 10px;background:linear-gradient(135deg,#FF9100,#F57C00);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:900;cursor:pointer">↩ Release</button>'
     : '';
   // v10.455 — iPad-friendly "📅 Move" button. HTML5 drag-and-drop
   // doesn't fire on touch devices, so this button is the iPad
@@ -33238,7 +33248,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1282"></script>
+<script src="./pack.js?v=10.1284"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33249,7 +33259,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1282<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1284<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
