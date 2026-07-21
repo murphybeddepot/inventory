@@ -17648,7 +17648,8 @@ async function _mgSubmit_() {
         <div style="color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">ShipStation orderId: <code>${r.shipstation_order_id}</code></div>
         <div style="margin-top:6px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">Already synced into the Bedrock Ground queue. Open in ShipStation to verify or head to the Ground tab.</div>
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-          <a href="${(r.adminUrl||'#').replace(/"/g,'&quot;')}" target="_blank" class="bd-btn-primary" style="text-decoration:none;padding:10px 16px;font-size:13px">🔗 Open in ShipStation</a>
+          <button onclick="document.getElementById('mgOrderBackdrop').remove();startGroundPackForNewOrder('${String(r.orderNumber||'').replace(/'/g,"\\'")}', ${Number(r.shipstation_order_id) || 0})" class="bd-btn-primary" style="padding:10px 16px;font-size:14px;font-weight:900;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;cursor:pointer" title="Auto-navigate to Ground → this order's pack view (v10.1288)">▶ PACK NOW</button>
+          <a href="${(r.adminUrl||'#').replace(/"/g,'&quot;')}" target="_blank" class="bd-btn-secondary" style="text-decoration:none;padding:10px 16px;font-size:13px">🔗 Open in ShipStation</a>
           <button onclick="document.getElementById('mgOrderBackdrop').remove();openManualGroundOrderModal()" class="bd-btn-secondary" style="padding:10px 16px;font-size:13px">+ Create another</button>
           <button onclick="document.getElementById('mgOrderBackdrop').remove()" class="bd-btn-secondary" style="padding:10px 16px;font-size:13px">Done</button>
         </div>
@@ -30995,6 +30996,47 @@ async function submitDeleteGroundOrder(orderId, orderNumber, reason) {
 // EXCEPTION: if the order is already In Progress / Packed, startPack on the
 // server returns the existing labels with no extra spend, so we skip the
 // preview and go straight to box scanning (it's a resume, not a new pack).
+// v10.1288 (Zac 2026-07-21): "when you create a ground order and finish
+// it it should take you to the pack page for that new order". After
+// createManualGroundOrder returns success, close the modal, force a
+// queue refresh so the new order shows up in _groundQueueCache, then
+// start pack on it. Retries up to 10s if the order hasn't landed in
+// the queue yet (ShipStation sync lag).
+async function startGroundPackForNewOrder(orderNumber, shipstationOrderId) {
+  const orderNumStr = String(orderNumber || '').trim();
+  if (!orderNumStr) { showToast('No order # to pack'); return; }
+  // First: switch to the Ground tab so the pack view has its DOM.
+  try { if (typeof switchTab === 'function') switchTab('ground'); } catch (_e) {}
+  // Force a queue refresh so the newly-created order shows up in cache.
+  if (typeof refreshGroundQueue === 'function') {
+    try { await refreshGroundQueue(); } catch (_e) {}
+  }
+  // Look for the order in cache — retry up to 10s in case the SS sync
+  // hasn't completed yet.
+  const findOrder = () => {
+    const q = Array.isArray(groundQueue) ? groundQueue : [];
+    return q.find(o => o && (
+      String(o.order_number || '').trim() === orderNumStr
+      || (shipstationOrderId && Number(o.order_id) === Number(shipstationOrderId))
+    ));
+  };
+  let found = findOrder();
+  let waited = 0;
+  while (!found && waited < 10000) {
+    await new Promise(r => setTimeout(r, 1500));
+    waited += 1500;
+    try { await refreshGroundQueue(); } catch (_e) {}
+    found = findOrder();
+  }
+  if (!found) {
+    showToast('Order ' + orderNumStr + ' created but not yet in queue — tap it manually when it appears');
+    return;
+  }
+  // Kick off the pack flow for the found order.
+  try { startGroundPack(found); }
+  catch (e) { showToast('Failed to open pack view: ' + e.message); }
+}
+
 async function startGroundPack(orderRow) {
   if (!groundPackerName) {
     showToast('Set packer name in Ground Settings first');
@@ -33279,8 +33321,66 @@ async function completeGroundPack() {
 }
 
 function leaveGroundPack() {
+  // v10.1288 (Zac 2026-07-21): "when you finish one it's still there
+  // when you go back to the ground tab, for a minute or so. that's not
+  // good." Root cause: leaveGroundPack just switched views — never
+  // removed the finished order from the client-side groundQueue cache.
+  // Server also takes a few seconds to reflect the label-buy in the
+  // next queue sync. Fix: OPTIMISTICALLY remove the order from the
+  // cache when leaving pack view IF all its packages are printed.
+  // Also fire a background refresh so the server-confirmed state
+  // catches up. Card disappears immediately either way.
+  try {
+    const finishedOrderNum = groundCurrentOrder && String(groundCurrentOrder.orderNumber || '').trim();
+    const finishedOrderId = groundCurrentOrder && groundCurrentOrder.orderId;
+    const allPrinted = !!(groundCurrentOrder
+      && Array.isArray(groundCurrentOrder.packages)
+      && groundCurrentOrder.packages.length
+      && groundCurrentOrder.packages.every(p => p && p.printed));
+    if (allPrinted && (finishedOrderNum || finishedOrderId)) {
+      // Optimistic remove from the cached queue.
+      if (Array.isArray(groundQueue)) {
+        groundQueue = groundQueue.filter(o => {
+          if (!o) return true;
+          const on = String(o.order_number || '').trim();
+          if (finishedOrderNum && on === finishedOrderNum) return false;
+          if (finishedOrderId && Number(o.order_id) === Number(finishedOrderId)) return false;
+          return true;
+        });
+      }
+      // Also nuke it from any localStorage-cached queue snapshot so a
+      // subsequent switchTab('ground') doesn't paint the stale row.
+      try {
+        const raw = localStorage.getItem('mbd_ground_queue_cache');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.queue)) {
+            parsed.queue = parsed.queue.filter(o => {
+              if (!o) return true;
+              const on = String(o.order_number || '').trim();
+              if (finishedOrderNum && on === finishedOrderNum) return false;
+              if (finishedOrderId && Number(o.order_id) === Number(finishedOrderId)) return false;
+              return true;
+            });
+            localStorage.setItem('mbd_ground_queue_cache', JSON.stringify(parsed));
+          }
+        }
+      } catch (_e) {}
+      console.log('[leaveGroundPack] v10.1288 optimistic remove #' + finishedOrderNum);
+    }
+  } catch (_e) { /* swallow — never block back-to-queue on cleanup errors */ }
   groundCurrentOrder = null;
   showGroundView('queue');
+  // Repaint immediately with the trimmed cache, then fire a
+  // background refresh to reconcile with server truth (~5-30s).
+  try {
+    const list = document.getElementById('groundQueueList');
+    const empty = document.getElementById('groundQueueEmpty');
+    if (list && typeof paintGroundQueue_ === 'function') {
+      paintGroundQueue_((groundQueue || []).slice(), list, empty);
+    }
+  } catch (_e) {}
+  try { if (typeof refreshGroundQueue === 'function') refreshGroundQueue(); } catch (_e) {}
 }
 
 // Hold view → Mark Hold Resolved. Clears pack_status='Hold' +
@@ -33333,7 +33433,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1287"></script>
+<script src="./pack.js?v=10.1288"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33344,7 +33444,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1287<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1288<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
