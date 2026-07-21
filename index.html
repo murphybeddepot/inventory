@@ -1489,7 +1489,7 @@ input::placeholder, textarea::placeholder {
   <button class="tab-btn" id="tab-lookup-btn" onclick="switchTab('lookup')" style="display:none">Lookup</button>
   <button class="tab-btn" id="tab-prepack-btn" onclick="switchTab('prepack')" style="display:none">Pre-Pack</button>
   <button class="tab-btn" id="tab-pack-btn" onclick="switchTab('pack')" style="display:none">Pack</button>
-  <button class="tab-btn" id="tab-schedule-btn" onclick="switchTab('schedule')" style="display:none">Schedule</button>
+  <button class="tab-btn" id="tab-schedule-btn" onclick="switchTab('schedule')" style="display:none">Schedule (legacy)</button>
   <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')" style="display:none">Stock</button>
   <!-- v10.689 — Stock 2.0 (Phase 0 dashboard). Flag-gated via the
        mbd_stock_v2_enabled localStorage key. More menu has a toggle. -->
@@ -1548,13 +1548,13 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <button onclick="goToTabFromMore('schedule')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">📅</span>
+    <button onclick="goToTabFromMore('schedule')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#faf7f0;border:1.5px dashed #cbb99a;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#8a6d3b;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px;opacity:.65">📅</span>
       <div style="flex:1">
-        <div>Schedule</div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Shipping schedule · carrier breakdown by day (replaces MBD:FL SHIPMENTS GCal)</div>
+        <div>Schedule <span style="font-size:10px;font-weight:900;letter-spacing:1px;padding:2px 6px;background:#8a6d3b;color:#fff;-webkit-text-fill-color:#fff;border-radius:4px;margin-left:6px;vertical-align:middle">LEGACY</span></div>
+        <div style="font-size:11px;color:#8a6d3b;font-weight:500;margin-top:2px">Old shipping-schedule view · use <b>📦 Orders → 📅 Schedule lens</b> instead. Kept for reference only.</div>
       </div>
-      <span style="color:#999;font-size:18px">›</span>
+      <span style="color:#c9b993;font-size:18px">›</span>
     </button>
     <button onclick="goToTabFromMore('pack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📦</span>
@@ -2047,8 +2047,18 @@ input::placeholder, textarea::placeholder {
 
 <!-- SCHEDULE TAB — shipping schedule (replaces MBD:FL SHIPMENTS GCal) -->
 <div id="tab-schedule" class="panel">
+  <!-- v10.1309 (Zac 2026-07-21): Schedule tab retired in favor of the
+       Orders-tab Schedule lens + Planner. Panel kept for reference so
+       older deep-links / bookmarked flows don't 404. Prominent banner
+       + LEGACY tag on title so warehouse operators don't confuse this
+       with the live scheduler. -->
+  <div style="margin-bottom:16px;padding:12px 14px;background:linear-gradient(135deg,#8a6d3b,#a88a4e);border:1.5px solid #b8974d;border-radius:10px;color:#fff;-webkit-text-fill-color:#fff;font-size:13px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.25)">
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px">⚠ Legacy view</div>
+    <div>This is the <b>old shipping-schedule tab</b>, kept only so old links don't 404. The live scheduler is on the <b>📦 Orders tab → 📅 Schedule lens</b> (with a <b>📋 Planner</b> button that opens the day-by-day drop planner).</div>
+    <button onclick="switchTab('orders'); if(typeof setOrdersLens===\'function\') setOrdersLens(\'schedule\')" style="margin-top:8px;padding:8px 14px;background:#fff;color:#8a6d3b;-webkit-text-fill-color:#8a6d3b;border:none;border-radius:6px;font-weight:800;font-size:12px;letter-spacing:.5px;cursor:pointer">→ Go to Orders · Schedule lens</button>
+  </div>
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">📅 Shipping Schedule</div>
+    <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">📅 Shipping Schedule <span style="font-size:12px;font-weight:900;letter-spacing:2px;padding:3px 8px;background:#8a6d3b;color:#fff;-webkit-text-fill-color:#fff;border-radius:4px;margin-left:8px;vertical-align:middle">LEGACY</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <!-- v10.1273: Guide button removed from the hidden Schedule tab.
            Reachable via Orders tab header + More menu instead. -->
@@ -33466,7 +33476,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1308"></script>
+<script src="./pack.js?v=10.1309"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33477,7 +33487,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1308<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1309<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
