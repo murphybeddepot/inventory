@@ -428,6 +428,31 @@ function _orderDetailHtml_(o) {
   const stallChips = (o.stalled && Array.isArray(o.stall_reasons) && o.stall_reasons.length)
     ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">' + o.stall_reasons.map(r => '<span style="font-size:10px;font-weight:800;background:#8B0000;color:#fff;-webkit-text-fill-color:#fff;padding:3px 8px;border-radius:6px">STALL: ' + esc(r.replace(/_/g, ' ').toUpperCase()) + '</span>').join('') + '</div>'
     : '';
+
+  // v10.1311 (Zac 2026-07-21 16:18 & 16:51 EDT): pick-list / compare /
+  // fix / print actions directly on the Orders-tab detail view — NO
+  // longer gated behind "Start Packing". These same chips exist in
+  // _packerDetailOverviewHtml_ (pack.js:1052+) but that render only
+  // fires after claimPackOrder. Warehouse operators, CS, and Zac all
+  // need to view + edit + print the pick list before committing to
+  // pack. Duplicating the chip block here is intentional: Orders tab
+  // is the home; Pack flow retains its own copy for in-flight packers.
+  const pickListActions = ''
+    + '<div style="margin-top:14px;background:rgba(255,255,255,.03);border:1px solid rgba(0,200,83,.32);border-radius:12px;padding:14px 16px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#00e676;-webkit-text-fill-color:#00e676;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px">📋 Pick List &amp; Instructions</div>'
+    +   '<div style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-bottom:10px;line-height:1.4">Compare, fix, and print without needing to Start Packing first.</div>'
+    +   '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +     (o.pick_list_pdf_url ? '<a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="padding:9px 14px;background:rgba(255,255,255,.05);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.22);border-radius:6px;font-size:13px;font-weight:700;text-decoration:none">📄 Pick List PDF (gcal)</a>' : '')
+    +     (o.instructions_pdf_url ? '<a href="' + esc(o.instructions_pdf_url) + '" target="_blank" rel="noopener" style="padding:9px 14px;background:rgba(255,255,255,.05);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.22);border-radius:6px;font-size:13px;font-weight:700;text-decoration:none">📄 Cabinet Instructions PDF</a>' : '')
+    +     '<button onclick="printInstructionsLink_(\'' + ord + '\')" style="padding:9px 14px;background:rgba(255,255,255,.05);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.22);border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">🖨 Print Instructions</button>'
+    +     '<button onclick="printInstructionsAndPickList_(\'' + ord + '\')" style="padding:9px 14px;background:rgba(0,135,254,.10);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.45);border-radius:6px;font-size:13px;font-weight:700;cursor:pointer" title="Print instructions AND the pick list as separate jobs">🖨 Inst + Pick List</button>'
+    +     '<button onclick="printPickListOnlyForOrder_(\'' + ord + '\')" style="padding:9px 14px;background:rgba(0,135,254,.18);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.60);border-radius:6px;font-size:13px;font-weight:800;cursor:pointer" title="Print pick list only — server resolves gcal URL if row is empty">🖨 Pick List Only</button>'
+    +     '<button onclick="printNativePickList_(\'' + ord + '\')" style="padding:9px 14px;background:rgba(0,200,83,.12);color:#00e676;-webkit-text-fill-color:#00e676;border:1px solid rgba(0,200,83,.55);border-radius:6px;font-size:13px;font-weight:800;cursor:pointer" title="Build + print the Bedrock-native pick list (no gcal PDF required)">🛠 Native Pick List</button>'
+    +     '<button onclick="openNativePickListValidationModal_(\'' + ord + '\')" style="padding:9px 14px;background:rgba(255,255,255,.05);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.22);border-radius:6px;font-size:13px;font-weight:700;cursor:pointer" title="Compare native expansion vs gcal pick list line items">🔍 Validate vs gcal</button>'
+    +     (o.has_corrected_pick_list ? '<button onclick="printCorrectedPickList_(\'' + ord + '\')" style="padding:9px 14px;background:rgba(255,143,0,.18);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px solid rgba(255,143,0,.65);border-radius:6px;font-size:13px;font-weight:900;cursor:pointer" title="Print the hand-curated corrected pick list for this order">🖨 Print Corrected Pick List</button>' : '')
+    +     '<button onclick="openFixPickListModal_(\'' + ord + '\')" style="padding:9px 14px;background:rgba(255,143,0,.12);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px dashed rgba(255,143,0,.55);border-radius:6px;font-size:13px;font-weight:800;cursor:pointer" title="Edit + save a corrected pick list (overrides the native+gcal versions for this order)">' + (o.has_corrected_pick_list ? '✎ Edit Corrected List' : '✎ Fix Pick List') + '</button>'
+    +   '</div>'
+    + '</div>';
   return ''
     + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">'
     +   '<button onclick="_closeOrdersDetail_()" class="amp-btn" style="padding:8px 14px;font-size:13px">← Back</button>'
@@ -445,6 +470,7 @@ function _orderDetailHtml_(o) {
     +   '</div>'
     +   stallChips
     + '</div>'
+    + pickListActions
     + cabSection
     + hwSection
     + bookerSection
@@ -466,7 +492,7 @@ function _orderDetailHtml_(o) {
         : '')
     +   '<button onclick="_openReplacementFromOrder_(\'' + ord + '\')" style="padding:12px 18px;font-size:13px;font-weight:800;background:linear-gradient(135deg,#FF5252,#c62828);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;cursor:pointer;box-shadow:0 2px 8px rgba(198,40,40,.35)" title="Customer called about missing/damaged item — create a replacement ground order pre-filled with this ship-to">🚨 Send Replacement / Damaged</button>'
     + '</div>'
-    + '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.18);border-radius:8px;font-size:11px;color:var(--text-dim);line-height:1.5">This is the Orders-tab unified detail. The Pack Workflow button opens the existing Pack tab for scan/photos/checker (those flows haven\'t been migrated into the Orders tab yet — separate ship). All admin actions (assign booker, mark booked, view status) live here.</div>';
+    + '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.18);border-radius:8px;font-size:11px;color:var(--text-dim);line-height:1.5">Pick list actions live above — no need to Start Packing to compare / fix / print. The Pack Workflow button opens the existing Pack tab only for scan / photos / checker (still a separate ship).</div>';
 }
 
 // Helper — same resolution logic as the Pack Today card location chip
