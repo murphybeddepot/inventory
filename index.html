@@ -30497,7 +30497,16 @@ function buildGroundQueueRow(order) {
     + '</div>'
     + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex-shrink:0">'
     +   '<div aria-hidden="true" style="background:' + _ctaBg + ';color:' + _ctaColor + ';font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px;padding:14px 20px;border-radius:10px;min-height:52px;display:flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(0,200,83,.25);white-space:nowrap">' + _ctaLabel + '</div>'
-    +   '<button type="button" aria-label="Hide this order from the queue (manager PIN)" onclick="event.stopPropagation();openHideFromQueuePrompt(\'' + escapeHtml(String(order.order_id || '')) + '\',\'' + escapeHtml(String(order.order_number || '')) + '\')" title="Hide from queue (manager PIN)" style="background:none;border:none;color:#5C6B7E;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:underline;line-height:1;white-space:nowrap;min-height:34px">hide</button>'
+    +   '<div style="display:flex;gap:6px;align-items:center">'
+    // v10.1285 (Seth ask via Zac 2026-07-20): "I don't see a way to delete a
+    // ground order out of BR" + "Hiding is[t] adds it to list that wont go
+    // away at the top of the screen". Prominent DELETE next to hide. Hide
+    // moves to Holds banner (which is what Seth was complaining about);
+    // DELETE actually removes the order from ShipStation V1 via my new
+    // deleteGroundOrder endpoint. Manager PIN + CANCEL-CONFIRMED gated.
+    +     '<button type="button" aria-label="Delete this order from ShipStation and Bedrock" onclick="event.stopPropagation();openDeleteGroundOrderPrompt(\'' + escapeHtml(String(order.order_id || '')) + '\',\'' + escapeHtml(String(order.order_number || '')) + '\')" title="Delete order — removes from ShipStation (V1 DELETE /orders). Refuses if labels are still active — void first." style="background:#8B0000;border:1px solid #B00020;color:#fff;-webkit-text-fill-color:#fff;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer;line-height:1;white-space:nowrap;min-height:34px;border-radius:6px;letter-spacing:.4px">🗑 DELETE</button>'
+    +     '<button type="button" aria-label="Hide this order from the queue (manager PIN)" onclick="event.stopPropagation();openHideFromQueuePrompt(\'' + escapeHtml(String(order.order_id || '')) + '\',\'' + escapeHtml(String(order.order_number || '')) + '\')" title="Hide from queue (moves to Holds banner — use DELETE to actually cancel the order)" style="background:none;border:none;color:#5C6B7E;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:underline;line-height:1;white-space:nowrap;min-height:34px">hide</button>'
+    +   '</div>'
     + '</div>';
   return row;
 }
@@ -30900,6 +30909,81 @@ async function submitHideFromQueue(orderId, orderNumber, reason) {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// v10.1285 (Seth ask via Zac 2026-07-20): "I don't see a way to delete a
+// ground order out of BR". Delete-from-ShipStation flow. Manager PIN +
+// CANCEL-CONFIRMED gate + server-side refusal if active labels exist.
+// This is a real-money-path (order becomes unrecoverable in ShipStation),
+// so we use a two-confirm pattern: reason prompt → PIN modal with big red
+// warning. Refuses gracefully if voidable labels remain.
+async function openDeleteGroundOrderPrompt(orderId, orderNumber) {
+  if (!confirm('DELETE order #' + orderNumber + ' from ShipStation?\n\n' +
+    'This permanently removes it — the order will be gone from ShipStation V1 AND Bedrock. ' +
+    'Any active labels must be voided first (Ground tab → 🔍 VOID #) or the delete will refuse.\n\n' +
+    'Continue?')) return;
+  const reason = window.prompt('Reason for deletion (audit trail):', 'Customer cancelled');
+  if (reason === null) return;
+  const ov = document.createElement('div');
+  ov.id = 'deleteGroundPinOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10001;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;padding:22px;max-width:400px;width:100%;border:3px solid #8B0000">'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span style="font-size:26px">🗑</span><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#8B0000;text-transform:uppercase;letter-spacing:.5px">Delete #' + escapeHtml(orderNumber) + '</div></div>'
+    + '<div style="font-size:13px;color:#1a1a1a;margin-bottom:14px;line-height:1.5;padding:10px;background:#FFF3E0;border-left:4px solid #FF9100;border-radius:4px"><b>Real money-path:</b> this fires DELETE against ShipStation V1. The order becomes unrecoverable there. Void any active labels first.</div>'
+    + '<div style="font-size:12px;color:#666;margin-bottom:6px;font-weight:700;letter-spacing:.5px;text-transform:uppercase">Manager PIN</div>'
+    + '<input type="password" id="deleteGroundPinInput" inputmode="numeric" pattern="[0-9]*" placeholder="•••••" autocomplete="off" style="width:100%;padding:14px;font-size:24px;font-family:\'JetBrains Mono\',monospace;letter-spacing:6px;text-align:center;border:1.5px solid #ccc;border-radius:8px;outline:none;margin-bottom:14px">'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="document.getElementById(\'deleteGroundPinOverlay\').remove()" style="flex:1;padding:12px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
+    +   '<button onclick="submitDeleteGroundOrder(\'' + escapeHtml(String(orderId || '')) + '\',\'' + escapeHtml(String(orderNumber || '')) + '\',\'' + escapeHtml(String(reason || '').replace(/'/g,"\\'")) + '\')" style="flex:2;padding:12px;background:#8B0000;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase">🗑 Delete Order</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const inp = document.getElementById('deleteGroundPinInput'); if (inp) inp.focus(); }, 80);
+}
+
+async function submitDeleteGroundOrder(orderId, orderNumber, reason) {
+  const pinEl = document.getElementById('deleteGroundPinInput');
+  const pin = pinEl ? String(pinEl.value || '').trim() : '';
+  if (!pin) { showToast('Enter manager PIN'); return; }
+  const btns = document.querySelectorAll('#deleteGroundPinOverlay button');
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
+  const deleteBtn = Array.from(btns).find(b => /Delete/i.test(b.textContent || ''));
+  const origLabel = deleteBtn ? deleteBtn.textContent : '';
+  if (deleteBtn) deleteBtn.textContent = '⏳ Deleting…';
+  try {
+    const res = await groundApi('deleteGroundOrder', {
+      orderId: orderId ? Number(orderId) : null,
+      orderNumber: orderNumber,
+      manager_pin: pin,
+      confirm: 'CANCEL-CONFIRMED',
+      reason: reason,
+    });
+    if (!res || !res.ok) {
+      btns.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+      if (deleteBtn) deleteBtn.textContent = origLabel;
+      const errMsg = (res && res.error) || 'unknown';
+      // Special-case the "active shipment" error — Seth needs a nudge
+      // toward the void flow rather than a raw message.
+      if (/active.*shipment/i.test(errMsg)) {
+        alert('Cannot delete — this order has active (non-voided) shipping labels.\n\n' +
+          'Void the labels first:\n  Ground tab → 🔍 VOID # → enter ' + orderNumber + '\n\nThen retry Delete.');
+      } else {
+        alert('Delete failed: ' + errMsg);
+      }
+      return;
+    }
+    if (deleteBtn) deleteBtn.textContent = '✓ Deleted';
+    const ov = document.getElementById('deleteGroundPinOverlay');
+    if (ov) ov.remove();
+    showToast('✓ Deleted #' + orderNumber + ' from ShipStation');
+    if (typeof refreshGroundQueue === 'function') refreshGroundQueue();
+  } catch (err) {
+    btns.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+    if (deleteBtn) deleteBtn.textContent = origLabel;
+    alert('Delete error: ' + err.message);
+  }
 }
 
 // ── Start pack ────────────────────────────────────────────
@@ -33248,7 +33332,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1284"></script>
+<script src="./pack.js?v=10.1285"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33259,7 +33343,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1284<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1285<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
