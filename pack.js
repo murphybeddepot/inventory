@@ -1072,7 +1072,13 @@ function _packerDetailOverviewHtml_(o) {
         // "only have this button if the order needs/has a corrected
         // pick list"). #31600 was the first; others can be added
         // server-side via setCorrectedPickList.
-        + (o.has_corrected_pick_list ? '<button onclick="printCorrectedPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,143,0,.15);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px solid rgba(255,143,0,.65);border-radius:6px;font-size:12px;font-weight:900;cursor:pointer" title="Print the hand-curated corrected pick list for this order (overrides the original picker list).">🖨 Print Corrected Pick List</button>' : '')))
+        + (o.has_corrected_pick_list ? '<button onclick="printCorrectedPickList_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,143,0,.15);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px solid rgba(255,143,0,.65);border-radius:6px;font-size:12px;font-weight:900;cursor:pointer" title="Print the hand-curated corrected pick list for this order (overrides the original picker list).">🖨 Print Corrected Pick List</button>' : '')
+        // v10.1308 (Zac 2026-07-21) — P0 gap from Orders-tab audit:
+        // "fix pick list and save" flow had no client editor. Open
+        // modal → edit sections → POST setCorrectedPickList. Renamed
+        // print button label above says "Print Corrected", this button
+        // says "Fix" (create or edit the correction).
+        + '<button onclick="openFixPickListModal_(\'' + ord + '\')" style="padding:8px 12px;background:rgba(255,143,0,.10);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1.5px dashed rgba(255,143,0,.55);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer" title="Edit + save a corrected pick list (overrides the native+gcal versions for this order)">' + (o.has_corrected_pick_list ? '✎ Edit Corrected List' : '✎ Fix Pick List') + '</button>'))
     + '</div>';
 
   // Muted read-only SKU preview (full list for context — no scan UI).
@@ -3670,6 +3676,195 @@ function _renderNativePickListDiff_(res, ord) {
     h += '</details>';
   }
   return h;
+}
+
+// v10.1308 (Zac 2026-07-21) — Fix Pick List editor. Addresses P0 gap
+// found in the Orders-tab audit: setCorrectedPickList had a server
+// endpoint but no client-side editor, so corrections could only be
+// made via curl. Opens a modal seeded from getCorrectedPickList (if
+// a correction already exists) OR the native expansion, groups rows
+// by section (cabinet / pack / hardware / instructions / other),
+// lets the user edit / add / remove rows per section, and POSTs
+// setCorrectedPickList on Save.
+async function openFixPickListModal_(orderNumber) {
+  const ord = String(orderNumber || '').trim();
+  if (!ord) return;
+  const prior = document.getElementById('fixPickListOv');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'fixPickListOv';
+  ov.className = 'keep-dark-text';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10035;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML = '<div style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,143,0,.55);border-radius:14px;max-width:820px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;align-items:center;gap:10px">'
+    + '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;letter-spacing:1px">✎ Fix Pick List · #' + esc(ord) + '</div>'
+    + '<button onclick="document.getElementById(\'fixPickListOv\').remove()" style="background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;font-size:24px;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div id="fixPickListBody" style="flex:1;overflow-y:auto;padding:16px 20px;-webkit-text-fill-color:#fff">'
+    + '<div style="display:flex;align-items:center;gap:12px;color:#ffb74d"><div style="width:24px;height:24px;border:3px solid rgba(255,183,77,.30);border-top-color:#ffb74d;border-radius:50%;animation:mbdSpin 1s linear infinite"></div><div>Loading current pick list…</div></div>'
+    + '</div>'
+    + '<div id="fixPickListFooter" style="padding:12px 20px;border-top:1px solid rgba(255,255,255,.10);display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">'
+    + '</div></div>';
+  document.body.appendChild(ov);
+
+  let existing = null, nativeRes = null;
+  try {
+    existing = await groundApi('getCorrectedPickList', { orderNumber: ord });
+  } catch (e) { existing = { ok: false, error: e.message || e }; }
+  try {
+    nativeRes = await groundApi('compareNativePickListWithGcal', { orderNumber: ord });
+  } catch (e) { nativeRes = { ok: false, error: e.message || e }; }
+
+  const body = document.getElementById('fixPickListBody');
+  const foot = document.getElementById('fixPickListFooter');
+  if (!body || !foot) return;
+
+  // Seed state: prefer existing correction; else map native_lines by category.
+  const state = {
+    orderNumber: ord,
+    color: (existing && existing.found && existing.color) || '',
+    note: (existing && existing.found && existing.note) || '',
+    sections: {
+      cabinet: [], pack: [], hardware: [], instructions: [], other: [],
+    },
+  };
+  if (existing && existing.ok && existing.found && existing.sections) {
+    ['cabinet', 'pack', 'hardware', 'instructions', 'other'].forEach(k => {
+      const arr = existing.sections[k];
+      if (Array.isArray(arr)) state.sections[k] = arr.map(x => ({
+        sku: String(x.sku || '').trim(),
+        qty: Number(x.qty || 0) || 1,
+        name: String(x.name || ''),
+      }));
+    });
+  } else if (nativeRes && nativeRes.ok && Array.isArray(nativeRes.native_lines)) {
+    nativeRes.native_lines.forEach(l => {
+      const cat = String(l.category || '').toLowerCase();
+      let bucket = 'hardware';
+      if (cat === 'cabinet') bucket = 'pack';
+      else if (cat === 'hardware') bucket = 'hardware';
+      else if (cat === 'instruction' || cat === 'instructions' || /^INST-/i.test(l.sku || '')) bucket = 'instructions';
+      else if (cat === 'other') bucket = 'other';
+      state.sections[bucket].push({
+        sku: String(l.sku || '').trim(),
+        qty: Number(l.qty || 0) || 1,
+        name: String(l.name || ''),
+      });
+    });
+  }
+
+  window._fixPickListState_ = state;
+
+  const seedNote = (existing && existing.found)
+    ? '<div style="padding:10px 12px;background:rgba(255,143,0,.10);border:1px solid rgba(255,143,0,.50);border-radius:6px;margin-bottom:14px;font-size:12px;color:#ffb74d;-webkit-text-fill-color:#ffb74d">📝 Editing existing correction (set ' + esc((existing.set_at || '').slice(0, 16).replace('T', ' ')) + ' by ' + esc(existing.set_by || 'unknown') + '). Save overwrites.</div>'
+    : (nativeRes && nativeRes.ok ? '<div style="padding:10px 12px;background:rgba(0,135,254,.10);border:1px solid rgba(0,135,254,.45);border-radius:6px;margin-bottom:14px;font-size:12px;color:#42a5f5;-webkit-text-fill-color:#42a5f5">📥 Seeded from Bedrock native expansion (' + (nativeRes.native_lines || []).length + ' lines). Edit as needed and Save to override for this order.</div>'
+      : '<div style="padding:10px 12px;background:rgba(255,82,82,.10);border:1px solid rgba(255,82,82,.55);border-radius:6px;margin-bottom:14px;font-size:12px;color:#ff8a80;-webkit-text-fill-color:#ff8a80">⚠ Couldn\'t load native lines: ' + esc((nativeRes && nativeRes.error) || 'unknown') + '. You can still build a correction from scratch.</div>');
+
+  body.innerHTML = seedNote
+    + '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
+    + '<label style="flex:1;min-width:180px"><div style="font-size:11px;color:rgba(255,255,255,.70);margin-bottom:4px">Color</div><input id="fpl_color" type="text" value="' + esc(state.color) + '" placeholder="e.g. MONACO" style="width:100%;padding:8px 10px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:13px"></label>'
+    + '<label style="flex:2;min-width:200px"><div style="font-size:11px;color:rgba(255,255,255,.70);margin-bottom:4px">Note (optional)</div><input id="fpl_note" type="text" value="' + esc(state.note) + '" placeholder="e.g. Zac fixed 2026-07-21" style="width:100%;padding:8px 10px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:13px"></label>'
+    + '</div>'
+    + '<div id="fpl_sections">' + _fplRenderSections_(state.sections) + '</div>';
+
+  foot.innerHTML = '<button onclick="_fplSave_(\'' + esc(ord) + '\')" style="padding:12px 22px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:8px;font-size:14px;font-weight:900;letter-spacing:.5px;cursor:pointer">💾 Save correction</button>'
+    + '<button onclick="document.getElementById(\'fixPickListOv\').remove()" style="padding:12px 22px;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;font-size:14px;font-weight:800;cursor:pointer">Cancel</button>';
+}
+
+function _fplRenderSections_(sections) {
+  const order = ['cabinet', 'pack', 'hardware', 'instructions', 'other'];
+  const labels = { cabinet: '🗄 Cabinets', pack: '📦 Pack', hardware: '🔧 Hardware', instructions: '📑 Instructions', other: '📋 Other' };
+  let h = '';
+  order.forEach(k => {
+    const rows = sections[k] || [];
+    h += '<div style="margin-bottom:16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:12px 14px">'
+      + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1.5px;color:#ffb74d;-webkit-text-fill-color:#ffb74d;text-transform:uppercase;margin-bottom:8px">' + labels[k] + ' (' + rows.length + ')</div>'
+      + '<div id="fpl_rows_' + k + '">' + rows.map((r, i) => _fplRenderRow_(k, i, r)).join('') + '</div>'
+      + '<button onclick="_fplAddRow_(\'' + k + '\')" style="margin-top:6px;padding:6px 12px;background:transparent;color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px dashed rgba(0,135,254,.55);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">+ Add row</button>'
+      + '</div>';
+  });
+  return h;
+}
+
+function _fplRenderRow_(section, idx, row) {
+  return '<div data-fpl-row="' + esc(section) + ':' + idx + '" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'
+    + '<input data-fpl-field="sku" type="text" value="' + esc(row.sku) + '" placeholder="SKU" style="flex:2;padding:7px 9px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:5px;font-family:\'JetBrains Mono\',monospace;font-size:12px">'
+    + '<input data-fpl-field="qty" type="number" min="0" step="1" value="' + esc(row.qty) + '" style="width:70px;padding:7px 9px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:5px;font-family:\'JetBrains Mono\',monospace;font-size:12px;text-align:center">'
+    + '<button onclick="_fplRemoveRow_(\'' + esc(section) + '\',' + idx + ')" title="Remove row" style="padding:6px 10px;background:rgba(255,82,82,.10);color:#ff8a80;-webkit-text-fill-color:#ff8a80;border:1px solid rgba(255,82,82,.45);border-radius:5px;font-size:14px;font-weight:900;cursor:pointer">×</button>'
+    + '</div>';
+}
+
+function _fplCollectState_() {
+  const state = window._fixPickListState_;
+  if (!state) return null;
+  // Re-read from the DOM in case the user typed.
+  const sec = { cabinet: [], pack: [], hardware: [], instructions: [], other: [] };
+  ['cabinet', 'pack', 'hardware', 'instructions', 'other'].forEach(k => {
+    const container = document.getElementById('fpl_rows_' + k);
+    if (!container) return;
+    container.querySelectorAll('[data-fpl-row]').forEach(rowEl => {
+      const sku = String((rowEl.querySelector('[data-fpl-field="sku"]') || {}).value || '').trim();
+      const qty = Number(String((rowEl.querySelector('[data-fpl-field="qty"]') || {}).value || '0')) || 0;
+      if (sku && qty > 0) sec[k].push({ sku: sku, qty: qty });
+    });
+  });
+  state.sections = sec;
+  state.color = String((document.getElementById('fpl_color') || {}).value || '').trim();
+  state.note = String((document.getElementById('fpl_note') || {}).value || '').trim();
+  return state;
+}
+
+function _fplAddRow_(section) {
+  const state = _fplCollectState_(); if (!state) return;
+  state.sections[section].push({ sku: '', qty: 1, name: '' });
+  const container = document.getElementById('fpl_rows_' + section);
+  if (container) {
+    container.innerHTML = state.sections[section].map((r, i) => _fplRenderRow_(section, i, r)).join('');
+    const inputs = container.querySelectorAll('[data-fpl-field="sku"]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  }
+}
+
+function _fplRemoveRow_(section, idx) {
+  const state = _fplCollectState_(); if (!state) return;
+  state.sections[section].splice(idx, 1);
+  const container = document.getElementById('fpl_rows_' + section);
+  if (container) container.innerHTML = state.sections[section].map((r, i) => _fplRenderRow_(section, i, r)).join('');
+}
+
+async function _fplSave_(orderNumber) {
+  const state = _fplCollectState_(); if (!state) return;
+  const nonEmpty = Object.values(state.sections).some(a => a.length > 0);
+  if (!nonEmpty) {
+    alert('Cannot save an empty pick list. Add at least one row.');
+    return;
+  }
+  const foot = document.getElementById('fixPickListFooter');
+  const priorFoot = foot ? foot.innerHTML : '';
+  if (foot) foot.innerHTML = '<div style="color:#ffb74d;-webkit-text-fill-color:#ffb74d;font-size:13px;padding:8px 0">💾 Saving…</div>';
+  const packer = (typeof getPackerName_ === 'function' && getPackerName_()) || (window.localStorage.getItem('mbd_packer_name') || '');
+  let res;
+  try {
+    res = await groundApi('setCorrectedPickList', {
+      orderNumber: state.orderNumber,
+      color: state.color,
+      note: state.note,
+      by: packer,
+      sections: state.sections,
+    });
+  } catch (e) { res = { ok: false, error: e.message || e }; }
+  if (foot) foot.innerHTML = priorFoot;
+  if (!res || !res.ok) {
+    alert('Save failed: ' + ((res && res.error) || 'unknown error'));
+    return;
+  }
+  const body = document.getElementById('fixPickListBody');
+  if (body) {
+    body.innerHTML = '<div style="padding:24px;text-align:center"><div style="font-size:42px;color:#00c853;margin-bottom:8px">✓</div><div style="font-size:16px;font-weight:800;color:#00c853;-webkit-text-fill-color:#00c853">Correction saved for #' + esc(orderNumber) + '</div><div style="margin-top:8px;color:rgba(255,255,255,.65);font-size:12px">Action: ' + esc(res.action || 'saved') + '. The 🖨 Print Corrected Pick List button is now available on this order.</div></div>';
+  }
+  if (foot) {
+    foot.innerHTML = '<button onclick="document.getElementById(\'fixPickListOv\').remove(); if (typeof refreshOrderPipeline===\'function\') refreshOrderPipeline({force:true}).then(()=>{ if (typeof renderOrdersTab===\'function\') renderOrdersTab(); });" style="padding:12px 22px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer">Done</button>';
+  }
 }
 
 function _diffChip_(label, count, color) {
