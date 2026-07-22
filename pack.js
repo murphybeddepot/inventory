@@ -3691,7 +3691,13 @@ async function openNativePickListValidationModal_(orderNumber) {
   ov.id = 'nativePickListValidationOv';
   ov.className = 'keep-dark-text';
   ov.style.cssText = 'position:fixed;inset:0;z-index:10031;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
-  ov.innerHTML = '<div style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(0,135,254,.45);border-radius:14px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">'
+  // v10.1338 (2026-07-22) — tap backdrop to dismiss. iPad users expect
+  // this; previously only the small ✕ closed the modal. Stop-propagation
+  // inside the inner shell so taps inside don't close.
+  ov.addEventListener('click', function (e) {
+    if (e.target === ov) ov.remove();
+  });
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(0,135,254,.45);border-radius:14px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">'
     + '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;align-items:center;gap:10px">'
     + '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px">Pick list validation · #' + esc(ord) + '</div>'
     + '<button onclick="document.getElementById(\'nativePickListValidationOv\').remove()" style="background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;font-size:22px;cursor:pointer">✕</button>'
