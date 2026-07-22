@@ -12235,14 +12235,24 @@ async function _plannerDropOnDay_(targetDate, targetBucket) {
       _handleApiErrorWithPin_(r1, 'Drop failed (rolled back)');
       return;
     }
-    const r2 = await groundApi('setOrderPackBucket', {
+    let r2 = await groundApi('setOrderPackBucket', {
       order_number: orderNumber, bucket: targetBucket, manager_pin: pin
     });
+    // v10.1336 (2026-07-22) — one silent retry on bucket-save failure
+    // (transient hiccups leave the order with a date but no bucket,
+    // so the next refresh renders it in the wrong column). If BOTH
+    // attempts fail, surface the error AND include an explicit "Retry
+    // bucket" instruction in the toast.
     if (r2 && !r2.ok) {
-      // Server's pack_target_date IS set; only the bucket failed. Don't
-      // roll back the whole optimistic move — toast the partial failure
-      // so the user knows the bucket label may not survive a refresh.
-      showToast('Bucket save failed (date saved): ' + (r2.error || 'unknown'));
+      await new Promise(r => setTimeout(r, 600));
+      try {
+        r2 = await groundApi('setOrderPackBucket', {
+          order_number: orderNumber, bucket: targetBucket, manager_pin: pin
+        });
+      } catch (_e) { r2 = { ok: false, error: 'retry threw: ' + (_e.message || _e) }; }
+    }
+    if (r2 && !r2.ok) {
+      showToast('⚠ Bucket save failed twice (date SAVED, bucket NOT). Drag the card again after refresh — ' + (r2.error || 'unknown'));
     }
   } catch (e) {
     if (rollback) _plannerLocalRollbackDrop_(rollback);
