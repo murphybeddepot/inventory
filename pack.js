@@ -3813,7 +3813,13 @@ async function openFixPickListModal_(orderNumber) {
     nativeRes.native_lines.forEach(l => {
       const cat = String(l.category || '').toLowerCase();
       let bucket = 'hardware';
-      if (cat === 'cabinet') bucket = 'pack';
+      // v10.1330 (2026-07-22) — was mapping 'cabinet' → 'pack'. That
+      // left the 🗄 Cabinets bucket ALWAYS empty on seed, misleading
+      // the user into thinking cabinets weren't detected. Route
+      // cabinet→cabinet; pack→pack (the frame/pack sublines carry
+      // their own category from the server).
+      if (cat === 'cabinet') bucket = 'cabinet';
+      else if (cat === 'pack') bucket = 'pack';
       else if (cat === 'hardware') bucket = 'hardware';
       else if (cat === 'instruction' || cat === 'instructions' || /^INST-/i.test(l.sku || '')) bucket = 'instructions';
       else if (cat === 'other') bucket = 'other';
@@ -3859,8 +3865,13 @@ function _fplRenderSections_(sections) {
 }
 
 function _fplRenderRow_(section, idx, row) {
-  return '<div data-fpl-row="' + esc(section) + ':' + idx + '" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'
-    + '<input data-fpl-field="sku" type="text" value="' + esc(row.sku) + '" placeholder="SKU" style="flex:2;padding:7px 9px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:5px;font-family:\'JetBrains Mono\',monospace;font-size:12px">'
+  // v10.1330 — added `name` input. Previously renderRow only had sku+qty
+  // and _fplCollectState_ only wrote {sku, qty}; every save erased any
+  // product-description text (e.g. "LB-8 HINGE PACK") the seed carried
+  // over from the native expansion. Now editable + preserved.
+  return '<div data-fpl-row="' + esc(section) + ':' + idx + '" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">'
+    + '<input data-fpl-field="sku" type="text" value="' + esc(row.sku) + '" placeholder="SKU" style="flex:1 1 130px;padding:7px 9px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:5px;font-family:\'JetBrains Mono\',monospace;font-size:12px">'
+    + '<input data-fpl-field="name" type="text" value="' + esc(row.name || '') + '" placeholder="Product name / description (optional)" style="flex:2 1 200px;padding:7px 9px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:5px;font-size:12px">'
     + '<input data-fpl-field="qty" type="number" min="0" step="1" value="' + esc(row.qty) + '" style="width:70px;padding:7px 9px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:5px;font-family:\'JetBrains Mono\',monospace;font-size:12px;text-align:center">'
     + '<button onclick="_fplRemoveRow_(\'' + esc(section) + '\',' + idx + ')" title="Remove row" style="padding:6px 10px;background:rgba(255,82,82,.10);color:#ff8a80;-webkit-text-fill-color:#ff8a80;border:1px solid rgba(255,82,82,.45);border-radius:5px;font-size:14px;font-weight:900;cursor:pointer">×</button>'
     + '</div>';
@@ -3877,7 +3888,9 @@ function _fplCollectState_() {
     container.querySelectorAll('[data-fpl-row]').forEach(rowEl => {
       const sku = String((rowEl.querySelector('[data-fpl-field="sku"]') || {}).value || '').trim();
       const qty = Number(String((rowEl.querySelector('[data-fpl-field="qty"]') || {}).value || '0')) || 0;
-      if (sku && qty > 0) sec[k].push({ sku: sku, qty: qty });
+      // v10.1330 — capture name too so it survives the save round-trip.
+      const name = String((rowEl.querySelector('[data-fpl-field="name"]') || {}).value || '').trim();
+      if (sku && qty > 0) sec[k].push({ sku: sku, qty: qty, name: name });
     });
   });
   state.sections = sec;
