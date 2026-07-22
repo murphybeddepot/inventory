@@ -325,8 +325,26 @@ function _renderSpineEvent_(e) {
 
 async function _loadOrderTimeline_(orderNumber, targetEl) {
   if (!targetEl) return;
+  // v10.1331 (2026-07-22) — race the timeline fetch against a 12s
+  // timeout. Previously if the /orderTimeline call hung (Apps Script
+  // cold-start + BigQuery + waitUntil), the "Loading…" spinner ran
+  // indefinitely. Now it flips to an actionable "Timed out — retry"
+  // link after 12s so the user isn't left staring at a spinner.
+  const timeoutMs = 12000;
+  let timedOut = false;
+  const raceTimeout = new Promise((resolve) => {
+    setTimeout(() => { timedOut = true; resolve({ ok: false, error: 'timeout', _timedOut: true }); }, timeoutMs);
+  });
   try {
-    const res = await groundApi('orderTimeline', { order_number: orderNumber });
+    const res = await Promise.race([
+      groundApi('orderTimeline', { order_number: orderNumber }),
+      raceTimeout,
+    ]);
+    if (res && res._timedOut) {
+      targetEl.innerHTML = '<div style="color:#ff8f00;-webkit-text-fill-color:#ff8f00;font-size:12px;padding:6px 10px;background:rgba(255,143,0,.10);border:1px solid rgba(255,143,0,.35);border-radius:6px">⏱ Timeline load exceeded ' + (timeoutMs / 1000) + 's · '
+        + '<a href="#" onclick="event.preventDefault();_loadOrderTimeline_(\'' + esc(String(orderNumber || '')) + '\', this.closest(\'div\').parentNode);this.closest(\'div\').innerHTML=\'Retrying…\';" style="color:#42a5f5;text-decoration:underline;cursor:pointer">retry</a></div>';
+      return;
+    }
     if (!res || !res.ok) {
       targetEl.innerHTML = '<div style="color:var(--text-dim);font-style:italic;font-size:12px">Timeline unavailable.</div>';
       return;
@@ -343,6 +361,7 @@ async function _loadOrderTimeline_(orderNumber, targetEl) {
     // Newest first.
     targetEl.innerHTML = events.slice().reverse().map(_renderSpineEvent_).join('');
   } catch (err) {
+    if (timedOut) return; // already rendered timeout UI
     targetEl.innerHTML = '<div style="color:var(--text-dim);font-size:12px">Timeline error: ' + esc(err.message || 'unknown') + '</div>';
   }
 }
@@ -3971,9 +3990,31 @@ function _diffTable_(rows, headers) {
   return h;
 }
 
+// v10.1331 (2026-07-22) — shared in-flight guard for print handlers.
+// Double-tap on any print button used to fire two PrintNode jobs;
+// PrintNode charges per job AND the Brother's auto-stapler splits
+// packets weirdly if two jobs land ~ms apart (see v10.559 comment).
+// Set-based debounce keyed on (fn, orderNumber). Auto-clears after
+// 4s so a truly-stuck request can retry.
+window._printInFlight_ = window._printInFlight_ || new Set();
+window._printBusy_ = function _printBusy_(fnName, orderNumber) {
+  const key = String(fnName) + ':' + String(orderNumber);
+  if (window._printInFlight_.has(key)) return true;
+  window._printInFlight_.add(key);
+  setTimeout(() => { try { window._printInFlight_.delete(key); } catch (_) {} }, 4000);
+  return false;
+};
+window._printDone_ = function _printDone_(fnName, orderNumber) {
+  try { window._printInFlight_.delete(String(fnName) + ':' + String(orderNumber)); } catch (_) {}
+};
+
 async function printPickListOnlyForOrder_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return;
+  if (window._printBusy_('pickListOnly', orderStr)) {
+    showToast('Already sending pick list for #' + orderStr + ' — wait');
+    return;
+  }
   showToast('📥 Sending pick list for #' + orderStr + '…');
   try {
     const res = await printPickListOnly_(orderStr);
@@ -3984,6 +4025,8 @@ async function printPickListOnlyForOrder_(orderNumber) {
     }
   } catch (e) {
     showToast('⚠ Pick list error: ' + (e.message || e));
+  } finally {
+    window._printDone_('pickListOnly', orderStr);
   }
 }
 
@@ -4151,15 +4194,27 @@ async function printCorrectedPickList_(orderNumber) {
 async function printInstructionsAndPickList_(orderNumber) {
   const orderStr = String(orderNumber || '').trim();
   if (!orderStr) return;
+  // v10.1331 — double-tap guard. Two rapid taps used to fire two
+  // separate combined jobs = 4 PrintNode charges + Brother stapler
+  // packet-boundary confusion.
+  if (window._printBusy_ && window._printBusy_('instAndPick', orderStr)) {
+    showToast('Already sending inst + pick list for #' + orderStr + ' — wait');
+    return;
+  }
   showToast('📥 Sending instructions + pick list for #' + orderStr + '…');
   // v10.562 — Zac 2026-06-15: tapped this button for 32192/32217, got
   // pick lists only because the instructions path silently failed and
   // the toast only reported pick list status. Now we surface BOTH
   // outcomes and stack a banner for the failure cause.
-  const [instRes, pickRes] = await Promise.all([
-    printInstructionsLink_(orderStr),
-    printPickListOnly_(orderStr),
-  ]);
+  let instRes, pickRes;
+  try {
+    [instRes, pickRes] = await Promise.all([
+      printInstructionsLink_(orderStr),
+      printPickListOnly_(orderStr),
+    ]);
+  } finally {
+    if (window._printDone_) window._printDone_('instAndPick', orderStr);
+  }
   const instOk = !!(instRes && instRes.ok);
   const pickOk = !!(pickRes && pickRes.ok);
   if (instOk && pickOk) {
@@ -4203,6 +4258,16 @@ window._pkInstrPrintedToday_ = _pkInstrPrintedToday_;
 
 async function printInstructionsLink_(orderNumber, presetSkus) {
   const orderStr = String(orderNumber);
+  // v10.1331 — in-flight guard. Even with the "already printed today"
+  // prompt below, a double-tap on the first press can fire twice
+  // before the prompt renders. Guard is short (4s auto-clear) so it
+  // doesn't fight the reprint-confirm flow.
+  if (window._printBusy_ && window._printBusy_('instLink', orderStr)) {
+    if (typeof showToast === 'function') {
+      showToast('Already sending instructions for #' + orderStr + ' — wait');
+    }
+    return;
+  }
   // v10.1277 (Zac 2026-07-20 12:35pm EDT ask): "way more clear whether
   // instructions have been printed" + reprint should be an explicit
   // confirm, not a silent double-fire. Check the cache for
