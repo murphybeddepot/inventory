@@ -1,8 +1,17 @@
 // Stacking Recipe editor — client config (v10.1324, 2026-07-22)
 //
-// COPY THIS WHOLE FILE to `config.js` in the same directory. Then
-// replace the two placeholder strings below with real values, and
-// commit config.js. config.js is loaded by index.html at boot.
+// INTENT: config.template.js is the reference (this file, tracked).
+// config.js is the working file the browser actually loads. BOTH
+// live in the tracked repo. config.js is NOT gitignored — the anon
+// key and SUPABASE_URL are public by Supabase's design, and the
+// editor at murphybeddepot.github.io/inventory/stacking-recipe-editor/
+// loads config.js at boot via <script src="./config.js">, which only
+// works if it's committed to the inventory repo.
+//
+// To create config.js:
+//   1. Copy this whole file to config.js in the same directory.
+//   2. Replace the two placeholder strings below with real values.
+//   3. git add + commit + push inventory/stacking-recipe-editor/config.js.
 //
 // Both values are safe to commit (anon key is public by design per
 // Supabase; SUPABASE_URL is the project endpoint). Neither of these
