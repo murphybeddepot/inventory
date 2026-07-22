@@ -18865,14 +18865,12 @@ function _orphanKpi_(label, val, color) {
   return '<div style="padding:10px;background:#f5f5f7 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;letter-spacing:.5px">' + label + '</div><div style="font-size:22px;font-weight:900;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important">' + val + '</div></div>';
 }
 
-// v10.1318 (Zac 2026-07-22): Stacking Recipe Editor launcher. Opens the
-// standalone editor (inventory/stacking-recipe-editor/index.html — v2.9+)
-// in a full-viewport iframe INSIDE Bedrock so it feels native, but the
-// editor keeps its own document scope. Zero global collision risk with
-// pack.js — the editor has ~194 top-level function decls + top-level
-// `const $, el, download, esc, snapshot, S, LS_LIB, APP_VERSION` that
-// would shadow pack.js's own $/el/etc. if hoisted. Iframe isolation
-// avoids that entirely per feedback_grep_globals_before_declaring.
+// v10.1319 (Zac 2026-07-22 15:20 EDT): Stacking Recipe Editor —
+// TEMPORARY iframe stopgap while I do the full-native rename hoist
+// in a follow-up (v10.1320+). Playwright-verified in v10.1318:
+// zero pageerrors, pack.js features intact, iframe visible + closes
+// clean. Kept as a safe fallback so nothing's broken during the
+// native-rename work.
 function openStackingRecipeEditor() {
   var prior = document.getElementById('stackingRecipeEditorOv');
   if (prior) prior.remove();
@@ -18882,7 +18880,7 @@ function openStackingRecipeEditor() {
   ov.innerHTML = ''
     + '<div style="flex:0 0 auto;padding:8px 14px;background:#1a1a1a;border-bottom:1.5px solid #7B1FA2;display:flex;align-items:center;gap:10px">'
     +   '<span style="font-size:20px">🧱</span>'
-    +   '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:#E1BEE7;text-transform:uppercase">Stacking Recipe Editor</div>'
+    +   '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:#E1BEE7;text-transform:uppercase">Stacking Recipe Editor <span style="font-size:10px;padding:2px 6px;background:#4A148C;color:#fff;-webkit-text-fill-color:#fff;border-radius:3px;margin-left:8px;letter-spacing:.5px">iframe · native rename in progress</span></div>'
     +   '<button onclick="document.getElementById(\'stackingRecipeEditorOv\').remove()" title="Close editor" style="padding:6px 14px;background:#4A148C;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid #7B1FA2;border-radius:6px;font-size:12px;font-weight:800;letter-spacing:.5px;cursor:pointer">✕ CLOSE</button>'
     + '</div>'
     + '<iframe src="./stacking-recipe-editor/" style="flex:1 1 auto;width:100%;border:none;background:#fff" title="Stacking Recipe Editor"></iframe>';
