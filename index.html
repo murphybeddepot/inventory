@@ -2720,10 +2720,12 @@ input::placeholder, textarea::placeholder {
          Same v10.1315 style — dark bg + colored border + colored text. -->
     <button onclick="openGroundSettings()" title="Ground Settings — orchestrator URL, shared secret, packer name" style="padding:14px 10px;min-width:82px;background:#1a1a1a;color:#B0BEC5;-webkit-text-fill-color:#B0BEC5;border:1.5px solid #607D8B;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">⚙️</span><span style="font-size:9px">SETTINGS</span></button>
     <!-- v10.1320 (Seth 2026-07-22 14:41 EDT): search field pulled into
-         the button row + right-justified via margin-left:auto. -->
-    <div id="groundSearchWrap" style="position:relative;flex:1 1 260px;min-width:180px;margin-left:auto">
-      <input type="search" id="groundSearchInput" placeholder="🔍 Search by order#, customer, or SKU…" oninput="_groundSearchFilter_(this.value)" style="width:100%;padding:12px 38px 12px 14px;background:var(--surface-2) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;box-sizing:border-box" autocomplete="off">
-      <button type="button" id="groundSearchClearBtn" onclick="_groundSearchClear_()" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer" title="Clear search">✕</button>
+         the button row + right-justified via margin-left:auto. Small
+         flex-basis + tolerant min-width so it fits alongside the 9
+         buttons on iPad without wrapping to its own line. -->
+    <div id="groundSearchWrap" style="position:relative;flex:1 1 160px;min-width:140px;margin-left:auto">
+      <input type="search" id="groundSearchInput" placeholder="🔍 Search order#, customer, SKU…" oninput="_groundSearchFilter_(this.value)" style="width:100%;padding:12px 34px 12px 12px;background:var(--surface-2) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;box-sizing:border-box" autocomplete="off">
+      <button type="button" id="groundSearchClearBtn" onclick="_groundSearchClear_()" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:3px 7px;font-size:11px;font-weight:800;cursor:pointer" title="Clear search">✕</button>
     </div>
   </div>
 
