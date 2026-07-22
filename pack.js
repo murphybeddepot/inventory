@@ -3800,7 +3800,18 @@ async function openFixPickListModal_(orderNumber) {
   ov.id = 'fixPickListOv';
   ov.className = 'keep-dark-text';
   ov.style.cssText = 'position:fixed;inset:0;z-index:10035;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:16px';
-  ov.innerHTML = '<div style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,143,0,.55);border-radius:14px;max-width:820px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">'
+  // v10.1338 — tap backdrop to dismiss (with "confirm unsaved changes"
+  // guard so accidentally tapping outside during an edit doesn't lose
+  // the work).
+  ov.addEventListener('click', function (e) {
+    if (e.target !== ov) return;
+    // If there are any edits in progress, confirm before closing.
+    const state = window._fixPickListState_;
+    const anyRows = state && Object.values(state.sections || {}).some(a => Array.isArray(a) && a.length > 0);
+    if (anyRows && !confirm('Discard unsaved corrections and close?')) return;
+    ov.remove();
+  });
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,143,0,.55);border-radius:14px;max-width:820px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">'
     + '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;align-items:center;gap:10px">'
     + '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;letter-spacing:1px">✎ Fix Pick List · #' + esc(ord) + '</div>'
     + '<button onclick="document.getElementById(\'fixPickListOv\').remove()" style="background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;font-size:24px;cursor:pointer">✕</button>'
