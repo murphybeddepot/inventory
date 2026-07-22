@@ -1881,18 +1881,18 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
-    <!-- v10.1318 (Zac 2026-07-22 15:00 EDT): Stacking Recipe Editor —
-         standalone tool (still actively evolving) served from
-         inventory/stacking-recipe-editor/index.html. Opens in a
-         full-viewport iframe inside Bedrock so it feels native but
-         the editor keeps its own scope (no global collisions with
-         pack.js, per feedback_grep_globals_before_declaring). Phase 1
-         will add Supabase import + MO auto-assign. -->
-    <button onclick="closeMoreMenu();openStackingRecipeEditor()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#4A148C,#7B1FA2);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#fff;text-align:left;margin-bottom:8px">
+    <!-- v10.1321 (per claude.ai note 2026-07-22 ~15:30 EDT): Stacking
+         Recipe Editor is now a proper full-page route on Bedrock's
+         own origin — window.location.href, not a modal. Same-origin
+         means no iframe cross-origin storage weirdness, no cramped
+         canvas, deep-linkable via ?sku=. Next slice replaces the
+         editor's two localStorage keys with API calls hitting a
+         Supabase stacking_recipes table. -->
+    <button onclick="closeMoreMenu();window.location.href='./stacking-recipe-editor/'" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#4A148C,#7B1FA2);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#fff;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🧱</span>
       <div style="flex:1">
         <div>Stacking Recipe Editor</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.85);font-weight:600;margin-top:2px">Create + edit melamine stacking recipes per SKU (v10.1318, Phase 0).</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.85);font-weight:600;margin-top:2px">Create + edit melamine stacking recipes per SKU (v10.1321, full-page).</div>
       </div>
       <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
     </button>
@@ -18881,27 +18881,12 @@ function _orphanKpi_(label, val, color) {
   return '<div style="padding:10px;background:#f5f5f7 !important;border-radius:8px;text-align:center"><div style="font-size:10px;text-transform:uppercase;color:#666 !important;-webkit-text-fill-color:#666 !important;font-weight:800;letter-spacing:.5px">' + label + '</div><div style="font-size:22px;font-weight:900;color:' + color + ' !important;-webkit-text-fill-color:' + color + ' !important">' + val + '</div></div>';
 }
 
-// v10.1319 (Zac 2026-07-22 15:20 EDT): Stacking Recipe Editor —
-// TEMPORARY iframe stopgap while I do the full-native rename hoist
-// in a follow-up (v10.1320+). Playwright-verified in v10.1318:
-// zero pageerrors, pack.js features intact, iframe visible + closes
-// clean. Kept as a safe fallback so nothing's broken during the
-// native-rename work.
-function openStackingRecipeEditor() {
-  var prior = document.getElementById('stackingRecipeEditorOv');
-  if (prior) prior.remove();
-  var ov = document.createElement('div');
-  ov.id = 'stackingRecipeEditorOv';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:10050;background:#0a0a0a;display:flex;flex-direction:column';
-  ov.innerHTML = ''
-    + '<div style="flex:0 0 auto;padding:8px 14px;background:#1a1a1a;border-bottom:1.5px solid #7B1FA2;display:flex;align-items:center;gap:10px">'
-    +   '<span style="font-size:20px">🧱</span>'
-    +   '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:1px;color:#E1BEE7;text-transform:uppercase">Stacking Recipe Editor <span style="font-size:10px;padding:2px 6px;background:#4A148C;color:#fff;-webkit-text-fill-color:#fff;border-radius:3px;margin-left:8px;letter-spacing:.5px">iframe · native rename in progress</span></div>'
-    +   '<button onclick="document.getElementById(\'stackingRecipeEditorOv\').remove()" title="Close editor" style="padding:6px 14px;background:#4A148C;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid #7B1FA2;border-radius:6px;font-size:12px;font-weight:800;letter-spacing:.5px;cursor:pointer">✕ CLOSE</button>'
-    + '</div>'
-    + '<iframe src="./stacking-recipe-editor/" style="flex:1 1 auto;width:100%;border:none;background:#fff" title="Stacking Recipe Editor"></iframe>';
-  document.body.appendChild(ov);
-}
+// v10.1321 (Zac 2026-07-22 ~15:30 EDT + claude.ai note): Stacking
+// Recipe Editor is now launched as a plain same-origin navigation
+// (window.location.href → ./stacking-recipe-editor/). No iframe, no
+// modal wrapping, no cross-origin storage weirdness. Deep-linkable
+// via ?sku=. The old openStackingRecipeEditor() modal function was
+// removed here — the More menu button uses window.location directly.
 
 // v10.966 — Katana-style Scheduler Board. Kanban of open work orders
 // grouped by state, columns per work_center. Seth's whiteboard, digital.
@@ -33536,7 +33521,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1320"></script>
+<script src="./pack.js?v=10.1321"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33547,7 +33532,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1320<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1321<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
