@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pallet Stacking Recipe Editor</title>
+<!-- v10.1324 — Bedrock backend config (SUPABASE_URL + anon key).
+     Defines window.STACKING_CONFIG. If missing, editor still works
+     from localStorage (offline mode); server sync is disabled. -->
+<script src="./config.js"></script>
 <style>
   :root{
     --bg:#e9e7e1; --panel:#f6f5f1; --panel2:#fbfaf7; --field:#ffffff;
@@ -530,6 +534,90 @@ const MM_PER_IN = 25.4;
 const SVGNS = 'http://www.w3.org/2000/svg';
 const LS_LIB = 'mbd_stacking_library_v1';
 const LS_WORK = 'mbd_stacking_work_v1';
+
+/* ============================================================
+   BEDROCK BACKEND (v10.1324 — 2026-07-22)
+   ============================================================ */
+// Device secret is per-iPad provisioning. Delivered via
+// `#setup?device=<value>` URL hash, stored in localStorage.
+// Passed to every Supabase RPC as p_device_secret. Not shipped
+// in the HTML — each iPad is provisioned once out of band.
+const DEV_KEY = 'mbd_stacking_device';
+function getDeviceSecret(){ try { return localStorage.getItem(DEV_KEY) || ''; } catch(_){ return ''; } }
+function hasBackend(){
+  return !!(window.STACKING_CONFIG && window.STACKING_CONFIG.supabase_url && window.STACKING_CONFIG.anon_key);
+}
+function isProvisioned(){ return hasBackend() && !!getDeviceSecret(); }
+
+// Boot-time hash handler: consume `#setup?device=<value>` and store.
+// Strip the URL after so the secret doesn't sit in history/address bar.
+// Same pattern Bedrock uses for GROUND_SECRET provisioning
+// (mbd-warehouse/index.html:28720).
+(function _consumeSetupHash(){
+  try{
+    const h = String(location.hash || '');
+    if(h.indexOf('#setup?') !== 0) return;
+    const p = new URLSearchParams(h.slice('#setup?'.length));
+    const dev = p.get('device') || '';
+    if(dev){
+      localStorage.setItem(DEV_KEY, dev);
+      history.replaceState(null, '', location.pathname + location.search);
+      setTimeout(()=>{ try { toast('✓ Device provisioned for Bedrock sync'); } catch(_){} }, 200);
+    }
+  }catch(_){}
+})();
+
+async function _rpc(fn, args){
+  if(!hasBackend()) throw new Error('Bedrock backend not configured (config.js missing?)');
+  const cfg = window.STACKING_CONFIG;
+  const resp = await fetch(cfg.supabase_url.replace(/\/+$/,'') + '/rest/v1/rpc/' + fn, {
+    method: 'POST',
+    headers: {
+      'apikey': cfg.anon_key,
+      'Authorization': 'Bearer ' + cfg.anon_key,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(args),
+  });
+  const text = await resp.text();
+  let json = null; try { json = JSON.parse(text); } catch(_){ json = text; }
+  if(!resp.ok){
+    const msg = (json && json.message) ? json.message : ('HTTP ' + resp.status);
+    throw new Error(msg);
+  }
+  return json;
+}
+
+async function remoteListLib(){
+  const s = getDeviceSecret();
+  if(!s) return null;
+  return await _rpc('list_stacking_recipes', {p_device_secret: s});
+}
+
+async function remoteLoadRecipe(sku){
+  const s = getDeviceSecret();
+  if(!s) return null;
+  const rows = await _rpc('load_stacking_recipe', {p_device_secret: s, p_sku: sku});
+  return (rows && rows[0]) ? rows[0] : null;
+}
+
+// expectedRev null on first save; number otherwise (optimistic
+// concurrency). Returns {new_revision, conflict, current_revision,
+// current_signature}.
+async function remoteSaveRecipe(sku, snap, expectedRev){
+  const s = getDeviceSecret();
+  if(!s) throw new Error('Device not provisioned. Ask Zac for the setup link.');
+  const rows = await _rpc('save_stacking_recipe', {
+    p_device_secret: s,
+    p_sku: sku,
+    p_signature: snap.signature || '',
+    p_snapshot: snap,
+    p_expected_revision: (expectedRev === null || expectedRev === undefined) ? null : Number(expectedRev),
+    p_updated_by: 'browser',
+  });
+  return (rows && rows[0]) ? rows[0] : null;
+}
+
 const APP_VERSION = '2.9';
 
 const SECTION_COLORS = [
