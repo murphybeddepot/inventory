@@ -77,20 +77,21 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .header-badge:hover{filter:brightness(1.2)}
 .header-badge.unsynced{border-color:#FFB300;color:#FFB300;-webkit-text-fill-color:#FFB300;box-shadow:0 0 10px rgba(255,179,0,.30),inset 0 0 8px rgba(255,179,0,.12)}
 
-.tabs{display:flex;justify-content:center;background:#000;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+.tabs{display:flex;background:#000;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.5)}
 /* v10.345 — tab bar: icon + label per tab, thicker active underline (4px). */
 /* v10.484 — Zac: dusty-finger tap targets. Bigger touch area + bolder
    font + larger icon for warehouse use. v10.485 — reverted the
    :active pseudo + touch-action + tap-highlight properties because
    they were causing a tap-routing bug (tap Orders → Cabinets opens).
    Keeping just the geometry/typography bumps. */
-/* v10.1317 (Seth 2026-07-22 12:58 EDT): "Make these section header tabs
-   about half the current width." Trimmed flex from `1` to `0 1 auto`
-   so tabs size to content (parent .tabs now centers them). Padding
-   16px → 8px sides, icon 26 → 20, min-height 72 → 56. Still finger-
-   friendly on iPad but visually ~half the previous width. */
-.tab-btn{flex:0 1 auto;min-width:84px;padding:8px 14px 10px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:12px;font-weight:800;color:var(--text-dim);background:none;border:none;border-bottom:4px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .15s ease;display:flex;flex-direction:column;align-items:center;gap:4px;line-height:1.2;min-height:56px}
-.tab-btn .tab-icon{font-size:20px;line-height:1;display:block}
+/* v10.1320 (Seth 2026-07-22 14:39 + 14:54 EDT): main tabs pinned
+   LEFT, MORE pinned RIGHT, all ~50% bigger than v10.1317. Pin
+   layout via `margin-left:auto` on the MORE button (see #tab-more-btn
+   rule below). Sizing: min-width 84 → 120, min-height 56 → 84,
+   padding 8/14/10 → 12/20/16, icon 20 → 30, font 12 → 13. */
+.tab-btn{flex:0 0 auto;min-width:120px;padding:12px 20px 16px;font-family:'Barlow Condensed','Barlow',sans-serif;font-size:13px;font-weight:800;color:var(--text-dim);background:none;border:none;border-bottom:4px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .15s ease;display:flex;flex-direction:column;align-items:center;gap:5px;line-height:1.2;min-height:84px}
+.tab-btn .tab-icon{font-size:30px;line-height:1;display:block}
+.tabs #tab-more-btn{margin-left:auto}
 .tab-btn:hover{color:var(--green-bright)}
 .tab-btn.active{color:var(--green-bright);border-bottom-color:var(--green-bright);text-shadow:0 0 10px rgba(0,230,118,.45);background:linear-gradient(180deg,rgba(0,230,118,.08),transparent)}
 .panel{display:none;padding:14px}
@@ -2692,12 +2693,11 @@ input::placeholder, textarea::placeholder {
        gets its own full-width row when the button strip would push it
        off-screen. Buttons stay in a horizontally scrollable row so
        none get clipped. -->
-  <div id="groundStatusBar" style="background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <div style="flex:1 1 220px;min-width:180px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666">Ground Pack</div>
-      <div id="groundStatusLine" style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">Loading queue…</div>
-      <div id="groundDeployDebug" style="font-size:10px;font-family:monospace;color:#888;margin-top:3px"></div>
-    </div>
+  <!-- v10.1320 (Seth 2026-07-22 14:41 EDT): Ground Pack summary card
+       moved OUT of this row down below (see #groundStatusSummary). This
+       row now = buttons only, with the search field right-justified via
+       margin-left:auto on #groundSearchWrap. -->
+  <div id="groundStatusBar" style="background:transparent;border:none;padding:0;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <!-- v10.1315 (Seth 2026-07-22 09:16 EDT): unified header buttons —
          same size (min-width:82px), same shape, dark-bg + colored-border
          style across all 8. NEW / SYNC SS / ⟳ / GUIDE were solid-color
@@ -2719,6 +2719,22 @@ input::placeholder, textarea::placeholder {
          from the footer link to a header icon-button, right of GUIDE.
          Same v10.1315 style — dark bg + colored border + colored text. -->
     <button onclick="openGroundSettings()" title="Ground Settings — orchestrator URL, shared secret, packer name" style="padding:14px 10px;min-width:82px;background:#1a1a1a;color:#B0BEC5;-webkit-text-fill-color:#B0BEC5;border:1.5px solid #607D8B;border-radius:10px;font-size:12px;font-weight:900;letter-spacing:.4px;cursor:pointer;line-height:1.1;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:18px">⚙️</span><span style="font-size:9px">SETTINGS</span></button>
+    <!-- v10.1320 (Seth 2026-07-22 14:41 EDT): search field pulled into
+         the button row + right-justified via margin-left:auto. -->
+    <div id="groundSearchWrap" style="position:relative;flex:1 1 260px;min-width:180px;margin-left:auto">
+      <input type="search" id="groundSearchInput" placeholder="🔍 Search by order#, customer, or SKU…" oninput="_groundSearchFilter_(this.value)" style="width:100%;padding:12px 38px 12px 14px;background:var(--surface-2) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;box-sizing:border-box" autocomplete="off">
+      <button type="button" id="groundSearchClearBtn" onclick="_groundSearchClear_()" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer" title="Clear search">✕</button>
+    </div>
+  </div>
+
+  <!-- v10.1320 (Seth 2026-07-22 14:41 EDT): Ground Pack summary card
+       moved DOWN here (from inside groundStatusBar) where the search
+       field used to live. Retains id + inner ids so pack.js
+       refreshGroundQueue etc. still finds them. -->
+  <div id="groundStatusSummary" style="background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 14px;margin-bottom:10px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#666">Ground Pack</div>
+    <div id="groundStatusLine" style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">Loading queue…</div>
+    <div id="groundDeployDebug" style="font-size:10px;font-family:monospace;color:#888;margin-top:3px"></div>
   </div>
 
   <!-- v10.922 — Zac 2026-07-01: originally moved the Create button here
@@ -2743,11 +2759,9 @@ input::placeholder, textarea::placeholder {
     <!-- v10.592 — ground-source holds banner (Zac 2026-06-16: held
          orders only appeared on Cabinets tab; they were missed daily). -->
     <div id="groundHoldsBanner" style="display:none;margin-bottom:10px"></div>
-    <!-- v10.733 — search box. Filters cards client-side by order#, customer, company, state, or SKU. -->
-    <div style="position:relative;margin-bottom:10px">
-      <input type="search" id="groundSearchInput" placeholder="🔍 Search by order#, customer, or SKU…" oninput="_groundSearchFilter_(this.value)" style="width:100%;padding:12px 38px 12px 14px;background:var(--surface-2) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;box-sizing:border-box" autocomplete="off">
-      <button type="button" id="groundSearchClearBtn" onclick="_groundSearchClear_()" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer" title="Clear search">✕</button>
-    </div>
+    <!-- v10.1320 (Seth 2026-07-22 14:41 EDT): search input moved UP
+         into groundStatusBar (see #groundSearchWrap). Removed from
+         here to avoid duplicate ids. -->
     <div id="groundSearchEmpty" style="display:none;padding:18px 14px;background:var(--surface-2);border:1.5px dashed var(--border);border-radius:10px;text-align:center;color:var(--text-dim);font-size:13px"></div>
     <div id="groundQueueList" style="display:flex;flex-direction:column;gap:8px"></div>
     <div id="groundQueueEmpty" style="display:none;background:#fff;border:1.5px dashed #d0d0d0;border-radius:10px;padding:24px 18px;text-align:center;color:#666;font-size:14px;line-height:1.5">
