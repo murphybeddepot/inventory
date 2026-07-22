@@ -463,7 +463,9 @@ function _orderDetailHtml_(o) {
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:17px;font-weight:800;color:var(--text);line-height:1.3;margin-bottom:8px">' + (subtitle || '—') + '</div>'
     +   '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px">' + hpl + '</div>'
     +   '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px">'
-    +     '<div style="color:var(--text-dim)">Ship date</div><div style="color:var(--text)">' + ship + '</div>'
+    +     '<div style="color:var(--text-dim)">Ship date</div><div style="color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap">' + ship
+    +       '<button onclick="_promptChangeShipDate_(\'' + ord + '\',\'' + esc(o.ship_date || '') + '\')" title="Change ship / pack-target date (manager PIN required)" style="padding:3px 9px;background:rgba(0,135,254,.14);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1px solid rgba(0,135,254,.55);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px">📅 Change</button>'
+    +     '</div>'
     +     '<div style="color:var(--text-dim)">Customer</div><div style="color:var(--text)">' + esc(o.customer_name || '—') + '</div>'
     +     '<div style="color:var(--text-dim)">Carrier</div><div style="color:var(--text)">' + (o.carrier_display ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + esc(o.carrier_color || '#666') + ';margin-right:6px"></span>' + esc(o.carrier_display) : '<span style="color:var(--text-dim)">—</span>') + '</div>'
     +     (o.pick_list_pdf_url ? '<div style="color:var(--text-dim)">Pick List</div><div><a href="' + esc(o.pick_list_pdf_url) + '" target="_blank" rel="noopener" style="color:#42a5f5">📄 Open</a></div>' : '')
@@ -1330,6 +1332,50 @@ async function _markOrderBookedPrompt_(orderNumber) {
     showToast('Mark Booked error: ' + e.message);
   }
 }
+
+// v10.1328 (Zac 2026-07-22): "scheduling has to work this week!" The
+// Orders-tab detail card previously showed the ship date as read-only
+// text, forcing a trip out to the Planner modal to change it. This
+// prompt writes pack_target_date directly via the existing PIN-gated
+// setPackTargetDate endpoint. YYYY-MM-DD only; empty clears the date.
+async function _promptChangeShipDate_(orderNumber, currentIso) {
+  const cur = String(currentIso || '').slice(0, 10);
+  const raw = window.prompt(
+    'Change ship / pack-target date for #' + orderNumber + '.\n\n' +
+    'Format: YYYY-MM-DD (e.g. 2026-07-29)\n' +
+    'Empty to clear the assignment.\n\n' +
+    'Current: ' + (cur || '(unset)'),
+    cur
+  );
+  if (raw === null) return;
+  const target = String(raw).trim();
+  if (target && !/^\d{4}-\d{2}-\d{2}$/.test(target)) {
+    showToast('Invalid — needs YYYY-MM-DD, got: ' + target);
+    return;
+  }
+  const pin = window.prompt('Manager PIN:');
+  if (pin === null) return;
+  try {
+    const res = await groundApi('setPackTargetDate', {
+      orderNumber: orderNumber,
+      targetDate: target,
+      manager_pin: String(pin || '').trim(),
+      set_by: (typeof getDeviceLabel === 'function' ? getDeviceLabel() : 'ipad'),
+    });
+    if (!res || !res.ok) {
+      showToast('Reschedule failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ Ship date → ' + (target || '(cleared)'));
+    const cached = getCachedPipelineOrder(orderNumber);
+    if (cached) cached.ship_date = target || '';
+    _renderInOrdersDetail_(cached || { order_number: orderNumber });
+    setTimeout(() => refreshOrderPipeline({ force: true }), 1200);
+  } catch (e) {
+    showToast('Reschedule error: ' + e.message);
+  }
+}
+
 // v10.314 — Pre-Pack mode toggle inside Pack detail. Zac: "pre-pack
 // should maybe just be a button on the pack screen that hides the
 // non-pre-pack items and loads the process for pre-pack (printing
