@@ -5140,6 +5140,24 @@ async function _onOrderDropOnDay_(event, targetDay) {
   try { orderNumber = String(event.dataTransfer.getData('text/plain') || '').trim(); } catch (e) {}
   if (!orderNumber) { showToast('Drop failed — no order id'); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDay)) { showToast('Invalid target day'); return; }
+  // v10.1329 (2026-07-22) — in-flight guard so a double-tap or fast
+  // finger doesn't produce two parallel setOrderShipDate writes
+  // (which race the gcal writeback + can leave the calendar with
+  // duplicates). Same pattern as planner drops (Lookup + Pack).
+  if (typeof _scheduleLock_ === 'function' && !_scheduleLock_(orderNumber)) {
+    showToast('Already moving #' + orderNumber + ' — wait a sec');
+    return;
+  }
+  // v10.1329 — server now requires manager PIN. Cached for 10 min
+  // via ensurePin so bulk-moving a few orders in a row is fluid.
+  const pin = (typeof ensurePin === 'function')
+    ? ensurePin('Manager PIN to change ship date:')
+    : null;
+  if (!pin) {
+    if (typeof _scheduleUnlock_ === 'function') _scheduleUnlock_(orderNumber);
+    showToast('Move cancelled (needs manager PIN)');
+    return;
+  }
   // Optimistic local update
   if (Array.isArray(_orderPipelineCache)) {
     const o = _orderPipelineCache.find(x => String(x.order_number) === String(orderNumber));
@@ -5149,17 +5167,26 @@ async function _onOrderDropOnDay_(event, targetDay) {
   showToast('↪ Moving #' + orderNumber + ' → ' + targetDay);
   try {
     const by = (function(){ try { return localStorage.getItem('mbd_device_name') || ''; } catch (e) { return ''; } })() || 'unknown';
-    const res = await groundApi('setOrderShipDate', { orderNumber: orderNumber, shipDate: targetDay, by: by });
+    const res = await groundApi('setOrderShipDate', { orderNumber: orderNumber, shipDate: targetDay, by: by, manager_pin: pin });
     if (!res || !res.ok) {
       showToast('Move failed: ' + ((res && res.error) || 'unknown') + ' — reverting');
       setTimeout(() => { refreshOrderPipeline({ force: true }).then(() => renderOrdersTab()); }, 800);
       return;
     }
-    showToast('✓ #' + orderNumber + ' → ' + targetDay + ' (gcal still at ' + (res.prev_ship_date || '?') + ' — fix manually for now)');
+    // v10.1329 (2026-07-22) — previously ALWAYS said "gcal still at …
+    // fix manually". That was the message even when the server-side
+    // writeback DID move gcal. Reads to Seth/Kim like the system
+    // doesn't work. Actually branch on res.gcal_still_at_prev.
+    const gcalNote = (res && res.gcal_still_at_prev)
+      ? ' (gcal still at ' + (res.prev_ship_date || '?') + ' — fix in Calendar)'
+      : (res && res.gcal_writeback_ok === false ? ' (gcal update pending)' : '');
+    showToast('✓ #' + orderNumber + ' → ' + targetDay + gcalNote);
     setTimeout(() => { refreshOrderPipeline({ force: true }).then(() => renderOrdersTab()); }, 1200);
   } catch (e) {
     showToast('Move error: ' + e.message);
     setTimeout(() => { refreshOrderPipeline({ force: true }).then(() => renderOrdersTab()); }, 800);
+  } finally {
+    if (typeof _scheduleUnlock_ === 'function') _scheduleUnlock_(orderNumber);
   }
 }
 
@@ -33521,7 +33548,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1328"></script>
+<script src="./pack.js?v=10.1329"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33532,7 +33559,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1328<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1329<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
