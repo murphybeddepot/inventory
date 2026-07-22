@@ -1,0 +1,2769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pallet Stacking Recipe Editor</title>
+<style>
+  :root{
+    --bg:#e9e7e1; --panel:#f6f5f1; --panel2:#fbfaf7; --field:#ffffff;
+    --ink:#1c1b18; --ink2:#54514b; --ink3:#8a867d;
+    --line:#d8d5cc; --line2:#c7c3b8;
+    --accent:#1f5fff; --accent-soft:#dbe5ff;
+    --warn:#b9770a; --bad:#c23b22; --bad-soft:#f6dcd5; --good:#2f7d44;
+    --paper:#ffffff; --foot:#fcfbf8; --foot-line:#9b968a;
+    --mono:'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --radius:7px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--sans);color:var(--ink);background:var(--bg);font-size:13px;overflow:hidden}
+  button{font-family:var(--sans);font-size:12px;cursor:pointer;border:1px solid var(--line2);background:var(--panel2);color:var(--ink);padding:5px 9px;border-radius:6px;line-height:1.2}
+  button:hover{background:#fff;border-color:var(--ink3)}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{background:#1850e6}
+  button.ghost{background:transparent;border-color:transparent}
+  button.ghost:hover{background:rgba(0,0,0,.05);border-color:var(--line)}
+  button.danger:hover{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  input,select{font-family:var(--sans);font-size:12px;border:1px solid var(--line2);background:var(--field);color:var(--ink);padding:5px 7px;border-radius:6px}
+  input.num{font-family:var(--mono);text-align:right}
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  label{color:var(--ink2)}
+  .mono{font-family:var(--mono)}
+  .muted{color:var(--ink3)}
+
+  /* layout */
+  #app{display:flex;flex-direction:column;height:100vh}
+  header{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line2);flex:0 0 auto;z-index:5}
+  header .brand{font-weight:650;letter-spacing:.2px;white-space:nowrap}
+  header .brand small{font-weight:500;color:var(--ink3);margin-left:6px;letter-spacing:0}
+  header .sku{display:flex;align-items:center;gap:6px;margin-left:6px}
+  header .sku input{width:190px;font-family:var(--mono)}
+  header .spacer{flex:1}
+  header .grp{display:flex;gap:6px;align-items:center}
+  .sig{font-family:var(--mono);font-size:11px;color:var(--ink3);background:var(--panel2);border:1px solid var(--line);padding:3px 7px;border-radius:5px;white-space:nowrap}
+
+  main{flex:1;display:grid;grid-template-columns:286px 1fr 326px;min-height:0}
+  .col{min-height:0;display:flex;flex-direction:column;background:var(--panel)}
+  .col.left{border-right:1px solid var(--line2)}
+  .col.right{border-left:1px solid var(--line2)}
+  .col.center{background:var(--bg);position:relative}
+  .colhead{flex:0 0 auto;padding:8px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-weight:600;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--ink2)}
+  .colhead .spacer{flex:1}
+  .colbody{flex:1;overflow:auto;min-height:0}
+
+  /* tray */
+  .traytools{padding:8px 10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:7px}
+  .traytools .row{display:flex;gap:6px;align-items:center}
+  .traytools input[type=search]{flex:1}
+  .secgroup{border-bottom:1px solid var(--line)}
+  .sechead{display:flex;align-items:center;gap:7px;padding:6px 10px;cursor:pointer;user-select:none;background:var(--panel)}
+  .sechead:hover{background:var(--panel2)}
+  .sechead .dot{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+  .sechead .nm{font-weight:600;font-size:11.5px;flex:1;line-height:1.25}
+  .sechead .ct{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+  .sechead .tw{font-size:10px;transition:transform .12s}
+  .secgroup.collapsed .tw{transform:rotate(-90deg)}
+  .secgroup.collapsed .partrow{display:none}
+  .partrow{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 22px;cursor:pointer;border-top:1px solid var(--panel)}
+  .partrow:hover{background:var(--accent-soft)}
+  .partrow.depleted{opacity:.45}
+  .partrow.depleted:hover{background:var(--panel2)}
+  .partrow.armed{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+  .partrow .swatch{width:8px;height:22px;border-radius:2px;flex:0 0 auto}
+  .partrow .info{flex:1;min-width:0}
+  .partrow .pn{font-family:var(--mono);font-size:10.5px;color:var(--ink3);line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .partrow .dim{font-family:var(--mono);font-size:11.5px;line-height:1.2;white-space:nowrap}
+  .partrow .nm{font-size:11px;color:var(--ink2);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .partrow .badge{font-family:var(--mono);font-size:10.5px;color:var(--ink2);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:1px 7px;flex:0 0 auto}
+  .partrow .badge.done{background:#e7f0e9;border-color:#bcd9c4;color:var(--good)}
+  .partrow .thk{font-size:9.5px;font-family:var(--mono);border:1px solid var(--line2);border-radius:4px;padding:1px 4px;color:var(--ink3);flex:0 0 auto}
+  .partrow .thk.t58{background:#fdf1dd;border-color:#e8c98c;color:var(--warn)}
+  .emptytray{padding:24px 16px;color:var(--ink3);text-align:center;line-height:1.5}
+
+  /* canvas */
+  .canvaswrap{position:absolute;inset:0;display:flex;flex-direction:column}
+  .canvasbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--line2);flex-wrap:wrap}
+  .canvasbar .seg{display:flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+  .canvasbar .seg button{border:0;border-radius:0;background:var(--panel2);padding:4px 9px}
+  .canvasbar .seg button.on{background:var(--accent);color:#fff}
+  .canvasbar .lbl{font-size:11px;color:var(--ink2)}
+  .canvasbar .chk{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink2);cursor:pointer;user-select:none}
+  .svghost{flex:1;min-height:0;position:relative;overflow:hidden;background:
+     repeating-linear-gradient(0deg,transparent,transparent 23px,rgba(0,0,0,.022) 23px,rgba(0,0,0,.022) 24px),
+     repeating-linear-gradient(90deg,transparent,transparent 23px,rgba(0,0,0,.022) 23px,rgba(0,0,0,.022) 24px),
+     var(--bg)}
+  svg#stage{width:100%;height:100%;display:block;touch-action:none}
+  .armhint{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:12px;padding:6px 12px;border-radius:20px;box-shadow:0 2px 10px rgba(31,95,255,.35);pointer-events:none;z-index:3;display:none}
+  .armhint.show{display:block}
+  .statusbar{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:5px 12px;background:var(--panel);border-top:1px solid var(--line2);font-family:var(--mono);font-size:11px;color:var(--ink2);flex-wrap:wrap}
+  .statusbar .warn{color:var(--bad);font-weight:600}
+  .statusbar .ok{color:var(--good)}
+  .statusbar .k{color:var(--ink3)}
+
+  /* svg styling */
+  .pallet-fill{fill:var(--paper)}
+  .pallet-edge{fill:none;stroke:#b4afa3;stroke-width:6}
+  .foot-fill{fill:var(--foot)}
+  .foot-edge{fill:none;stroke:var(--foot-line);stroke-width:5;stroke-dasharray:18 12}
+  .ruler-tick{stroke:#b0a89a;stroke-width:2}
+  .ruler-txt{fill:var(--ink3);font-family:var(--mono);font-size:30px}
+  .origin-mark{fill:var(--accent)}
+  .origin-txt{fill:var(--accent);font-family:var(--mono);font-size:30px;font-weight:700}
+  .ghost-part{fill:#000;opacity:.18;stroke:#000;stroke-opacity:.40;stroke-width:3;stroke-dasharray:14 9}
+  .part rect.body{fill-opacity:.55;stroke:rgba(0,0,0,.55);stroke-width:3}
+  .part .lab{font-family:var(--mono);fill:#1c1b18;text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+  .part .lab.dim{font-weight:700}
+  .part:hover rect.body{stroke:#000;stroke-width:5}
+  .part.sel rect.body{stroke:var(--accent);stroke-width:7}
+  .part.bad rect.body{stroke:var(--bad);stroke-width:7;stroke-dasharray:14 8}
+  .part.lowsup rect.body{stroke:#f59e0b;stroke-width:6;stroke-dasharray:6 6}
+  .part.badsup rect.body{stroke:#dc2626;stroke-width:6;stroke-dasharray:5 5}
+  button.armed{outline:2px solid var(--bad);outline-offset:1px}
+  .part .grip{stroke:var(--accent);stroke-width:3;opacity:0;}
+  .part.sel .grip{opacity:.9}
+  .snapline{stroke:var(--accent);stroke-width:2.5;stroke-dasharray:10 8;pointer-events:none}
+  .marquee{fill:var(--accent);fill-opacity:.08;stroke:var(--accent);stroke-width:2.5;stroke-dasharray:8 6;pointer-events:none}
+  .place-ghost{fill:#000;fill-opacity:.08;stroke:var(--accent);stroke-width:4;stroke-dasharray:12 8;pointer-events:none}
+  .carton{cursor:grab}
+  .carton.dragging{cursor:grabbing}
+  .carton .cbody{fill:#f0b357;fill-opacity:.40;stroke:#b9770a;stroke-width:6;stroke-dasharray:20 10}
+  .carton:hover .cbody{fill-opacity:.55;stroke-width:8}
+  .carton .clab{font-family:var(--mono);fill:#5e3d06;text-anchor:middle;dominant-baseline:middle;font-weight:700;pointer-events:none}
+  .optchip{display:block;width:100%;text-align:left;margin:3px 0;padding:6px 8px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:6px;cursor:pointer}
+  .optchip:hover{background:#fff;border-color:var(--ink3)}
+  .optchip.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;background:var(--accent-soft)}
+
+  /* right column sections */
+  .panelsec{border-bottom:1px solid var(--line)}
+  .panelsec h3{margin:0;padding:8px 12px;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--ink2);display:flex;align-items:center;gap:8px}
+  .panelsec h3 .spacer{flex:1}
+  .panelsec .pad{padding:4px 12px 12px}
+  .inspector .empty{padding:18px 14px;color:var(--ink3);text-align:center;line-height:1.5}
+  .field{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .field label{flex:0 0 92px;font-size:11px}
+  .field .ctl{flex:1;display:flex;gap:6px;align-items:center}
+  .field input.num{width:100%}
+  .twocol{display:flex;gap:8px}
+  .twocol .field{flex:1;margin:6px 0}
+  .twocol .field label{flex:0 0 auto}
+  .insp-title{font-family:var(--mono);font-size:12px;padding:2px 0 8px;line-height:1.35}
+  .insp-title .pn{color:var(--ink3);font-size:10.5px}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+
+  /* layers */
+  .layerlist{display:flex;flex-direction:column}
+  .layeritem{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-top:1px solid var(--panel)}
+  .layeritem:hover{background:var(--panel2)}
+  .layeritem.active{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+  .layeritem .ln{font-weight:600;font-family:var(--mono);flex:0 0 auto}
+  .layeritem .meta{flex:1;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+  .layeritem .acts{display:flex;gap:3px;opacity:0}
+  .layeritem:hover .acts{opacity:1}
+  .layeritem .acts button{padding:2px 6px;font-size:11px}
+  .layeradd{padding:8px 12px;display:flex;gap:6px}
+
+  .stacksum{padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--ink2);display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
+  .stacksum b{color:var(--ink);font-weight:700}
+
+  /* modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(20,19,16,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal-bg.show{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.3);width:760px;max-width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+  .modal h2{margin:0;padding:14px 18px;font-size:15px;border-bottom:1px solid var(--line);display:flex;align-items:center}
+  .modal h2 .spacer{flex:1}
+  .modal .mbody{padding:16px 18px;overflow:auto}
+  .modal .mfoot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;align-items:center}
+  .modal textarea{width:100%;min-height:230px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line2);border-radius:8px;padding:10px;resize:vertical;background:var(--field);color:var(--ink);line-height:1.4}
+  .hint{font-size:11.5px;color:var(--ink3);line-height:1.5}
+  table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+  table.tbl th,table.tbl td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+  table.tbl th{color:var(--ink3);font-weight:600;position:sticky;top:0;background:var(--panel)}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:20px}
+  .pill.ok{background:#e7f0e9;color:var(--good);border:1px solid #bcd9c4}
+  .pill.bad{background:var(--bad-soft);color:var(--bad);border:1px solid #e0b3a8}
+  .pill.warn{background:#fdf1dd;color:var(--warn);border:1px solid #e8c98c}
+  .reclist{display:flex;flex-direction:column;gap:8px}
+  .reccard{border:1px solid var(--line2);border-radius:8px;padding:10px 12px;background:var(--panel2);display:flex;align-items:center;gap:12px}
+  .reccard .info{flex:1;min-width:0}
+  .reccard .nm{font-weight:650;font-family:var(--mono)}
+  .reccard .sub{font-size:11px;color:var(--ink3);font-family:var(--mono)}
+  .kbd{font-family:var(--mono);font-size:10.5px;background:var(--field);border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--ink2)}
+  .helpgrid{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center;font-size:12px}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:9px 16px;border-radius:8px;font-size:12.5px;z-index:80;opacity:0;transition:opacity .2s, transform .2s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-2px)}
+  .divlabel{font-size:10.5px;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin:2px 0}
+  /* ---------- mobile (phone/tablet) ---------- */
+  #mtabs{display:none}
+  #mobileActions{display:none}
+  @media (max-width:820px){
+    header{flex-wrap:wrap;gap:8px;padding:8px 10px}
+    header .sku input{width:120px}
+    header .sig{display:none}
+    main{display:flex;flex-direction:column;overflow:hidden}
+    .col{border:0!important}
+    .col.center{order:1;height:48vh;min-height:300px}
+    .canvasbar{overflow-x:auto;flex-wrap:nowrap;white-space:nowrap;gap:8px}
+    .canvasbar::-webkit-scrollbar{height:0}
+    #mtabs{order:2;display:flex;background:var(--panel);border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);overflow-x:auto}
+    #mtabs .mtab{flex:1 0 auto;min-width:80px;border:0;border-radius:0;background:transparent;color:var(--ink2);padding:11px 8px;font-size:12px;border-bottom:2px solid transparent}
+    #mtabs .mtab.on{color:var(--accent);border-bottom-color:var(--accent);background:var(--panel2)}
+    .col.left{order:3;display:none;min-height:0;overflow:auto;flex:1}
+    .col.right{order:3;display:none;overflow:auto;flex:1}
+    body[data-tab="parts"] .col.left{display:flex;flex-direction:column}
+    body[data-tab="sel"] .col.right,body[data-tab="layers"] .col.right,body[data-tab="cartons"] .col.right,body[data-tab="settings"] .col.right{display:block}
+    .col.right .panelsec{display:none}
+    body[data-tab="sel"] .panelsec[data-mtab="sel"],body[data-tab="layers"] .panelsec[data-mtab="layers"],body[data-tab="cartons"] .panelsec[data-mtab="cartons"],body[data-tab="settings"] .panelsec[data-mtab="settings"]{display:block}
+    button{padding:8px 11px}
+    .colhead,.traytools{position:sticky;top:0;background:var(--panel);z-index:2}
+    #mobileActions.show{display:flex;position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:40;gap:4px;padding:6px;background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+    #mobileActions button{width:42px;height:42px;font-size:16px;padding:0;display:flex;align-items:center;justify-content:center}
+    #mobileActions .masep{width:1px;background:var(--line2);margin:3px 2px}
+  }
+  .actionbar{flex:0 0 auto;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--line2)}
+  .actionbar .grp{display:flex;align-items:center;gap:6px}
+  .actionbar .sep{width:1px;height:22px;background:var(--line2);margin:0 2px}
+  .actionbar .lbl{font-size:11px;color:var(--ink2)}
+  .actionbar select{padding:4px 6px;font-size:12px;border:1px solid var(--line2);border-radius:6px;background:var(--field);color:var(--ink)}
+  @media(max-width:820px){ .actionbar{overflow-x:auto;flex-wrap:nowrap;white-space:nowrap} }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">Stacking Recipe Editor <small>Murphy bed TFL parts · <span id="verTag"></span></small></div>
+    <div class="sku">
+      <label>SKU</label>
+      <input id="skuInput" placeholder="e.g. QUEEN-LIBWALL-3BAY" spellcheck="false">
+    </div>
+    <span id="sigBadge" class="sig" title="Geometry fingerprint of the current part list">sig —</span>
+    <div class="spacer"></div>
+    <div class="grp">
+      <button id="btnImport" class="primary">Import part list…</button>
+      <button id="btnValidate">Match order…</button>
+      <button id="btnLibrary">Library…</button>
+      <button id="btnSave">Save recipe</button>
+      <button id="btnExport">Export…</button>
+      <button id="btnHelp" class="ghost" title="Shortcuts & coordinate model">?</button>
+    </div>
+  </header>
+
+  <main>
+    <nav id="mtabs" aria-label="Panels">
+      <button class="mtab on" data-tab="parts">Parts</button>
+      <button class="mtab" data-tab="sel">Selection</button>
+      <button class="mtab" data-tab="layers">Layers</button>
+      <button class="mtab" data-tab="cartons">Cartons</button>
+      <button class="mtab" data-tab="settings">Settings</button>
+    </nav>
+    <!-- LEFT: parts tray -->
+    <section class="col left">
+      <div class="colhead">Parts <span class="spacer"></span><span id="trayCount" class="muted mono"></span></div>
+      <div class="traytools">
+        <div class="row"><input type="search" id="traySearch" placeholder="Filter parts…" spellcheck="false"></div>
+        <div class="row" style="justify-content:space-between">
+          <span class="muted" style="font-size:11px">Click a part, then click the pallet</span>
+          <button id="btnExpand" class="ghost" style="font-size:11px">Collapse all</button>
+        </div>
+      </div>
+      <div class="colbody" id="trayBody">
+        <div class="emptytray">No parts loaded.<br>Use <b>Import part list…</b> to paste an order.</div>
+      </div>
+    </section>
+
+    <!-- CENTER: canvas -->
+    <section class="col center">
+      <div class="canvaswrap">
+        <div class="actionbar">
+          <div class="grp">
+            <button id="btnBuildStack" class="primary" title="Search many layouts and return the best few: big panels low, small parts saved for the top, carton voids reserved up top, then a support repair pass. No part is left under 70% supported.">Generate stack</button>
+            <select id="effortSel" title="How hard to search. Thorough takes much longer and is meant to be run once per parts mix; Balanced is a good default."><option value="fast">Fast</option><option value="balanced" selected>Balanced</option><option value="thorough">Thorough</option></select>
+          </div>
+          <div class="sep"></div>
+          <div class="grp">
+            <button id="btnSuggest" title="Densely pack the current (or a new) layer with as many remaining parts as fit, rotating to fill gaps.">Suggest layer</button>
+            <select id="suggestCrit" title="What to optimize the suggested layer for."><option value="big" selected>Big parts first</option><option value="count">Most pieces</option><option value="tight">Tightest pack</option></select>
+            <button id="btnResuggest" class="ghost" title="Re-roll a different layout for the current layer using the chosen criterion.">&#8635; Different layout</button>
+          </div>
+        </div>
+        <div id="optStatus" style="display:none;font-family:var(--mono);font-size:11px;padding:6px 12px;color:var(--ink);background:var(--panel2);border-bottom:1px solid var(--line2)"></div>
+        <div id="optResults" style="display:none;padding:2px 12px"></div>
+        <div class="canvasbar">
+          <button id="btnRotate" title="Rotate 90° (R)">⟳ Rotate</button>
+          <button id="btnDup" title="Duplicate (Ctrl/Cmd+D)">Duplicate</button>
+          <button id="btnDelete" class="danger" title="Delete (Del)">Delete</button>
+          <button id="btnFit" title="Fit view to pallet">&#10530; Fit</button>
+          <span style="width:1px;height:18px;background:var(--line2)"></span>
+          <label class="chk"><input type="checkbox" id="chkSnap" checked> Snap</label>
+          <label class="chk">Grid <select id="gridSel" style="padding:2px 4px">
+            <option value="0">off</option><option value="5">5mm</option>
+            <option value="10" selected>10mm</option><option value="25">25mm</option>
+            <option value="0.5in">½″</option><option value="1in">1″</option>
+          </select></label>
+          <label class="chk"><input type="checkbox" id="chkContain" checked> Keep in bounds</label>
+          <label class="chk">Gap <input id="gapInput" class="num" value="0" style="width:46px;padding:2px 4px"> <span id="gapUnit" class="muted">mm</span></label>
+          <label class="chk"><input type="checkbox" id="chkGhost" checked> Ghost below</label>
+          <label class="chk"><input type="checkbox" id="chkLabels" checked> Labels</label>
+          <span style="width:1px;height:18px;background:var(--line2)"></span>
+          <span class="lbl">Units</span>
+          <div class="seg"><button id="unitMM" class="on">mm</button><button id="unitIN">inch</button></div>
+          <div class="spacer" style="flex:1"></div>
+          <span class="lbl" id="layerTag" style="font-family:var(--mono)">Layer 1</span>
+        </div>
+        <div class="svghost" id="svgHost">
+          <div class="armhint" id="armHint"></div>
+          <svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="statusbar" id="statusBar"></div>
+      </div>
+    </section>
+
+    <!-- RIGHT: inspector / layers / settings / export -->
+    <section class="col right">
+      <div class="colbody">
+        <div class="panelsec inspector" data-mtab="sel">
+          <h3>Selection</h3>
+          <div class="pad" id="inspector">
+            <div class="empty">Nothing selected.<br>Click a part on the pallet.</div>
+          </div>
+        </div>
+
+        <div class="panelsec" data-mtab="layers">
+          <h3>Layers <span class="spacer"></span><span id="stackTag" class="mono muted" style="font-size:10.5px"></span></h3>
+          <div class="layerlist" id="layerList"></div>
+          <div class="layeradd">
+            <button id="btnAddLayer">+ Layer</button>
+            <button id="btnDupLayer">Duplicate</button>
+            <button id="btnClearStack" class="danger" title="Remove every placed part and reset to one empty layer. Keeps the imported part list and your carton definitions.">Clear stack</button>
+          </div>
+          <div class="stacksum" id="stackSum"></div>
+        </div>
+
+        <div class="panelsec" data-mtab="cartons">
+          <h3>Frame cartons</h3>
+          <div class="pad">
+            <div class="hint" style="margin-top:0;margin-bottom:8px">Cartons reserve a void across the top layers; panels pack around them and the small parts are saved for the top. You set the cartons into the voids by hand. H sets how many layers it spans. Dims are stored to the nearest mm.</div>
+            <div style="display:flex;gap:7px;align-items:center;margin-bottom:7px">
+              <span class="muted" style="font-size:10.5px">Carton units</span>
+              <div class="seg"><button id="ckUnitMM" class="on">mm</button><button id="ckUnitIN">inch</button></div>
+            </div>
+            <div id="cartonList"></div>
+            <div style="display:flex;gap:5px;margin-top:6px;align-items:center">
+              <input id="ckName" placeholder="Name" style="flex:1;min-width:0" spellcheck="false">
+              <input id="ckL" class="num" placeholder="L" style="width:44px">
+              <input id="ckW" class="num" placeholder="W" style="width:44px">
+              <input id="ckH" class="num" placeholder="H" style="width:44px">
+              <input id="ckQ" class="num" placeholder="#" value="1" style="width:34px">
+              <span id="ckUnitTag" class="muted" style="font-size:10.5px">mm</span>
+              <button id="ckAdd">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panelsec" data-mtab="settings">
+          <h3>Pallet &amp; footprint</h3>
+          <div class="pad">
+            <div class="divlabel">Footprint (stack area)</div>
+            <div class="twocol">
+              <div class="field"><label>L</label><div class="ctl"><input class="num" id="footL" value="1994"><span class="muted" id="u1">mm</span></div></div>
+              <div class="field"><label>W</label><div class="ctl"><input class="num" id="footW" value="991"><span class="muted" id="u2">mm</span></div></div>
+            </div>
+            <div class="divlabel">Pallet (outer)</div>
+            <div class="twocol">
+              <div class="field"><label>L</label><div class="ctl"><input class="num" id="palL" value="2032"><span class="muted" id="u3">mm</span></div></div>
+              <div class="field"><label>W</label><div class="ctl"><input class="num" id="palW" value="1092"><span class="muted" id="u4">mm</span></div></div>
+            </div>
+            <div class="field"><label>Footprint on pallet</label><div class="ctl">
+              <select id="footPos"><option value="center" selected>Centered</option>
+              <option value="TL">Corner TL</option><option value="TR">Corner TR</option>
+              <option value="BL">Corner BL</option><option value="BR">Corner BR</option></select>
+            </div></div>
+          </div>
+        </div>
+
+        <div class="panelsec" data-mtab="settings">
+          <h3>Coordinate output</h3>
+          <div class="pad">
+            <div class="field"><label>Origin corner</label><div class="ctl">
+              <select id="originSel"><option value="TL" selected>Top-left</option>
+              <option value="TR">Top-right</option><option value="BL">Bottom-left</option>
+              <option value="BR">Bottom-right</option></select></div></div>
+            <div class="field"><label>Datum</label><div class="ctl">
+              <select id="datumSel"><option value="foot" selected>Footprint</option>
+              <option value="pal">Pallet</option></select></div></div>
+            <div class="field"><label>Reference pt</label><div class="ctl">
+              <select id="refSel"><option value="center" selected>Part center</option>
+              <option value="corner">Origin-side corner</option></select></div></div>
+            <div class="hint">Export always also carries center + angle + part L×W, so any robot grip convention can be derived later.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <div id="mobileActions" aria-hidden="true">
+      <button data-nudge="left" title="Nudge left">&#9664;</button>
+      <button data-nudge="up" title="Nudge up">&#9650;</button>
+      <button data-nudge="down" title="Nudge down">&#9660;</button>
+      <button data-nudge="right" title="Nudge right">&#9654;</button>
+      <span class="masep"></span>
+      <button id="maRotate" title="Rotate 90 deg">&#10227;</button>
+      <button id="maDup" title="Duplicate">&#10697;</button>
+      <button id="maDel" title="Delete">&#128465;</button>
+    </div>
+  </main>
+</div>
+
+<!-- IMPORT MODAL -->
+<div class="modal-bg" id="importModal">
+  <div class="modal">
+    <h2>Import part list <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody">
+      <p class="hint" style="margin-top:0">Paste the order's part table (tab- or space-separated). Columns expected: <span class="mono">Part #, Name, Qty, L(inch), L(mm), W(inch), W(mm)</span>. Section header rows and the column header are detected automatically. Qty 0 rows are skipped. mm columns are used as the working dimensions.</p>
+      <textarea id="importText" placeholder="Part #&#9;Part Name&#9;Qty.&#9;L(inch)&#9;L(mm)&#9;W(inch)&#9;W(mm)&#10;Side Cabinets - Lower Section&#10;61|88&#9;Unfinish Left Bottom&#9;2&#9;34&#9;863&#9;19 1/2&#9;495 …"></textarea>
+      <div id="importPreview" class="hint" style="margin-top:10px"></div>
+    </div>
+    <div class="mfoot">
+      <button class="ghost" id="loadSample" style="margin-right:auto">Load sample list</button>
+      <label class="hint"><input type="checkbox" id="importReplace" checked> Replace current parts &amp; layout</label>
+      <button class="ghost" data-close>Cancel</button>
+      <button class="primary" id="importGo">Load parts</button>
+    </div>
+  </div>
+</div>
+
+<!-- VALIDATE / MATCH MODAL -->
+<div class="modal-bg" id="validateModal">
+  <div class="modal">
+    <h2>Match an order to a recipe <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody">
+      <p class="hint" style="margin-top:0">Paste a production order's part list. It's fingerprinted by the multiset of part sizes + thickness and compared against saved recipes. A match means an existing stack plan applies.</p>
+      <textarea id="validateText" placeholder="Paste the order part table here…"></textarea>
+      <div id="validateResult" style="margin-top:12px"></div>
+    </div>
+    <div class="mfoot">
+      <button class="ghost" data-close>Close</button>
+      <button id="validateGo" class="primary">Check match</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIBRARY MODAL -->
+<div class="modal-bg" id="libModal">
+  <div class="modal">
+    <h2>Recipe library <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody">
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+        <button id="libExport">Export library file…</button>
+        <button id="libImport">Import library file…</button>
+        <input type="file" id="libFile" accept="application/json" style="display:none">
+        <span class="spacer" style="flex:1"></span>
+        <span id="libCount" class="hint"></span>
+      </div>
+      <div id="libList" class="reclist"></div>
+    </div>
+    <div class="mfoot"><button class="ghost" data-close>Close</button></div>
+  </div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div class="modal-bg" id="exportModal">
+  <div class="modal">
+    <h2>Export recipe <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody">
+      <p class="hint" style="margin-top:0">Per-part placement for every layer, in the current origin / datum / reference settings. Both mm and inch coordinates are included.</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button id="dlCSV" class="primary">Download CSV</button>
+        <button id="dlJSON" class="primary">Download JSON</button>
+        <button id="dlPDF" class="primary">Download PDF — colour</button>
+        <button id="dlPDFBW" class="primary">Download PDF — B&amp;W</button>
+        <button id="copyCSV">Copy CSV</button>
+      </div>
+      <p class="hint" style="margin:-4px 0 12px">The PDF is a visual, shareable layout: a cover summary, an all-layers overview sheet, and one page per layer (parts labelled, support flagged) — for discussion, not for the robot.</p>
+      <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px">
+        <table class="tbl" id="exportTable"></table>
+      </div>
+    </div>
+    <div class="mfoot"><button class="ghost" data-close>Close</button></div>
+  </div>
+</div>
+
+<!-- HELP MODAL -->
+<div class="modal-bg" id="helpModal">
+  <div class="modal" style="width:620px">
+    <h2>How it works <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody">
+      <h3 style="margin:0 0 8px;font-size:13px">Placing parts</h3>
+      <div class="hint" style="margin-bottom:14px">Click a part in the left tray to arm it, press <span class="kbd">R</span> to set its rotation, then click the pallet to drop it on the active layer. Drag placed parts to move them; they snap to the footprint walls and to each other (set a <b>Gap</b> to leave kerf between parts, or turn <b>Snap</b> off for free movement). Parts are held inside the footprint while <b>Keep in bounds</b> is on. Two parts overlapping within one layer turn red; overlaps between layers are fine — that's the stack. <b>Suggest layer</b> densely packs the current (or a new) layer with as many tray parts as fit, trying both orientations and backfilling leftover space, then leaves the rest in the tray — click it again to fill the next layer. A starting point you can rearrange.</div>
+      <h3 style="margin:0 0 8px;font-size:13px">Shortcuts</h3>
+      <div class="helpgrid">
+        <span class="kbd">R</span><span>Rotate selection +90° &nbsp; (<span class="kbd">Shift</span>+<span class="kbd">R</span> = −90°)</span>
+        <span class="kbd">← ↑ → ↓</span><span>Nudge by grid &nbsp; (<span class="kbd">Shift</span> = ×5)</span>
+        <span class="kbd">Del</span><span>Remove selected parts (returns them to the tray)</span>
+        <span><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">D</span></span><span>Duplicate selected parts</span>
+        <span class="kbd">[ &nbsp; ]</span><span>Previous / next layer</span>
+        <span class="kbd">Esc</span><span>Deselect / cancel placing</span>
+        <span>Click empty + drag</span><span>Marquee-select parts on the active layer</span>
+        <span><span class="kbd">Shift</span>+click</span><span>Add / remove from selection</span>
+      </div>
+      <h3 style="margin:16px 0 8px;font-size:13px">Auto-stacking &amp; cartons</h3>
+      <div class="hint" style="margin-bottom:14px"><b>Suggest layer</b> fills one layer at a time. <b>Build stack</b> runs a nesting-style search (Fast / Balanced / Thorough — slower = more thorough) over many part orderings and carton placements, and hands back the best 3 distinct layouts to click between. It puts big panels low, saves small parts for the top, and reserves frame-carton voids across the top layers with panels packed around them — you set the cartons into those voids by hand. Define a carton by name and L×W×H; a 100mm carton spans 6 of the 19mm layers. The same SKU at the same effort reproduces the same result.</div>
+      <h3 style="margin:16px 0 8px;font-size:13px">On a phone or tablet</h3>
+      <div class="hint" style="margin-bottom:14px">Pinch to zoom, drag one finger on empty space to pan, tap <b>Fit</b> to reset the view. Tap a part to select it &mdash; the bar at the bottom nudges, rotates, duplicates, or deletes it. Use the tabs under the canvas to reach Parts, Selection, Layers, Cartons, and Settings.</div>
+      <h3 style="margin:16px 0 8px;font-size:13px">Coordinate model</h3>
+      <div class="hint">Coordinates are distances from the chosen <b>origin corner</b> of the chosen <b>datum</b> (footprint or pallet), measured inward, so values are always positive. X runs along the long side, Y along the short side. Angle is the part rotation in degrees. Export carries the reference point you pick plus the center, angle, and L×W, so it can be re-mapped to whatever Edge's cell expects.</div>
+    </div>
+    <div class="mfoot"><button class="primary" data-close>Got it</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   Pallet Stacking Recipe Editor  —  single-file, offline
+   Working unit = millimetres. Display can switch to inch.
+   ============================================================ */
+'use strict';
+const MM_PER_IN = 25.4;
+const SVGNS = 'http://www.w3.org/2000/svg';
+const LS_LIB = 'mbd_stacking_library_v1';
+const LS_WORK = 'mbd_stacking_work_v1';
+const APP_VERSION = '2.9';
+
+const SECTION_COLORS = [
+  '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
+  '#6cb0a8','#c0954a','#a36c6c','#5f8aa6','#9a8e6f','#7a7f8c'
+];
+
+/* Built-in sample order (tab-separated). Preloaded on first run; reloadable from the Import dialog. */
+const SAMPLE_PARTS=`Part #\tPart Name\tQty.\tL(inch)\tL(mm)\tW(inch)\tW(mm)
+Side Cabinets - Lower Section (2 Cabinets, Exactly the Same)
+61|88\tUnfinish Left Bottom\t2\t34\t863\t19 1/2\t495
+62|89\tUnfinish Right Bottom\t2\t34\t863\t19 1/2\t495
+65|92\tFront Toe\t2\t30 1/4\t768\t3  7/16\t87
+64|91\tDeck*\t2\t30 1/4\t768\t18 11/16\t474
+70|97\tHoriz. Part\t2\t30 1/4\t768\t18 11/16\t474
+Bed Cabinet - Lower Section
+28\tUnfinish Left Bottom\t1\t34\t863\t19 1/2\t495
+29\tUnfinish Right Bottom\t1\t34\t863\t19 1/2\t495
+31\tFront Toe\t1\t62\t1574\t4  9/16\t116
+1\tHead Board\t1\t62\t1574\t13 1/2\t343
+2\tValance\t1\t61\t1548\t3 3/4\t96
+Side Cabinets - Upper Section (2 Cabinets, Left and Right Mirror one Another)
+66|93\tUnfinish Left Top\t2\t50 1/4\t1276\t19 1/2\t495
+67|94\tUnfinish Right Top\t2\t50 1/4\t1276\t19 1/2\t495
+57|84\tValance\t2\t30 1/4\t768\t3  7/16\t87
+60|87\tValance\t2\t30 1/4\t768\t3 3/4\t96
+63|90\tTop\t2\t30 1/4\t768\t19 1/2\t495
+N/A\tInterior Back\t0\t50 1/4\t1276\t30 1/4\t768
+68|95\tLib Hutch Top\t2\t32 13/16\t833\t19 5/8\t499
+Bed Cabinet - Upper Section
+55\tUnfinish Left Top\t1\t50 1/4\t1276\t19 1/2\t495
+56\tUnfinish Right Top\t1\t50 1/4\t1276\t19 1/2\t495
+5\tValance\t1\t62\t1574\t3 3/4\t96
+30\tTop\t1\t62\t1574\t19 1/2\t495
+Library Tops (Overhang to Support Sliders)
+3\tLibrary Top\t1\t63 1/2\t1612\t28 1/2\t725
+58|85\tLibrary Top\t2\t31 3/4\t806\t28 1/2\t725
+Sliders (2 Cabinets, Exactly the Same)
+07|33\tLeft Ends\t2\t78  7/16\t1992\t8\t203
+08|34\tRight Ends\t2\t78  7/16\t1992\t8\t203
+11|37\tDeck\t2\t30 1/4\t768\t7  3/16\t182
+14|40\tHoriz. Part\t2\t30 1/4\t768\t7  3/16\t182
+06|32\tValance\t2\t30 1/4\t768\t3  7/16\t87
+10|36\tTop\t2\t30 1/4\t768\t7  3/16\t182
+09|35\tInterior Back\t2\t78  7/16\t1992\t30 1/4\t768
+12|38\tBottom Rail\t2\t31 3/4\t806\t8\t203
+13|39\tTop Rail\t2\t31 3/4\t806\t8\t203
+Outer Fascia
+69|96\tValance\t2\t28 1/2\t725\t6  5/16\t160
+59|86\tValance\t2\t32 1/2\t826\t6  5/16\t160
+4\tValance\t1\t63 1/2\t1612\t6  5/16\t160
+54\tNailer\t1\t66 1/2\t1689\t6  5/16\t160
+Doors (If Included)
+74,79|101,106\tDoor\t4\t29  3/16\t741\t14 7/8\t378
+18,23|44,49\tDoor\t4\t31  3/16\t792\t15 3/4\t400
+Adjustable Shelves
+73|100\tAdj. Shelf\t2\t30 1/4\t768\t18 1/2\t469
+71,72|98,99\tAdj. Shelf\t4\t30 1/4\t768\t19 1/2\t495
+15,16,17|41,42,43\tAdj. Shelf\t6\t30 1/4\t768\t7\t176`;
+
+/* ---------- state ---------- */
+const S = {
+  sku:'',
+  manifest:[],            // [{partNum,name,section,secIdx,Lmm,Wmm,Lin,Win,qty,thickness,key}]
+  layers:[[]],            // array of layers; each = array of placed parts
+  activeLayer:0,
+  sel:new Set(),          // selected placed-part ids (within active layer)
+  armed:null,             // manifest key armed for placing
+  nextId:1,
+  unit:'mm',
+  cartonUnit:'mm',
+  grid:10, gridIn:false,
+  snap:true, ghost:true, labels:true, contain:true, gap:0, armedAngle:0, maxSupport:false,
+  foot:{L:1994,W:991}, pal:{L:2032,W:1092}, footPos:'center',
+  origin:'TL', datum:'foot', ref:'center',
+  collapsed:new Set(),
+  cartons:[], placedCartons:[],
+};
+/* placed part shape: {id, key, partNum, name, secIdx, L, W, thickness, cx, cy, angle} */
+
+/* ---------- dom helpers ---------- */
+const $=id=>document.getElementById(id);
+const el=(tag,attrs,kids)=>{const e=document.createElementNS(tag.match(/^(svg|g|rect|line|text|circle|path|polygon)$/)?SVGNS:'http://www.w3.org/1999/xhtml',tag);
+  if(attrs)for(const k in attrs){if(k==='class')e.setAttribute('class',attrs[k]);else if(k==='text')e.textContent=attrs[k];else e.setAttribute(k,attrs[k]);}
+  if(kids)kids.forEach(k=>e.appendChild(k)); return e;};
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1900);}
+
+/* ---------- units ---------- */
+const mmToIn=mm=>mm/MM_PER_IN;
+function fmt(mm,dp){ if(S.unit==='in'){const v=mmToIn(mm);return v.toFixed(dp==null?2:dp);} return Math.round(mm).toString(); }
+function fmtBoth(mm){ return Math.round(mm)+'mm / '+mmToIn(mm).toFixed(2)+'″'; }
+function unitLabel(){return S.unit==='in'?'″':'mm';}
+function parseLen(str,unit){ // returns mm from a display-unit string (supports fractions in inch); unit defaults to global S.unit
+  unit=unit||S.unit;
+  str=String(str).trim(); if(!str)return NaN;
+  let val;
+  if(str.includes('/')){ const parts=str.split(/\s+/); val=0; for(const p of parts){ if(p.includes('/')){const[a,b]=p.split('/').map(Number);val+=a/b;}else val+=Number(p);} }
+  else val=Number(str);
+  if(isNaN(val))return NaN;
+  return unit==='in'? val*MM_PER_IN : val;
+}
+/* carton section has its own unit (panels can stay mm while a carton is entered in inches); values are always stored as rounded mm */
+function cartonUnit(){return S.cartonUnit==='in'?'in':'mm';}
+function cdim(mm){return cartonUnit()==='in'?mmToIn(mm).toFixed(2):Math.round(mm);}
+function cUnitLabel(){return cartonUnit()==='in'?'″':'mm';}
+
+/* ---------- part-list parser ---------- */
+function parseInchFrac(s){ s=String(s).trim().replace(/\s+/g,' '); if(!s)return null; let t=0; for(const p of s.split(' ')){ if(p.includes('/')){const[a,b]=p.split('/').map(Number);t+=a/b;}else t+=Number(p);} return t; }
+function parsePartList(raw){
+  const TAB=/^(.+?)\t+(\d+)\t+([\d\s/]+?)\t+(\d+)\t+([\d\s/]+?)\t+(\d+)\s*$/;
+  const SP =/^(.+?)\s+(\d+)\s+(\d+(?:\s+\d+\/\d+)?)\s+(\d+)\s+(\d+(?:\s+\d+\/\d+)?)\s+(\d+)\s*$/;
+  const rows=[]; const sections=[]; let section='(unsectioned)'; let secIdx=0; const secMap={};
+  secMap[section]=secIdx; sections.push(section);
+  let skippedZero=0, headerSeen=false;
+  for(let line of raw.split(/\r?\n/)){
+    if(!line.trim())continue;
+    if(/part\s*#/i.test(line)&&/part\s*name/i.test(line)){headerSeen=true;continue;}
+    let m=line.match(TAB)||line.match(SP);
+    if(m){
+      const idname=m[1].trim().replace(/\s+/g,' ');
+      const sp=idname.split(' ');
+      const partNum=sp[0];
+      const name=sp.slice(1).join(' ')||partNum;
+      const qty=parseInt(m[2],10);
+      const Lin=parseInchFrac(m[3]), Lmm=parseInt(m[4],10);
+      const Win=parseInchFrac(m[5]), Wmm=parseInt(m[6],10);
+      if(!Lmm||!Wmm){continue;}
+      if(qty<=0){skippedZero++;continue;}
+      if(!(section in secMap)){secMap[section]=++secIdx;sections.push(section);}
+      rows.push({partNum,name,section,secIdx:secMap[section],Lmm,Wmm,Lin,Win,qty});
+    } else {
+      // treat as a section header (skip pure noise that looks like a header but is short)
+      section=line.trim();
+    }
+  }
+  return {rows,sections,skippedZero,headerSeen};
+}
+
+/* manifest key: identity for tray grouping = partNum+name+dims+thickness */
+function mkey(p){return p.partNum+'¦'+p.name+'¦'+p.Lmm+'x'+p.Wmm+'x'+(p.thickness);}
+
+/* ---------- geometry ---------- */
+function halfExtents(L,W,angle){
+  const r=angle*Math.PI/180, c=Math.abs(Math.cos(r)), s=Math.abs(Math.sin(r));
+  return {hx:(L*c+W*s)/2, hy:(L*s+W*c)/2};
+}
+function bbox(p){const{hx,hy}=halfExtents(p.L,p.W,p.angle);return{minX:p.cx-hx,maxX:p.cx+hx,minY:p.cy-hy,maxY:p.cy+hy,hx,hy};}
+function rectsOverlap(a,b,eps){eps=eps||0.5;return a.minX<b.maxX-eps&&a.maxX>b.minX+eps&&a.minY<b.maxY-eps&&a.maxY>b.minY+eps;}
+function inFootprint(bb,eps){eps=eps||0.5;return bb.minX>=-eps&&bb.minY>=-eps&&bb.maxX<=S.foot.L+eps&&bb.maxY<=S.foot.W+eps;}
+
+/* footprint offset within pallet */
+function footOffset(){
+  const dx=S.pal.L-S.foot.L, dy=S.pal.W-S.foot.W;
+  switch(S.footPos){
+    case 'TL':return{x:0,y:0};
+    case 'TR':return{x:dx,y:0};
+    case 'BL':return{x:0,y:dy};
+    case 'BR':return{x:dx,y:dy};
+    default:return{x:dx/2,y:dy/2};
+  }
+}
+
+/* origin transform: footprint-local point -> origin-frame (positive inward) */
+function toOriginFrame(x,y){
+  let dx=x,dy=y,Dw=S.foot.L,Dh=S.foot.W;
+  if(S.datum==='pal'){const o=footOffset();dx=x+o.x;dy=y+o.y;Dw=S.pal.L;Dh=S.pal.W;}
+  const fx=(S.origin==='TR'||S.origin==='BR'); // flips X
+  const fy=(S.origin==='BL'||S.origin==='BR'); // flips Y
+  return {X: fx?Dw-dx:dx, Y: fy?Dh-dy:dy, flipX:fx, flipY:fy};
+}
+/* reference point of a placed part in origin frame */
+function refPoint(p){
+  const bb=bbox(p);
+  if(S.ref==='center'){const o=toOriginFrame(p.cx,p.cy);return{X:o.X,Y:o.Y};}
+  // corner: the part bbox corner nearest origin -> min in origin frame
+  const c1=toOriginFrame(bb.minX,bb.minY), c2=toOriginFrame(bb.maxX,bb.maxY);
+  return {X:Math.min(c1.X,c2.X), Y:Math.min(c1.Y,c2.Y)};
+}
+
+/* ---------- signature (geometry fingerprint) ---------- */
+function manifestSignatureFromRows(rows){
+  const arr=[];
+  for(const r of rows){for(let i=0;i<r.qty;i++)arr.push(r.Lmm+'x'+r.Wmm+'x'+(r.thickness||19));}
+  arr.sort();
+  return arr;
+}
+function sigString(arr){return arr.join('|');}
+function sigShort(arr){
+  // compact human label: count + a short hash
+  let h=2166136261>>>0; const s=arr.join('|');
+  for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}
+  return arr.length+'·'+h.toString(36).slice(0,6);
+}
+function currentSigArr(){
+  const arr=[];
+  for(const p of S.manifest){for(let i=0;i<p.qty;i++)arr.push(p.Lmm+'x'+p.Wmm+'x'+p.thickness);}
+  arr.sort(); return arr;
+}
+
+/* ---------- THE RENDERER ---------- */
+const stage=$('stage');
+let VIEW={x:0,y:0,w:100,h:100}, userView=false;
+function fitView(){
+  const M=Math.max(S.pal.L,S.pal.W)*0.07+60;
+  VIEW={x:-M,y:-M,w:S.pal.L+2*M,h:S.pal.W+2*M};
+  stage.setAttribute('viewBox',`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`);
+  stage.setAttribute('preserveAspectRatio','xMidYMid meet');
+  userView=false;
+}
+function applyViewBox(){stage.setAttribute('viewBox',`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`);}
+function buildView(){ if(!userView) fitView(); }   // fit unless the user has panned/zoomed (desktop behaves as before)
+function render(){
+  buildView();
+  while(stage.firstChild)stage.removeChild(stage.firstChild);
+  const o=footOffset();
+
+  // pallet
+  stage.appendChild(el('rect',{x:0,y:0,width:S.pal.L,height:S.pal.W,rx:8,class:'pallet-fill'}));
+  stage.appendChild(el('rect',{x:0,y:0,width:S.pal.L,height:S.pal.W,rx:8,class:'pallet-edge'}));
+  // footprint
+  stage.appendChild(el('rect',{x:o.x,y:o.y,width:S.foot.L,height:S.foot.W,class:'foot-fill'}));
+  stage.appendChild(el('rect',{x:o.x,y:o.y,width:S.foot.L,height:S.foot.W,class:'foot-edge'}));
+
+  // rulers along footprint top & left
+  drawRulers(o);
+  // origin marker
+  drawOrigin(o);
+
+  // ghost of layer below
+  const fg=el('g',{transform:`translate(${o.x},${o.y})`});
+  if(S.ghost && S.activeLayer>0){
+    for(const p of S.layers[S.activeLayer-1]){
+      fg.appendChild(el('rect',{class:'ghost-part',x:-p.L/2,y:-p.W/2,width:p.L,height:p.W,
+        transform:`translate(${p.cx},${p.cy}) rotate(${p.angle})`}));
+    }
+  }
+  // active layer parts
+  const layer=S.layers[S.activeLayer];
+  const bbs=layer.map(bbox);
+  const cartBB=cartonRectsOnLayer(S.activeLayer);
+  const belowRects = S.activeLayer>0 ? S.layers[S.activeLayer-1].map(bbox).concat(cartonRectsOnLayer(S.activeLayer-1)) : null; // null = ground (supported)
+  for(let i=0;i<layer.length;i++){
+    const p=layer[i], bb=bbs[i];
+    let bad=!inFootprint(bb);
+    if(!bad){for(let j=0;j<layer.length;j++){if(j!==i&&rectsOverlap(bb,bbs[j])){bad=true;break;}}}
+    if(!bad){for(const cb of cartBB){if(rectsOverlap(bb,cb)){bad=true;break;}}}
+    const sup = (!bad && belowRects) ? _supportFrac(bb,belowRects) : 1;
+    const lowsup = sup>=0.7 && sup<0.9, badsup = sup<0.7; // amber 70-90%, red <70%
+    const g=el('g',{class:'part'+(S.sel.has(p.id)?' sel':'')+(bad?' bad':'')+(badsup?' badsup':'')+(lowsup?' lowsup':''),transform:`translate(${p.cx},${p.cy}) rotate(${p.angle})`});
+    g.dataset.id=p.id;
+    const col=SECTION_COLORS[p.secIdx%SECTION_COLORS.length];
+    const r=el('rect',{class:'body',x:-p.L/2,y:-p.W/2,width:p.L,height:p.W,fill:col});
+    if(p.thickness!==19){r.setAttribute('stroke-dasharray','10 6');}
+    g.appendChild(r);
+    // grip cross at reference origin-side / center marker
+    g.appendChild(el('line',{class:'grip',x1:-18,y1:0,x2:18,y2:0}));
+    g.appendChild(el('line',{class:'grip',x1:0,y1:-18,x2:0,y2:18}));
+    if(S.labels){
+      const long=Math.max(p.L,p.W), shortD=Math.min(p.L,p.W);
+      const fs=Math.max(20,Math.min(46,shortD*0.34));
+      const dimTxt=fmt(p.L,S.unit==='in'?2:0)+'×'+fmt(p.W,S.unit==='in'?2:0);
+      const t1=el('text',{class:'lab dim',x:0,y:-fs*0.55,'font-size':fs});t1.textContent=dimTxt;
+      const t2=el('text',{class:'lab',x:0,y:fs*0.65,'font-size':fs*0.78});t2.textContent=p.partNum;
+      // if part is taller than wide, rotate text to read along length
+      if(p.W>p.L*1.25){t1.setAttribute('transform','rotate(-90)');t2.setAttribute('transform','rotate(-90)');t1.setAttribute('x',0);}
+      g.appendChild(t1);g.appendChild(t2);
+    }
+    fg.appendChild(g);
+  }
+  // cartons present on this layer (voids the operator fills by hand) drawn over panels
+  for(const c of (S.placedCartons||[])){
+    if(S.activeLayer>=c.startLayer && S.activeLayer<c.startLayer+c.span){
+      const cx0=c.cx-c.vw/2, cy0=c.cy-c.vh/2;
+      const cg=el('g',{class:'carton'});
+      cg.dataset.cidx=(S.placedCartons||[]).indexOf(c);      // handle for drag
+      cg.appendChild(el('rect',{class:'cbody',x:cx0,y:cy0,width:c.vw,height:c.vh}));
+      const fs=Math.max(22,Math.min(54,Math.min(c.vw,c.vh)*0.26));
+      const t1=el('text',{class:'clab',x:c.cx,y:c.cy-fs*0.55,'font-size':fs});t1.textContent=(c.name||'CARTON').toUpperCase();
+      const t2=el('text',{class:'clab',x:c.cx,y:c.cy+fs*0.62,'font-size':fs*0.72});t2.textContent=cdim(c.L)+'×'+cdim(c.W)+'×'+cdim(c.H)+cUnitLabel()+' · '+c.span+'L';
+      if(c.vh>c.vw*1.25){t1.setAttribute('transform',`rotate(-90 ${c.cx} ${c.cy})`);t2.setAttribute('transform',`rotate(-90 ${c.cx} ${c.cy})`);}
+      cg.appendChild(t1);cg.appendChild(t2);
+      fg.appendChild(cg);
+    }
+  }
+  stage.appendChild(fg);
+
+  // overlay group for snap lines / marquee / place ghost (added live)
+  const ov=el('g',{id:'overlay'});stage.appendChild(ov);
+
+  attachPartHandlers(); attachCartonHandlers();
+  if(typeof updateMobileActions==='function')updateMobileActions();
+  updateStatus(layer,bbs);
+}
+function drawRulers(o){
+  const step=chooseTick(S.foot.L);
+  for(let x=0;x<=S.foot.L+1;x+=step){
+    const wx=o.x+x;
+    stage.appendChild(el('line',{class:'ruler-tick',x1:wx,y1:o.y-6,x2:wx,y2:o.y-24}));
+    const t=el('text',{class:'ruler-txt',x:wx,y:o.y-32,'text-anchor':'middle'});t.textContent=fmt(x,S.unit==='in'?1:0);
+    stage.appendChild(t);
+  }
+  const stepY=chooseTick(S.foot.W);
+  for(let y=0;y<=S.foot.W+1;y+=stepY){
+    const wy=o.y+y;
+    stage.appendChild(el('line',{class:'ruler-tick',x1:o.x-6,y1:wy,x2:o.x-24,y2:wy}));
+    const t=el('text',{class:'ruler-txt',x:o.x-30,y:wy+10,'text-anchor':'end'});t.textContent=fmt(y,S.unit==='in'?1:0);
+    stage.appendChild(t);
+  }
+}
+function chooseTick(span){
+  if(S.unit==='in'){ // tick every 6 inch-ish
+    const sixin=6*MM_PER_IN; return sixin;
+  }
+  if(span>1500)return 250; if(span>800)return 200; if(span>400)return 100; return 50;
+}
+function drawOrigin(o){
+  // place a marker at the chosen origin corner of the chosen datum
+  let Dw=S.foot.L,Dh=S.foot.W,bx=o.x,by=o.y;
+  if(S.datum==='pal'){Dw=S.pal.L;Dh=S.pal.W;bx=0;by=0;}
+  let px=bx,py=by;
+  if(S.origin==='TR')px=bx+Dw;
+  if(S.origin==='BL')py=by+Dh;
+  if(S.origin==='BR'){px=bx+Dw;py=by+Dh;}
+  stage.appendChild(el('circle',{class:'origin-mark',cx:px,cy:py,r:11}));
+  // little axes
+  const ax=(S.origin==='TR'||S.origin==='BR')?-1:1;
+  const ay=(S.origin==='BL'||S.origin==='BR')?-1:1;
+  stage.appendChild(el('line',{class:'ruler-tick',x1:px,y1:py,x2:px+ax*70,y2:py,stroke:'#1f5fff','stroke-width':4}));
+  stage.appendChild(el('line',{class:'ruler-tick',x1:px,y1:py,x2:px,y2:py+ay*70,stroke:'#1f5fff','stroke-width':4}));
+  const t=el('text',{class:'origin-txt',x:px+ax*16,y:py+ay*40,'text-anchor':ax<0?'end':'start'});t.textContent='0,0';
+  stage.appendChild(t);
+}
+
+/* convert a client point to footprint-local mm */
+function clientToFoot(clientX,clientY){
+  const pt=stage.createSVGPoint();pt.x=clientX;pt.y=clientY;
+  const loc=pt.matrixTransform(stage.getScreenCTM().inverse());
+  const o=footOffset();
+  return {x:loc.x-o.x,y:loc.y-o.y, wx:loc.x, wy:loc.y};
+}
+
+/* ---------- snapping during drag ---------- */
+function snapValue(p,cands){ // generic 1D snap
+  let best=null,bd=Infinity;
+  for(const c of cands){const d=Math.abs(p-c);if(d<bd){bd=d;best=c;}}
+  return {val:best,dist:bd};
+}
+function computeSnap(p, draggedIds){
+  // snaps the part's edges to footprint walls (flush) and to other parts (with optional gap),
+  // plus same-edge alignment; falls back to grid on any axis that didn't edge-snap.
+  const thr=snapThreshold();
+  const gap=Math.max(0,S.gap||0);
+  const {hx,hy}=halfExtents(p.L,p.W,p.angle);
+  const layer=S.layers[S.activeLayer];
+  const others=[];
+  for(const q of layer){ if(!draggedIds.has(q.id))others.push(bbox(q)); }
+  for(const cb of cartonRectsOnLayer(S.activeLayer, Math.max(gap,10))) others.push(cb);
+  const xc=[{c:hx,line:0},{c:S.foot.L-hx,line:S.foot.L}];
+  const yc=[{c:hy,line:0},{c:S.foot.W-hy,line:S.foot.W}];
+  for(const b of others){
+    xc.push({c:b.maxX+gap+hx,line:b.maxX},{c:b.minX-gap-hx,line:b.minX},{c:b.minX+hx,line:b.minX},{c:b.maxX-hx,line:b.maxX});
+    yc.push({c:b.maxY+gap+hy,line:b.maxY},{c:b.minY-gap-hy,line:b.minY},{c:b.minY+hy,line:b.minY},{c:b.maxY-hy,line:b.maxY});
+  }
+  let cx=p.cx, cy=p.cy, lines=[];
+  let bestX=null,bdX=thr; for(const cd of xc){const d=Math.abs(cd.c-cx);if(d<bdX){bdX=d;bestX=cd;}}
+  if(bestX){cx=bestX.c;lines.push({type:'v',x:bestX.line});}
+  let bestY=null,bdY=thr; for(const cd of yc){const d=Math.abs(cd.c-cy);if(d<bdY){bdY=d;bestY=cd;}}
+  if(bestY){cy=bestY.c;lines.push({type:'h',y:bestY.line});}
+  if(!bestX && S.grid>0){const g=gridMM();cx=Math.round(cx/g)*g;}
+  if(!bestY && S.grid>0){const g=gridMM();cy=Math.round(cy/g)*g;}
+  return {cx,cy,lines};
+}
+function gridMM(){ return S.gridIn? S.grid*MM_PER_IN : S.grid; }
+function snapThreshold(){ const rect=stage.getBoundingClientRect(); const scale=VIEW.w/rect.width; return 11*scale; }
+/* keep a part or group inside the footprint, preserving their relative layout */
+function clampGroup(parts){
+  if(!S.contain||!parts||!parts.length)return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for(const p of parts){const b=bbox(p);if(b.minX<minX)minX=b.minX;if(b.minY<minY)minY=b.minY;if(b.maxX>maxX)maxX=b.maxX;if(b.maxY>maxY)maxY=b.maxY;}
+  const w=maxX-minX,h=maxY-minY;let dx=0,dy=0;
+  if(w>=S.foot.L)dx=(S.foot.L-w)/2-minX; else if(minX<0)dx=-minX; else if(maxX>S.foot.L)dx=S.foot.L-maxX;
+  if(h>=S.foot.W)dy=(S.foot.W-h)/2-minY; else if(minY<0)dy=-minY; else if(maxY>S.foot.W)dy=S.foot.W-maxY;
+  if(dx||dy)for(const p of parts){p.cx+=dx;p.cy+=dy;}
+}
+
+/* ---------- drag + select handlers ---------- */
+let drag=null;
+function attachPartHandlers(){
+  stage.querySelectorAll('g.part').forEach(g=>{
+    g.addEventListener('pointerdown',onPartDown);
+  });
+}
+function onPartDown(e){
+  if(GESTURING||pointers.size>=2)return;
+  e.stopPropagation();
+  const id=parseInt(e.currentTarget.dataset.id,10);
+  if(e.shiftKey){ if(S.sel.has(id))S.sel.delete(id);else S.sel.add(id); render();renderInspector();return; }
+  if(!S.sel.has(id)){S.sel=new Set([id]);}
+  renderInspector();render();
+  const fp=clientToFoot(e.clientX,e.clientY);
+  const layer=S.layers[S.activeLayer];
+  const anchor=layer.find(p=>p.id===id);
+  drag={ids:new Set(S.sel),startX:fp.x,startY:fp.y,
+    orig:[...S.sel].map(pid=>{const p=layer.find(q=>q.id===pid);return{id:pid,cx:p.cx,cy:p.cy};}),
+    anchorId:id, moved:false};
+  stage.setPointerCapture(e.pointerId);
+  stage.addEventListener('pointermove',onPartMove);
+  stage.addEventListener('pointerup',onPartUp);
+}
+function onPartMove(e){
+  if(!drag)return;
+  const fp=clientToFoot(e.clientX,e.clientY);
+  let dx=fp.x-drag.startX, dy=fp.y-drag.startY;
+  if(Math.abs(dx)>0.3||Math.abs(dy)>0.3)drag.moved=true;
+  const layer=S.layers[S.activeLayer];
+  // move all selected by raw delta
+  for(const o of drag.orig){const p=layer.find(q=>q.id===o.id);p.cx=o.cx+dx;p.cy=o.cy+dy;}
+  // snap based on the anchor part
+  let lines=[];
+  if(S.snap){
+    const anchor=layer.find(p=>p.id===drag.anchorId);
+    const snapped=computeSnap(anchor,drag.ids);
+    const sdx=snapped.cx-anchor.cx, sdy=snapped.cy-anchor.cy;
+    for(const o of drag.orig){const p=layer.find(q=>q.id===o.id);p.cx+=sdx;p.cy+=sdy;}
+    lines=snapped.lines;
+  }
+  const moved=[...drag.ids].map(id=>layer.find(p=>p.id===id)).filter(Boolean);
+  clampGroup(moved);
+  liveUpdateTransforms(layer);
+  drawSnapLines(lines);
+}
+function onPartUp(e){
+  stage.removeEventListener('pointermove',onPartMove);
+  stage.removeEventListener('pointerup',onPartUp);
+  clearOverlay();
+  drag=null; render(); renderInspector(); scheduleSave();
+}
+function liveUpdateTransforms(layer){
+  const bbs=layer.map(bbox);
+  const cartBB=cartonRectsOnLayer(S.activeLayer);
+  const belowRects = S.activeLayer>0 ? S.layers[S.activeLayer-1].map(bbox).concat(cartonRectsOnLayer(S.activeLayer-1)) : null;
+  stage.querySelectorAll('g.part').forEach(g=>{
+    const id=parseInt(g.dataset.id,10);const i=layer.findIndex(p=>p.id===id);if(i<0)return;
+    const p=layer[i];g.setAttribute('transform',`translate(${p.cx},${p.cy}) rotate(${p.angle})`);
+    let bad=!inFootprint(bbs[i]);
+    if(!bad){for(let j=0;j<layer.length;j++){if(j!==i&&rectsOverlap(bbs[i],bbs[j])){bad=true;break;}}}
+    if(!bad){for(const cb of cartBB){if(rectsOverlap(bbs[i],cb)){bad=true;break;}}}
+    g.classList.toggle('bad',bad);
+    const sup=(!bad && belowRects)?_supportFrac(bbs[i],belowRects):1;
+    g.classList.toggle('badsup', sup<0.7);
+    g.classList.toggle('lowsup', sup>=0.7 && sup<0.9);
+  });
+}
+function overlay(){return $('overlay')||stage.appendChild(el('g',{id:'overlay'}));}
+function clearOverlay(){const ov=$('overlay');if(ov)while(ov.firstChild)ov.removeChild(ov.firstChild);}
+function drawSnapLines(lines){
+  clearOverlay();const ov=overlay();const o=footOffset();
+  for(const ln of lines){
+    if(ln.type==='v')ov.appendChild(el('line',{class:'snapline',x1:o.x+ln.x,y1:o.y-30,x2:o.x+ln.x,y2:o.y+S.foot.W+30}));
+    else ov.appendChild(el('line',{class:'snapline',x1:o.x-30,y1:o.y+ln.y,x2:o.x+S.foot.L+30,y2:o.y+ln.y}));
+  }
+}
+
+/* ---------- carton drag (v2.9) -------------------------------------------
+   Placed cartons are draggable exactly like parts: grab, move, drop. The live
+   move is done with a group transform so we are not re-rendering the whole SVG
+   on every pointermove; the real cx/cy is committed once on pointerup. Cartons
+   are hand-set by the operator, so nothing here consults the optimizer.
+   Double-click rotates a carton 90 degrees (needed to fit long boxes across a
+   footprint they will not fit along). */
+let cdrag=null;
+function attachCartonHandlers(){
+  stage.querySelectorAll('g.carton').forEach(g=>{
+    g.addEventListener('pointerdown',onCartonDown);
+    g.addEventListener('dblclick',onCartonDbl);
+  });
+}
+function cartonAt(idx){ return (S.placedCartons||[])[idx]; }
+function onCartonDown(e){
+  if(GESTURING||pointers.size>=2)return;
+  e.stopPropagation();
+  const idx=parseInt(e.currentTarget.dataset.cidx,10);
+  const c=cartonAt(idx); if(!c)return;
+  const fp=clientToFoot(e.clientX,e.clientY);
+  cdrag={idx,g:e.currentTarget,startX:fp.x,startY:fp.y,cx0:c.cx,cy0:c.cy,cx:c.cx,cy:c.cy,moved:false};
+  e.currentTarget.classList.add('dragging');
+  S.sel=new Set(); renderInspector();
+  try{stage.setPointerCapture(e.pointerId);}catch(_){}
+  stage.addEventListener('pointermove',onCartonMove);
+  stage.addEventListener('pointerup',onCartonUp);
+}
+function onCartonMove(e){
+  if(!cdrag)return;
+  const c=cartonAt(cdrag.idx); if(!c)return;
+  const fp=clientToFoot(e.clientX,e.clientY);
+  let dx=fp.x-cdrag.startX, dy=fp.y-cdrag.startY;
+  if(Math.abs(dx)>0.3||Math.abs(dy)>0.3)cdrag.moved=true;
+  let cx=cdrag.cx0+dx, cy=cdrag.cy0+dy;
+  if(S.snap){ const g=gridMM(); if(g>0){ cx=Math.round((cx-c.vw/2)/g)*g+c.vw/2; cy=Math.round((cy-c.vh/2)/g)*g+c.vh/2; } }
+  if(S.contain){
+    cx=Math.max(c.vw/2, Math.min(S.foot.L-c.vw/2, cx));
+    cy=Math.max(c.vh/2, Math.min(S.foot.W-c.vh/2, cy));
+  }
+  cdrag.cx=cx; cdrag.cy=cy;
+  cdrag.g.setAttribute('transform','translate('+(cx-cdrag.cx0)+','+(cy-cdrag.cy0)+')');
+}
+function onCartonUp(){
+  stage.removeEventListener('pointermove',onCartonMove);
+  stage.removeEventListener('pointerup',onCartonUp);
+  if(cdrag){
+    if(cdrag.g)cdrag.g.classList.remove('dragging');
+    const c=cartonAt(cdrag.idx);
+    if(c && cdrag.moved){ c.cx=cdrag.cx; c.cy=cdrag.cy; scheduleSave(); }
+  }
+  cdrag=null; render(); renderInspector();
+}
+function onCartonDbl(e){
+  e.stopPropagation();
+  const c=cartonAt(parseInt(e.currentTarget.dataset.cidx,10)); if(!c)return;
+  const t=c.vw; c.vw=c.vh; c.vh=t; c.angle=(c.angle||0)^90;
+  if(S.contain){
+    c.cx=Math.max(c.vw/2, Math.min(S.foot.L-c.vw/2, c.cx));
+    c.cy=Math.max(c.vh/2, Math.min(S.foot.W-c.vh/2, c.cy));
+  }
+  render(); scheduleSave(); toast('Carton rotated');
+}
+function placeCartonByHand(def){
+  const span=Math.max(1,Math.ceil(def.H/19));
+  S.placedCartons=S.placedCartons||[];
+  const vw=def.L, vh=def.W;
+  S.placedCartons.push({name:def.name||'Carton',L:def.L,W:def.W,H:def.H,
+    cx:Math.max(vw/2,Math.min(S.foot.L-vw/2,S.foot.L/2)),
+    cy:Math.max(vh/2,Math.min(S.foot.W-vh/2,S.foot.W/2)),
+    vw:vw,vh:vh,angle:0,span:span,startLayer:S.activeLayer});
+  render(); renderLayers(); scheduleSave();
+  toast('Carton dropped on layer '+(S.activeLayer+1)+' — drag it into place (double-click rotates)');
+}
+
+/* ---------- canvas-level pointer: place armed part, or marquee ---------- */
+let marquee=null, placeGhost=null;
+stage.addEventListener('pointerdown',e=>{
+  if(GESTURING||pointers.size>=2)return;            // a second finger -> pinch handles it
+  if(e.target.closest('g.part'))return;
+  const fp=clientToFoot(e.clientX,e.clientY);
+  if(S.armed){ placeArmed(fp.x,fp.y); return; }
+  if(e.pointerType==='touch'){ startPan(e); return; }   // one finger on empty space = pan (touch)
+  // start marquee (mouse)
+  if(!e.shiftKey)S.sel=new Set();
+  marquee={x0:fp.x,y0:fp.y,x1:fp.x,y1:fp.y,add:e.shiftKey,base:new Set(S.sel)};
+  stage.setPointerCapture(e.pointerId);
+  stage.addEventListener('pointermove',onMarqueeMove);
+  stage.addEventListener('pointerup',onMarqueeUp);
+  render();renderInspector();
+});
+function onMarqueeMove(e){
+  if(!marquee)return;const fp=clientToFoot(e.clientX,e.clientY);marquee.x1=fp.x;marquee.y1=fp.y;
+  const o=footOffset();const x=Math.min(marquee.x0,marquee.x1),y=Math.min(marquee.y0,marquee.y1),
+    w=Math.abs(marquee.x1-marquee.x0),h=Math.abs(marquee.y1-marquee.y0);
+  clearOverlay();overlay().appendChild(el('rect',{class:'marquee',x:o.x+x,y:o.y+y,width:w,height:h}));
+  // live select
+  const box={minX:x,maxX:x+w,minY:y,maxY:y+h};
+  const sel=new Set(marquee.add?marquee.base:[]);
+  for(const p of S.layers[S.activeLayer]){if(rectsOverlap(bbox(p),box,0)){sel.add(p.id);}}
+  S.sel=sel; liveSelStyle();
+}
+function liveSelStyle(){stage.querySelectorAll('g.part').forEach(g=>{g.classList.toggle('sel',S.sel.has(parseInt(g.dataset.id,10)));});}
+function onMarqueeUp(){stage.removeEventListener('pointermove',onMarqueeMove);stage.removeEventListener('pointerup',onMarqueeUp);marquee=null;clearOverlay();render();renderInspector();}
+
+stage.addEventListener('pointermove',e=>{ // place-ghost follow
+  if(!S.armed)return; const fp=clientToFoot(e.clientX,e.clientY);
+  const t=S.manifest.find(m=>m.key===S.armed);if(!t)return;
+  const ang=S.armedAngle||0; const he=halfExtents(t.Lmm,t.Wmm,ang);
+  let cx=fp.x,cy=fp.y; if(S.snap&&S.grid>0){const g=gridMM();cx=Math.round(cx/g)*g;cy=Math.round(cy/g)*g;}
+  if(S.contain){cx=Math.min(Math.max(cx,he.hx),S.foot.L-he.hx);cy=Math.min(Math.max(cy,he.hy),S.foot.W-he.hy);}
+  const o=footOffset();clearOverlay();
+  overlay().appendChild(el('rect',{class:'place-ghost',x:-t.Lmm/2,y:-t.Wmm/2,width:t.Lmm,height:t.Wmm,transform:`translate(${o.x+cx},${o.y+cy}) rotate(${ang})`}));
+});
+
+/* ---------- touch pan + pinch-zoom (mobile) and wheel zoom (desktop) ---------- */
+const pointers=new Map(); let GESTURING=false, gesture0=null, panState=null;
+function _dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+function _mid(a,b){return {x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
+function _clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function viewLimits(){return {min:Math.min(S.pal.L,S.pal.W)*0.18, max:Math.max(S.pal.L,S.pal.W)*4.5};}
+stage.addEventListener('pointerdown',e=>{                 // capture: track all pointers, detect 2-finger pinch
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size===2){
+    abortInteractions();
+    const p=[...pointers.values()];
+    gesture0={d:_dist(p[0],p[1]),mid:_mid(p[0],p[1]),view:{...VIEW}};
+    GESTURING=true; e.preventDefault();
+  }
+},true);
+stage.addEventListener('pointermove',e=>{
+  if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(GESTURING && pointers.size>=2 && gesture0){
+    e.preventDefault();
+    const p=[...pointers.values()];
+    const d=_dist(p[0],p[1]), m=_mid(p[0],p[1]), lim=viewLimits(), rect=stage.getBoundingClientRect();
+    const neww=_clamp(gesture0.view.w*(gesture0.d/Math.max(1,d)),lim.min,lim.max);
+    const k=neww/gesture0.view.w, newh=gesture0.view.h*k;
+    const wx=gesture0.view.x+(gesture0.mid.x-rect.left)/rect.width*gesture0.view.w;
+    const wy=gesture0.view.y+(gesture0.mid.y-rect.top)/rect.height*gesture0.view.h;
+    VIEW={w:neww,h:newh,x:wx-(m.x-rect.left)/rect.width*neww,y:wy-(m.y-rect.top)/rect.height*newh};
+    userView=true; applyViewBox();
+  }
+},true);
+function _ptrUp(e){pointers.delete(e.pointerId);if(pointers.size<2){GESTURING=false;gesture0=null;}}
+stage.addEventListener('pointerup',_ptrUp,true);
+stage.addEventListener('pointercancel',_ptrUp,true);
+function abortInteractions(){
+  if(drag){const layer=S.layers[S.activeLayer];for(const o of drag.orig){const p=layer.find(q=>q.id===o.id);if(p){p.cx=o.cx;p.cy=o.cy;}}stage.removeEventListener('pointermove',onPartMove);stage.removeEventListener('pointerup',onPartUp);drag=null;clearOverlay();render();renderInspector();}
+  if(marquee){stage.removeEventListener('pointermove',onMarqueeMove);stage.removeEventListener('pointerup',onMarqueeUp);marquee=null;clearOverlay();render();}
+  if(panState){stage.removeEventListener('pointermove',onPanMove);stage.removeEventListener('pointerup',onPanUp);panState=null;}
+}
+function startPan(e){
+  panState={x:e.clientX,y:e.clientY,view:{...VIEW}};
+  stage.setPointerCapture(e.pointerId);
+  stage.addEventListener('pointermove',onPanMove);
+  stage.addEventListener('pointerup',onPanUp);
+}
+function onPanMove(e){
+  if(!panState||GESTURING)return;
+  const rect=stage.getBoundingClientRect();
+  const dx=(e.clientX-panState.x)/rect.width*panState.view.w, dy=(e.clientY-panState.y)/rect.height*panState.view.h;
+  VIEW={x:panState.view.x-dx,y:panState.view.y-dy,w:panState.view.w,h:panState.view.h};
+  userView=true; applyViewBox();
+}
+function onPanUp(e){panState=null;stage.removeEventListener('pointermove',onPanMove);stage.removeEventListener('pointerup',onPanUp);}
+stage.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const lim=viewLimits(), rect=stage.getBoundingClientRect(), f=e.deltaY>0?1.12:0.89;
+  const neww=_clamp(VIEW.w*f,lim.min,lim.max), k=neww/VIEW.w, newh=VIEW.h*k;
+  const wx=VIEW.x+(e.clientX-rect.left)/rect.width*VIEW.w, wy=VIEW.y+(e.clientY-rect.top)/rect.height*VIEW.h;
+  VIEW={w:neww,h:newh,x:wx-(e.clientX-rect.left)/rect.width*neww,y:wy-(e.clientY-rect.top)/rect.height*newh};
+  userView=true; applyViewBox();
+},{passive:false});
+
+function placeArmed(x,y){
+  const t=S.manifest.find(m=>m.key===S.armed);if(!t)return;
+  if(placedCount(t.key)>=t.qty){toast('All '+t.qty+' of '+t.partNum+' are placed');return;}
+  if(S.snap&&S.grid>0){const g=gridMM();x=Math.round(x/g)*g;y=Math.round(y/g)*g;}
+  const p={id:S.nextId++,key:t.key,partNum:t.partNum,name:t.name,secIdx:t.secIdx,L:t.Lmm,W:t.Wmm,thickness:t.thickness,cx:x,cy:y,angle:S.armedAngle||0};
+  S.layers[S.activeLayer].push(p);
+  if(S.snap){const sn=computeSnap(p,new Set([p.id]));p.cx=sn.cx;p.cy=sn.cy;}
+  clampGroup([p]);
+  S.sel=new Set([p.id]);
+  if(placedCount(t.key)>=t.qty){S.armed=null;updateArmHint();}
+  clearOverlay();render();renderTray();renderLayers();renderInspector();scheduleSave();
+}
+
+/* ---------- placed counts ---------- */
+function placedCount(key){let n=0;for(const layer of S.layers)for(const p of layer)if(p.key===key)n++;return n;}
+function totalPlaced(){let n=0;for(const layer of S.layers)n+=layer.length;return n;}
+function totalRequired(){let n=0;for(const m of S.manifest)n+=m.qty;return n;}
+
+/* ---------- TRAY ---------- */
+function renderTray(){
+  const body=$('trayBody');body.innerHTML='';
+  if(!S.manifest.length){body.innerHTML='<div class="emptytray">No parts loaded.<br>Use <b>Import part list…</b> to paste an order.</div>';
+    $('trayCount').textContent='';return;}
+  const q=($('traySearch').value||'').toLowerCase();
+  // group by section
+  const groups={};
+  for(const m of S.manifest){(groups[m.secIdx]=groups[m.secIdx]||{name:m.section,idx:m.secIdx,items:[]}).items.push(m);}
+  const order=Object.values(groups).sort((a,b)=>a.idx-b.idx);
+  for(const g of order){
+    const items=g.items.filter(m=>!q||(m.partNum+' '+m.name).toLowerCase().includes(q));
+    if(!items.length)continue;
+    const col=SECTION_COLORS[g.idx%SECTION_COLORS.length];
+    const placedSum=items.reduce((s,m)=>s+placedCount(m.key),0);
+    const reqSum=items.reduce((s,m)=>s+m.qty,0);
+    const collapsed=S.collapsed.has(g.idx);
+    const grp=el('div',{class:'secgroup'+(collapsed?' collapsed':'')});
+    const head=el('div',{class:'sechead'});
+    head.innerHTML=`<span class="dot" style="background:${col}"></span><span class="nm">${esc(g.name)}</span><span class="ct">${placedSum}/${reqSum}</span><span class="tw">▼</span>`;
+    head.onclick=()=>{if(S.collapsed.has(g.idx))S.collapsed.delete(g.idx);else S.collapsed.add(g.idx);renderTray();};
+    grp.appendChild(head);
+    for(const m of items){
+      const placed=placedCount(m.key), done=placed>=m.qty;
+      const row=el('div',{class:'partrow'+(done?' depleted':'')+(S.armed===m.key?' armed':'')});
+      row.innerHTML=`<span class="swatch" style="background:${col}"></span>
+        <div class="info">
+          <div class="dim">${dimStr(m.Lmm)}×${dimStr(m.Wmm)} <span class="thk${m.thickness!==19?' t58':''}">${thkLabel(m.thickness)}</span></div>
+          <div class="nm">${esc(m.name)}</div>
+          <div class="pn">${esc(m.partNum)}</div>
+        </div>
+        <span class="badge${done?' done':''}">${placed}/${m.qty}</span>`;
+      row.onclick=()=>{ if(S.armed===m.key){S.armed=null;}else{S.armed=m.key;S.armedAngle=0;} updateArmHint(); renderTray(); };
+      // thickness toggle via dblclick on the thk chip is fiddly; add ctrl+click to toggle 19/5/8
+      row.oncontextmenu=ev=>{ev.preventDefault();toggleThickness(m.key);};
+      grp.appendChild(row);
+    }
+    body.appendChild(grp);
+  }
+  $('trayCount').textContent=totalPlaced()+'/'+totalRequired()+' placed';
+}
+function dimStr(mm){return S.unit==='in'?mmToIn(mm).toFixed(2):Math.round(mm);}
+function thkLabel(t){return t===19?'19mm':(Math.abs(t-15.875)<0.1?'⅝″':t+'mm');}
+function toggleThickness(key){
+  const m=S.manifest.find(x=>x.key===key);if(!m)return;
+  const newT=m.thickness===19?15.875:19;
+  // update manifest entry + key + any placed parts
+  const oldKey=m.key;
+  m.thickness=newT;m.key=mkey(m);
+  for(const layer of S.layers)for(const p of layer)if(p.key===oldKey){p.thickness=newT;p.key=m.key;}
+  if(S.armed===oldKey)S.armed=m.key;
+  toast(m.partNum+' → '+thkLabel(newT));
+  renderTray();render();renderLayers();renderInspector();updateSig();scheduleSave();
+}
+function updateArmHint(){
+  const h=$('armHint');
+  if(S.armed){const m=S.manifest.find(x=>x.key===S.armed);
+    h.textContent='Click to place '+m.partNum+' ('+dimStr(m.Lmm)+'×'+dimStr(m.Wmm)+')  ·  R rotate ['+(S.armedAngle||0)+'°]  ·  Esc cancel';
+    h.classList.add('show');}
+  else{h.classList.remove('show');clearOverlay();}
+}
+
+/* ---------- INSPECTOR ---------- */
+function renderInspector(){
+  const box=$('inspector');
+  const layer=S.layers[S.activeLayer];
+  const sel=[...S.sel].map(id=>layer.find(p=>p.id===id)).filter(Boolean);
+  if(!sel.length){box.innerHTML='<div class="empty">Nothing selected.<br>Click a part on the pallet.</div>';return;}
+  if(sel.length>1){
+    box.innerHTML=`<div class="insp-title"><b>${sel.length} parts selected</b></div>
+      <div class="btnrow">
+        <button id="iRot">Rotate 90°</button>
+        <button id="iDup">Duplicate</button>
+        <button id="iDel" class="danger">Delete</button>
+      </div>`;
+    $('iRot').onclick=()=>rotateSel(90);$('iDup').onclick=dupSel;$('iDel').onclick=delSel;return;
+  }
+  const p=sel[0];const rp=refPoint(p);
+  box.innerHTML=`
+    <div class="insp-title"><b>${esc(p.name)}</b><br><span class="pn">${esc(p.partNum)} · ${dimStr(p.L)}×${dimStr(p.W)} ${thkLabel(p.thickness)}</span></div>
+    <div class="twocol">
+      <div class="field"><label>X</label><input class="num" id="iX" value="${rp.X.toFixed(S.unit==='in'?3:0)}"></div>
+      <div class="field"><label>Y</label><input class="num" id="iY" value="${rp.Y.toFixed(S.unit==='in'?3:0)}"></div>
+    </div>
+    <div class="field"><label>Angle°</label><div class="ctl"><input class="num" id="iA" value="${p.angle}" style="width:70px">
+      <button id="iRm" class="ghost" title="−90°">−90</button><button id="iRp" class="ghost" title="+90°">+90</button></div></div>
+    <div class="field"><label>Thickness</label><div class="ctl">
+      <select id="iT"><option value="19"${p.thickness===19?' selected':''}>19mm (¾″)</option>
+      <option value="15.875"${p.thickness!==19?' selected':''}>⅝″ (15.9mm)</option></select></div></div>
+    <div class="field"><label>Layer</label><div class="ctl">
+      <select id="iL">${S.layers.map((_,i)=>`<option value="${i}"${i===S.activeLayer?' selected':''}>Layer ${i+1}</option>`).join('')}</select></div></div>
+    <div class="btnrow">
+      <button id="iDup">Duplicate</button>
+      <button id="iDel" class="danger">Delete</button>
+    </div>
+    <div class="hint" style="margin-top:8px">Ref (${S.ref==='center'?'center':'corner'}) from ${S.origin} of ${S.datum==='foot'?'footprint':'pallet'}. Right-click a tray row to flip ⅝″.</div>`;
+  const commitXY=()=>{
+    const nx=parseLen($('iX').value),ny=parseLen($('iY').value);
+    if(isNaN(nx)||isNaN(ny))return;
+    const cur=refPoint(p);
+    const sx=(S.origin==='TR'||S.origin==='BR')?-1:1, sy=(S.origin==='BL'||S.origin==='BR')?-1:1;
+    p.cx+=sx*(nx-cur.X); p.cy+=sy*(ny-cur.Y);
+    clampGroup([p]);
+    render();renderInspector();scheduleSave();
+  };
+  $('iX').onchange=commitXY;$('iY').onchange=commitXY;
+  $('iA').onchange=()=>{let a=Number($('iA').value)||0;a=((a%360)+360)%360;p.angle=a;clampGroup([p]);render();renderInspector();scheduleSave();};
+  $('iRm').onclick=()=>{rotateSel(-90);};$('iRp').onclick=()=>{rotateSel(90);};
+  $('iT').onchange=()=>{p.thickness=Number($('iT').value);p.key=mkey({partNum:p.partNum,name:p.name,Lmm:p.L,Wmm:p.W,thickness:p.thickness});render();renderTray();renderLayers();updateSig();scheduleSave();};
+  $('iL').onchange=()=>{moveSelToLayer(Number($('iL').value));};
+  $('iDup').onclick=dupSel;$('iDel').onclick=delSel;
+}
+
+/* ---------- selection ops ---------- */
+function selParts(){const layer=S.layers[S.activeLayer];return [...S.sel].map(id=>layer.find(p=>p.id===id)).filter(Boolean);}
+function rotateSel(d){const parts=selParts();for(const p of parts){p.angle=((p.angle+d)%360+360)%360;}clampGroup(parts);render();renderInspector();scheduleSave();}
+function dupSel(){const layer=S.layers[S.activeLayer];const ns=new Set();
+  for(const p of selParts()){const c={...p,id:S.nextId++,cx:p.cx+30,cy:p.cy+30};layer.push(c);ns.add(c.id);}
+  S.sel=ns;clampGroup([...ns].map(id=>layer.find(p=>p.id===id)).filter(Boolean));render();renderTray();renderLayers();renderInspector();scheduleSave();}
+function delSel(){const layer=S.layers[S.activeLayer];S.layers[S.activeLayer]=layer.filter(p=>!S.sel.has(p.id));S.sel=new Set();render();renderTray();renderLayers();renderInspector();scheduleSave();}
+function moveSelToLayer(idx){if(idx===S.activeLayer)return;const layer=S.layers[S.activeLayer];const move=layer.filter(p=>S.sel.has(p.id));
+  S.layers[S.activeLayer]=layer.filter(p=>!S.sel.has(p.id));S.layers[idx].push(...move);S.sel=new Set();render();renderLayers();renderInspector();scheduleSave();}
+
+/* ---------- LAYERS ---------- */
+function renderLayers(){
+  const list=$('layerList');list.innerHTML='';
+  S.layers.forEach((layer,i)=>{
+    const it=el('div',{class:'layeritem'+(i===S.activeLayer?' active':'')});
+    const thk=layerThickness(layer);
+    const sc=layerSupportCounts(i);
+    let lsBadge='';
+    if(sc.severe) lsBadge=` <span title="${sc.severe} part(s) under 70% supported — likely to tip" style="color:#dc2626;font-weight:700">⚠${sc.severe}</span>`;
+    else if(sc.mild) lsBadge=` <span title="${sc.mild} part(s) 70–90% supported" style="color:#f59e0b;font-weight:700">⚠${sc.mild}</span>`;
+    it.innerHTML=`<span class="ln">L${i+1}</span><span class="meta">${layer.length} parts · ${thk?Math.round(thk)+'mm':'—'}${lsBadge}</span>
+      <span class="acts">
+        <button data-a="up" title="Move up">↑</button>
+        <button data-a="dn" title="Move down">↓</button>
+        <button data-a="del" title="Delete layer">✕</button>
+      </span>`;
+    it.onclick=ev=>{ if(ev.target.dataset.a)return; setLayer(i); };
+    it.querySelector('[data-a=up]').onclick=ev=>{ev.stopPropagation();moveLayer(i,-1);};
+    it.querySelector('[data-a=dn]').onclick=ev=>{ev.stopPropagation();moveLayer(i,1);};
+    it.querySelector('[data-a=del]').onclick=ev=>{ev.stopPropagation();delLayer(i);};
+    list.appendChild(it);
+  });
+  $('layerTag').textContent='Layer '+(S.activeLayer+1);
+  const totalThk=S.layers.reduce((s,l)=>s+layerThickness(l),0);
+  $('stackTag').textContent=S.layers.length+' layers · '+Math.round(totalThk)+'mm';
+  renderStackSummary();
+}
+function layerThickness(layer){let mx=0;for(const p of layer)mx=Math.max(mx,p.thickness);return mx;}
+/* count parts on layer i that rest poorly on the layer below (+ cartons there). Layer 0 sits on the pallet.
+   returns {mild: 70-90% supported, severe: <70% supported}. */
+function layerSupportCounts(i){
+  if(i<=0) return {mild:0,severe:0};
+  const below=S.layers[i-1].map(bbox).concat(cartonRectsOnLayer(i-1));
+  let mild=0,severe=0;
+  for(const p of S.layers[i]){ const s=_supportFrac(bbox(p),below); if(s<0.7)severe++; else if(s<0.9)mild++; }
+  return {mild,severe};
+}
+function stackSupportCounts(){let m=0,s=0;for(let i=0;i<S.layers.length;i++){const c=layerSupportCounts(i);m+=c.mild;s+=c.severe;}return {mild:m,severe:s};}
+function setLayer(i){S.activeLayer=i;S.sel=new Set();render();renderLayers();renderInspector();scheduleSave();}
+function addLayer(){S.layers.push([]);S.activeLayer=S.layers.length-1;S.sel=new Set();render();renderLayers();renderInspector();scheduleSave();}
+function dupLayer(){const src=S.layers[S.activeLayer];const copy=src.map(p=>({...p,id:S.nextId++}));S.layers.splice(S.activeLayer+1,0,copy);S.activeLayer++;S.sel=new Set();render();renderLayers();renderInspector();scheduleSave();}
+/* remove every placed part + placed carton, reset to one empty layer. KEEPS the part list (S.manifest) and carton definitions (S.cartons). */
+function clearStack(){
+  S.layers=[[]]; S.placedCartons=[]; S.activeLayer=0; S.sel=new Set(); S.armed=null;
+  render(); renderTray(); renderLayers(); renderInspector(); updateSig(); updateMobileActions();
+  if(typeof updateArmHint==='function') updateArmHint();
+  scheduleSave();
+  toast('Stack cleared — part list and carton definitions kept');
+}
+function delLayer(i){
+  if(S.layers.length===1){S.layers[0]=[];S.activeLayer=0;}
+  else{ if(S.layers[i].length && !confirm('Delete Layer '+(i+1)+' with '+S.layers[i].length+' parts?'))return;
+    S.layers.splice(i,1); if(S.activeLayer>=S.layers.length)S.activeLayer=S.layers.length-1; }
+  S.sel=new Set();render();renderLayers();renderInspector();renderTray();scheduleSave();
+}
+function moveLayer(i,d){const j=i+d;if(j<0||j>=S.layers.length)return;[S.layers[i],S.layers[j]]=[S.layers[j],S.layers[i]];if(S.activeLayer===i)S.activeLayer=j;else if(S.activeLayer===j)S.activeLayer=i;render();renderLayers();scheduleSave();}
+/* ---- MaxRects bin packer (rotation + best-short-side-fit + gap), one layer ---- */
+function _rectContains(a,b){return b.x>=a.x-0.01 && b.y>=a.y-0.01 && b.x+b.w<=a.x+a.w+0.01 && b.y+b.h<=a.y+a.h+0.01;}
+function _pruneFree(rects){
+  const area=r=>r.w*r.h;
+  return rects.filter((r,i)=>{
+    if(r.w<0.5||r.h<0.5)return false;
+    for(let j=0;j<rects.length;j++){
+      if(i===j)continue; const s=rects[j];
+      if(_rectContains(s,r)){
+        if(area(s)>area(r)+0.01)return false;
+        if(Math.abs(area(s)-area(r))<0.01 && j<i)return false; // equal duplicate: keep first
+      }
+    }
+    return true;
+  });
+}
+/* carve region P out of a free-rect list (MaxRects split), return pruned list */
+function carve(free,P){
+  const next=[];
+  for(const f of free){
+    if(P.x<f.x+f.w-0.01 && P.x+P.w>f.x+0.01 && P.y<f.y+f.h-0.01 && P.y+P.h>f.y+0.01){
+      if(P.x>f.x+0.01) next.push({x:f.x,y:f.y,w:P.x-f.x,h:f.h});
+      if(P.x+P.w<f.x+f.w-0.01) next.push({x:P.x+P.w,y:f.y,w:f.x+f.w-(P.x+P.w),h:f.h});
+      if(P.y>f.y+0.01) next.push({x:f.x,y:f.y,w:f.w,h:P.y-f.y});
+      if(P.y+P.h<f.y+f.h-0.01) next.push({x:f.x,y:P.y+P.h,w:f.w,h:f.y+f.h-(P.y+P.h)});
+    } else next.push(f);
+  }
+  return _pruneFree(next);
+}
+/* Pack items (each {Lmm,Wmm,...}) into a starting free-rect list via fixed-order MaxRects with rotation.
+   heuristic 'bssf' (best short side) or 'baf' (best area). Returns {placed:[{item,px,py,vw,vh,angle}], leftover}. */
+function packBin(freeInit, items, gap, heuristic, below, minSup){
+  let free=freeInit.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h}));
+  const placed=[], leftover=[];
+  for(const it of items){
+    const orients=[{w:it.Lmm+gap,h:it.Wmm+gap,vw:it.Lmm,vh:it.Wmm,angle:0}];
+    if(it.Lmm!==it.Wmm) orients.push({w:it.Wmm+gap,h:it.Lmm+gap,vw:it.Wmm,vh:it.Lmm,angle:90});
+    let best=null;
+    for(const o of orients){
+      for(const f of free){
+        if(o.w<=f.w+0.01 && o.h<=f.h+0.01){
+          const lh=f.w-o.w, lv=f.h-o.h;
+          const s = heuristic==='baf' ? [f.w*f.h-o.w*o.h, Math.min(lh,lv)] : [Math.min(lh,lv), Math.max(lh,lv)];
+          // support penalty (primary when a below-layer is supplied): prefer spots that rest on parts below.
+          // 0 if >= SUP_TARGET supported; otherwise the deficit, so the least-bad overhang wins when nothing reaches it.
+          let pen=0;
+          if(below && below.length){
+            const sup=_supportFrac({minX:f.x,maxX:f.x+o.vw,minY:f.y,maxY:f.y+o.vh}, below);
+            if(minSup>0 && sup<minSup-1e-9) continue;          // hard constraint: refuse to place a part over a gap
+            pen = sup>=SUP_TARGET?0:(SUP_TARGET-sup);
+          }
+          if(!best || pen<best.pen-1e-9 ||
+             (Math.abs(pen-best.pen)<1e-9 && (s[0]<best.s[0]-0.01 || (Math.abs(s[0]-best.s[0])<0.01 && s[1]<best.s[1]-0.01))))
+            best={f,o,s,pen};
+        }
+      }
+    }
+    if(!best){leftover.push(it);continue;}
+    placed.push({item:it,px:best.f.x,py:best.f.y,vw:best.o.vw,vh:best.o.vh,angle:best.o.angle});
+    free=carve(free,{x:best.f.x,y:best.f.y,w:best.o.w,h:best.o.h});
+  }
+  return {placed,leftover};
+}
+/* pack across as many full-footprint bins (layers) as needed */
+function packStack(items,Lf,Wf,gap,heuristic,minSup){
+  const layers=[]; let rem=items.slice(), guard=0, below=null;
+  while(rem.length && guard++<400){
+    let {placed,leftover}=packBin([{x:0,y:0,w:Lf+gap,h:Wf+gap}], rem, gap, heuristic, below, minSup);
+    if(!placed.length){                                      // support constraint deadlocked: place densely this layer
+      ({placed,leftover}=packBin([{x:0,y:0,w:Lf+gap,h:Wf+gap}], rem, gap, heuristic, below, 0));
+      if(!placed.length) return {layers,dropped:rem};
+    }
+    layers.push(placed); rem=leftover;
+    below=placed.map(p=>({minX:p.px,maxX:p.px+p.vw,minY:p.py,maxY:p.py+p.vh}));  // support reference for the next layer up
+  }
+  return {layers,dropped:rem};
+}
+
+/* ---------------------------------------------------------------------------
+   SUPPORT-FIRST packer. Places each part (largest first) into the LOWEST layer
+   where it both fits and rests >= minSup on the layer below (layer 0 rests on
+   the pallet). Within that layer it takes the most-supported spot. A part that
+   fits nowhere supported starts a new top layer at its best-effort spot. This
+   builds fullest-near-the-bottom stacks where parts sit on solid material, at
+   the cost of more layers than dense packing — the right trade for stability.
+   --------------------------------------------------------------------------- */
+function _plRect(p){return {minX:p.px,maxX:p.px+p.vw,minY:p.py,maxY:p.py+p.vh};}
+function _commitPos(layer,pos,gap){
+  layer.placed.push(pos);
+  layer.filled.push(_plRect(pos));
+  layer.free=carve(layer.free,{x:pos.px,y:pos.py,w:pos.vw+gap,h:pos.vh+gap});
+}
+function _bestPos(it, free, below, gap, heuristic, minSup){
+  const orients=[{vw:it.Lmm,vh:it.Wmm,angle:0,w:it.Lmm+gap,h:it.Wmm+gap}];
+  if(it.Lmm!==it.Wmm) orients.push({vw:it.Wmm,vh:it.Lmm,angle:90,w:it.Wmm+gap,h:it.Lmm+gap});
+  let best=null;
+  for(const o of orients) for(const f of free){
+    if(o.w<=f.w+0.01 && o.h<=f.h+0.01){
+      const sup = (below&&below.length) ? _supportFrac({minX:f.x,maxX:f.x+o.vw,minY:f.y,maxY:f.y+o.vh}, below) : 1;
+      if(minSup>0 && sup<minSup-1e-9) continue;            // hard support filter (layers above the first)
+      const lh=f.w-o.w, lv=f.h-o.h;
+      const fit = heuristic==='baf' ? [f.w*f.h-o.w*o.h, Math.min(lh,lv)] : [Math.min(lh,lv), Math.max(lh,lv)];
+      // when a hard support filter applies, every candidate already qualifies -> pack TIGHT (fit first).
+      // when best-effort (minSup==0, a fresh top layer), there's no filter -> take the most-supported spot.
+      const key = minSup>0 ? [fit[0],fit[1],-sup] : [-Math.round(sup*1000),fit[0],fit[1]];
+      const bk  = best ? best.key : null;
+      let better=!best;
+      if(best){ for(let k=0;k<key.length;k++){ if(key[k]<bk[k]-1e-6){better=true;break;} if(key[k]>bk[k]+1e-6){break;} } }
+      if(better) best={key,px:f.x,py:f.y,vw:o.vw,vh:o.vh,angle:o.angle,item:it,sup};
+    }
+  }
+  return best;
+}
+function packSupported(items, Lf, Wf, gap, heuristic, minSup){
+  minSup = (minSup==null)?SUP_TARGET:minSup;
+  const layers=[];
+  for(const it of items){
+    let done=false;
+    for(let li=0; li<layers.length; li++){
+      const below = li===0?null:layers[li-1].filled;
+      const pos=_bestPos(it, layers[li].free, below, gap, heuristic, li===0?0:minSup);
+      if(pos){ _commitPos(layers[li],pos,gap); done=true; break; }
+    }
+    if(!done){
+      const li=layers.length;
+      const layer={placed:[],free:[{x:0,y:0,w:Lf+gap,h:Wf+gap}],filled:[]};
+      const below = li===0?null:layers[li-1].filled;
+      const pos=_bestPos(it, layer.free, below, gap, heuristic, 0) || _bestPos(it,[{x:0,y:0,w:Lf+gap,h:Wf+gap}],null,gap,heuristic,0);
+      if(pos){ _commitPos(layer,pos,gap); layers.push(layer); }
+      else return {layers:layers.map(L=>L.placed), dropped:items.slice(items.indexOf(it))};
+    }
+  }
+  return {layers:layers.map(L=>L.placed), dropped:[]};
+}
+/* try several orderings x heuristics, keep the fewest-layer stack */
+function bestStack(panels,Lf,Wf,gap){
+  const orders=[
+    (a,b)=>b.Lmm*b.Wmm-a.Lmm*a.Wmm,
+    (a,b)=>Math.max(b.Lmm,b.Wmm)-Math.max(a.Lmm,a.Wmm),
+    (a,b)=>(b.Lmm+b.Wmm)-(a.Lmm+a.Wmm),
+    (a,b)=>b.Lmm-a.Lmm,
+    (a,b)=>b.Wmm-a.Wmm,
+  ];
+  let best=null;
+  for(const ord of orders){
+    const sorted=panels.slice().sort(ord);
+    for(const h of ['bssf','baf']){
+      const r=packStack(sorted,Lf,Wf,gap,h);
+      const score=r.layers.length*100000 + (r.dropped.length?9e8:0) + lastLayerOpenness(r.layers,Lf,Wf);
+      if(!best || score<best.score) best={score,layers:r.layers,dropped:r.dropped};
+    }
+  }
+  return best;
+}
+/* tiebreak: prefer stacks whose last layer is emptiest (more consolidated) */
+function lastLayerOpenness(layers,Lf,Wf){
+  if(!layers.length)return 0; const last=layers[layers.length-1];
+  let used=0; for(const p of last)used+=p.vw*p.vh; return Math.round(used/(Lf*Wf)*1000);
+}
+function placedToPart(pl){const m=pl.item;return {id:S.nextId++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,L:m.Lmm,W:m.Wmm,thickness:m.thickness,cx:pl.px+pl.vw/2,cy:pl.py+pl.vh/2,angle:pl.angle};}
+/* carton footprint rects present on a given layer (optionally inflated by clearance) */
+function cartonRectsOnLayer(i,inflate){
+  inflate=inflate||0; const out=[];
+  for(const c of (S.placedCartons||[])){
+    if(i>=c.startLayer && i<c.startLayer+c.span){
+      out.push({x:c.cx-c.vw/2-inflate,y:c.cy-c.vh/2-inflate,w:c.vw+2*inflate,h:c.vh+2*inflate,
+        minX:c.cx-c.vw/2-inflate,maxX:c.cx+c.vw/2+inflate,minY:c.cy-c.vh/2-inflate,maxY:c.cy+c.vh/2+inflate});
+    }
+  }
+  return out;
+}
+/* ============================================================
+   ITERATIVE STACK OPTIMIZER (nesting-style metaheuristic)
+   Decision variable = part order (+rotations via packer) + carton placement + which small parts go to the top zone.
+   Inner loop = MaxRects packer (decoder). Outer loop = seeded random-restart + local perturbation, scored on
+   layers-first then tie-breaks. Returns the best distinct layouts. Runs async in chunks; cancellable.
+   ============================================================ */
+function makeRng(seed){let t=(seed>>>0)||1;return function(){t+=0x6D2B79F5;let r=Math.imul(t^(t>>>15),1|t);r^=r+Math.imul(r^(r>>>7),61|r);return ((r^(r>>>14))>>>0)/4294967296;};}
+function seedStr(s){let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function _shuffle(a,rng){for(let i=a.length-1;i>0;i--){const j=(rng()*(i+1))|0;const t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function _noisy(a,rng,amt){const n=Math.max(1,Math.round(a.length*amt));for(let k=0;k<n;k++){const i=(rng()*(a.length-1))|0;const t=a[i];a[i]=a[i+1];a[i+1]=t;}return a;}
+function orderPanels(panels,P){
+  const a=panels.slice();
+  const keys={
+    area:(x,y)=>y.Lmm*y.Wmm-x.Lmm*x.Wmm,
+    long:(x,y)=>Math.max(y.Lmm,y.Wmm)-Math.max(x.Lmm,x.Wmm),
+    perim:(x,y)=>(y.Lmm+y.Wmm)-(x.Lmm+x.Wmm),
+    wide:(x,y)=>y.Lmm-x.Lmm,
+    tall:(x,y)=>y.Wmm-x.Wmm,
+  };
+  if(P.order==='incumbent' && P.incumbent){ a.length=0; for(const m of P.incumbent)a.push(m); }
+  else if(P.order==='shuffle' && P.rng){ _shuffle(a,P.rng); }
+  else if(keys[P.order]){ a.sort(keys[P.order]); }
+  else { a.sort(keys.area); }
+  if(P.jitter && P.rng) _noisy(a,P.rng,P.jitter);
+  if(P.swaps && P.rng){ for(let k=0;k<P.swaps;k++){const i=(P.rng()*a.length)|0,j=(P.rng()*a.length)|0;const t=a[i];a[i]=a[j];a[j]=t;} }
+  return a;
+}
+/* Pure planner: no S mutation, no DOM. panels = unique instances {uid,key,partNum,name,secIdx,Lmm,Wmm,thickness}. */
+/* support fraction of an axis-aligned rect r={minX,maxX,minY,maxY} resting on a set of below rects (same shape).
+   no/empty below => ground => fully supported (1). */
+function _supportFrac(r, below){
+  if(!below || !below.length) return 1;
+  const area=(r.maxX-r.minX)*(r.maxY-r.minY); if(area<=0) return 1;
+  let cov=0;
+  for(const q of below){
+    const ix=Math.max(0, Math.min(r.maxX,q.maxX)-Math.max(r.minX,q.minX));
+    const iy=Math.max(0, Math.min(r.maxY,q.maxY)-Math.max(r.minY,q.minY));
+    cov+=ix*iy;
+  }
+  return Math.min(1, cov/area);
+}
+function _itemRect(it){return {minX:it.cx-it.vw/2,maxX:it.cx+it.vw/2,minY:it.cy-it.vh/2,maxY:it.cy+it.vh/2};}
+function _cartonRect(c){return {minX:c.cx-c.vw/2,maxX:c.cx+c.vw/2,minY:c.cy-c.vh/2,maxY:c.cy+c.vh/2};}
+
+/* DENSITY-FIRST planner: pack everything into dense layers (big on the bottom, smallest on top), THEN drop the
+   cartons into the top layers as voids and re-home only the few small panels they land on. No reserve/zone siphon. */
+const SUP_TARGET=0.9;   // a part should rest at least this fraction on the layer below (a human's bar, not 50%)
+/* Carton-aware bottom-up packer. Cartons are top-aligned: a carton of span s occupies the top s layers of a
+   stack of total height T, so on layer li it is present iff li >= T - s. We carve those carton columns out of
+   the free space before packing each layer. Because items are fed big-first and packed bottom-up, big panels
+   land in the lower full-width layers and any panel too deep to fit beside a carton simply never gets placed in
+   the carved top layers — it falls to a full-width layer below. No post-hoc re-homing required. */
+function packStackCartons(items, Lf, Wf, gap, heuristic, minSup, cz2, T){
+  const clr=Math.max(gap,10);
+  const cRect=c=>({x:c.cx-c.vw/2-clr,y:c.cy-c.vh/2-clr,w:c.vw+2*clr,h:c.vh+2*clr});
+  const cBelow=c=>({minX:c.cx-c.vw/2,maxX:c.cx+c.vw/2,minY:c.cy-c.vh/2,maxY:c.cy+c.vh/2});
+  const layers=[]; let rem=items.slice(), guard=0, below=null, li=0;
+  while(rem.length && guard++<600){
+    let free=[{x:0,y:0,w:Lf+gap,h:Wf+gap}];
+    for(const c of cz2){ if(li >= T - c.span) free=carve(free, cRect(c)); }
+    let {placed,leftover}=packBin(free, rem, gap, heuristic, below, minSup);
+    if(!placed.length && minSup>0){                              // primary support floor deadlocked this layer:
+      for(const f of [0.7,0.5,0]){                              // step the floor down, preferring to keep support high
+        if(f<minSup){ ({placed,leftover}=packBin(free, rem, gap, heuristic, below, f)); if(placed.length) break; }
+      }
+    }
+    if(!placed.length){
+      if(li < T-1){ below=[]; for(const c of cz2){ if(li>=T-c.span) below.push(cBelow(c)); } layers.push([]); li++; continue; }
+      break;
+    }
+    layers.push(placed); rem=leftover;
+    below=placed.map(p=>({minX:p.px,maxX:p.px+p.vw,minY:p.py,maxY:p.py+p.vh}));
+    for(const c of cz2){ if(li>=T-c.span) below.push(cBelow(c)); }   // cartons are real surfaces parts above can rest on
+    li++;
+  }
+  while(layers.length<T) layers.push([]);
+  return {layers, dropped:rem};
+}
+function planStack(panels, cartonDefs, Lf, Wf, gap, P){
+  P=P||{}; const heuristic=P.heuristic||'bssf', clr=Math.max(gap,10);
+  const conv=arr=>arr.map(pl=>({m:pl.item,cx:pl.px+pl.vw/2,cy:pl.py+pl.vh/2,angle:pl.angle,vw:pl.vw,vh:pl.vh}));
+  const order=orderPanels(panels,P);
+
+  // --- place cartons in the footprint first (they become top-aligned voids) ---
+  let cins=[]; for(const c of cartonDefs) for(let i=0;i<(c.qty||0);i++) cins.push({name:c.name||'Carton',Lmm:c.L,Wmm:c.W,H:c.H});
+  let cartons=[], cartonDropped=0, Z=0, cz2=[];
+  if(cins.length){
+    if(P.cartonShuffle && P.rng) _shuffle(cins,P.rng); else cins.sort((a,b)=>b.Lmm*b.Wmm-a.Lmm*a.Wmm);
+    const cz=packBin([{x:0,y:0,w:Lf+clr,h:Wf+clr}], cins, clr, heuristic);
+    cartonDropped=cz.leftover.length;
+    cz2=cz.placed.map(p=>({name:p.item.name,L:p.item.Lmm,W:p.item.Wmm,H:p.item.H,cx:p.px+p.vw/2,cy:p.py+p.vh/2,vw:p.vw,vh:p.vh,angle:p.angle,span:Math.ceil(p.item.H/19)}));
+    Z=cz2.reduce((m,c)=>Math.max(m,c.span),0);
+  }
+
+  let layers, unplaced=0;
+  if(cz2.length && Z>0){
+    // Carton-aware single pass. Iterate so the total height (which fixes where the top-aligned cartons sit)
+    // converges. Compact mode packs greedily (minSup 0) and lets the global repair pass clean up overhangs;
+    // max-support places every panel >= SUP_TARGET on the layer below.
+    const minSup = P.maxSupport ? SUP_TARGET : 0.72;
+    let baseN = packStack(order,Lf,Wf,gap,heuristic,0).layers.length;   // height with no cartons (lower bound)
+    /* v2.9 FIX — a big carton sterilises the top `span` layers: once carved, almost no
+       panel fits beside it, so panels that cannot reach a clear layer below were being
+       DROPPED. The old loop could never notice, because packStackCartons pads its
+       result to exactly T, so `nT` always equalled T and the loop exited on iteration 1.
+       Now: if panels are dropped, grow T (which pushes the top-aligned carton band up
+       and opens clear layers underneath) and retry, keeping the SMALLEST T that places
+       everything. Upper bound baseN+Z+2 = the worst case where the carton band and the
+       panel stack cannot share a single layer. When cartons are small the first attempt
+       already drops nothing, so the common path costs exactly what it did before. */
+    /* CRITICAL INVARIANT: packStackCartons carves the carton void at `li >= T - span`,
+       and below we anchor each carton at `top - span`. Those two MUST use the same
+       number, or the carton band slides onto layers that were packed without carving
+       for it and panels end up sitting inside the void. Since packStackCartons pads
+       its result up to T but may also overrun T, only a candidate whose layer count
+       lands exactly on T is self-consistent — anything else is re-packed at the new
+       height. Never trim layers off the result: a trailing empty layer is the carton
+       band itself, not padding, and removing it moves the cartons down onto parts. */
+    const T_HI = baseN + Z + 4;
+    let T = Math.max(Z, baseN), best=null, bestT=0, bestDropped=Infinity;
+    for(let it=0; it<40; it++){
+      const cand = packStackCartons(order, Lf, Wf, gap, heuristic, minSup, cz2, T);
+      if(cand.layers.length > T){ T = cand.layers.length; continue; }   // overran: re-pack so carve matches
+      const dropped = (cand.dropped||[]).length;                        // here layers.length === T
+      if(dropped < bestDropped){ best=cand; bestT=T; bestDropped=dropped; }
+      if(dropped===0) break;
+      if(T>=T_HI) break;
+      const used = cand.layers.filter(l=>l.length).length;
+      const perLayer = used ? Math.max(1,(order.length-dropped)/used) : 1;
+      T = Math.min(T_HI, T + Math.max(1, Math.ceil(dropped/perLayer)));
+    }
+    if(!best){ best = packStackCartons(order,Lf,Wf,gap,heuristic,minSup,cz2,T); bestT = Math.max(T,best.layers.length); }
+    layers = best.layers.map(conv);
+    unplaced = (best.dropped||[]).length;
+    const top = Math.max(bestT, layers.length, Z);   // bestT is the height the void was carved at
+    while(layers.length < top) layers.push([]);
+    cartons = cz2.map(c=>({...c, startLayer: top - c.span}));           // top-aligned: each carton's top = stack top
+  } else if(P.maxSupport){
+    const base=packSupported(order,Lf,Wf,gap,heuristic,SUP_TARGET);
+    layers=base.layers.map(conv); unplaced=(base.dropped||[]).length;
+  } else {
+    const base=packStack(order,Lf,Wf,gap,heuristic,0);
+    layers=base.layers.map(conv);
+    // big-panel-bearing layer goes lowest (stability + big panels can't share a top carton layer), then fullest-first
+    layers.sort((a,b)=>{ let ma=0,mb=0,fa=0,fb=0; for(const p of a){const ar=p.vw*p.vh;fa+=ar;if(ar>ma)ma=ar;} for(const p of b){const ar=p.vw*p.vh;fb+=ar;if(ar>mb)mb=ar;} if(Math.abs(mb-ma)>1) return mb-ma; return fb-fa; });
+    unplaced=(base.dropped||[]).length;
+  }
+
+  if(!layers.length) layers.push([]);
+  return {layers,cartons,unplaced,cartonDropped,Z,order};
+}
+function costOfPlan(plan,Lf,Wf){
+  const L=plan.layers.length; let topHeavy=0,total=0;
+  for(let li=0;li<plan.layers.length;li++) for(const it of plan.layers[li]){const ar=it.vw*it.vh;topHeavy+=ar*li;total+=ar;}
+  const th = total? topHeavy/total/Math.max(1,L-1||1) : 0;     // mean normalized height of mass (lower = big parts low)
+  const top=plan.layers[plan.layers.length-1]||[]; let tu=0; for(const it of top)tu+=it.vw*it.vh;
+  const topFill=tu/(Lf*Wf);                                    // prefer an emptier top layer (more consolidated)
+  // support: penalize every part below SUP_TARGET by the severity of its deficit, with a steep extra hit when it is
+  // badly unsupported (<70%). Ranked below layer count so the optimizer picks the best-supported layout of a given
+  // height rather than padding the stack.
+  let supPenalty=0;
+  for(let li=1; li<plan.layers.length; li++){
+    const below=plan.layers[li-1].map(_itemRect);
+    for(const c of (plan.cartons||[])) if(li-1>=c.startLayer && li-1<c.startLayer+c.span) below.push(_cartonRect(c));
+    for(const it of plan.layers[li]){
+      const sup=_supportFrac(_itemRect(it),below);
+      if(sup<SUP_TARGET){ supPenalty += (SUP_TARGET-sup); if(sup<0.7) supPenalty += (0.7-sup)*5; }
+    }
+  }
+  return L*1e6 + supPenalty*150000 + th*4000 + topFill*1500 + (plan.unplaced||0)*1e9 + (plan.cartonDropped||0)*1e9;
+}
+function planHash(plan){return plan.layers.length+'|'+plan.layers.map(l=>{let u=0;for(const it of l)u+=it.vw*it.vh;return Math.round(u/2000);}).join(',');}
+
+/* ---------------------------------------------------------------------------
+   repairPlan — global support hill-climb. Repeatedly takes the worst-supported
+   part and relocates it (within its layer, or onto another layer) to the spot
+   that most lowers a WHOLE-STACK penalty, so a move can never rob support from
+   a part resting above. Layer count is held fixed (no empty layers created),
+   so the stack stays as compact as the base. Runs until time budget or until
+   no move helps. Cartons are fixed obstacles that parts may also rest on.
+   --------------------------------------------------------------------------- */
+const LAYER_W=1.2;
+function _supBelow(layers,cartons,li,rect){
+  if(li<=0) return 1;
+  const below=layers[li-1].map(_itemRect);
+  for(const c of (cartons||[])) if(li-1>=c.startLayer && li-1<c.startLayer+c.span) below.push(_cartonRect(c));
+  return _supportFrac(rect,below);
+}
+function _penSup(s){ let p=0; if(s<SUP_TARGET){ p=(SUP_TARGET-s); if(s<0.7)p+=(0.7-s)*5; } return p; }
+function _planE(layers,cartons){
+  let e=0;
+  for(let li=1; li<layers.length; li++) for(const p of layers[li]) e+=_penSup(_supBelow(layers,cartons,li,_itemRect(p)));
+  return e + layers.length*LAYER_W;
+}
+function _layerFree(layers,cartons,li,Lf,Wf,gap,exclude){
+  let free=[{x:0,y:0,w:Lf+gap,h:Wf+gap}];
+  for(const p of layers[li]){ if(p===exclude) continue; free=carve(free,{x:p.cx-p.vw/2,y:p.cy-p.vh/2,w:p.vw+gap,h:p.vh+gap}); }
+  for(const c of (cartons||[])) if(li>=c.startLayer && li<c.startLayer+c.span) free=carve(free,{x:c.cx-c.vw/2,y:c.cy-c.vh/2,w:c.vw+gap,h:c.vh+gap});
+  return free;
+}
+function _bestSpotOnEmpty(layers,cartons,belowIdx,W,Lf,Wf,gap){
+  // best spot for W on a brand-new empty layer resting on layer belowIdx
+  const below = (belowIdx<0)?[]:layers[belowIdx].map(_itemRect);
+  if(belowIdx>=0) for(const c of (cartons||[])) if(belowIdx>=c.startLayer && belowIdx<c.startLayer+c.span) below.push(_cartonRect(c));
+  const o=W.m, orients = (o.Lmm!==o.Wmm)?[[o.Lmm,o.Wmm,0],[o.Wmm,o.Lmm,90]]:[[o.Lmm,o.Wmm,0]];
+  let best=null;
+  for(const [vw,vh,ang] of orients){
+    if(vw<=Lf+0.01 && vh<=Wf+0.01){
+      const sup=(belowIdx<0)?1:_supportFrac({minX:0,maxX:vw,minY:0,maxY:vh}, below);
+      if(!best || sup>best.sup+1e-9) best={cx:vw/2,cy:vh/2,angle:ang,vw,vh,sup};
+    }
+  }
+  return best;
+}
+function _bestSpot(layers,cartons,li,W,Lf,Wf,gap,excludeSelf){
+  const free=_layerFree(layers,cartons,li,Lf,Wf,gap, excludeSelf?W:null);
+  const o=W.m, orients = (o.Lmm!==o.Wmm)?[[o.Lmm,o.Wmm,0],[o.Wmm,o.Lmm,90]]:[[o.Lmm,o.Wmm,0]];
+  let best=null;
+  for(const [vw,vh,ang] of orients) for(const f of free){
+    if(vw+gap<=f.w+0.01 && vh+gap<=f.h+0.01){
+      const sup=_supBelow(layers,cartons,li,{minX:f.x,maxX:f.x+vw,minY:f.y,maxY:f.y+vh});
+      const fit=Math.min(f.w-(vw+gap), f.h-(vh+gap));
+      const key=[-Math.round(sup*1000), fit];
+      if(!best || key[0]<best.key[0] || (key[0]===best.key[0]&&key[1]<best.key[1]))
+        best={key,cx:f.x+vw/2,cy:f.y+vh/2,angle:ang,vw,vh,sup};
+    }
+  }
+  return best;
+}
+function _tryMoveE(layers,cartons,W,fromLi,toLi,spot){
+  const old={cx:W.cx,cy:W.cy,angle:W.angle,vw:W.vw,vh:W.vh};
+  const fa=layers[fromLi], idx=fa.indexOf(W); fa.splice(idx,1);
+  W.cx=spot.cx;W.cy=spot.cy;W.angle=spot.angle;W.vw=spot.vw;W.vh=spot.vh; layers[toLi].push(W);
+  const E=_planE(layers,cartons);
+  layers[toLi].pop(); W.cx=old.cx;W.cy=old.cy;W.angle=old.angle;W.vw=old.vw;W.vh=old.vh; fa.splice(idx,0,W);
+  return E;
+}
+function _tryInsertE(layers,cartons,W,fromLi,k,spot){
+  const old={cx:W.cx,cy:W.cy,angle:W.angle,vw:W.vw,vh:W.vh};
+  const fa=layers[fromLi], idx=fa.indexOf(W); fa.splice(idx,1);
+  W.cx=spot.cx;W.cy=spot.cy;W.angle=spot.angle;W.vw=spot.vw;W.vh=spot.vh;
+  layers.splice(k,0,[W]); for(const c of cartons) if(c.startLayer>=k) c.startLayer++;
+  const E=_planE(layers,cartons);
+  for(const c of cartons) if(c.startLayer>=k+1) c.startLayer--;   // reverse the shift (those are now >=k+1)
+  layers.splice(k,1);
+  W.cx=old.cx;W.cy=old.cy;W.angle=old.angle;W.vw=old.vw;W.vh=old.vh; fa.splice(idx,0,W);
+  return E;
+}
+function repairPlan(plan,Lf,Wf,gap,budgetMs){
+  const layers=plan.layers, cartons=plan.cartons||[];
+  if(layers.length<2) return plan;
+  let rid=0; for(const L of layers) for(const p of L) p._rid=rid++;
+  const now=()=> (typeof performance!=='undefined'?performance.now():Date.now());
+  const t0=now(), rng=makeRng('repair|'+rid);
+  const snapshot=()=>{const m={nL:layers.length, cs:(cartons||[]).map(c=>c.startLayer), items:[]}; for(let li=0;li<layers.length;li++) for(const p of layers[li]) m.items.push({ref:p,li,cx:p.cx,cy:p.cy,angle:p.angle,vw:p.vw,vh:p.vh}); return m;};
+  const restore=(snap)=>{ layers.length=0; for(let i=0;i<snap.nL;i++) layers.push([]); for(const s of snap.items){ s.ref.cx=s.cx;s.ref.cy=s.cy;s.ref.angle=s.angle;s.ref.vw=s.vw;s.ref.vh=s.vh; layers[s.li].push(s.ref);} (cartons||[]).forEach((c,i)=>{ if(i<snap.cs.length) c.startLayer=snap.cs[i]; }); };
+  let E=_planE(layers,cartons), bestE=E, best=snapshot();
+  const locked=new Set();
+  while(now()-t0<budgetMs){
+    let W=null,wsup=SUP_TARGET,wli=-1;
+    for(let li=1; li<layers.length; li++) for(const p of layers[li]){
+      if(locked.has(p)) continue;
+      const s=_supBelow(layers,cartons,li,_itemRect(p));
+      if(s<wsup){wsup=s;W=p;wli=li;}
+    }
+    if(W){
+      let mE=E,mT=-1,mSpot=null;
+      for(let t=1; t<layers.length; t++){
+        if(layers[wli].length===1) break;           // moving the only part out would empty a layer
+        const spot=_bestSpot(layers,cartons,t,W,Lf,Wf,gap, t===wli);
+        if(!spot) continue;
+        const E2=_tryMoveE(layers,cartons,W,wli,t,spot);
+        if(E2<mE-1e-6){mE=E2;mT=t;mSpot=spot;}
+      }
+      // INSERT move: if W is genuinely under-supported, try lifting it onto a dense layer in a brand-new layer.
+      // Only insert below the carton zone so carton voids stay top-aligned and just shift up by one.
+      let iE=E,iAt=-1,iSpot=null;
+      if(wsup<SUP_TARGET-1e-9 && layers[wli].length>1){
+        let minCart=Infinity; for(const c of cartons) if(c.startLayer<minCart) minCart=c.startLayer;
+        for(let b=0; b<layers.length; b++){
+          const k=b+1; if(k>minCart) break;                  // keep new layer below all cartons
+          const spot=_bestSpotOnEmpty(layers,cartons,b,W,Lf,Wf,gap);
+          if(!spot || spot.sup<SUP_TARGET-1e-9) continue;     // only worth it if W ends up properly supported
+          const E2=_tryInsertE(layers,cartons,W,wli,k,spot);
+          if(E2<iE-1e-6){iE=E2;iAt=k;iSpot=spot;}
+        }
+      }
+      if(iAt>=0 && iE<=mE-1e-6){                              // insert wins
+        const fa=layers[wli]; fa.splice(fa.indexOf(W),1);
+        W.cx=iSpot.cx;W.cy=iSpot.cy;W.angle=iSpot.angle;W.vw=iSpot.vw;W.vh=iSpot.vh;
+        layers.splice(iAt,0,[W]); for(const c of cartons) if(c.startLayer>=iAt) c.startLayer++;
+        E=iE; locked.clear(); if(E<bestE-1e-9){bestE=E;best=snapshot();} continue;
+      }
+      if(mT>=0){
+        const fa=layers[wli]; fa.splice(fa.indexOf(W),1);
+        W.cx=mSpot.cx;W.cy=mSpot.cy;W.angle=mSpot.angle;W.vw=mSpot.vw;W.vh=mSpot.vh; layers[mT].push(W);
+        E=mE; locked.clear();
+        if(E<bestE-1e-9){bestE=E;best=snapshot();}
+        continue;
+      }
+      locked.add(W);
+      continue;
+    }
+    // stuck (all under-target parts locked): random kick to escape, then reconsider everything
+    const pool=[]; for(let li=1; li<layers.length; li++) if(layers[li].length>1) for(const p of layers[li]) pool.push([li,p]);
+    if(!pool.length) break;
+    const [kli,kp]=pool[(rng()*pool.length)|0];
+    const t=1+((rng()*(layers.length-1))|0);
+    const spot=_bestSpot(layers,cartons,t,kp,Lf,Wf,gap, t===kli);
+    if(spot){ const fa=layers[kli]; fa.splice(fa.indexOf(kp),1); kp.cx=spot.cx;kp.cy=spot.cy;kp.angle=spot.angle;kp.vw=spot.vw;kp.vh=spot.vh; layers[t].push(kp); E=_planE(layers,cartons); }
+    locked.clear();
+  }
+  restore(best);
+  for(const L of layers) for(const p of L) delete p._rid;
+  return plan;
+}
+
+/* ---------------------------------------------------------------------------
+   v2.6 centerPlan — slide each layer so its used area is centered in the
+   footprint (even margins on all four sides), clamped so no part's support
+   ever drops below 0.70. The carton zone (the top layers that hold the
+   top-aligned cartons) moves as ONE rigid block so the carton columns and the
+   panels packed around them stay aligned. Mutates plan.layers / plan.cartons
+   in place. Runs on the already-repaired plan, just before it is applied, so
+   it never changes layer count and never makes support worse than the plan it
+   was handed (it only ever shifts toward center).
+   --------------------------------------------------------------------------- */
+function _planSevere(layers,cartons){
+  let sev=0;
+  for(let li=1; li<layers.length; li++){
+    const below=layers[li-1].map(_itemRect);
+    for(const c of (cartons||[])) if(li-1>=c.startLayer && li-1<c.startLayer+c.span) below.push(_cartonRect(c));
+    for(const it of layers[li]) if(_supportFrac(_itemRect(it),below) < 0.7) sev++;   // matches layerSupportCounts(): severe = <0.70
+  }
+  return sev;
+}
+function _shiftUnit(U,layers,dx,dy){
+  for(const li of U.rows) for(const it of layers[li]){ it.cx+=dx; it.cy+=dy; }
+  for(const c of U.cartons){ c.cx+=dx; c.cy+=dy; }
+}
+/* largest fraction of (dx,dy) we can apply to unit U without pushing severe count above `base` */
+function _bestShiftFrac(U,layers,cartons,base,dx,dy){
+  if(Math.abs(dx)<1e-6 && Math.abs(dy)<1e-6) return 0;
+  for(const t of [1,0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1]){
+    _shiftUnit(U,layers,t*dx,t*dy);
+    const ok=_planSevere(layers,cartons)<=base;
+    _shiftUnit(U,layers,-t*dx,-t*dy);   // undo the trial
+    if(ok) return t;
+  }
+  return 0;
+}
+function centerPlan(plan){
+  const layers=plan.layers, cartons=plan.cartons||[];
+  if(!layers.length) return plan;
+  const Lf=(S.foot&&S.foot.L)||0, Wf=(S.foot&&S.foot.W)||0;
+  if(Lf<=0 || Wf<=0) return plan;
+  const base=_planSevere(layers,cartons);          // never let centering make support worse than this
+  // rigid carton-zone block = lowest carton startLayer .. top (every layer there holds the longest carton)
+  let zoneStart=layers.length;
+  for(const c of cartons){ if(c.span>0 && c.startLayer<zoneStart) zoneStart=c.startLayer; }
+  const hasZone = cartons.length>0 && zoneStart<layers.length;
+  // build units: each non-zone layer is its own unit; the carton zone is one unit carrying the cartons
+  const units=[], top=layers.length, lo = hasZone? zoneStart : top;
+  for(let li=0; li<lo; li++) units.push({rows:[li], cartons:[]});
+  if(hasZone) units.push({rows:Array.from({length:top-zoneStart},(_,k)=>zoneStart+k), cartons});
+  // two passes: pass 2 recovers centering that pass 1 had to clamp because a neighbour hadn't moved yet
+  for(let pass=0; pass<2; pass++){
+    for(const U of units){
+      let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity, any=false;
+      for(const li of U.rows) for(const it of layers[li]){ any=true;
+        if(it.cx-it.vw/2<minX)minX=it.cx-it.vw/2; if(it.cx+it.vw/2>maxX)maxX=it.cx+it.vw/2;
+        if(it.cy-it.vh/2<minY)minY=it.cy-it.vh/2; if(it.cy+it.vh/2>maxY)maxY=it.cy+it.vh/2; }
+      for(const c of U.cartons){ any=true;
+        if(c.cx-c.vw/2<minX)minX=c.cx-c.vw/2; if(c.cx+c.vw/2>maxX)maxX=c.cx+c.vw/2;
+        if(c.cy-c.vh/2<minY)minY=c.cy-c.vh/2; if(c.cy+c.vh/2>maxY)maxY=c.cy+c.vh/2; }
+      if(!any) continue;
+      const dxId=(Lf-(maxX+minX))/2;            // X centering target (unchanged by a Y shift, and vice-versa)
+      const tx=_bestShiftFrac(U,layers,cartons,base,dxId,0); if(tx>0) _shiftUnit(U,layers,tx*dxId,0);
+      const dyId=(Wf-(maxY+minY))/2;
+      const ty=_bestShiftFrac(U,layers,cartons,base,0,dyId); if(ty>0) _shiftUnit(U,layers,0,ty*dyId);
+    }
+  }
+  return plan;
+}
+
+function applyPlan(plan){
+  centerPlan(plan);
+  S.layers=plan.layers.map(layer=>layer.map(it=>{const m=it.m;return {id:S.nextId++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,L:m.Lmm,W:m.Wmm,thickness:m.thickness,cx:it.cx,cy:it.cy,angle:it.angle};}));
+  if(!S.layers.length) S.layers=[[]];
+  S.placedCartons=(plan.cartons||[]).map(c=>({id:S.nextId++,name:c.name,L:c.L,W:c.W,H:c.H,cx:c.cx,cy:c.cy,vw:c.vw,vh:c.vh,angle:c.angle,startLayer:c.startLayer,span:c.span}));
+  S.activeLayer=S.layers.length-1; S.sel=new Set();
+  render();renderTray();renderLayers();renderInspector();updateSig();scheduleSave();
+}
+const EFFORT={fast:{iters:0,cap:1500,repair:300},balanced:{iters:400,cap:5000,repair:2500},thorough:{iters:2500,cap:15000,repair:12000}};
+let OPT_CANCEL=false, OPT_RUNNING=false, OPT_RUN=0;
+function runOptimize(effort){
+  if(OPT_RUNNING){OPT_CANCEL=true;return;}
+  let uid=0; const panels=[]; for(const m of S.manifest) for(let i=0;i<m.qty;i++) panels.push({uid:uid++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,Lmm:m.Lmm,Wmm:m.Wmm,thickness:m.thickness});
+  const haveCartons=(S.cartons||[]).some(c=>(c.qty||0)>0);
+  if(!panels.length && !haveCartons){toast('Import parts first');return;}
+  const Lf=S.foot.L, Wf=S.foot.W, gap=Math.max(0,S.gap||0);
+  const cfg=EFFORT[effort]||EFFORT.balanced;
+  const rng=makeRng(seedStr((S.sku||'untitled')+'|'+effort+'|'+panels.length+'|'+(OPT_RUN++)));
+  const heur=['bssf','baf'], baseOrders=['area','long','perim','wide','tall'];
+  const seeds=[]; for(const o of baseOrders) for(const h of heur) seeds.push({order:o,heuristic:h});
+  const budget=seeds.length+cfg.iters;
+  const top=[]; let bestCost=Infinity, bestOrder=null;
+  function consider(plan){
+    const c=costOfPlan(plan,Lf,Wf), h=planHash(plan);
+    if(c<bestCost){bestCost=c;bestOrder=plan.order;}
+    const ex=top.find(t=>t.hash===h);
+    if(ex){ if(c<ex.cost){ex.cost=c;ex.plan=plan;} }
+    else top.push({cost:c,hash:h,plan});
+    top.sort((a,b)=>a.cost-b.cost); if(top.length>3) top.length=3;
+  }
+  let i=0; const t0=performance.now(); OPT_CANCEL=false; OPT_RUNNING=true;
+  setOptStatus('Optimizing… 0 / '+budget,true);
+  function step(){
+    const end=Math.min(budget,i+20);
+    const mS=false; // max-support mode removed: it backfired (stranded big panels) — compact is robustly 0-severe
+    for(;i<end;i++){
+      let P;
+      if(i<seeds.length){ P={order:seeds[i].order,heuristic:seeds[i].heuristic,rng,cartonShuffle:false,zoneJitter:0,maxSupport:mS}; }
+      else if(bestOrder && rng()<0.5){ P={order:'incumbent',incumbent:bestOrder,swaps:2+((rng()*6)|0),heuristic:heur[(rng()*2)|0],rng,cartonShuffle:rng()<0.4,zoneJitter:0.12,maxSupport:mS}; }
+      else { P={order:'shuffle',jitter:0.12+rng()*0.15,heuristic:heur[(rng()*2)|0],rng,cartonShuffle:rng()<0.5,zoneJitter:0.15,maxSupport:mS}; }
+      consider(planStack(panels,S.cartons||[],Lf,Wf,gap,P));
+    }
+    const best=top.length?top[0].plan.layers.length:'—';
+    setOptStatus('Optimizing… '+i+' / '+budget+' · best '+best+' layers',true);
+    if(i<budget && !OPT_CANCEL && (performance.now()-t0)<cfg.cap) setTimeout(step,0);
+    else finish();
+  }
+  function finish(){
+    OPT_RUNNING=false;
+    if(!top.length){setOptStatus('No layout found — check sizes',false);return;}
+    // repair the best few candidates (support hill-climb), then re-rank by post-repair cost
+    top.sort((a,b)=>a.cost-b.cost);
+    const cand=top.slice(0,3);
+    for(let ci=0; ci<cand.length; ci++){
+      repairPlan(cand[ci].plan, Lf, Wf, gap, ci===0?cfg.repair:Math.min(cfg.repair,4000));
+      cand[ci].cost=costOfPlan(cand[ci].plan,Lf,Wf);
+    }
+    top.sort((a,b)=>a.cost-b.cost);
+    applyPlan(top[0].plan);
+    renderOptResults(top);
+    const stopped=OPT_CANCEL?' (stopped early)':'';
+    let m='Optimized'+stopped+' — best '+top[0].plan.layers.length+' layers, '+totalPlaced()+'/'+totalRequired()+' parts';
+    if(top[0].plan.Z>0) m+=' · '+top[0].plan.cartons.length+' cartons up top';
+    if(top[0].plan.cartonDropped) m+=' · ⚠ '+top[0].plan.cartonDropped+" carton(s) wouldn't fit beside the others — use ＋ in the Cartons list to place them by hand";
+    const sc=stackSupportCounts();
+    if(sc.severe) m+=' · support: ⚠ '+sc.severe+' severe (<70%)'+(sc.mild?', '+sc.mild+' minor':'');
+    else if(sc.mild) m+=' · support: '+sc.mild+' minor overhang(s) 70-90%, 0 severe';
+    else m+=' · support: ✓ every part ≥90%';
+    setOptStatus(m,false);
+  }
+  step();
+}
+function setOptStatus(text,busy){
+  const e=$('optStatus'); if(!e)return;
+  e.innerHTML = text ? ('<span class="optmsg">'+esc(text)+'</span>'+(busy?' <button id="optCancel" class="ghost" style="padding:1px 8px;margin-left:6px">Stop</button>':'')) : '';
+  e.style.display = text?'block':'none';
+  if(busy){const c=$('optCancel'); if(c)c.onclick=()=>{OPT_CANCEL=true;};}
+}
+function renderOptResults(top){
+  const box=$('optResults'); if(!box)return; box.innerHTML='';
+  if(!top.length){box.style.display='none';return;}
+  box.style.display='block';
+  const head=el('div',{class:'hint',style:'margin:8px 0 4px'}); head.textContent='Options — click to load:'; box.appendChild(head);
+  top.forEach((t,idx)=>{
+    const L=t.plan.layers.length, last=t.plan.layers[L-1]||[]; let u=0; for(const it of last)u+=it.vw*it.vh;
+    const tf=Math.round(u/(S.foot.L*S.foot.W)*100);
+    const chip=el('button',{class:'optchip'+(idx===0?' sel':'')});
+    chip.innerHTML='<b>#'+(idx+1)+'</b> · '+L+' layers · top '+tf+'% full'+(t.plan.cartonDropped?' · ⚠ carton':'');
+    chip.onclick=()=>{applyPlan(t.plan); box.querySelectorAll('.optchip').forEach(c=>c.classList.remove('sel')); chip.classList.add('sel'); toast('Loaded option #'+(idx+1)+' — '+L+' layers');};
+    box.appendChild(chip);
+  });
+}
+/* kept for compatibility: one-shot deterministic build = Fast preset */
+function buildStack(){ runOptimize('fast'); }
+/* Suggest ONE layer: dense pack of remaining tray parts onto the current/new layer (around any cartons there). */
+let SUGGEST_SEED=0;
+/* pack remaining tray parts onto a fresh free region for layer li, biased by criterion (and re-rolled by seed) */
+function _suggestPack(items, li, crit, seed){
+  const gap=Math.max(0,S.gap||0), Lf=S.foot.L, Wf=S.foot.W;
+  let pool=items.slice();
+  if(crit==='count') pool.sort((a,b)=>(a.Lmm*a.Wmm)-(b.Lmm*b.Wmm));   // small-first packs the most pieces
+  else pool.sort((a,b)=>(b.Lmm*b.Wmm)-(a.Lmm*a.Wmm));                  // big-first for 'big' and 'tight'
+  if(seed>0){ const rng=makeRng(seedStr('suggest|'+crit+'|'+li+'|'+seed)); const n=Math.max(1,Math.round(pool.length*0.25));
+    for(let k=0;k<n;k++){const i=(rng()*pool.length)|0,j=(rng()*pool.length)|0;const t=pool[i];pool[i]=pool[j];pool[j]=t;} }
+  const baseFree=()=>{ let f=[{x:0,y:0,w:Lf+gap,h:Wf+gap}]; for(const c of cartonRectsOnLayer(li,Math.max(gap,10))) f=carve(f,{x:c.x,y:c.y,w:c.w,h:c.h}); return f; };
+  const heurs = (crit==='tight') ? ['bssf','baf'] : ['bssf'];
+  let best=null;
+  for(const h of heurs){
+    const r=packBin(baseFree(), pool, gap, h);
+    let used=0; for(const pl of r.placed) used+=pl.vw*pl.vh;
+    const score = (crit==='count') ? [-r.placed.length,-used] : [-used,-r.placed.length];   // count: most parts; else: most area
+    if(!best || score[0]<best.score[0] || (score[0]===best.score[0] && score[1]<best.score[1])) best={r,score};
+  }
+  return best.r;
+}
+function suggestLayer(reroll){
+  const crit=(($('suggestCrit')||{}).value)||'big';
+  const Lf=S.foot.L, Wf=S.foot.W;
+  let li=S.activeLayer;
+  if(reroll){
+    if(!S.layers[li] || !S.layers[li].length){ toast('Nothing to re-roll here — press Suggest layer first'); return; }
+    SUGGEST_SEED++; S.layers[li]=[];                       // redo THIS layer: free its parts, re-pack a different combo
+  } else {
+    if(S.layers[li] && S.layers[li].length){ S.layers.push([]); li=S.layers.length-1; }   // fill a fresh layer
+    SUGGEST_SEED=0;
+  }
+  const items=[]; for(const m of S.manifest){const need=m.qty-placedCount(m.key);for(let i=0;i<need;i++)items.push(m);}
+  if(!items.length){toast('All parts are already placed');render();renderTray();renderLayers();renderInspector();scheduleSave();return;}
+  const {placed,leftover}=_suggestPack(items, li, crit, reroll?SUGGEST_SEED:0);
+  if(!placed.length){toast('Nothing fits this layer — try an empty layer or check sizes');if(!S.layers[li].length&&S.layers.length>1){S.layers.splice(li,1);li=Math.min(li,S.layers.length-1);}S.activeLayer=li;render();renderLayers();renderTray();return;}
+  const layer=S.layers[li];
+  for(const pl of placed) layer.push(placedToPart(pl));
+  S.activeLayer=li; S.sel=new Set();
+  let used=0; for(const pl of placed)used+=pl.vw*pl.vh; const fill=Math.round(used/(Lf*Wf)*100);
+  render();renderTray();renderLayers();renderInspector();updateSig();scheduleSave();
+  const remain=leftover.length;
+  const critLbl = crit==='count'?'most pieces':crit==='tight'?'tightest':'big-first';
+  toast((reroll?'Re-rolled':'Filled')+' Layer '+(li+1)+' ('+critLbl+(reroll?' #'+SUGGEST_SEED:'')+') — '+placed.length+' part'+(placed.length!==1?'s':'')+', '+fill+'% area'+(remain?(' · '+remain+' left in tray'):' · all parts placed'));
+}
+
+function renderStackSummary(){
+  const sum=$('stackSum');
+  const placed=totalPlaced(), req=totalRequired();
+  const totalThk=S.layers.reduce((s,l)=>s+layerThickness(l),0);
+  // footprint area usage of active layer
+  const layer=S.layers[S.activeLayer];
+  let used=0;for(const p of layer)used+=p.L*p.W;
+  const footArea=S.foot.L*S.foot.W;
+  const pct=footArea?Math.round(used/footArea*100):0;
+  const sc=stackSupportCounts();
+  let lowLine;
+  if(sc.severe) lowLine=`\n    <span class="k">Support</span><span style="color:#dc2626"><b>⚠ ${sc.severe}</b> severe &lt;50%${sc.mild?` · ${sc.mild} mild`:''}</span>`;
+  else if(sc.mild) lowLine=`\n    <span class="k">Support</span><span style="color:#f59e0b">⚠ ${sc.mild} mild (70–90%)</span>`;
+  else lowLine=`\n    <span class="k">Support</span><span style="color:#16a34a">✓ all ≥90%</span>`;
+  sum.innerHTML=`
+    <span class="k">Parts placed</span><span><b>${placed}</b> / ${req}</span>
+    <span class="k">Layers</span><span><b>${S.layers.length}</b></span>
+    <span class="k">Stack height</span><span><b>${Math.round(totalThk)}</b> mm / ${mmToIn(totalThk).toFixed(2)}″</span>
+    <span class="k">Active layer fill</span><span><b>${pct}%</b></span>${lowLine}`;
+}
+
+/* ---------- STATUS BAR ---------- */
+function updateStatus(layer,bbs){
+  const sb=$('statusBar');
+  let overlaps=0, oob=0, cartHit=0, mild=0, severe=0;
+  const cartBB=cartonRectsOnLayer(S.activeLayer);
+  const belowRects = S.activeLayer>0 ? S.layers[S.activeLayer-1].map(bbox).concat(cartonRectsOnLayer(S.activeLayer-1)) : null;
+  for(let i=0;i<layer.length;i++){
+    if(!inFootprint(bbs[i]))oob++;
+    for(let j=i+1;j<layer.length;j++)if(rectsOverlap(bbs[i],bbs[j]))overlaps++;
+    for(const cb of cartBB)if(rectsOverlap(bbs[i],cb))cartHit++;
+    if(belowRects){const s=_supportFrac(bbs[i],belowRects); if(s<0.7)severe++; else if(s<0.9)mild++;}
+  }
+  const placed=totalPlaced(),req=totalRequired();
+  let html=`<span><span class="k">layer</span> ${S.activeLayer+1}/${S.layers.length}</span>
+    <span>${layer.length} part${layer.length!==1?'s':''}</span>
+    <span><span class="k">placed</span> ${placed}/${req}</span>`;
+  if(req-placed>0)html+=`<span class="k">${req-placed} unplaced</span>`;
+  if(overlaps)html+=`<span class="warn">⚠ ${overlaps} overlap${overlaps>1?'s':''}</span>`;
+  if(oob)html+=`<span class="warn">⚠ ${oob} outside footprint</span>`;
+  if(cartHit)html+=`<span class="warn">⚠ ${cartHit} over a carton</span>`;
+  if(severe)html+=`<span class="warn" style="color:#dc2626">⚠ ${severe} severely unsupported</span>`;
+  if(mild)html+=`<span class="warn" style="color:#f59e0b">⚠ ${mild} under 90%</span>`;
+  if(cartBB.length)html+=`<span class="k">· ${cartBB.length} carton${cartBB.length>1?'s':''} here</span>`;
+  if(!overlaps&&!oob&&!cartHit&&!mild&&!severe&&layer.length)html+=`<span class="ok">✓ layer clean</span>`;
+  if(S.sel.size)html+=`<span class="k">· ${S.sel.size} selected</span>`;
+  sb.innerHTML=html;
+}
+
+/* ---------- signature badge ---------- */
+function updateSig(){
+  const arr=currentSigArr();
+  $('sigBadge').textContent='sig '+(arr.length?sigShort(arr):'—');
+  $('sigBadge').title='Geometry fingerprint: '+arr.length+' parts. Two orders with the same fingerprint share a recipe.';
+}
+
+/* ---------- keyboard ---------- */
+window.addEventListener('keydown',e=>{
+  const tag=(e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'||tag==='select')return;
+  if(document.querySelector('.modal-bg.show'))return;
+  if(e.key==='Escape'){if(S.armed){S.armed=null;updateArmHint();renderTray();}else{S.sel=new Set();render();renderInspector();}return;}
+  if((e.key==='r'||e.key==='R') && S.armed){S.armedAngle=(((S.armedAngle||0)+(e.shiftKey?-90:90))%360+360)%360;updateArmHint();e.preventDefault();return;}
+  if(!S.sel.size && !['[',']'].includes(e.key))return;
+  const g=gridMM()||1;
+  switch(e.key){
+    case 'r':case 'R':rotateSel(e.shiftKey?-90:90);e.preventDefault();break;
+    case 'Delete':case 'Backspace':delSel();e.preventDefault();break;
+    case 'ArrowLeft':nudge(-(e.shiftKey?g*5:g),0);e.preventDefault();break;
+    case 'ArrowRight':nudge(e.shiftKey?g*5:g,0);e.preventDefault();break;
+    case 'ArrowUp':nudge(0,-(e.shiftKey?g*5:g));e.preventDefault();break;
+    case 'ArrowDown':nudge(0,e.shiftKey?g*5:g);e.preventDefault();break;
+    case '[':if(S.activeLayer>0)setLayer(S.activeLayer-1);e.preventDefault();break;
+    case ']':if(S.activeLayer<S.layers.length-1)setLayer(S.activeLayer+1);e.preventDefault();break;
+    case 'd':case 'D':if(e.ctrlKey||e.metaKey){dupSel();e.preventDefault();}break;
+  }
+});
+function nudge(dx,dy){const parts=selParts();for(const p of parts){p.cx+=dx;p.cy+=dy;}clampGroup(parts);render();renderInspector();scheduleSave();}
+
+/* ---------- mobile: tabs, action bar, fit ---------- */
+function setTab(t){document.body.dataset.tab=t;document.querySelectorAll('#mtabs .mtab').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));}
+document.querySelectorAll('#mtabs .mtab').forEach(b=>{b.onclick=()=>setTab(b.dataset.tab);});
+if(!document.body.dataset.tab)document.body.dataset.tab='parts';
+function updateMobileActions(){const bar=$('mobileActions');if(bar)bar.classList.toggle('show',S.sel.size>0);}
+{const r=$('btnFit'); if(r)r.onclick=()=>fitView();}
+{const r=$('maRotate'); if(r)r.onclick=()=>rotateSel(90);}
+{const r=$('maDup'); if(r)r.onclick=()=>dupSel();}
+{const r=$('maDel'); if(r)r.onclick=()=>delSel();}
+document.querySelectorAll('#mobileActions [data-nudge]').forEach(b=>{b.onclick=()=>{const g=gridMM()||10;const d={left:[-g,0],right:[g,0],up:[0,-g],down:[0,g]}[b.dataset.nudge];if(d)nudge(d[0],d[1]);};});
+
+/* ---------- escape util ---------- */
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* ============================================================
+   IMPORT
+   ============================================================ */
+$('btnImport').onclick=()=>{openModal('importModal');setTimeout(()=>$('importText').focus(),50);};
+$('importText').addEventListener('input',()=>{
+  const {rows,sections,skippedZero}=parsePartList($('importText').value);
+  const n=rows.reduce((s,r)=>s+r.qty,0);
+  $('importPreview').innerHTML=rows.length?
+    `<b>${n}</b> part instances · <b>${rows.length}</b> line items · <b>${sections.length-1>0?sections.length-(sections[0]==='(unsectioned)'?1:0):sections.length}</b> sections${skippedZero?` · ${skippedZero} qty-0 rows skipped`:''}`:
+    `<span class="muted">Nothing parsed yet…</span>`;
+});
+$('importGo').onclick=()=>{
+  const {rows}=parsePartList($('importText').value);
+  if(!rows.length){toast('No part rows recognized');return;}
+  loadManifest(rows,$('importReplace').checked);
+  closeModal('importModal');$('importText').value='';$('importPreview').innerHTML='';
+  toast('Loaded '+rows.reduce((s,r)=>s+r.qty,0)+' parts');
+};
+$('loadSample').onclick=()=>{$('importText').value=SAMPLE_PARTS;$('importText').dispatchEvent(new Event('input'));$('importText').focus();};
+function loadManifest(rows,replace){
+  // merge identical line items? keep as separate manifest entries keyed by identity, summing qty
+  const map=new Map();
+  for(const r of rows){
+    const t=19; const key=r.partNum+'¦'+r.name+'¦'+r.Lmm+'x'+r.Wmm+'x'+t;
+    if(map.has(key))map.get(key).qty+=r.qty;
+    else map.set(key,{partNum:r.partNum,name:r.name,section:r.section,secIdx:r.secIdx,Lmm:r.Lmm,Wmm:r.Wmm,Lin:r.Lin,Win:r.Win,qty:r.qty,thickness:t,key});
+  }
+  S.manifest=[...map.values()];
+  if(replace){S.layers=[[]];S.activeLayer=0;S.sel=new Set();S.nextId=1;}
+  S.armed=null;
+  renderAll();updateSig();scheduleSave();
+}
+
+/* ============================================================
+   EXPORT
+   ============================================================ */
+function buildExportRows(){
+  const out=[];
+  S.layers.forEach((layer,li)=>{
+    layer.forEach(p=>{
+      const rp=refPoint(p);const ctr=toOriginFrame(p.cx,p.cy);const bb=bbox(p);
+      const c1=toOriginFrame(bb.minX,bb.minY),c2=toOriginFrame(bb.maxX,bb.maxY);
+      out.push({
+        layer:li+1, partNum:p.partNum, name:p.name,
+        refX_mm:round1(rp.X), refY_mm:round1(rp.Y),
+        refX_in:round3(mmToIn(rp.X)), refY_in:round3(mmToIn(rp.Y)),
+        centerX_mm:round1(ctr.X), centerY_mm:round1(ctr.Y),
+        angle:p.angle, L_mm:p.L, W_mm:p.W, L_in:round3(mmToIn(p.L)), W_in:round3(mmToIn(p.W)),
+        thickness_mm:round2(p.thickness),
+        bboxMinX_mm:round1(Math.min(c1.X,c2.X)), bboxMinY_mm:round1(Math.min(c1.Y,c2.Y)),
+        bboxMaxX_mm:round1(Math.max(c1.X,c2.X)), bboxMaxY_mm:round1(Math.max(c1.Y,c2.Y)),
+      });
+    });
+  });
+  return out;
+}
+function round1(v){return Math.round(v*10)/10;}
+function round2(v){return Math.round(v*100)/100;}
+function round3(v){return Math.round(v*1000)/1000;}
+
+function exportCSV(){
+  const rows=buildExportRows();
+  const meta=[
+    ['# Stacking recipe'],['# AppVersion',APP_VERSION],['# SKU',S.sku||'(unnamed)'],['# Generated',new Date().toISOString()],
+    ['# Footprint_mm',S.foot.L,S.foot.W],['# Pallet_mm',S.pal.L,S.pal.W],['# FootprintOnPallet',S.footPos],
+    ['# Origin',S.origin],['# Datum',S.datum==='foot'?'footprint':'pallet'],['# Reference',S.ref],
+    ['# Layers',S.layers.length],['# PartsPlaced',totalPlaced(),'of',totalRequired()],
+    ['# Signature',sigString(currentSigArr())],['#'],
+  ].map(r=>r.join(',')).join('\n');
+  const cols=['layer','partNum','name','refX_mm','refY_mm','refX_in','refY_in','centerX_mm','centerY_mm','angle','L_mm','W_mm','L_in','W_in','thickness_mm','bboxMinX_mm','bboxMinY_mm','bboxMaxX_mm','bboxMaxY_mm'];
+  const head=cols.join(',');
+  const body=rows.map(r=>cols.map(c=>csvCell(r[c])).join(',')).join('\n');
+  let out=meta+'\n'+head+'\n'+body+'\n';
+  if((S.placedCartons||[]).length){
+    out+='\n# CARTONS — operator sets these into the voids by hand\n';
+    out+='# name,L_mm,W_mm,H_mm,centerX_mm,centerY_mm,angle,startLayer,spanLayers\n';
+    out+=S.placedCartons.map(c=>{const rp=toOriginFrame(c.cx,c.cy);return [csvCell(c.name),c.L,c.W,c.H,round1(rp.X),round1(rp.Y),c.angle,c.startLayer+1,c.span].join(',');}).join('\n')+'\n';
+  }
+  return out;
+}
+function csvCell(v){v=v==null?'':String(v);if(/[",\n]/.test(v))return '"'+v.replace(/"/g,'""')+'"';return v;}
+function exportJSON(){
+  return JSON.stringify({
+    type:'mbd_stacking_recipe', version:1, appVersion:APP_VERSION, sku:S.sku||null, generated:new Date().toISOString(),
+    footprint_mm:S.foot, pallet_mm:S.pal, footprintOnPallet:S.footPos,
+    origin:S.origin, datum:S.datum, reference:S.ref,
+    signature:sigString(currentSigArr()),
+    summary:{layers:S.layers.length, partsPlaced:totalPlaced(), partsRequired:totalRequired(),
+      stackHeight_mm:Math.round(S.layers.reduce((s,l)=>s+layerThickness(l),0))},
+    parts:buildExportRows(),
+    cartons:(S.placedCartons||[]).map(c=>{const rp=toOriginFrame(c.cx,c.cy);return {name:c.name,L_mm:c.L,W_mm:c.W,H_mm:c.H,centerX_mm:round1(rp.X),centerY_mm:round1(rp.Y),angle:c.angle,startLayer:c.startLayer+1,spanLayers:c.span,setByHand:true};})
+  },null,2);
+}
+$('btnExport').onclick=()=>{
+  if(!totalPlaced()){toast('Nothing placed to export');return;}
+  openModal('exportModal');renderExportTable();
+};
+function renderExportTable(){
+  const rows=buildExportRows();const t=$('exportTable');
+  const cols=['layer','partNum','refX_mm','refY_mm','angle','L_mm','W_mm','thickness_mm'];
+  t.innerHTML='<thead><tr>'+cols.map(c=>`<th>${c.replace('_mm',' (mm)').replace('refX','X').replace('refY','Y')}</th>`).join('')+'</tr></thead><tbody>'+
+    rows.map(r=>'<tr>'+cols.map(c=>`<td>${r[c]}</td>`).join('')+'</tr>').join('')+'</tbody>';
+}
+$('dlCSV').onclick=()=>download((S.sku||'recipe')+'.csv',exportCSV(),'text/csv');
+$('dlJSON').onclick=()=>download((S.sku||'recipe')+'.json',exportJSON(),'application/json');
+$('dlPDF').onclick=()=>exportStackPDF(false);
+$('dlPDFBW').onclick=()=>exportStackPDF(true);
+$('copyCSV').onclick=()=>{navigator.clipboard.writeText(exportCSV()).then(()=>toast('CSV copied'));};
+
+/* ===========================================================================
+   PDF EXPORT — a tiny self-contained vector-PDF writer (no libraries, works
+   offline). Emits ASCII-only content so JS string length == byte length, which
+   keeps the xref byte offsets correct. Pages are US-Letter landscape.
+   =========================================================================== */
+function _pdfSan(s){return String(s).replace(/[^\x20-\x7E]/g,'');}              // strip non-ASCII (offsets stay byte-accurate)
+function _pdfEsc(s){return _pdfSan(s).replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');}
+function _hexRGB(hex){const h=hex.replace('#','');return [parseInt(h.slice(0,2),16)/255,parseInt(h.slice(2,4),16)/255,parseInt(h.slice(4,6),16)/255];}
+function _tint(c,f){return c.map(v=>v+(1-v)*f);}                                 // lighten toward white
+/* ---- colour mode (v2.9) --------------------------------------------------
+   PDF_MONO is the single switch for black-and-white export. Every colour funnels
+   through _pc() on its way to _rg()/_RG(), so nothing can leak colour into a mono
+   sheet no matter where it was set. */
+let PDF_MONO = false;
+function _lum(c){return 0.299*c[0]+0.587*c[1]+0.114*c[2];}
+function _pc(c){ if(!PDF_MONO) return c; const g=_lum(c); return [g,g,g]; }
+/* Section fills all collapse to near-identical grey under plain luminance, so in
+   mono they get a deliberate spread-out ramp instead — light enough that black
+   part labels stay readable on every one of them. */
+function _monoSectionGrey(idx){
+  const N=SECTION_COLORS.length, g=0.93-((idx%N)/(N-1||1))*0.28;   // 0.93 -> 0.65
+  return [g,g,g];
+}
+function _rg(c){c=_pc(c);return c[0].toFixed(3)+' '+c[1].toFixed(3)+' '+c[2].toFixed(3)+' rg';}
+function _RG(c){c=_pc(c);return c[0].toFixed(3)+' '+c[1].toFixed(3)+' '+c[2].toFixed(3)+' RG';}
+function _tw(str,size,bold){return _pdfSan(str).length*size*(bold?0.56:0.52);}   // approx Helvetica advance
+const PDF_INK=[0.12,0.12,0.12], PDF_MUTE=[0.45,0.45,0.45], PDF_FAINT=[0.6,0.6,0.6],
+      PDF_FOOT=[0.2,0.2,0.2], PDF_SEV=[0.86,0.15,0.15], PDF_MILD=[0.96,0.62,0.04],
+      PDF_OK=[0.09,0.64,0.29], PDF_CFILL=[0.93,0.90,0.86], PDF_CEDGE=[0.55,0.45,0.30];
+
+function PdfPage(W,H){this.W=W;this.H=H;this.ops='';}
+PdfPage.prototype.rect=function(x,y,w,h,o){o=o||{};const py=this.H-(y+h);let s='q ';
+  if(o.lw!=null)s+=o.lw.toFixed(2)+' w ';
+  if(o.dash)s+='['+o.dash+'] 0 d ';
+  if(o.fill)s+=_rg(o.fill)+' '; if(o.stroke)s+=_RG(o.stroke)+' ';
+  s+=x.toFixed(2)+' '+py.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+' re '+((o.fill&&o.stroke)?'B':(o.fill?'f':'S'))+' Q\n';
+  this.ops+=s;};
+PdfPage.prototype.line=function(x1,y1,x2,y2,o){o=o||{};let s='q '+((o.lw!=null?o.lw:1).toFixed(2))+' w '+_RG(o.stroke||PDF_INK)+' ';
+  if(o.dash)s+='['+o.dash+'] 0 d ';
+  s+=x1.toFixed(2)+' '+(this.H-y1).toFixed(2)+' m '+x2.toFixed(2)+' '+(this.H-y2).toFixed(2)+' l S Q\n'; this.ops+=s;};
+PdfPage.prototype.text=function(x,y,str,o){o=o||{};const size=o.size||10,bold=!!o.bold;
+  /* v2.9: o.rot (degrees CCW) and o.vcenter switch to text-matrix placement so
+     tall/narrow parts can carry a label reading bottom-to-top, same as on screen.
+     With neither option this is byte-for-byte the original Td path. */
+  if(o.rot||o.vcenter){
+    const th=(o.rot||0)*Math.PI/180;
+    const a=Math.cos(th), b=Math.sin(th), c=-Math.sin(th), d=Math.cos(th);
+    const wd=_tw(str,size,bold);
+    const along = o.align==='center'? wd/2 : (o.align==='right'? wd : 0);
+    const perp  = o.vcenter ? size*0.35 : 0;
+    const ux = x          - a*along - c*perp;
+    const uy = (this.H-y) - b*along - d*perp;
+    this.ops+='BT '+(bold?'/F2':'/F1')+' '+size.toFixed(2)+' Tf '+_rg(o.color||PDF_INK)+' '+
+      a.toFixed(4)+' '+b.toFixed(4)+' '+c.toFixed(4)+' '+d.toFixed(4)+' '+
+      ux.toFixed(2)+' '+uy.toFixed(2)+' Tm ('+_pdfEsc(str)+') Tj ET\n';
+    return;
+  }
+  let tx=x;
+  if(o.align==='center')tx=x-_tw(str,size,bold)/2; else if(o.align==='right')tx=x-_tw(str,size,bold);
+  this.ops+='BT '+(bold?'/F2':'/F1')+' '+size.toFixed(2)+' Tf '+_rg(o.color||PDF_INK)+' '+tx.toFixed(2)+' '+(this.H-y).toFixed(2)+' Td ('+_pdfEsc(str)+') Tj ET\n';};
+
+function _emitPDF(pages){
+  let n=4; const cObj=[],pObj=[];
+  pages.forEach(()=>{cObj.push(++n);pObj.push(++n);});
+  const O={};
+  O[1]='<< /Type /Catalog /Pages 2 0 R >>';
+  O[2]='<< /Type /Pages /Kids ['+pObj.map(p=>p+' 0 R').join(' ')+'] /Count '+pages.length+' >>';
+  O[3]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  O[4]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  pages.forEach((pg,i)=>{
+    O[cObj[i]]='<< /Length '+pg.ops.length+' >>\nstream\n'+pg.ops+'\nendstream';
+    O[pObj[i]]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+pg.W+' '+pg.H+'] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+cObj[i]+' 0 R >>';
+  });
+  let out='%PDF-1.4\n'; const off=[];
+  for(let k=1;k<=n;k++){off[k]=out.length;out+=k+' 0 obj\n'+O[k]+'\nendobj\n';}
+  const xref=out.length;
+  out+='xref\n0 '+(n+1)+'\n0000000000 65535 f \n';
+  for(let k=1;k<=n;k++) out+=String(off[k]).padStart(10,'0')+' 00000 n \n';
+  out+='trailer\n<< /Size '+(n+1)+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+  return out;
+}
+
+function _pdfLayerFill(li){let u=0;for(const p of S.layers[li])u+=p.L*p.W;return Math.round(u/(S.foot.L*S.foot.W)*100);}
+function _pdfSections(){const seen={},out=[];for(const layer of S.layers)for(const p of layer){if(!(p.secIdx in seen)){seen[p.secIdx]={idx:p.secIdx,name:(p.name||('Section '+(p.secIdx+1))),count:0};out.push(seen[p.secIdx]);}seen[p.secIdx].count++;}return out;}
+
+/* draw one layer (pallet + footprint + parts + cartons) with ox,oy = footprint origin on the page */
+function _pdfDrawLayer(pg, li, ox, oy, scale, labels){
+  const o=footOffset();
+  pg.rect(ox-o.x*scale, oy-o.y*scale, S.pal.L*scale, S.pal.W*scale, {stroke:PDF_FAINT, lw:0.8});  // pallet
+  pg.rect(ox, oy, S.foot.L*scale, S.foot.W*scale, {stroke:PDF_FOOT, lw:1});                        // footprint
+  const layer=S.layers[li]||[];
+  const below = li>0 ? S.layers[li-1].map(bbox).concat(cartonRectsOnLayer(li-1)) : null;
+  for(const p of layer){
+    const {hx,hy}=halfExtents(p.L,p.W,p.angle);
+    const x=ox+(p.cx-hx)*scale, y=oy+(p.cy-hy)*scale, w=2*hx*scale, h=2*hy*scale;
+    const fillCol = PDF_MONO
+      ? _monoSectionGrey(p.secIdx)
+      : _tint(_hexRGB(SECTION_COLORS[p.secIdx%SECTION_COLORS.length]),0.5);
+    let stroke=[0.2,0.2,0.2], lw=0.5, dash=null;
+    if(below){const s=_supportFrac(bbox(p),below); if(s<0.7){stroke=PDF_SEV;lw=1.5;dash='3 2';} else if(s<0.9){stroke=PDF_MILD;lw=1.3;dash='3 2';}}
+    pg.rect(x,y,w,h,{fill:fillCol, stroke:stroke, lw:lw, dash:dash});
+    /* v2.9 labels: sized off the SHORT axis, run along the LONG axis (rotating on
+       tall/narrow parts the way the on-screen view does), then shrunk if the string
+       still would not fit. Ceiling raised 8.5 -> 14pt, floor 4.5 -> 5pt. */
+    if(labels && Math.min(w,h)>7 && Math.max(w,h)>13){
+      const cx=x+w/2, cy=y+h/2;
+      const rot   = h > w*1.25 ? 90 : 0;
+      const across= rot ? w : h;
+      const along = rot ? h : w;
+      const numTxt= String(p.partNum||p.name||'');
+      const dimTxt= fmt(p.L,S.unit==='in'?1:0)+'x'+fmt(p.W,S.unit==='in'?1:0);
+      const fit=(t,size)=>{const need=_tw(t,size,false), room=along-4;
+                           return need>room ? Math.max(4, size*room/need) : size;};
+      let fs = fit(numTxt, Math.max(5, Math.min(14, across*0.55)));
+      let two = across >= fs*2.1+3;
+      if(!two){ const shrunk=Math.min(fs,(across-3)/2.1); if(shrunk>=8){ fs=fit(numTxt,shrunk); two=true; } }
+      const dfs = fit(dimTxt, Math.max(4, fs*0.8));
+      if(two){
+        const o1=fs*0.58, o2=fs*0.62;
+        pg.text(rot?cx-o1:cx, rot?cy:cy-o1, numTxt, {size:fs, align:'center', color:PDF_INK, rot:rot, vcenter:true});
+        pg.text(rot?cx+o2:cx, rot?cy:cy+o2, dimTxt, {size:dfs, align:'center', color:PDF_MUTE, rot:rot, vcenter:true});
+      } else {
+        pg.text(cx, cy, numTxt, {size:fs, align:'center', color:PDF_INK, rot:rot, vcenter:true});
+      }
+    }
+  }
+  for(const c of (S.placedCartons||[])){
+    if(!(li>=c.startLayer && li<c.startLayer+c.span)) continue;
+    const x=ox+(c.cx-c.vw/2)*scale, y=oy+(c.cy-c.vh/2)*scale, w=c.vw*scale, h=c.vh*scale;
+    pg.rect(x,y,w,h,{fill:PDF_CFILL, stroke:PDF_CEDGE, lw:1, dash:'4 2'});
+    if(labels && w>20 && h>9){
+      const rot=h>w*1.25?90:0, across=rot?w:h, along=rot?h:w;
+      const t='CARTON '+(c.name||'');
+      let cfs=Math.max(5,Math.min(12,across*0.42));
+      const need=_tw(t,cfs,false), room=along-4; if(need>room) cfs=Math.max(4,cfs*room/need);
+      pg.text(x+w/2, y+h/2, t, {size:cfs, align:'center', color:PDF_CEDGE, rot:rot, vcenter:true});
+    }
+  }
+}
+
+function _pdfCover(pg, meta){
+  let y=56;
+  pg.text(36,y,'Pallet Stacking Recipe',{size:22,bold:true}); y+=22;
+  pg.text(36,y,meta.title,{size:11,color:PDF_MUTE}); y+=14;
+  pg.text(36,y,meta.date+'   |   v'+APP_VERSION,{size:9,color:PDF_FAINT}); y+=20;
+  pg.line(36,y,pg.W-36,y,{stroke:[0.82,0.82,0.82],lw:0.8}); y+=24;
+  const colY=y, L=36; let ly=colY;
+  const row=(k,v,vc)=>{pg.text(L,ly,k,{size:9,color:PDF_MUTE});pg.text(L+130,ly,v,{size:10,bold:true,color:vc||PDF_INK});ly+=17;};
+  row('Parts placed', meta.placed+' / '+meta.req);
+  row('Layers', String(meta.layers));
+  row('Stack height', meta.heightMM+' mm  /  '+meta.heightIN+' in');
+  row('Footprint', Math.round(S.foot.L)+' x '+Math.round(S.foot.W)+' mm');
+  row('Pallet', Math.round(S.pal.L)+' x '+Math.round(S.pal.W)+' mm');
+  row('Gap between parts', Math.round(S.gap||0)+' mm');
+  ly+=2;
+  if(meta.severe) row('Support', meta.severe+' severe (<70%)  ·  '+meta.mild+' mild', PDF_SEV);
+  else if(meta.mild) row('Support', meta.mild+' mild (70-90%)', PDF_MILD);
+  else row('Support', 'all parts >= 90% supported', PDF_OK);
+
+  let rx=pg.W/2+14, ry=colY;
+  pg.text(rx,ry,'Cartons',{size:11,bold:true}); ry+=15;
+  pg.text(rx,ry,'(set by hand into the top voids)',{size:8,color:PDF_FAINT}); ry+=15;
+  if(!(S.placedCartons||[]).length){pg.text(rx,ry,'None',{size:9,color:PDF_MUTE});ry+=14;}
+  else for(const c of S.placedCartons){pg.text(rx,ry,(c.name||'Carton')+':  '+cdim(c.L)+' x '+cdim(c.W)+' x '+cdim(c.H)+' '+cUnitLabel(),{size:9,bold:true,color:PDF_INK});ry+=13;pg.text(rx+8,ry,c.span+' layers, from L'+(c.startLayer+1)+' to top',{size:8,color:PDF_MUTE});ry+=15;}
+
+  let leg=Math.max(ly,ry)+16;
+  pg.line(36,leg-10,pg.W-36,leg-10,{stroke:[0.88,0.88,0.88],lw:0.6});
+  pg.text(36,leg,'Sections',{size:10,bold:true}); leg+=15; let lx=36;
+  for(const s of meta.sections){
+    /* in mono the swatch must be the SAME grey the layer pages use, or the legend
+       stops being a key. Colour keeps the slightly stronger 0.35 tint. */
+    const swatch = PDF_MONO ? _monoSectionGrey(s.idx)
+                            : _tint(_hexRGB(SECTION_COLORS[s.idx%SECTION_COLORS.length]),0.35);
+    pg.rect(lx,leg-7,11,8,{fill:swatch,stroke:[0.4,0.4,0.4],lw:0.4});
+    const t=(s.name.length>22?s.name.slice(0,21)+'…':s.name)+' ('+s.count+')';
+    pg.text(lx+15,leg,t,{size:8,color:[0.25,0.25,0.25]}); lx+=15+_tw(t,8)+20;
+    if(lx>pg.W-150){lx=36;leg+=14;}
+  }
+  // support legend
+  leg+=20; pg.text(36,leg,'Support flags',{size:10,bold:true}); leg+=14;
+  pg.rect(36,leg-7,11,8,{stroke:PDF_MILD,lw:1.3,dash:'3 2'}); pg.text(52,leg,'amber dashed = 70-90% on the layer below',{size:8,color:[0.3,0.3,0.3]}); leg+=13;
+  pg.rect(36,leg-7,11,8,{stroke:PDF_SEV,lw:1.5,dash:'3 2'}); pg.text(52,leg,'red dashed = under 70% (a tip risk - check it)',{size:8,color:[0.3,0.3,0.3]});
+
+  pg.text(36, pg.H-22, 'Generated by the stacking recipe editor. Panel positions are scan-driven from the recipe; carton positions are placed by hand. For discussion only.', {size:7.5,color:PDF_FAINT});
+}
+
+function _pdfContactSheet(pg){
+  const N=S.layers.length;
+  pg.text(36,42,'All layers',{size:15,bold:true});
+  pg.text(36,56,N+' layers, L1 (bottom) to L'+N+' (top)',{size:8.5,color:PDF_MUTE});
+  const top=70,left=36,gridW=pg.W-72,gridH=pg.H-top-26;
+  const cols = N<=6?3 : N<=12?4 : N<=20?5 : 6;
+  const rows=Math.ceil(N/cols), cw=gridW/cols, ch=gridH/rows;
+  for(let i=0;i<N;i++){
+    const r=Math.floor(i/cols), c=i%cols;
+    const cellX=left+c*cw, cellY=top+r*ch;
+    const sc=layerSupportCounts(i), fill=_pdfLayerFill(i);
+    const flag = sc.severe? (' · '+sc.severe+' sev') : sc.mild? (' · '+sc.mild+' mild') : '';
+    const flagCol = sc.severe?PDF_SEV:sc.mild?PDF_MILD:PDF_OK;
+    pg.text(cellX+4, cellY+10, 'L'+(i+1), {size:9,bold:true});
+    pg.text(cellX+cw-4, cellY+10, fill+'%'+flag, {size:7.5,align:'right',color:flagCol});
+    const aw=cw-12, ah=ch-22, scale=Math.min(aw/S.pal.L, ah/S.pal.W);
+    const drawW=S.pal.L*scale, drawH=S.pal.W*scale;
+    const ox=cellX+6+(aw-drawW)/2+footOffset().x*scale, oy=cellY+16+(ah-drawH)/2+footOffset().y*scale;
+    _pdfDrawLayer(pg, i, ox, oy, scale, false);
+  }
+}
+
+function _pdfLayerPage(pg, li){
+  const N=S.layers.length, sc=layerSupportCounts(li), fill=_pdfLayerFill(li);
+  pg.text(36,42,'Layer '+(li+1)+' of '+N,{size:16,bold:true});
+  pg.text(36,57,(S.layers[li].length)+' parts',{size:9,color:PDF_MUTE});
+  let badge = sc.severe? (sc.severe+' severe (<70%)') : sc.mild? (sc.mild+' mild (70-90%)') : 'fully supported';
+  pg.text(pg.W-36,42,fill+'% fill',{size:11,align:'right',color:PDF_INK});
+  pg.text(pg.W-36,57,badge,{size:9,align:'right',color: sc.severe?PDF_SEV:sc.mild?PDF_MILD:PDF_OK});
+  const top=72,left=36,aw=pg.W-72,ah=pg.H-top-24;
+  const scale=Math.min(aw/S.pal.L, ah/S.pal.W);
+  const drawW=S.pal.L*scale, drawH=S.pal.W*scale;
+  const ox=left+(aw-drawW)/2+footOffset().x*scale, oy=top+(ah-drawH)/2+footOffset().y*scale;
+  _pdfDrawLayer(pg, li, ox, oy, scale, true);
+}
+
+function _stackPDFString(){
+  const W=792,H=612, pages=[];
+  const totalThk=S.layers.reduce((s,l)=>s+layerThickness(l),0), sc=stackSupportCounts();
+  const meta={ title: totalPlaced()+' parts  ·  '+S.layers.length+' layers  ·  '+Math.round(S.foot.L)+'x'+Math.round(S.foot.W)+'mm footprint',
+    date:new Date().toLocaleString(), placed:totalPlaced(), req:totalRequired(), layers:S.layers.length,
+    heightMM:Math.round(totalThk), heightIN:mmToIn(totalThk).toFixed(2), severe:sc.severe, mild:sc.mild, sections:_pdfSections() };
+  const cover=new PdfPage(W,H); _pdfCover(cover,meta); pages.push(cover);
+  if(S.layers.length>1){ const cs=new PdfPage(W,H); _pdfContactSheet(cs); pages.push(cs); }
+  for(let li=0;li<S.layers.length;li++){ const p=new PdfPage(W,H); _pdfLayerPage(p,li); pages.push(p); }
+  return {str:_emitPDF(pages), pages:pages.length};
+}
+/* mono=true emits the same document with every colour flattened to grey. The flag
+   is restored in a finally block so a throw mid-build cannot leave the next colour
+   export stuck in black-and-white. */
+function exportStackPDF(mono){
+  if(!S.layers.length || totalPlaced()===0){ toast('Build or place a stack first'); return; }
+  const prev=PDF_MONO; PDF_MONO=!!mono;
+  let r;
+  try{ r=_stackPDFString(); } finally { PDF_MONO=prev; }
+  download('stack-recipe-v'+APP_VERSION+(mono?'-bw':'-color')+'.pdf', r.str, 'application/pdf');
+  toast('Exported '+(mono?'B&W':'colour')+' PDF — '+r.pages+' pages');
+}
+function download(name,content,mime){const b=new Blob([content],{type:mime});const u=URL.createObjectURL(b);const a=el('a',{href:u,download:name});document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
+
+/* ============================================================
+   LIBRARY (localStorage)
+   ============================================================ */
+function loadLib(){try{return JSON.parse(localStorage.getItem(LS_LIB)||'{}');}catch(e){return {};}}
+function saveLib(lib){localStorage.setItem(LS_LIB,JSON.stringify(lib));}
+function snapshot(){
+  return {
+    sku:S.sku, savedAt:new Date().toISOString(), appVersion:APP_VERSION,
+    foot:S.foot, pal:S.pal, footPos:S.footPos, origin:S.origin, datum:S.datum, ref:S.ref,
+    manifest:S.manifest.map(m=>({partNum:m.partNum,name:m.name,section:m.section,secIdx:m.secIdx,Lmm:m.Lmm,Wmm:m.Wmm,Lin:m.Lin,Win:m.Win,qty:m.qty,thickness:m.thickness})),
+    layers:S.layers.map(l=>l.map(p=>({key:p.key,partNum:p.partNum,name:p.name,secIdx:p.secIdx,L:p.L,W:p.W,thickness:p.thickness,cx:p.cx,cy:p.cy,angle:p.angle}))),
+    signature:sigString(currentSigArr()),
+    cartons:(S.cartons||[]).map(c=>({...c})),
+    placedCartons:(S.placedCartons||[]).map(c=>({...c}))
+  };
+}
+function restoreSnapshot(snap){
+  S.sku=snap.sku||'';$('skuInput').value=S.sku;
+  S.foot=snap.foot||S.foot;S.pal=snap.pal||S.pal;S.footPos=snap.footPos||'center';
+  S.origin=snap.origin||'TL';S.datum=snap.datum||'foot';S.ref=snap.ref||'center';
+  S.manifest=(snap.manifest||[]).map(m=>({...m,key:mkey(m)}));
+  let maxId=0;
+  S.layers=(snap.layers&&snap.layers.length?snap.layers:[[]]).map(l=>l.map(p=>{const id=++maxId;return {...p,id,key:p.key||mkey({partNum:p.partNum,name:p.name,Lmm:p.L,Wmm:p.W,thickness:p.thickness})};}));
+  S.cartons=(snap.cartons||[]).map(c=>({...c}));
+  S.placedCartons=(snap.placedCartons||[]).map(c=>({...c}));
+  S.nextId=maxId+1;S.activeLayer=0;S.sel=new Set();S.armed=null;
+  syncSettingControls();renderAll();updateSig();
+}
+$('btnSave').onclick=()=>{
+  S.sku=$('skuInput').value.trim();
+  if(!S.sku){toast('Enter a SKU first');$('skuInput').focus();return;}
+  if(!totalPlaced() && !confirm('No parts are placed. Save an empty layout for '+S.sku+'?'))return;
+  const lib=loadLib();const exists=!!lib[S.sku];
+  if(exists && !confirm('Overwrite saved recipe "'+S.sku+'"?'))return;
+  lib[S.sku]=snapshot();saveLib(lib);toast('Saved recipe '+S.sku);
+};
+$('btnLibrary').onclick=()=>{renderLibList();openModal('libModal');};
+function renderLibList(){
+  const lib=loadLib();const list=$('libList');const keys=Object.keys(lib).sort();
+  $('libCount').textContent=keys.length+' recipe'+(keys.length!==1?'s':'')+' stored';
+  if(!keys.length){list.innerHTML='<div class="hint" style="text-align:center;padding:20px">No saved recipes yet. Build a layout and click <b>Save recipe</b>.</div>';return;}
+  list.innerHTML='';
+  for(const k of keys){
+    const r=lib[k];const np=(r.layers||[]).reduce((s,l)=>s+l.length,0);
+    const card=el('div',{class:'reccard'});
+    card.innerHTML=`<div class="info"><div class="nm">${esc(k)}</div>
+      <div class="sub">${np} parts · ${(r.layers||[]).length} layers · sig ${sigShort((r.signature||'').split('|').filter(Boolean))} · ${new Date(r.savedAt).toLocaleDateString()}</div></div>`;
+    const bLoad=el('button',{class:'primary',text:'Load'});bLoad.onclick=()=>{restoreSnapshot(r);closeModal('libModal');toast('Loaded '+k);};
+    const bDel=el('button',{class:'danger',text:'Delete'});bDel.onclick=()=>{if(confirm('Delete recipe "'+k+'"?')){const L=loadLib();delete L[k];saveLib(L);renderLibList();}};
+    card.appendChild(bLoad);card.appendChild(bDel);
+    list.appendChild(card);
+  }
+}
+$('libExport').onclick=()=>{const lib=loadLib();download('stacking-recipes-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(lib,null,2),'application/json');};
+$('libImport').onclick=()=>$('libFile').click();
+$('libFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const inc=JSON.parse(r.result);const lib=loadLib();let n=0;
+    for(const k in inc){if(lib[k]&&!confirm('"'+k+'" exists. Overwrite?'))continue;lib[k]=inc[k];n++;}
+    saveLib(lib);renderLibList();toast('Imported '+n+' recipe(s)');}catch(err){toast('Invalid library file');}};
+  r.readAsText(f);e.target.value='';};
+
+/* ============================================================
+   VALIDATE / MATCH ORDER
+   ============================================================ */
+$('btnValidate').onclick=()=>{openModal('validateModal');$('validateResult').innerHTML='';setTimeout(()=>$('validateText').focus(),50);};
+$('validateGo').onclick=()=>{
+  const {rows}=parsePartList($('validateText').value);
+  if(!rows.length){$('validateResult').innerHTML='<span class="pill bad">No parts parsed</span>';return;}
+  rows.forEach(r=>r.thickness=r.thickness||19);
+  const sig=manifestSignatureFromRows(rows);
+  const sigStr=sigString(sig);
+  const lib=loadLib();
+  let exact=null;const close=[];
+  for(const k in lib){ if((lib[k].signature||'')===sigStr){exact=k;} }
+  // also compare against current loaded recipe
+  const curMatch = sigStr===sigString(currentSigArr()) && totalRequired()>0;
+  let html='';
+  const n=rows.reduce((s,r)=>s+r.qty,0);
+  html+=`<div style="margin-bottom:10px">Order: <b>${n}</b> parts · fingerprint <span class="mono">${sigShort(sig)}</span></div>`;
+  if(exact){
+    html+=`<div><span class="pill ok">✓ Matches saved recipe</span> <b class="mono">${esc(exact)}</b></div>
+      <div style="margin-top:10px"><button class="primary" id="vLoad">Load ${esc(exact)}</button> <button id="vRemap">Load &amp; relabel part #s from this order</button></div>`;
+  } else if(curMatch){
+    html+=`<div><span class="pill ok">✓ Matches the recipe open now</span> ${S.sku?('<b class="mono">'+esc(S.sku)+'</b>'):''} <span class="hint">(not yet saved to library)</span></div>`;
+  } else {
+    html+=`<div><span class="pill warn">No exact recipe match</span></div>`;
+    // find nearest by size-multiset diff
+    let best=null,bestDiff=Infinity;
+    for(const k in lib){const d=multisetDiffCount(sig,(lib[k].signature||'').split('|').filter(Boolean));if(d<bestDiff){bestDiff=d;best=k;}}
+    if(best!==null){
+      const diff=multisetDiff(sig,(lib[best].signature||'').split('|').filter(Boolean));
+      html+=`<div style="margin-top:8px" class="hint">Closest saved recipe: <b class="mono">${esc(best)}</b> — ${bestDiff} part difference.</div>`;
+      html+=diffTable(diff,'order','recipe '+best);
+      html+=`<div style="margin-top:8px"><button id="vNew" class="primary">Build new recipe from this order</button></div>`;
+    } else {
+      html+=`<div style="margin-top:8px" class="hint">Library is empty.</div><div style="margin-top:8px"><button id="vNew" class="primary">Build recipe from this order</button></div>`;
+    }
+  }
+  $('validateResult').innerHTML=html;
+  if($('vLoad'))$('vLoad').onclick=()=>{restoreSnapshot(lib[exact]);closeModal('validateModal');toast('Loaded '+exact);};
+  if($('vRemap'))$('vRemap').onclick=()=>{restoreSnapshot(lib[exact]);remapPartNumbers(rows);closeModal('validateModal');toast('Loaded '+exact+' with this order\'s part #s');};
+  if($('vNew'))$('vNew').onclick=()=>{loadManifest(rows,true);closeModal('validateModal');toast('New manifest loaded — place the parts');};
+};
+function multisetCount(arr){const m={};for(const x of arr)m[x]=(m[x]||0)+1;return m;}
+function multisetDiff(a,b){ // returns {onlyA:{size:count}, onlyB:{...}}
+  const ma=multisetCount(a),mb=multisetCount(b);const onlyA={},onlyB={};
+  const keys=new Set([...Object.keys(ma),...Object.keys(mb)]);
+  for(const k of keys){const d=(ma[k]||0)-(mb[k]||0);if(d>0)onlyA[k]=d;else if(d<0)onlyB[k]=-d;}
+  return {onlyA,onlyB};
+}
+function multisetDiffCount(a,b){const {onlyA,onlyB}=multisetDiff(a,b);return Object.values(onlyA).reduce((s,v)=>s+v,0)+Object.values(onlyB).reduce((s,v)=>s+v,0);}
+function diffTable(diff,aLabel,bLabel){
+  const rowsA=Object.entries(diff.onlyA),rowsB=Object.entries(diff.onlyB);
+  if(!rowsA.length&&!rowsB.length)return '<div class="pill ok" style="margin-top:8px">Identical part sets</div>';
+  let h='<table class="tbl" style="margin-top:8px"><thead><tr><th>Side</th><th>Size (mm)</th><th>Qty</th></tr></thead><tbody>';
+  for(const [k,v] of rowsA)h+=`<tr><td><span class="pill bad">only in ${esc(aLabel)}</span></td><td>${k}</td><td>${v}</td></tr>`;
+  for(const [k,v] of rowsB)h+=`<tr><td><span class="pill warn">only in ${esc(bLabel)}</span></td><td>${k}</td><td>${v}</td></tr>`;
+  return h+'</tbody></table>';
+}
+function remapPartNumbers(rows){
+  // assign the order's part numbers onto loaded placed parts by matching size+thickness
+  const pool={};for(const r of rows){const key=r.Lmm+'x'+r.Wmm+'x'+(r.thickness||19);(pool[key]=pool[key]||[]).push(r);}
+  // expand qty
+  const queues={};for(const k in pool){queues[k]=[];pool[k].forEach(r=>{for(let i=0;i<r.qty;i++)queues[k].push(r);});}
+  for(const layer of S.layers)for(const p of layer){const key=p.L+'x'+p.W+'x'+p.thickness;const q=queues[key];if(q&&q.length){const r=q.shift();p.partNum=r.partNum;p.name=r.name;}}
+  // rebuild manifest from rows so tray matches
+  loadManifest(rows,false); // keeps layout (replace=false), refresh manifest counts
+  renderAll();
+}
+
+/* ============================================================
+   SETTINGS BINDINGS
+   ============================================================ */
+function syncSettingControls(){
+  $('skuInput').value=S.sku;
+  $('footL').value=fmtSetting(S.foot.L);$('footW').value=fmtSetting(S.foot.W);
+  $('palL').value=fmtSetting(S.pal.L);$('palW').value=fmtSetting(S.pal.W);
+  $('footPos').value=S.footPos;$('originSel').value=S.origin;$('datumSel').value=S.datum;$('refSel').value=S.ref;
+  $('gridSel').value=S.gridIn?(S.grid+'in'):String(S.grid);
+  $('gapInput').value=fmtSetting(S.gap);$('gapUnit').textContent=unitLabel();
+  $('chkContain').checked=S.contain;$('chkSnap').checked=S.snap;$('chkGhost').checked=S.ghost;$('chkLabels').checked=S.labels;
+  {const m=$('ckMaxSup'); if(m)m.checked=!!S.maxSupport;}
+  ['u1','u2','u3','u4'].forEach(id=>$(id).textContent=unitLabel());
+  $('unitMM').classList.toggle('on',S.unit==='mm');$('unitIN').classList.toggle('on',S.unit==='in');
+  {const a=$('ckUnitMM'),b=$('ckUnitIN'),t=$('ckUnitTag'); if(a)a.classList.toggle('on',cartonUnit()==='mm'); if(b)b.classList.toggle('on',cartonUnit()==='in'); if(t)t.textContent=cUnitLabel();}
+}
+function fmtSetting(mm){return S.unit==='in'?mmToIn(mm).toFixed(2):Math.round(mm);}
+function readDim(id){const v=parseLen($(id).value);return isNaN(v)?null:v;}
+['footL','footW','palL','palW'].forEach(id=>{$(id).onchange=()=>{
+  const v=readDim(id);if(v==null)return;
+  if(id==='footL')S.foot.L=v;if(id==='footW')S.foot.W=v;if(id==='palL')S.pal.L=v;if(id==='palW')S.pal.W=v;
+  render();scheduleSave();};});
+$('footPos').onchange=()=>{S.footPos=$('footPos').value;render();scheduleSave();};
+$('originSel').onchange=()=>{S.origin=$('originSel').value;render();renderInspector();scheduleSave();};
+$('datumSel').onchange=()=>{S.datum=$('datumSel').value;render();renderInspector();scheduleSave();};
+$('refSel').onchange=()=>{S.ref=$('refSel').value;render();renderInspector();scheduleSave();};
+$('skuInput').onchange=()=>{S.sku=$('skuInput').value.trim();scheduleSave();};
+
+$('btnRotate').onclick=()=>{if(S.sel.size)rotateSel(90);};
+$('btnDup').onclick=()=>{if(S.sel.size)dupSel();};
+$('btnDelete').onclick=()=>{if(S.sel.size)delSel();};
+$('btnAddLayer').onclick=addLayer;$('btnDupLayer').onclick=dupLayer;$('btnSuggest').onclick=()=>suggestLayer(false);{const _rs=$('btnResuggest'); if(_rs)_rs.onclick=()=>suggestLayer(true);}
+{let _clrArm=null; const b=$('btnClearStack'); if(b) b.onclick=()=>{
+  if(_clrArm){clearTimeout(_clrArm);_clrArm=null;b.textContent='Clear stack';b.classList.remove('armed');clearStack();return;}
+  b.textContent='Tap again to clear';b.classList.add('armed');
+  _clrArm=setTimeout(()=>{_clrArm=null;b.textContent='Clear stack';b.classList.remove('armed');},3000);
+};}
+$('btnBuildStack').onclick=()=>runOptimize($('effortSel').value);
+{const _m=$('ckMaxSup'); if(_m)_m.onchange=()=>{S.maxSupport=_m.checked;scheduleSave();};}
+$('ckAdd').onclick=()=>{
+  const name=$('ckName').value.trim()||('Carton '+String.fromCharCode(65+(S.cartons.length%26)));
+  const L=parseLen($('ckL').value,cartonUnit()),W=parseLen($('ckW').value,cartonUnit()),H=parseLen($('ckH').value,cartonUnit()),q=parseInt($('ckQ').value,10)||1;
+  if(isNaN(L)||isNaN(W)||isNaN(H)||L<=0||W<=0||H<=0){toast('Enter carton L, W and H');return;}
+  S.cartons.push({id:Date.now(),name,L:Math.round(L),W:Math.round(W),H:Math.round(H),qty:Math.max(1,q)});
+  $('ckName').value='';$('ckL').value='';$('ckW').value='';$('ckH').value='';$('ckQ').value='1';
+  renderCartons();scheduleSave();toast('Added '+name);
+};
+$('chkSnap').onchange=()=>{S.snap=$('chkSnap').checked;scheduleSave();};
+$('chkContain').onchange=()=>{S.contain=$('chkContain').checked;if(S.contain){for(const layer of S.layers)clampGroup(layer);}render();scheduleSave();};
+$('gapInput').onchange=()=>{const v=parseLen($('gapInput').value);S.gap=isNaN(v)?0:Math.max(0,v);scheduleSave();};
+$('chkGhost').onchange=()=>{S.ghost=$('chkGhost').checked;render();scheduleSave();};
+$('chkLabels').onchange=()=>{S.labels=$('chkLabels').checked;render();scheduleSave();};
+$('gridSel').onchange=()=>{const v=$('gridSel').value;if(v.endsWith('in')){S.gridIn=true;S.grid=parseFloat(v);}else{S.gridIn=false;S.grid=parseFloat(v);}scheduleSave();};
+$('traySearch').oninput=renderTray;
+$('btnExpand').onclick=()=>{
+  const anyOpen=S.manifest.some(m=>!S.collapsed.has(m.secIdx));
+  if(anyOpen){S.manifest.forEach(m=>S.collapsed.add(m.secIdx));$('btnExpand').textContent='Expand all';}
+  else{S.collapsed.clear();$('btnExpand').textContent='Collapse all';}
+  renderTray();
+};
+$('unitMM').onclick=()=>setUnit('mm');$('unitIN').onclick=()=>setUnit('in');
+{const a=$('ckUnitMM'),b=$('ckUnitIN'); if(a)a.onclick=()=>setCartonUnit('mm'); if(b)b.onclick=()=>setCartonUnit('in');}
+function setCartonUnit(u){S.cartonUnit=(u==='in'?'in':'mm');syncSettingControls();renderCartons();render();scheduleSave();}
+function setUnit(u){S.unit=u;syncSettingControls();renderAll();scheduleSave();}
+
+$('btnHelp').onclick=()=>openModal('helpModal');
+
+/* modal plumbing */
+function openModal(id){$(id).classList.add('show');}
+function closeModal(id){$(id).classList.remove('show');}
+document.querySelectorAll('.modal-bg').forEach(bg=>{
+  bg.addEventListener('click',e=>{if(e.target===bg)bg.classList.remove('show');});
+  bg.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>bg.classList.remove('show'));
+});
+
+/* ============================================================
+   AUTOSAVE working state
+   ============================================================ */
+let saveTimer=null;
+function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(doSave,400);}
+function doSave(){try{localStorage.setItem(LS_WORK,JSON.stringify({
+  snap:snapshot(), unit:S.unit, cartonUnit:S.cartonUnit, grid:S.grid, gridIn:S.gridIn, snap_:S.snap, ghost:S.ghost, labels:S.labels, contain:S.contain, gap:S.gap, maxSupport:S.maxSupport, activeLayer:S.activeLayer
+}));}catch(e){}}
+function restoreWork(){
+  try{const w=JSON.parse(localStorage.getItem(LS_WORK)||'null');if(!w||!w.snap)return false;
+    S.unit=w.unit||'mm';S.cartonUnit=w.cartonUnit||'mm';S.grid=w.grid!=null?w.grid:10;S.gridIn=!!w.gridIn;S.snap=w.snap_!==false;S.ghost=w.ghost!==false;S.labels=w.labels!==false;S.contain=w.contain!==false;S.gap=w.gap||0;S.maxSupport=!!w.maxSupport;
+    restoreSnapshot(w.snap);
+    if(w.activeLayer!=null&&w.activeLayer<S.layers.length)S.activeLayer=w.activeLayer;
+    syncSettingControls();renderAll();
+    return true;
+  }catch(e){return false;}
+}
+
+/* ============================================================
+   RENDER ALL + INIT
+   ============================================================ */
+function renderCartons(){
+  const box=$('cartonList'); if(!box)return;
+  if(!S.cartons.length){box.innerHTML='<div class="hint" style="padding:2px 0 4px">No cartons yet.</div>';return;}
+  box.innerHTML='';
+  S.cartons.forEach((c,i)=>{
+    const span=Math.ceil(c.H/19);
+    const row=el('div',{class:'field',style:'margin:5px 0;gap:6px;align-items:flex-start'});
+    const info=el('div',{style:'flex:1;font-family:var(--mono);font-size:11.5px;line-height:1.3'});
+    info.innerHTML=esc(c.name||'Carton')+' <span class="muted">×'+c.qty+'</span><br><span class="muted" style="font-size:10.5px">'+cdim(c.L)+'×'+cdim(c.W)+'×'+cdim(c.H)+cUnitLabel()+' · '+span+'L</span>';
+    const put=el('button',{class:'ghost',style:'padding:2px 7px'});put.textContent='＋';
+    put.title='Drop this carton onto the current layer by hand, then drag it where you want it. Use this when Generate Stack cannot fit it.';
+    put.onclick=()=>placeCartonByHand(c);
+    const del=el('button',{class:'ghost danger',style:'padding:2px 7px'});del.textContent='✕';
+    del.onclick=()=>{S.cartons.splice(i,1);renderCartons();scheduleSave();};
+    row.appendChild(info);row.appendChild(put);row.appendChild(del);box.appendChild(row);
+  });
+}
+function renderAll(){syncSettingControls();render();renderTray();renderLayers();renderInspector();renderCartons();updateSig();}
+window.addEventListener('resize',()=>{render();});
+
+(function init(){
+  const vt=document.getElementById('verTag'); if(vt)vt.textContent='v'+APP_VERSION;
+  syncSettingControls();
+  if(!restoreWork()){
+    try{const {rows}=parsePartList(SAMPLE_PARTS);if(rows.length)loadManifest(rows,true);}catch(e){}
+    renderAll();
+  }
+  updateSig();
+})();
+</script>
+</body>
+</html>
