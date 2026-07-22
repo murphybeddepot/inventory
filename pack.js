@@ -1362,45 +1362,73 @@ async function _markOrderBookedPrompt_(orderNumber) {
 
 // v10.1328 (Zac 2026-07-22): "scheduling has to work this week!" The
 // Orders-tab detail card previously showed the ship date as read-only
-// text, forcing a trip out to the Planner modal to change it. This
-// prompt writes pack_target_date directly via the existing PIN-gated
-// setPackTargetDate endpoint. YYYY-MM-DD only; empty clears the date.
+// text, forcing a trip out to the Planner modal to change it.
+// v10.1341: swapped window.prompt for a native <input type=date> mini
+// modal — iPad's date-picker keyboard opens on tap, no manual
+// YYYY-MM-DD typing. PIN pulled from cached ensurePin so bulk
+// rescheduling doesn't re-prompt every time.
 async function _promptChangeShipDate_(orderNumber, currentIso) {
   const cur = String(currentIso || '').slice(0, 10);
-  const raw = window.prompt(
-    'Change ship / pack-target date for #' + orderNumber + '.\n\n' +
-    'Format: YYYY-MM-DD (e.g. 2026-07-29)\n' +
-    'Empty to clear the assignment.\n\n' +
-    'Current: ' + (cur || '(unset)'),
-    cur
-  );
-  if (raw === null) return;
-  const target = String(raw).trim();
-  if (target && !/^\d{4}-\d{2}-\d{2}$/.test(target)) {
-    showToast('Invalid — needs YYYY-MM-DD, got: ' + target);
-    return;
-  }
-  const pin = window.prompt('Manager PIN:');
-  if (pin === null) return;
-  try {
-    const res = await groundApi('setPackTargetDate', {
-      orderNumber: orderNumber,
-      targetDate: target,
-      manager_pin: String(pin || '').trim(),
-      set_by: (typeof getDeviceLabel === 'function' ? getDeviceLabel() : 'ipad'),
-    });
-    if (!res || !res.ok) {
-      showToast('Reschedule failed: ' + ((res && res.error) || 'unknown'));
-      return;
+  const ord = String(orderNumber || '').trim();
+  const prev = document.getElementById('rescheduleOv');
+  if (prev) prev.remove();
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.id = 'rescheduleOv';
+    ov.className = 'keep-dark-text';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px';
+    ov.innerHTML = ''
+      + '<div onclick="event.stopPropagation()" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(0,135,254,.55);border-radius:14px;max-width:440px;width:100%;padding:22px 24px;font-family:Helvetica,Arial,sans-serif">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;letter-spacing:1px;margin-bottom:4px">📅 Change ship date · #' + esc(ord) + '</div>'
+      +   '<div style="font-size:12px;color:rgba(255,255,255,.60);margin-bottom:16px">Current: ' + esc(cur || '(unset)') + ' — pick a new date or clear it.</div>'
+      +   '<label style="display:block;font-size:11px;color:rgba(255,255,255,.65);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">New ship date</label>'
+      +   '<input id="reschedDateInput" type="date" value="' + esc(cur) + '" style="width:100%;padding:12px 14px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(255,255,255,.28);border-radius:8px;font-size:16px;font-family:inherit;box-sizing:border-box">'
+      +   '<div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">'
+      +     '<button id="reschedSaveBtn" style="flex:1;min-width:140px;padding:12px;background:#42a5f5;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer">Save</button>'
+      +     '<button id="reschedClearBtn" style="padding:12px 14px;background:rgba(255,143,0,.18);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1px solid rgba(255,143,0,.55);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">Clear</button>'
+      +     '<button id="reschedCancelBtn" style="padding:12px 14px;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+      +   '</div>'
+      + '</div>';
+    ov.addEventListener('click', (e) => { if (e.target === ov) { ov.remove(); resolve('cancel'); } });
+    document.body.appendChild(ov);
+    const done = (target) => { ov.remove(); resolve(target); };
+    document.getElementById('reschedSaveBtn').onclick = () => {
+      const val = String((document.getElementById('reschedDateInput') || {}).value || '').trim();
+      if (!val || !/^\d{4}-\d{2}-\d{2}$/.test(val)) { showToast('Pick a date first'); return; }
+      done(val);
+    };
+    document.getElementById('reschedClearBtn').onclick = () => {
+      if (!confirm('Clear the ship date for #' + ord + '?')) return;
+      done('');
+    };
+    document.getElementById('reschedCancelBtn').onclick = () => done('cancel');
+    setTimeout(() => { try { document.getElementById('reschedDateInput').focus(); } catch (_) {} }, 100);
+  }).then(async (target) => {
+    if (target === 'cancel') return;
+    // Use cached ensurePin so subsequent reschedules in the same 10 min
+    // window don't prompt again — fluid rescheduling for bulk moves.
+    const pin = (typeof ensurePin === 'function') ? ensurePin('Manager PIN to change ship date:') : null;
+    if (!pin) { showToast('Reschedule cancelled (needs manager PIN)'); return; }
+    try {
+      const res = await groundApi('setPackTargetDate', {
+        orderNumber: orderNumber,
+        targetDate: target,
+        manager_pin: String(pin || '').trim(),
+        set_by: (typeof getDeviceLabel === 'function' ? getDeviceLabel() : 'ipad'),
+      });
+      if (!res || !res.ok) {
+        showToast('Reschedule failed: ' + ((res && res.error) || 'unknown'));
+        return;
+      }
+      showToast('✓ Ship date → ' + (target || '(cleared)'));
+      const cached = getCachedPipelineOrder(orderNumber);
+      if (cached) cached.ship_date = target || '';
+      _renderInOrdersDetail_(cached || { order_number: orderNumber });
+      setTimeout(() => refreshOrderPipeline({ force: true }), 1200);
+    } catch (e) {
+      showToast('Reschedule error: ' + e.message);
     }
-    showToast('✓ Ship date → ' + (target || '(cleared)'));
-    const cached = getCachedPipelineOrder(orderNumber);
-    if (cached) cached.ship_date = target || '';
-    _renderInOrdersDetail_(cached || { order_number: orderNumber });
-    setTimeout(() => refreshOrderPipeline({ force: true }), 1200);
-  } catch (e) {
-    showToast('Reschedule error: ' + e.message);
-  }
+  });
 }
 
 // v10.314 — Pre-Pack mode toggle inside Pack detail. Zac: "pre-pack
