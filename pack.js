@@ -271,6 +271,13 @@ function _renderInOrdersDetail_(o) {
   _setOrdersListChrome_(false);   // v10.399 — strip list chrome on detail open
   detail.style.display = '';
   detail.innerHTML = _orderDetailHtml_(o);
+  // v10.1332 (2026-07-22) — scroll the detail into view. Previously, if
+  // the user scrolled down the Orders list, tapping an order painted
+  // the detail card BELOW the current scroll → back button + order title
+  // appeared clipped. scrollIntoView is idempotent, iOS-Safari friendly.
+  try { detail.scrollIntoView({ behavior: 'auto', block: 'start' }); } catch (_e) {
+    try { window.scrollTo(0, 0); } catch (_e2) {}
+  }
   // v10.396 — async-load the spine event timeline (CS surface for "what
   // happened on this order, when, and who?"). orderTimeline returns the
   // events list (oldest→newest); we reverse for newest-first display.
@@ -419,11 +426,12 @@ function _orderDetailHtml_(o) {
     hwSection = '<div style="margin-top:14px"><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#1A4FB0;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">🔧 Pre-Pack HW (' + o.hardware_sku_lines.length + ')'
       + (o.hardware_packed_at ? '<span style="font-size:11px;font-weight:700;color:#00e676;-webkit-text-fill-color:#00e676;margin-left:10px">✓ HW packed ' + esc(String(o.hardware_packed_at).slice(0, 10)) + '</span>' : '')
       + '</div>'
-      // v10.573 — Mira: same 20 → 100 bump for Pre-Pack HW list.
-      // Hardware lists frequently exceed 20 entries on multi-cab
-      // orders (e.g. side cabs add 10+ Hafele lines each side).
-      + o.hardware_sku_lines.slice(0, 100).map(l => '<div style="font-size:12px;color:var(--text);padding:4px 10px;background:rgba(26,79,176,.06);border-radius:4px;margin-bottom:3px;display:flex;justify-content:space-between"><span><span style="color:#1A4FB0;font-weight:800;font-family:\'JetBrains Mono\',monospace">' + esc(l.hafele_part || l.sku || '') + '</span><span style="color:var(--text-dim);margin-left:8px">' + esc(l.name || '') + '</span></span><span style="color:var(--text-dim);font-family:\'JetBrains Mono\',monospace">×' + Number(l.qty || 0) + '</span></div>').join('')
-      + (o.hardware_sku_lines.length > 100 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (o.hardware_sku_lines.length - 100) + ' more</div>' : '')
+      // v10.573 — Mira: 20 → 100 bump for Pre-Pack HW list.
+      // v10.1332 — 100 → 250 to cover 4-cab orders (4 sides × ~50 Hafele
+      // lines each = 200) that were losing bottom entries silently.
+      // Multi-cab orders frequently exceed 100.
+      + o.hardware_sku_lines.slice(0, 250).map(l => '<div style="font-size:12px;color:var(--text);padding:4px 10px;background:rgba(26,79,176,.06);border-radius:4px;margin-bottom:3px;display:flex;justify-content:space-between"><span><span style="color:#1A4FB0;font-weight:800;font-family:\'JetBrains Mono\',monospace">' + esc(l.hafele_part || l.sku || '') + '</span><span style="color:var(--text-dim);margin-left:8px">' + esc(l.name || '') + '</span></span><span style="color:var(--text-dim);font-family:\'JetBrains Mono\',monospace">×' + Number(l.qty || 0) + '</span></div>').join('')
+      + (o.hardware_sku_lines.length > 250 ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px">+ ' + (o.hardware_sku_lines.length - 250) + ' more</div>' : '')
       + '</div>';
   }
   // Booker section
