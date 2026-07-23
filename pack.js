@@ -14966,9 +14966,11 @@ async function openPurchaseOrdersPanel(opts) {
     +   '<button onclick="document.getElementById(\'poPanelOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
     + '</div>'
     + '<div style="display:flex;gap:6px;margin-bottom:12px">'
-    +   ['reorder', 'history'].map(m => {
+    +   ['reorder', 'melamine', 'history'].map(m => {
           const active = m === _poPanelMode;
-          const lbl = m === 'reorder' ? '🔄 Reorder Needs' : '📋 PO History';
+          const lbl = m === 'reorder' ? '🔄 Reorder Needs'
+            : m === 'melamine' ? '🌲 Melamine Drafts'
+            : '📋 PO History';
           return '<button onclick="openPurchaseOrdersPanel({mode:\'' + m + '\'})" style="flex:1;padding:9px;background:' + (active ? '#003087' : '#f5f5f5') + ' !important;color:' + (active ? '#fff' : '#444') + ' !important;-webkit-text-fill-color:' + (active ? '#fff' : '#444') + ' !important;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.5px">' + lbl + '</button>';
         }).join('')
     + '</div>'
@@ -14978,8 +14980,65 @@ async function openPurchaseOrdersPanel(opts) {
 
   if (_poPanelMode === 'reorder') {
     _renderPOReorderMode_();
+  } else if (_poPanelMode === 'melamine') {
+    _renderPOMelamineMode_();
   } else {
     _renderPOHistoryMode_();
+  }
+}
+
+// v10.1377 — Melamine drafts panel (task #119 Phase 2 UI slice).
+// Renders every purchase_orders row with flags.trigger=melamine_below_reorder
+// grouped by vendor. Each draft expands to show its lines (SKU, qty, unit
+// cost, extended). Empty state explains the auto-generator status.
+async function _renderPOMelamineMode_() {
+  const body = document.getElementById('poPanelBody');
+  if (!body) return;
+  body.innerHTML = '<div style="color:#666 !important;-webkit-text-fill-color:#666 !important;font-size:13px;padding:14px">Loading melamine drafts…</div>';
+  try {
+    const res = await groundApi('listMelaminePODrafts', { limit: 50 });
+    if (!res || !res.ok) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px;background:rgba(204,51,51,.05);border:1px solid rgba(204,51,51,.3);border-radius:10px">'
+        + '<div style="font-weight:900;margin-bottom:6px">Server returned an error</div>'
+        + '<div style="font-size:13px;margin-bottom:10px;font-family:monospace !important">' + esc((res && res.error) || 'unknown') + '</div>'
+        + '<button onclick="_renderPOMelamineMode_()" style="padding:8px 14px;background:#1A4FB0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-weight:800;cursor:pointer">↻ Retry</button>'
+        + '</div>';
+      return;
+    }
+    const drafts = res.drafts || [];
+    if (!drafts.length) {
+      body.innerHTML = '<div style="padding:20px;background:rgba(0,128,0,.05) !important;border:1px dashed rgba(0,128,0,.30) !important;border-radius:10px;font-size:13px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+        + '<div style="font-weight:900;font-size:14px;margin-bottom:8px">🌲 No open melamine drafts</div>'
+        + '<div style="line-height:1.5;color:#444 !important;-webkit-text-fill-color:#444 !important">The C3 auto-generator (v10.1371, daily 6am EDT) scans for melamine SKUs where <code style="background:#eef;padding:1px 5px;border-radius:3px">on_hand &lt; reorder_point</code> and creates one draft PO per vendor.</div>'
+        + '<div style="line-height:1.5;margin-top:8px;color:#444 !important;-webkit-text-fill-color:#444 !important">If you expect drafts and see none, check that your melamine items in Supabase have <code style="background:#eef;padding:1px 5px;border-radius:3px">flags.supplier_id</code> pointing at one of the melamine-tagged suppliers (Egger / DixiePly / A&amp;M / Arauco / Advanced Door / DoorMark / Brushy Creek / Rehau / Charter).</div>'
+        + '</div>';
+      return;
+    }
+    let html = '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:700">' + drafts.length + ' open draft(s) · auto-generated daily 6am EDT</div>';
+    html += drafts.map(d => {
+      const lines = d.lines || [];
+      const subtotal = Number(d.subtotal || 0);
+      return '<div style="background:#fff !important;border:1.5px solid #1A5C1A !important;border-left:4px solid #1A5C1A !important;border-radius:10px;margin-bottom:8px;overflow:hidden;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+        + '<div style="padding:12px 14px;background:rgba(26,92,26,.06);border-bottom:1px solid rgba(26,92,26,.20);display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">'
+        +   '<div><span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:.5px">' + esc(d.supplier || '(unknown)') + '</span>'
+        +     '<span style="font-family:\'JetBrains Mono\',monospace !important;font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-left:8px">' + esc(d.po_number || d.id) + '</span></div>'
+        +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:18px;font-weight:900;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">$' + subtotal.toFixed(2) + '</div>'
+        + '</div>'
+        + '<div style="padding:8px 14px 12px">'
+        +   (lines.length
+              ? lines.map(l => '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:5px 0;font-size:13px;border-bottom:1px dashed rgba(0,0,0,.06)">'
+                  + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(l.item_sku || l.sku || '') + '</span>'
+                  + '<span style="font-family:\'JetBrains Mono\',monospace !important;color:#666 !important;-webkit-text-fill-color:#666 !important">×' + Number(l.qty_ordered || 0) + '</span>'
+                  + '<span style="font-family:\'JetBrains Mono\',monospace !important;color:#666 !important;-webkit-text-fill-color:#666 !important;min-width:70px;text-align:right">$' + Number(l.unit_cost || 0).toFixed(2) + '</span>'
+                  + '<span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700;min-width:70px;text-align:right">$' + (Number(l.qty_ordered || 0) * Number(l.unit_cost || 0)).toFixed(2) + '</span>'
+                  + '</div>').join('')
+              : '<div style="font-size:12px;color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic">no lines yet</div>')
+        + '</div>'
+        + '</div>';
+    }).join('');
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
   }
 }
 
