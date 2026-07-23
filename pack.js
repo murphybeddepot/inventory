@@ -420,6 +420,34 @@ function _orderDetailHtml_(o) {
         return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,.04);border-left:3px solid ' + badge.color + ';border-radius:6px;margin-bottom:4px"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(c.num) + (c.source === 'mto_inventory' ? '<span style="font-size:9px;background:rgba(171,71,188,.20);color:#ce93d8;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px">MTO</span>' : '') + '</span><span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:' + badge.color + ';-webkit-text-fill-color:' + badge.color + '">' + esc(badge.text) + (c.pulled ? ' · pulled' : '') + '</span></div>';
       }).join('') + '</div>'
     : '';
+  // v10.1346 (Zac 2026-07-22 21:47 EDT) — cabinet production-type
+  // toggle. ARCH (external drop-shipper) vs MFG (in-house build) vs
+  // Twins Upholstery MTO dropship. Only surfaced when the order has
+  // at least one resolved cabinet, since non-cabinet ground orders
+  // don't need routing. MFG rows are the input to the manufacturing
+  // flow (project_july_inhouse_manufacturing memory).
+  let productionTypeSection = '';
+  if (cabRows.length) {
+    const pt = String(o.production_type || '').toLowerCase();
+    const pillDef = ({
+      arch:  { bg: '#1565c0', label: '🏛 ARCH',  hint: 'External drop-ship from ARCH' },
+      mfg:   { bg: '#e65100', label: '🔨 IN-HOUSE MFG', hint: 'Murphy Bed Depot in-house build' },
+      twins: { bg: '#6a1b9a', label: '🛋 TWINS MTO', hint: 'Twins Upholstery dropship' },
+    })[pt] || { bg: 'rgba(255,255,255,.10)', label: '❓ UNSET', hint: 'Not yet marked — tap to route' };
+    productionTypeSection = '<div style="margin-top:14px;padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:8px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#FFB300;-webkit-text-fill-color:#FFB300;text-transform:uppercase;letter-spacing:1px">🏭 Production Source</div>'
+      +   '<span style="font-size:12px;font-weight:900;padding:5px 12px;border-radius:6px;background:' + pillDef.bg + ';color:#fff;-webkit-text-fill-color:#fff;letter-spacing:.6px">' + pillDef.label + '</span>'
+      + '</div>'
+      + '<div style="margin-top:6px;font-size:12px;color:var(--text-dim);font-style:italic">' + esc(pillDef.hint) + '</div>'
+      + '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">'
+      +   '<button onclick="_setCabinetProductionType_(\'' + ord + '\',\'arch\')" title="External ARCH invoice — normal delivery flow" style="padding:8px 12px;font-size:12px;font-weight:800;background:' + (pt === 'arch' ? '#1565c0' : 'rgba(21,101,192,.10)') + ';color:' + (pt === 'arch' ? '#fff' : '#42a5f5') + ';-webkit-text-fill-color:' + (pt === 'arch' ? '#fff' : '#42a5f5') + ';border:1px solid ' + (pt === 'arch' ? '#1565c0' : 'rgba(21,101,192,.45)') + ';border-radius:6px;cursor:pointer">🏛 ARCH</button>'
+      +   '<button onclick="_setCabinetProductionType_(\'' + ord + '\',\'mfg\')" title="Build in-house — routes to manufacturing flow" style="padding:8px 12px;font-size:12px;font-weight:800;background:' + (pt === 'mfg' ? '#e65100' : 'rgba(230,81,0,.10)') + ';color:' + (pt === 'mfg' ? '#fff' : '#ff9800') + ';-webkit-text-fill-color:' + (pt === 'mfg' ? '#fff' : '#ff9800') + ';border:1px solid ' + (pt === 'mfg' ? '#e65100' : 'rgba(230,81,0,.45)') + ';border-radius:6px;cursor:pointer">🔨 IN-HOUSE MFG</button>'
+      +   '<button onclick="_setCabinetProductionType_(\'' + ord + '\',\'twins\')" title="Twins Upholstery MTO dropship" style="padding:8px 12px;font-size:12px;font-weight:800;background:' + (pt === 'twins' ? '#6a1b9a' : 'rgba(106,27,154,.10)') + ';color:' + (pt === 'twins' ? '#fff' : '#ce93d8') + ';-webkit-text-fill-color:' + (pt === 'twins' ? '#fff' : '#ce93d8') + ';border:1px solid ' + (pt === 'twins' ? '#6a1b9a' : 'rgba(106,27,154,.45)') + ';border-radius:6px;cursor:pointer">🛋 TWINS MTO</button>'
+      +   (pt ? '<button onclick="_setCabinetProductionType_(\'' + ord + '\',\'\')" title="Clear routing — order returns to unset" style="padding:8px 12px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border:1px dashed rgba(255,255,255,.20);border-radius:6px;cursor:pointer">✕ Clear</button>' : '')
+      + '</div>'
+      + '</div>';
+  }
   // HW SKUs (Pre-Pack)
   let hwSection = '';
   if (Array.isArray(o.hardware_sku_lines) && o.hardware_sku_lines.length) {
@@ -501,6 +529,7 @@ function _orderDetailHtml_(o) {
     + '</div>'
     + pickListActions
     + cabSection
+    + productionTypeSection
     + hwSection
     + bookerSection
     // v10.396 — spine event timeline (async-loaded; container id is
@@ -1429,6 +1458,44 @@ async function _promptChangeShipDate_(orderNumber, currentIso) {
       showToast('Reschedule error: ' + e.message);
     }
   });
+}
+
+// v10.1346 (Zac 2026-07-22 21:47 EDT) — cabinet production-type
+// routing. ARCH / MFG / TWINS / '' (clear). Manager-PIN gated
+// server-side; we reuse the cached ensurePin so bulk-triage doesn't
+// re-prompt. Refreshes the Orders detail in place after success so
+// the pill flips without a full page reload.
+async function _setCabinetProductionType_(orderNumber, productionType) {
+  const ord = String(orderNumber || '').trim();
+  const pt = String(productionType || '').toLowerCase().trim();
+  if (!ord) { showToast('Missing order#'); return; }
+  const cached = getCachedPipelineOrder(orderNumber);
+  const currentPt = String((cached && cached.production_type) || '').toLowerCase();
+  if (currentPt === pt) { showToast('Already ' + (pt || 'unset')); return; }
+  const label = pt === 'arch' ? 'ARCH (external drop-ship)'
+              : pt === 'mfg' ? 'IN-HOUSE MFG (build in-house)'
+              : pt === 'twins' ? 'TWINS UPHOLSTERY MTO'
+              : 'UNSET (clear routing)';
+  if (!confirm('Mark order #' + ord + ' as:\n\n' + label + '\n\nProceed?')) return;
+  const pin = (typeof ensurePin === 'function') ? ensurePin('Manager PIN to route production:') : null;
+  if (!pin) { showToast('Routing cancelled (needs manager PIN)'); return; }
+  try {
+    const res = await groundApi('setCabinetProductionType', {
+      orderNumber: ord,
+      productionType: pt,
+      manager_pin: String(pin || '').trim(),
+    });
+    if (!res || !res.ok) {
+      showToast('Route failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('✓ ' + ord + ' → ' + (pt.toUpperCase() || 'UNSET'));
+    if (cached) cached.production_type = pt;
+    _renderInOrdersDetail_(cached || { order_number: orderNumber });
+    setTimeout(() => refreshOrderPipeline({ force: true }), 1200);
+  } catch (e) {
+    showToast('Route error: ' + e.message);
+  }
 }
 
 // v10.314 — Pre-Pack mode toggle inside Pack detail. Zac: "pre-pack
