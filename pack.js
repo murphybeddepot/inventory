@@ -15011,6 +15011,8 @@ async function _renderPOMelamineMode_() {
         + '<div style="font-weight:900;font-size:14px;margin-bottom:8px">🌲 No open melamine drafts</div>'
         + '<div style="line-height:1.5;color:#444 !important;-webkit-text-fill-color:#444 !important">The C3 auto-generator (v10.1371, daily 6am EDT) scans for melamine SKUs where <code style="background:#eef;padding:1px 5px;border-radius:3px">on_hand &lt; reorder_point</code> and creates one draft PO per vendor.</div>'
         + '<div style="line-height:1.5;margin-top:8px;color:#444 !important;-webkit-text-fill-color:#444 !important">If you expect drafts and see none, check that your melamine items in Supabase have <code style="background:#eef;padding:1px 5px;border-radius:3px">flags.supplier_id</code> pointing at one of the melamine-tagged suppliers (Egger / DixiePly / A&amp;M / Arauco / Advanced Door / DoorMark / Brushy Creek / Rehau / Charter).</div>'
+        + '<button onclick="_melamineDryRunSelfCheck_()" style="margin-top:12px;padding:10px 18px;background:#1A5C1A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-weight:800;font-size:12px;letter-spacing:.5px;cursor:pointer">🔍 Run diagnostic — where\'s the gap?</button>'
+        + '<div id="melamineDryRunResult" style="margin-top:10px"></div>'
         + '</div>';
       return;
     }
@@ -15039,6 +15041,41 @@ async function _renderPOMelamineMode_() {
     body.innerHTML = html;
   } catch (err) {
     body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:14px">Error: ' + esc(err.message) + '</div>';
+  }
+}
+
+// v10.1378 — self-diagnostic for the empty-melamine-drafts state.
+// Calls runMelaminePOGeneratorDryRun and shows why the generator returned
+// zero drafts, so Zac can act without reading server logs. Answers "did
+// the suppliers seed correctly?" and "how many items are actually linked
+// to melamine suppliers?" in a single tap.
+async function _melamineDryRunSelfCheck_() {
+  const out = document.getElementById('melamineDryRunResult');
+  if (!out) return;
+  out.innerHTML = '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic">Running dry-run…</div>';
+  try {
+    const res = await groundApi('runMelaminePOGeneratorDryRun', {});
+    if (!res || !res.ok) {
+      out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:12px">Diagnostic error: ' + esc((res && res.error) || 'unknown') + '</div>';
+      return;
+    }
+    const total = Number(res.total_melamine || 0);
+    const note = String(res.note || '');
+    let interpretation = '';
+    if (total === 0) {
+      interpretation = 'No melamine-linked items found. Either the melamine suppliers weren\'t seeded (check the suppliers table for <code style="background:#eef;padding:1px 4px;border-radius:3px">notes ILIKE \'%[MELAMINE:%]\'</code>), or no items have <code style="background:#eef;padding:1px 4px;border-radius:3px">flags.supplier_id</code> pointing at a melamine supplier.';
+    } else if (res.no_op) {
+      interpretation = 'Found <b>' + total + '</b> melamine-linked items, but none are below reorder_point yet. Nothing to auto-order.';
+    } else {
+      interpretation = 'Found <b>' + total + '</b> melamine-linked items — some are below reorder_point but were skipped (likely due to the 7-day recent-draft window). See note below.';
+    }
+    out.innerHTML = '<div style="padding:12px 14px;background:#fff !important;border:1.5px solid #003087 !important;border-radius:8px;font-size:12px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
+      + '<div style="font-weight:800;font-size:11px;color:#003087 !important;-webkit-text-fill-color:#003087 !important;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px">Dry-run result</div>'
+      + '<div style="line-height:1.5;margin-bottom:6px">' + interpretation + '</div>'
+      + (note ? '<div style="line-height:1.5;color:#666 !important;-webkit-text-fill-color:#666 !important;font-style:italic;font-size:11px;margin-top:6px">' + esc(note) + '</div>' : '')
+      + '</div>';
+  } catch (err) {
+    out.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;font-size:12px">Diagnostic error: ' + esc(err.message) + '</div>';
   }
 }
 
