@@ -18264,6 +18264,7 @@ function openOrdersGuide() {
     + '<button onclick="document.getElementById(\'ogDetail\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🔬 Order Detail</button>'
     + '<button onclick="document.getElementById(\'ogPlanner\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Planner</button>'
     + '<button onclick="document.getElementById(\'ogBulk\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">👤 Manager Mode</button>'
+    + '<button onclick="document.getElementById(\'ogMfg\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#E65100;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🔨 Manufacturing</button>'
     + '<button onclick="document.getElementById(\'ogFaq\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
     + '</div>';
 
@@ -18353,6 +18354,68 @@ function openOrdersGuide() {
     + chip('↺', 'Reset List', 'Clears the entire today\'s active list. Manager PIN. Use for a fresh Monday start.')
     + gotcha('<b>PIN cache is in-memory only.</b> Refresh the PWA → PIN prompt again. Deliberate — bulk actions are high-consequence, we don\'t want a bookmarked-open device to be a bulk-shipping weapon.');
 
+  // ── SECTION: MANUFACTURING (v10.1352 — Mozaik-style ? help expansion) ──
+  // Full walk-through of the arch/mfg routing + build-stage stepper +
+  // WIP alerting introduced in v10.1346 → v10.1351. This is what the
+  // Manufacturing lens header's ? icon jumps to.
+  const secMfg = H('ogMfg', '🔨 Manufacturing (v10.1346 → v10.1351)')
+    + P('The <b>Manufacturing</b> flow tracks cabinets Murphy Bed Depot is building in-house — as distinct from ARCH drop-ship cabinets and Twins Upholstery MTO sofas. Every cabinet order gets routed once (ARCH vs IN-HOUSE MFG vs TWINS MTO). MFG-marked orders then move through 8 build stages with days-in-stage alerting when anything sits too long.')
+    + H2('Step 1 — Route the order (Production Source card)')
+    + P('On any cabinet order in the Orders detail view, look for the <b>🏭 Production Source</b> card. Three big buttons:')
+    + chip('🏛', 'ARCH', 'External drop-ship. The historical default for most cabinet orders. Choose this if the cabinet is coming from ARCH pre-built.')
+    + chip('🔨', 'IN-HOUSE MFG', 'Murphy Bed Depot is building it. Choose this to route the order into the Build Stage flow. This is the ask that triggered v10.1346.')
+    + chip('🛋', 'TWINS MTO', 'Twins Upholstery dropship (MTO sofas). Separate vendor, separate flow — not built in-house, not from ARCH.')
+    + tip('Manager PIN is cached for 10 min via ensurePin — bulk-triage a stack of new orders without re-entering the PIN each time.')
+    + gotcha('Every change emits a <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">order.production_type_set</code> spine event so the timeline records the routing decision (from/to/who). Route mistakes are audit-trailed, not silent.')
+    + H2('Step 2 — Move it through the build (Build Stage stepper)')
+    + P('Once routed IN-HOUSE MFG, a <b>🔨 Build Stage</b> card appears below the Production Source pill with 8 tiles across:')
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(85px,1fr));gap:4px;margin:8px 0 12px;padding:10px;background:rgba(230,81,0,.05);border:1px solid rgba(230,81,0,.25);border-radius:8px">'
+      + [
+          ['📋', 'Queued', '#e65100'],
+          ['📏', 'Cutting', '#e65100'],
+          ['🎯', 'Edging', '#e65100'],
+          ['🔩', 'Drilling', '#e65100'],
+          ['🧩', 'Assembly', '#e65100'],
+          ['🎨', 'Finish', '#e65100'],
+          ['📦', 'Boxed', '#e65100'],
+          ['✓', 'Complete', 'rgba(255,255,255,.12)'],
+        ].map(s => '<div style="padding:6px 4px;background:' + s[2] + ';color:#fff;border-radius:4px;text-align:center;font-size:10px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;line-height:1.15"><div style="font-size:14px">' + s[0] + '</div><div>' + s[1] + '</div></div>').join('')
+    + '</div>'
+    + P('Tap a tile to advance (or re-set) the current stage. Current stage highlights orange; passed stages dim orange; future stages muted. Skipping forward is allowed (rework may jump backwards).')
+    + chip('👤', 'Builder assignment', 'Below the stepper. Tap + Assign to enter a builder name (Norm / Seth / hire). Free text in Phase 0; proper dropdown in a later phase. The builder name shows on the Manufacturing lens cards.')
+    + chip('⏱', 'Started · Last change stamps', 'Corners of the Build Stage card. "Started" locks in on the first non-queued stage; "Last change" updates on every transition.')
+    + gotcha('MFG-only guard: <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">setCabinetProductionStage</code> refuses to stage an ARCH or Twins order — you have to route to MFG first. Prevents accidental cross-flow contamination.')
+    + H2('Step 3 — Watch the shop-floor (Manufacturing lens)')
+    + P('Orders tab → tap the <b>🔨 Manufacturing</b> lens chip (5th lens, orange badge). Auto-hidden when nothing is being built; reveals the moment the first MFG mark lands so the primary 4 lenses stay clean during ordinary shifts.')
+    + P('At the top, a rollup with three big numbers: <b>In flight</b> (total MFG orders being built), <b>In shop</b> (in a real build stage, not queued or unstaged), <b>Boxed</b> (ship-ready). Below, the whole in-flight list is grouped by stage — Unstaged → Queued → Cutting → Edging → Drilling → Assembly → Finish → Boxed. Empty buckets are skipped so the view stays tight.')
+    + tip('Cards inside each stage bucket sort <em>stale-first</em> — the ones that have been in-stage the longest float to the top so scanning top-down surfaces the WIP alerts first.')
+    + H2('Step 4 — Nudge stalled builds (WIP alerting)')
+    + P('Every MFG card shows a small <b>⏱ N days in {stage}</b> chip. When a build sits too long, it flips to a red <b>⚠ N days in {stage} · check in</b> chip and the whole card gets a red gradient frame. Above the rollup, a red banner shows the total stalled count.')
+    + P('Per-stage day thresholds (business-day feel):')
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:4px;margin:6px 0 12px;font-size:12px">'
+      + [
+          ['📋 Queued', '5 days'],
+          ['❔ Unstaged', '5 days'],
+          ['📏 Cutting', '2 days'],
+          ['🎯 Edging', '2 days'],
+          ['🔩 Drilling', '2 days'],
+          ['🧩 Assembly', '3 days'],
+          ['🎨 Finish', '4 days (cure)'],
+          ['📦 Boxed', '3 days (ship)'],
+        ].map(r => '<div style="padding:6px 10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:6px;display:flex;justify-content:space-between;gap:8px"><span style="color:#C7D2E0">' + r[0] + '</span><span style="font-family:\'JetBrains Mono\',monospace;color:#FFB300;font-weight:700">' + r[1] + '</span></div>').join('')
+    + '</div>'
+    + tip('Thresholds are aggressive on early milling steps (Cutting/Edging/Drilling 2d) and generous on cure-time-heavy stages (Finish 4d). If any threshold feels wrong for your shop cadence, say the word — one const tweak.')
+    + gotcha('Thresholds are calendar-day, not business-day (yet). A build starting Friday afternoon reads as 2 days stalled by Monday morning even though the shop is closed. If this becomes noisy, easy to swap to business-day math.')
+    + H2('Step 5 — Timeline audit')
+    + P('Every routing decision + every stage transition emits a spine event:')
+    + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11.5px;color:#C7D2E0;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:6px;padding:10px 14px;margin:6px 0 12px">'
+      + '<div><span style="color:#00E676">order.production_type_set</span> · from → to · actor</div>'
+      + '<div><span style="color:#00E676">production.stage_changed</span> · from → to · owner · actor</div>'
+    + '</div>'
+    + P('The Orders detail view Timeline panel renders these newest-first alongside every other order event (pack.*, freight.*, shipped, delivered). Full build history stays visible even after a build is Complete.')
+    + H2('What\'s next in the Manufacturing flow')
+    + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.6"><b style="color:#fff">Phase 2</b> · materials-consumption ledger writes so a Boxed transition draws down the items table (needs the Stacking Recipe editor spine-connected first — pending Zac decision).<br><b style="color:#fff">Phase 3</b> · per-stage <em>time-in-stage</em> capture (not just current stage) → labor cost input for the COGS design.<br><b style="color:#fff">Phase 4</b> · builder-picker dropdown (Norm / Seth / hire list) replacing free-text builder prompt.<br><b style="color:#fff">Phase 5</b> · optional Slack ping at 8am EDT for anything stalled 2+ days.</div>';
+
   // ── SECTION: FAQ ───────────────────────────────────────────────────────
   const secFaq = H('ogFaq', '❓ Frequently asked')
     + '<div style="font-size:13px;line-height:1.6;color:#C7D2E0">'
@@ -18370,7 +18433,7 @@ function openOrdersGuide() {
     +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Orders Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every lens, every workflow · v10.1273</div></div>'
     +   '<button onclick="document.getElementById(\'ordersGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
     + '</div>'
-    + toc + secTop + secHeader + secLenses + secSearch + secCards + secDetail + secPlanner + secBulk + secFaq
+    + toc + secTop + secHeader + secLenses + secSearch + secCards + secDetail + secPlanner + secBulk + secMfg + secFaq
     + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1273.</div>'
     + '</div>';
   document.body.appendChild(ov);
