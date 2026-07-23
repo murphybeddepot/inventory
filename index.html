@@ -2058,7 +2058,7 @@ input::placeholder, textarea::placeholder {
 <div id="tab-lookup" class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">🔍 Order Lookup</div>
-    <!-- v10.1364 (Zac 2026-07-22 21:44 EDT — Mozaik ? pattern round 4).
+    <!-- v10.1370 (Zac 2026-07-22 21:44 EDT — Mozaik ? pattern round 4).
          Jessica's CS home. ? icon opens the Lookup guide covering the
          four search modes + result-card actions + CS note logging. -->
     <button onclick="if(typeof openLookupGuide==='function')openLookupGuide()" title="Lookup guide — every input, every action" aria-label="Lookup tab help" style="width:32px;height:32px;border-radius:50%;background:rgba(255,179,0,.10);border:1.5px solid rgba(255,179,0,.55);color:#FFB300;-webkit-text-fill-color:#FFB300;font-size:16px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>
@@ -2205,7 +2205,7 @@ input::placeholder, textarea::placeholder {
   </div>
   <!-- v10.345 Lens chips — compact 2x2 grid, gold rivets removed (reserved
        for Refresh plaque), live count badge top-right, clear active state. -->
-  <!-- v10.1364 (Zac 2026-07-22 21:47 EDT — "fully build everything associated
+  <!-- v10.1370 (Zac 2026-07-22 21:47 EDT — "fully build everything associated
        with manufacturing that you can"). Grid switched from fixed 2-col to
        auto-fit min(140px) so a 5th lens (Manufacturing) wraps gracefully on
        phone / iPad / desktop without visual regression. The Manufacturing
@@ -2232,8 +2232,8 @@ input::placeholder, textarea::placeholder {
       <span style="font-size:16px;line-height:1">⚠</span><span style="flex:1">Needs Attention</span>
       <span class="ordersLensCount" data-count-lens="attention" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
     </button>
-    <!-- v10.1364 Manufacturing lens. Orange accent tags it visually to the
-         same MFG family as v10.1346 IN-HOUSE MFG pill + v10.1364 Build Stage
+    <!-- v10.1370 Manufacturing lens. Orange accent tags it visually to the
+         same MFG family as v10.1346 IN-HOUSE MFG pill + v10.1370 Build Stage
          card. Auto-hidden until listManufacturingQueue returns ≥1 row so the
          warehouse-primary 4 lenses stay clean during ordinary shifts. -->
     <button id="ordersLensManufacturing" onclick="setOrdersLens('manufacturing')" data-lens="manufacturing"
@@ -2322,7 +2322,7 @@ input::placeholder, textarea::placeholder {
        when devices got out of step. This is the compact top-tab version. -->
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;align-items:center">
     <span id="cabSyncTopStatus" style="font-size:11px;color:var(--text-dim);font-weight:600"></span>
-    <!-- v10.1364 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 2) —
+    <!-- v10.1370 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 2) —
          Cabinets tab help icon. Opens the openCabinetsGuide walkthrough
          (search rig · receive flow · upcoming · pull · damage · sync). -->
     <button onclick="if(typeof openCabinetsGuide==='function')openCabinetsGuide()" title="Cabinets tab guide — every button, every flow" aria-label="Cabinets tab help" style="width:32px;height:32px;border-radius:50%;background:rgba(255,179,0,.10);border:1.5px solid rgba(255,179,0,.55);color:#FFB300;-webkit-text-fill-color:#FFB300;font-size:16px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>
@@ -2889,7 +2889,7 @@ input::placeholder, textarea::placeholder {
       <!-- v10.699 (Mira) — phase label dropped; Stock 2.0 is now
            feature-complete for counting. -->
       <button type="button" onclick="switchTab('items')" style="padding:6px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">↺ Stock 1.0</button>
-      <!-- v10.1364 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 3) —
+      <!-- v10.1370 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 3) —
            Stock 2 tab help icon. Opens openStockGuide walkthrough. -->
       <button onclick="if(typeof openStockGuide==='function')openStockGuide()" title="Stock 2 tab guide — every button, every flow" aria-label="Stock 2 tab help" style="width:32px;height:32px;border-radius:50%;background:rgba(255,179,0,.10);border:1.5px solid rgba(255,179,0,.55);color:#FFB300;-webkit-text-fill-color:#FFB300;font-size:16px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>
     </div>
@@ -3827,7 +3827,7 @@ function switchTab(name) {
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
-  // v10.1364 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
+  // v10.1370 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
   // down a little then clicked orders and this is what happens").
   // The tab-switch had no scroll reset — panels are stacked in one
   // document, so tapping Orders while scrolled halfway down Cabinets
@@ -3927,7 +3927,7 @@ function switchTab(name) {
   }
   if (name==='cabinets') {
     renderCabinets();
-    // v10.1364 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
+    // v10.1370 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
     // there are still previous weeks under receiving that have been
     // cleared on my laptop"). renderCabinets calls _prefetchReceiveSessions_
     // but the throttle is 5 min, so switching to Cabinets within 5 min
@@ -4032,7 +4032,7 @@ function renderOrdersTab() {
     if (!ship) return false; // undated rows don't count
     return ship >= _todayIso449;
   }).length;
-  // v10.1364 — Manufacturing lens counts MFG-marked orders regardless
+  // v10.1370 — Manufacturing lens counts MFG-marked orders regardless
   // of pack/ship state (a boxed order is still a "recently built"
   // reference until completed). complete stage rows drop out.
   const _mfgCount = orders.filter(o => {
@@ -4051,7 +4051,7 @@ function renderOrdersTab() {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
     if (!btn) return;
     const active = (L === lens);
-    // v10.1364 — Manufacturing lens auto-hides when nothing is being
+    // v10.1370 — Manufacturing lens auto-hides when nothing is being
     // built. Prevents the primary-4 lens row from getting cluttered
     // during ordinary shifts where the shop floor has no MFG-marked
     // orders in flight. Reveals immediately on first MFG mark.
@@ -4084,7 +4084,7 @@ function renderOrdersTab() {
         badge.style.color = '#fff';
         badge.style.webkitTextFillColor = '#fff';
       } else if (L === 'manufacturing') {
-        // v10.1364 — orange badge for Manufacturing keeps it visually
+        // v10.1370 — orange badge for Manufacturing keeps it visually
         // aligned with the IN-HOUSE MFG pill + Build Stage stepper.
         badge.style.background = active ? 'rgba(255,255,255,.18)' : 'rgba(230,81,0,.20)';
         badge.style.color = active ? '#fff' : '#ff9800';
@@ -4155,7 +4155,7 @@ function renderOrdersTab() {
       list.innerHTML = _renderOrdersScheduleGroupedHtml_(filtered);
     }
   } else if (lens === 'manufacturing') {
-    // v10.1364 — Manufacturing lens groups MFG-marked orders by build
+    // v10.1370 — Manufacturing lens groups MFG-marked orders by build
     // stage. Each stage gets a section header with the count + the
     // cards from that bucket. Clean up schedule-toggle if stale.
     const toggleEl = document.getElementById('ordersScheduleViewToggle');
@@ -5418,7 +5418,7 @@ async function _openSetCabPrompt_(orderNumber) {
 // the same addOrderByNumber path as the legacy Pack tab. Persists
 // open/closed in localStorage so the manager doesn't have to keep
 // re-expanding it.
-// v10.1364 (Zac 2026-07-22 21:47 EDT — Manufacturing Phase 1).
+// v10.1370 (Zac 2026-07-22 21:47 EDT — Manufacturing Phase 1).
 // Render every MFG-marked cabinet order grouped by build stage.
 // Stages appear as section headers (icon + label + count); cards
 // under each header reuse the standard order-card render. Empty
@@ -5452,7 +5452,7 @@ function _renderOrdersManufacturingHtml_(rows) {
   const totalInFlight = rows.length;
   const boxedCt = (buckets['boxed'] || []).length;
   const inShopCt = totalInFlight - boxedCt - (buckets['queued'] || []).length - (buckets[''] || []).length;
-  // v10.1364 — WIP alert count. Anything sitting in its current stage
+  // v10.1370 — WIP alert count. Anything sitting in its current stage
   // longer than the per-stage threshold is stalled and needs a check-in.
   const stalledRows = rows.filter(o => {
     const d = _mfgDaysInStage_(o);
@@ -5479,10 +5479,10 @@ function _renderOrdersManufacturingHtml_(rows) {
   h +=     '<div>';
   h +=       '<div style="display:flex;align-items:center;gap:8px">';
   h +=         '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#ff9800;-webkit-text-fill-color:#ff9800;letter-spacing:.5px;text-transform:uppercase;line-height:1">🔨 On the Floor</div>';
-  // v10.1364 (Zac 2026-07-22 21:44 EDT "I like how mozaik does it —
+  // v10.1370 (Zac 2026-07-22 21:44 EDT "I like how mozaik does it —
   // each page/screen has a question mark icon that opens a visual
   // explanation of every function/button"). ? icon opens the Orders
-  // Guide auto-scrolled to the Manufacturing section (v10.1364 addition).
+  // Guide auto-scrolled to the Manufacturing section (v10.1370 addition).
   h +=         '<button onclick="if(typeof openOrdersGuide===\'function\'){openOrdersGuide();setTimeout(function(){var t=document.getElementById(\'ogMfg\');if(t)t.scrollIntoView({behavior:\'smooth\',block:\'start\'});},150);}" title="What every button on this lens does" aria-label="Manufacturing lens help" style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.10);border:1.5px solid rgba(255,152,0,.55);color:#ff9800;-webkit-text-fill-color:#ff9800;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>';
   h +=       '</div>';
   h +=       '<div style="font-size:12px;color:var(--text-2);margin-top:4px">In-house manufacturing — cabinets Bedrock is building right now, grouped by build stage.</div>';
@@ -5503,7 +5503,7 @@ function _renderOrdersManufacturingHtml_(rows) {
   h +=     '</div>';
   h +=   '</div>';
   h += '</div>';
-  // v10.1364 — per-builder workload strip. Reads production_owner
+  // v10.1370 — per-builder workload strip. Reads production_owner
   // off every in-flight MFG order and groups. Great morning-glance
   // for "who's got what right now." Skipped when no owners are set
   // OR everything is one builder (adds no info).
@@ -5551,7 +5551,7 @@ function _renderOrdersManufacturingHtml_(rows) {
     // bucket — the ones most in need of a nudge — so scanning
     // top-down surfaces the WIP-alerts first.
     bucket.sort((a, b) => {
-      // v10.1364: WIP alert order within a bucket. Stale-first.
+      // v10.1370: WIP alert order within a bucket. Stale-first.
       const _daysA = _mfgDaysInStage_(a);
       const _daysB = _mfgDaysInStage_(b);
       if (_daysA !== _daysB) return _daysB - _daysA;
@@ -5566,7 +5566,7 @@ function _renderOrdersManufacturingHtml_(rows) {
   return h;
 }
 
-// v10.1364 (2026-07-23) — WIP alerting. Compute how long an MFG order
+// v10.1370 (2026-07-23) — WIP alerting. Compute how long an MFG order
 // has been sitting in its current stage from production_updated_at
 // (v10.1349 stamp). Threshold per stage is aggressive on early
 // milling steps (2 days) and generous on cure-time-heavy stages
@@ -5848,7 +5848,7 @@ function _filterOrdersForLens_(orders, lens) {
         return false;
       });
     case 'manufacturing':
-      // v10.1364 — every MFG-marked cabinet order that isn't yet
+      // v10.1370 — every MFG-marked cabinet order that isn't yet
       // complete. Grouped-by-stage rendering happens downstream in
       // _renderOrdersManufacturingHtml_ (not via card list).
       return orders.filter(o => {
@@ -15225,7 +15225,7 @@ async function renderStockV2Dashboard_() {
     // PDFs printed on demand, not physical inventory. Mattress SKUs
     // that dropship from Mattress Firm have flags.dropship=true.
     //
-    // v10.1364 (Zac 2026-07-23 06:58 EDT): 'on stock 2 you still have
+    // v10.1370 (Zac 2026-07-23 06:58 EDT): 'on stock 2 you still have
     // a bunch of non inventory items listed under not counted.'
     // Broader filter — kept flag-based (safe) + broader SKU-prefix
     // heuristics that historically identified non-physical SKUs:
@@ -15239,21 +15239,30 @@ async function renderStockV2Dashboard_() {
     // surgical rules — this is intentionally defensive but may still
     // miss custom flags on your master. Everything filtered here is
     // reversible (change the flag to remove the exclusion).
-    const _isNonInventorySku_ = (it) => {
+    // v10.1370 — refactored to return the REASON (or null if inventory).
+    // The reason feeds the "🙈 N hidden" chip's drill-down modal so
+    // Zac can audit exactly which rule caught each hidden SKU.
+    const _nonInventoryReason_ = (it) => {
       const fl = (it && it.flags) || {};
       const vendor = fl.vendor || it.vendor || '';
-      if (vendor === 'INSTRUCTIONS') return true;
-      if (fl.dropship || fl.is_instructions || fl.non_inventory) return true;
-      if (fl.discontinued || fl.is_gift_card || fl.service) return true;
+      if (vendor === 'INSTRUCTIONS') return 'vendor=INSTRUCTIONS';
+      if (fl.dropship) return 'flag:dropship';
+      if (fl.is_instructions) return 'flag:is_instructions';
+      if (fl.non_inventory) return 'flag:non_inventory';
+      if (fl.discontinued) return 'flag:discontinued';
+      if (fl.is_gift_card) return 'flag:is_gift_card';
+      if (fl.service) return 'flag:service';
       const cat = String((fl.category || it.category || '')).toLowerCase();
-      if (cat === 'digital' || cat === 'service' || cat === 'non_inventory') return true;
+      if (cat === 'digital') return 'category=digital';
+      if (cat === 'service') return 'category=service';
+      if (cat === 'non_inventory') return 'category=non_inventory';
       const sku = String((it && it.item_sku) || '').toUpperCase();
       const name = String((it && it.name) || '').toUpperCase();
-      if (/^INST-/.test(sku)) return true;
-      if (/^SAMPLES?-/.test(sku)) return true;
-      if (/^GIFT(-|CARD)/.test(sku)) return true;
-      if (/^(SVC|SERVICE)-/.test(sku)) return true;
-      // v10.1364 (Zac 2026-07-23 interactive: 'still leaking things
+      if (/^INST-/.test(sku)) return 'sku-prefix:INST-';
+      if (/^SAMPLES?-/.test(sku)) return 'sku-prefix:SAMPLE(S)-';
+      if (/^GIFT(-|CARD)/.test(sku)) return 'sku-prefix:GIFT/GIFTCARD';
+      if (/^(SVC|SERVICE)-/.test(sku)) return 'sku-prefix:SVC/SERVICE-';
+      // v10.1370 (Zac 2026-07-23 interactive: 'still leaking things
       // like mattresses and murphy cabinet beds'). Bed families are
       // finished goods sold-and-shipped; Norm doesn't cycle-count them.
       // Mattresses dropship from MFRM — no on-shelf presence. Filter by
@@ -15274,28 +15283,33 @@ async function renderStockV2Dashboard_() {
         'WMB',    // wall-mount bed variants
       ];
       for (const p of BED_FAMILY_PREFIXES) {
-        if (sku.startsWith(p)) return true;
+        if (sku.startsWith(p)) return 'sku-prefix:' + p + ' (bed family)';
       }
-      // Mattress substring — catches MATTRESS*, TWIN-MATTRESS, KING-MATTRESS,
-      // OSB (mattress in the name), pillow, sheet-set, headboard-only, etc.
-      if (/MATTRESS|PILLOW|SHEETS?|MEMORY.?FOAM|BOX.?SPRING/.test(sku)) return true;
-      if (/MATTRESS|PILLOW|MEMORY FOAM|BOX SPRING/.test(name)) return true;
-      // Head-only / footboard-only / bed-frame accessories (also finished
-      // goods not cycle-counted).
-      if (/HEADBOARD|FOOTBOARD|BED.?FRAME/.test(name)) return true;
-      // v10.1364 (Zac 2026-07-23: 'murphy cabinet beds still under
-      // uncounted — those dropship primarily'). If MFG doesn't tag them
-      // with flags.dropship=true, the flag-based filter can't catch them.
-      // Fall back to substring matches on both SKU + name so the pattern
-      // catches every naming variant Shopify emits.
-      if (/MURPHY/.test(name) || /MURPHY/.test(sku)) return true;
-      if (/CABINET.?BED/.test(name)) return true;
-      if (/WALL.?BED/.test(name)) return true;
-      return false;
+      if (/MATTRESS|PILLOW|SHEETS?|MEMORY.?FOAM|BOX.?SPRING/.test(sku)) return 'sku-substr:mattress-family';
+      if (/MATTRESS|PILLOW|MEMORY FOAM|BOX SPRING/.test(name)) return 'name-substr:mattress-family';
+      if (/HEADBOARD|FOOTBOARD|BED.?FRAME/.test(name)) return 'name-substr:bed-accessory';
+      if (/MURPHY/.test(name)) return 'name-substr:MURPHY';
+      if (/MURPHY/.test(sku)) return 'sku-substr:MURPHY';
+      if (/CABINET.?BED/.test(name)) return 'name-substr:CABINET BED';
+      if (/WALL.?BED/.test(name)) return 'name-substr:WALL BED';
+      return null;
     };
-    const rawItemsCount = (res.items || []).length;
-    const items = (res.items || []).filter(it => !_isNonInventorySku_(it));
-    const filteredOutCount = rawItemsCount - items.length;
+    const _isNonInventorySku_ = (it) => _nonInventoryReason_(it) !== null;
+    // v10.1370 — capture the hidden list + which rule caught each so
+    // the operator can audit exactly what got filtered. Zac's biggest
+    // recurring frustration this morning was "still leaking things
+    // like X" without a way to introspect. Now the "🙈 N hidden" chip
+    // opens a modal with the SKU + name + reason.
+    const rawItems = res.items || [];
+    const _hiddenItems_ = [];
+    const items = rawItems.filter(it => {
+      const reason = _nonInventoryReason_(it);
+      if (reason) { _hiddenItems_.push({ item: it, reason: reason }); return false; }
+      return true;
+    });
+    window._stockV2HiddenItems_ = _hiddenItems_;
+    const rawItemsCount = rawItems.length;
+    const filteredOutCount = _hiddenItems_.length;
     if (filteredOutCount > 0) {
       console.log('DIAG-V10.1360-STOCKV2 hid ' + filteredOutCount + ' non-inventory rows of ' + rawItemsCount);
     }
@@ -15309,14 +15323,21 @@ async function renderStockV2Dashboard_() {
     }
     if (stats) {
       stats.style.display = 'block';
-      // v10.1364 (Zac 2026-07-23: '"50 shown · 200 total items ·
-      // phase 0 sort" and i have no idea what that means'). Rewrote
-      // in plain English — actual shown-count after client-side
-      // filter, not server-side pre-filter count. Killed "phase 0 sort"
-      // dev-jargon; explained sort order operationally instead.
       const shownActual = items.length;
-      stats.textContent = 'Showing ' + shownActual + ' of ' + res.total_items
-        + ' tracked items · oldest count first';
+      // v10.1370 — inline hidden-chip. Renders alongside the plain-English
+      // stats text. Tap opens a modal listing every hidden SKU + reason.
+      stats.innerHTML = '';
+      const txt = document.createTextNode('Showing ' + shownActual + ' of '
+        + res.total_items + ' tracked items · oldest count first');
+      stats.appendChild(txt);
+      if (filteredOutCount > 0) {
+        const chip = document.createElement('button');
+        chip.textContent = '🙈 ' + filteredOutCount + ' hidden as non-inventory';
+        chip.title = 'Tap to see exactly which items got filtered and why';
+        chip.style.cssText = 'margin-left:10px;padding:3px 10px;background:rgba(255,179,0,.14);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1px solid rgba(255,179,0,.45);border-radius:999px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit';
+        chip.onclick = () => _openStockV2HiddenModal_();
+        stats.appendChild(chip);
+      }
     }
     // v10.693 (Norm) — headline ROI metric. Count of items ≥14d
     // stale OR never counted; that's the "needs attention" number.
@@ -15351,6 +15372,65 @@ async function renderStockV2Dashboard_() {
     list.innerHTML = '<div style="padding:20px;text-align:center;color:#FF5252;font-size:13px">Network error: ' + esc(e.message) + '</div>';
   }
 }
+// v10.1370 — modal listing every hidden non-inventory item + reason.
+// Populated by renderStockV2Dashboard_ each render. Groups by reason
+// so operator can eyeball which rule is doing the work (or misfiring).
+function _openStockV2HiddenModal_() {
+  const list = (typeof window !== 'undefined' && Array.isArray(window._stockV2HiddenItems_))
+    ? window._stockV2HiddenItems_
+    : [];
+  const prior = document.getElementById('stockV2HiddenOv');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'stockV2HiddenOv';
+  ov.className = 'keep-dark-text';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.72);display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  // Group by reason.
+  const byReason = {};
+  list.forEach(row => {
+    const r = row.reason || 'unknown';
+    (byReason[r] = byReason[r] || []).push(row);
+  });
+  const reasonKeys = Object.keys(byReason).sort((a, b) => byReason[b].length - byReason[a].length);
+  const total = list.length;
+  const renderRow = (row) => {
+    const it = row.item || {};
+    const sku = String(it.item_sku || '').trim();
+    const name = String(it.name || '').trim();
+    return '<div style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.06);font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      + '<span style="font-family:\'JetBrains Mono\',monospace;color:#fff;-webkit-text-fill-color:#fff">' + esc(sku) + '</span>'
+      + '<span style="color:#C7D2E0">' + esc(name || '—') + '</span>'
+      + '</div>';
+  };
+  const renderSection = (reason) => {
+    const rows = byReason[reason];
+    return '<section style="margin-bottom:14px">'
+      + '<header style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 8px;background:rgba(255,179,0,.08);border-left:3px solid #FFB300;border-radius:4px;margin-bottom:6px">'
+      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:#FFB300;-webkit-text-fill-color:#FFB300;letter-spacing:.5px">' + esc(reason) + '</span>'
+      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:#C7D2E0">' + rows.length + '</span>'
+      + '</header>'
+      + rows.map(renderRow).join('')
+      + '</section>';
+  };
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;width:100%;max-width:820px;max-height:88vh;border-radius:14px 14px 0 0;padding:16px 18px 24px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border-top:2px solid #2a3340">'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-16px;background:#0E1520;padding:14px 0 8px;margin-top:-16px;z-index:2">'
+    +     '<div>'
+    +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:#fff">🙈 Hidden as non-inventory</div>'
+    +       '<div style="font-size:11px;color:rgba(255,255,255,.60);margin-top:2px">' + total + ' items · grouped by rule that caught them</div>'
+    +     '</div>'
+    +     '<button onclick="document.getElementById(\'stockV2HiddenOv\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
+    +   '</div>'
+    +   (total === 0
+        ? '<div style="padding:24px;text-align:center;color:var(--text-dim);font-size:13px">Nothing hidden.</div>'
+        : reasonKeys.map(renderSection).join(''))
+    +   '<div style="margin-top:20px;padding:10px 12px;background:rgba(255,255,255,.03);border-radius:6px;font-size:11.5px;color:#7E8CA0;line-height:1.55">See something in this list that IS real inventory? Slack me the SKU + name + which reason it landed under — I\'ll tighten the rule.</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+window._openStockV2HiddenModal_ = _openStockV2HiddenModal_;
+
 function _stockV2RowHtml_(it) {
   const sku = it.item_sku || '';
   const name = it.name || '';
@@ -33918,7 +33998,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1364"></script>
+<script src="./pack.js?v=10.1370"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33929,7 +34009,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1364<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1370<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
