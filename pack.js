@@ -18709,6 +18709,125 @@ function openCabinetsGuide() {
 }
 window.openCabinetsGuide = openCabinetsGuide;
 
+// v10.1354 (Zac 2026-07-22 21:44 EDT — Mozaik ? pattern round 3).
+// Stock 2 Tab Guide. The inventory / counting / receiving / runway
+// surface — heavily used by Norm + Zac + Seth for the melamine
+// backlog + Boaz/PB frame velocity. Same shape as openOrdersGuide,
+// openGroundGuide, openCabinetsGuide.
+function openStockGuide() {
+  const prior = document.getElementById('stockGuideOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'stockGuideOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const H = (id, t) => '<div id="' + id + '" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.10)">' + t + '</div>';
+  const H2 = (t) => '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px">' + t + '</div>';
+  const P = (t) => '<div style="font-size:13px;line-height:1.55;color:#C7D2E0;margin-bottom:8px">' + t + '</div>';
+  const step = (n, t, d) => '<div style="display:flex;gap:10px;margin-bottom:8px"><div style="flex:0 0 22px;height:22px;border-radius:50%;background:rgba(66,165,245,.20);color:#5BB3FF;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;font-size:13px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + t + '</b> — ' + d + '</div></div>';
+  const chip = (icon, label, detail) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'
+    + '<span style="flex:0 0 32px;text-align:center;font-size:18px">' + icon + '</span>'
+    + '<div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + label + '</b> — ' + detail + '</div></div>';
+  const gotcha = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(255,179,0,.09);border-left:3px solid #FFB300;border-radius:4px"><span style="flex:0 0 20px">⚠️</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#F5E6C0">' + t + '</div></div>';
+  const tip = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(0,200,83,.08);border-left:3px solid #00C853;border-radius:4px"><span style="flex:0 0 20px">💡</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7EED0">' + t + '</div></div>';
+
+  const toc = '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(255,179,0,.08);border:1px solid rgba(255,179,0,.25);border-radius:10px;margin-bottom:14px">'
+    + '<div style="flex:1 1 100%;font-size:11px;font-weight:800;color:#FFB300;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Jump to</div>'
+    + '<button onclick="document.getElementById(\'sgTop\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🏠 Overview</button>'
+    + '<button onclick="document.getElementById(\'sgHealth\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">⏰ Stock Health</button>'
+    + '<button onclick="document.getElementById(\'sgCount\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Counting</button>'
+    + '<button onclick="document.getElementById(\'sgReceive\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📥 Receiving</button>'
+    + '<button onclick="document.getElementById(\'sgRunway\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📊 Runway</button>'
+    + '<button onclick="document.getElementById(\'sgAdd\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">+ New Item</button>'
+    + '<button onclick="document.getElementById(\'sgShelf\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Shelf Entry</button>'
+    + '<button onclick="document.getElementById(\'sgLabels\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📍 QR Labels</button>'
+    + '<button onclick="document.getElementById(\'sgFaq\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
+    + '</div>';
+
+  const secTop = H('sgTop', '🏠 What Stock 2 IS')
+    + P('<b>Stock 2.0</b> (📋 in the main nav) is the item-level inventory surface — every SKU MBD stocks (BOM leaves, Hafele hardware, consumables, packaging, melamine sheets). Replaces Stock 1.0, which stays reachable via the ↺ Stock 1.0 chip in the top-right.')
+    + H2('Who uses it')
+    + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.6"><b style="color:#fff">Norm:</b> Cycle counting, receiving container deliveries, PO planning<br><b style="color:#fff">Zac:</b> Runway math + reorder timing + PO Generator + BOM/velocity drilling<br><b style="color:#fff">Seth:</b> Add new items on the fly during pack surprises<br><b style="color:#fff">Kim:</b> Cross-check runway before booking freight for cabinets that draw materials</div>'
+    + H2('Core idea — items + bins + ledger')
+    + P('Every SKU has a master row in the <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">items</code> table (name, vendor, unit, category). Each SKU can live at N bin locations (e.g. HDWR.A1-4). The on-hand quantity is derived from an append-only <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">inventory_transactions</code> ledger — every count, receive, ship, or transfer is one row. Runway math walks the ledger.')
+    + tip('The "needs attention" list on the tab is sorted by staleness of last count. Tap a row → preview the bin\'s worklist. Tap Start Counting → real session.');
+
+  const secHealth = H('sgHealth', '⏰ Stock Health headline')
+    + P('The big red banner at the top of the tab is Norm\'s single most important metric: what fraction of items are counted vs stale + how bad the drift is. Populated by renderStockV2Dashboard_ after fetch.')
+    + chip('📊', 'Main number', '"X of Y counted this month" or "N items overdue" — whichever is more actionable right now.')
+    + chip('📉', 'Subline', 'Trend indicator vs last week, or a nudge like "Norm counted 12 today — 3 to go for daily target."')
+    + tip('Hidden when there\'s nothing to nudge on — clean weeks show a clean tab.')
+    + gotcha('If the headline is stuck saying something wrong, force refresh — the count comes from a cached fetch, and background sync can lag by a minute.');
+
+  const secCount = H('sgCount', '📋 Start Counting session')
+    + P('The blue "📋 Start Counting" button opens a guided cycle-count flow. Bedrock queues items whose last-counted-at is oldest first, so a 15-minute session hits the most-drift-prone SKUs.')
+    + step(1, 'Bin picker', 'Modal shows the "hottest" bins by staleness. Norm picks a bin (or a group of bins) to work through.')
+    + step(2, 'Scan or type', 'For each item at the bin: scan the SKU barcode (or type). Bedrock shows expected count + a big field for actual.')
+    + step(3, 'Record + move on', 'Submit → writes a CYCLE_COUNT ledger row + updates last_counted_at. Bedrock queues the next item.')
+    + step(4, 'Ledger + spine', 'Every count is append-only. Full audit trail on the item detail card. Runway math immediately picks up the new baseline.')
+    + tip('Multiple counters can work simultaneously — the ledger merges cleanly since it\'s append-only. Just tell each other which bin group you\'re working.')
+    + gotcha('If an item shows an obviously-wrong expected count (way negative, or wildly off), that means the ledger has drift somewhere. Count what\'s actually there — the count correction event closes the drift naturally.');
+
+  const secReceive = H('sgReceive', '📥 Start Receiving session')
+    + P('Green "📥 Start Receiving" button opens the container-receive flow. Used for Wexler melamine deliveries, Hafele container shipments, ARCH cabinet inbounds, or ad-hoc receives.')
+    + step(1, 'Pick the source', 'Modal asks which PO or supplier the receive is against. Optional — freestanding receives without a PO also allowed.')
+    + step(2, 'Scan each item + qty', 'For each item off the truck: scan/type + qty received. Writes a RECEIVE ledger row + updates on-hand.')
+    + step(3, 'Pre-receive count prompt', 'If Bedrock thinks on-hand is negative or uncounted, it\'ll prompt for a pre-receive count. Answer honestly — prevents drift compounding.')
+    + step(4, 'Close + reconcile', 'On close, if PO\'d, reconcile expected vs actual + flag variances for AP.')
+    + gotcha('For melamine sheet counts, receive at pack-size granularity (per stack, per crate) so pallets/crates propagate through to the Runway view correctly.');
+
+  const secRunway = H('sgRunway', '📊 Inventory Runway')
+    + P('Amber "📊 Inventory Runway" button opens the frame runway view — every SKU with on_hand + on_order + days-of-cover math (velocity from Shopify + ledger consumption).')
+    + chip('⏱', 'Days of runway', 'How many days of current-velocity ship-outs Bedrock has before this SKU depletes. Green = 30+ days, amber = 10-30, red = <10.')
+    + chip('📦', 'On order + ETA', 'Sums open POs for this SKU + shows earliest ETA. Runway math projects forward assuming the PO lands on ETA.')
+    + chip('📉', 'Velocity', 'Trailing 30-day average consumption. Compute Velocity button forces a manual recompute; auto-runs weekly.')
+    + tip('Mobile-friendly card view kicks in below 700px viewport (v10.1266 mobile pass). Each card is one SKU with the runway math + a reorder chip.')
+    + tip('Reorder deep-link: tap the "📦 I Just Ordered This" button in a reorder-alert email — jumps to Mark Ordered modal pre-filled for that SKU.');
+
+  const secAdd = H('sgAdd', '+ Add New Item')
+    + P('Purple "+ Add New Item" button opens the off-BOM add-item flow. Used for consumables (Fast Caps, tile spacers), sample packaging, one-off orders that need to enter inventory tracking.')
+    + step(1, 'Manager PIN', 'PIN-gated to prevent accidental item-master pollution. Cached 10 min per ensurePin.')
+    + step(2, 'Fill the fields', 'SKU + name + location + qty + category + unit. Auto-suggests SKU format from category.')
+    + step(3, 'Server upsert', 'Same worker /inventory/correct-bin-count endpoint as bin-edit — upserts items + bin in one call.')
+    + tip('For consumables that are also BOM leaves (Hafele hardware), don\'t use this — use the master items table so BOM math sees them.');
+
+  const secShelf = H('sgShelf', '📋 Shelf Entry — Batch Recount')
+    + P('Blue "📋 Shelf Entry — Batch Recount" button is the mass-recount interface for a whole shelf at once. Faster than one-at-a-time cycle counting when doing a bulk sweep.')
+    + step(1, 'Pick the shelf', 'Location code (e.g. HDWR.A1). Bedrock lists every item currently at that shelf per the ledger.')
+    + step(2, 'Type qtys in bulk', 'Table with expected column + fillable actual column. Norm can burn through 50 items in ~5 min this way.')
+    + step(3, 'Submit', 'Batch writes CYCLE_COUNT rows for every changed item. Zero-drift entries no-op — audit clean.')
+    + gotcha('Recount ghost mess (2026-07-08 incident): dupes + wrong tags can create phantom items. HDWR.A1-4 / B1-4 tags are authoritative — anything else is a rebuild target.');
+
+  const secLabels = H('sgLabels', '📍 Print Location Labels (QR)')
+    + P('Green "📍 Print Location Labels (QR)" button opens the QR-labeler for physical bins/shelves. Labels have the bin code as text + a scannable QR that resolves to the Bedrock bin URL.')
+    + step(1, 'Pick bin(s)', 'Multi-select modal. Filter by location prefix or tag.')
+    + step(2, 'Set copies + size', 'How many of each label, and which paper size (Avery template preset or custom).')
+    + step(3, 'Submit to PrintNode', 'Fire-and-forget to the label printer (per PRINTNODE_DEFAULT_PRINTER_ID) or a specific override printer.')
+    + tip('QR resolves to the bin URL so scanning any label opens Bedrock to that bin\'s worklist — great for on-shelf audits.');
+
+  const secFaq = H('sgFaq', '❓ Frequently asked')
+    + '<div style="font-size:13px;line-height:1.6;color:#C7D2E0">'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: The Runway view says a SKU has 3 days but I know a big PO landed.</b><br>Runway math reads ledger events + item.on_order fields. If the receive session on the PO wasn\'t closed, on_hand didn\'t update. Force ⟳ refresh + close the receive session.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Compute Velocity is stuck showing the tiny loading text forever.</b><br>Velocity walks the last 30 days of Shopify orders — slow on cold BigQuery. Wait ~90s; if still hung after that, check Slack for velocity-compute errors.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: How do I know what to reorder this week?</b><br>Runway view sorts by days-of-cover ascending. Everything red (<10 days) is a reorder candidate. Cross-check on-order + PO ETA before ordering more.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: An item is at 0 on-hand but I know we have some on the shelf.</b><br>Recount that shelf via Shelf Entry — batch recount writes a corrective CYCLE_COUNT and the ledger closes the drift. If it happens repeatedly for the same SKU, the BOM consumption path is likely double-drawing.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Where\'s the melamine PO Generator?</b><br>C3 Melamine section under Stock 2 (task #119, in progress). For now: PO Generator lives as an editor helper; UI still pending.</div>'
+    + '<div><b style="color:#fff">Q: How does Stock 2 relate to Cabinets?</b><br>Stock 2 = every SKU (BOM leaves, consumables, packaging, hardware). Cabinets = physical cabinet assemblies with serial numbers + locations. They cross-reference for cabinet-mfg BOM consumption (Manufacturing Phase 2, task #35).</div>'
+    + '</div>';
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Stock 2 Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every flow, every gotcha · v10.1354</div></div>'
+    +   '<button onclick="document.getElementById(\'stockGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
+    + '</div>'
+    + toc + secTop + secHealth + secCount + secReceive + secRunway + secAdd + secShelf + secLabels + secFaq
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1354.</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+window.openStockGuide = openStockGuide;
+
 // v10.1275 (Zac Sun 11:44pm ask "melamine inventory and ordering") —
 // C2 Melamine Vendors list surface. Reads via listMelamineVendors
 // (server side seeded 2026-07-20 via runSeedMelamineVendors). Groups by
