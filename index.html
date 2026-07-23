@@ -2201,7 +2201,13 @@ input::placeholder, textarea::placeholder {
   </div>
   <!-- v10.345 Lens chips — compact 2x2 grid, gold rivets removed (reserved
        for Refresh plaque), live count badge top-right, clear active state. -->
-  <div id="ordersLensGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+  <!-- v10.1350 (Zac 2026-07-22 21:47 EDT — "fully build everything associated
+       with manufacturing that you can"). Grid switched from fixed 2-col to
+       auto-fit min(140px) so a 5th lens (Manufacturing) wraps gracefully on
+       phone / iPad / desktop without visual regression. The Manufacturing
+       lens auto-hides when the queue is empty so the primary 4 stay
+       uncluttered during warehouse hours. -->
+  <div id="ordersLensGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;margin-bottom:10px">
     <button id="ordersLensSchedule"  onclick="setOrdersLens('schedule')"  data-lens="schedule"
       style="position:relative;padding:11px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.14);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
       <span style="font-size:16px;line-height:1">📅</span><span style="flex:1">Schedule</span>
@@ -2221,6 +2227,15 @@ input::placeholder, textarea::placeholder {
       style="position:relative;padding:11px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.14);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
       <span style="font-size:16px;line-height:1">⚠</span><span style="flex:1">Needs Attention</span>
       <span class="ordersLensCount" data-count-lens="attention" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
+    </button>
+    <!-- v10.1350 Manufacturing lens. Orange accent tags it visually to the
+         same MFG family as v10.1346 IN-HOUSE MFG pill + v10.1350 Build Stage
+         card. Auto-hidden until listManufacturingQueue returns ≥1 row so the
+         warehouse-primary 4 lenses stay clean during ordinary shifts. -->
+    <button id="ordersLensManufacturing" onclick="setOrdersLens('manufacturing')" data-lens="manufacturing"
+      style="position:relative;padding:11px 12px;background:rgba(230,81,0,.06);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(230,81,0,.35);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:none;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
+      <span style="font-size:16px;line-height:1">🔨</span><span style="flex:1">Manufacturing</span>
+      <span class="ordersLensCount" data-count-lens="manufacturing" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(230,81,0,.20);color:#ff9800;-webkit-text-fill-color:#ff9800;border-radius:999px;min-width:18px;text-align:center">·</span>
     </button>
   </div>
   <!-- v10.538 Orders search — overrides the current lens. Searches
@@ -3801,7 +3816,7 @@ function switchTab(name) {
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
-  // v10.1349 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
+  // v10.1350 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
   // down a little then clicked orders and this is what happens").
   // The tab-switch had no scroll reset — panels are stacked in one
   // document, so tapping Orders while scrolled halfway down Cabinets
@@ -3901,7 +3916,7 @@ function switchTab(name) {
   }
   if (name==='cabinets') {
     renderCabinets();
-    // v10.1349 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
+    // v10.1350 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
     // there are still previous weeks under receiving that have been
     // cleared on my laptop"). renderCabinets calls _prefetchReceiveSessions_
     // but the throttle is 5 min, so switching to Cabinets within 5 min
@@ -3940,7 +3955,7 @@ function switchTab(name) {
 // v10.327 — Orders tab lens dispatch + URL routing (PACK_REDESIGN A2c + A4a)
 // ══════════════════════════════════════════════════════════════════
 
-const _ORDERS_VALID_LENSES = ['schedule','prepack','pack','attention'];
+const _ORDERS_VALID_LENSES = ['schedule','prepack','pack','attention','manufacturing'];
 
 // v10.345 — dismiss handler for the H/B/P/L legend strip.
 function _dismissOrdersLetterLegend_() {
@@ -4006,16 +4021,33 @@ function renderOrdersTab() {
     if (!ship) return false; // undated rows don't count
     return ship >= _todayIso449;
   }).length;
+  // v10.1350 — Manufacturing lens counts MFG-marked orders regardless
+  // of pack/ship state (a boxed order is still a "recently built"
+  // reference until completed). complete stage rows drop out.
+  const _mfgCount = orders.filter(o => {
+    if (!o) return false;
+    if (String(o.production_type || '').toLowerCase() !== 'mfg') return false;
+    return String(o.production_stage || '').toLowerCase() !== 'complete';
+  }).length;
   const lensCounts = {
     schedule: _scheduleCount,
     prepack:  _filterOrdersForLens_(orders, 'prepack').length,
     pack:     _filterOrdersForLens_(orders, 'pack').length,
     attention:_filterOrdersForLens_(orders, 'attention').length,
+    manufacturing: _mfgCount,
   };
   _ORDERS_VALID_LENSES.forEach(L => {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
     if (!btn) return;
     const active = (L === lens);
+    // v10.1350 — Manufacturing lens auto-hides when nothing is being
+    // built. Prevents the primary-4 lens row from getting cluttered
+    // during ordinary shifts where the shop floor has no MFG-marked
+    // orders in flight. Reveals immediately on first MFG mark.
+    if (L === 'manufacturing') {
+      const _mfgN = lensCounts.manufacturing || 0;
+      btn.style.display = (_mfgN > 0 || active) ? 'flex' : 'none';
+    }
     // v10.455 — Zac round 2: .09 surface was still too dim; chips read
     // as dark text on dark gray. Bump to .16 surface + .50 border +
     // explicit bright text so unselected lenses read as clear cards,
@@ -4040,6 +4072,12 @@ function renderOrdersTab() {
         badge.style.background = '#c62828';
         badge.style.color = '#fff';
         badge.style.webkitTextFillColor = '#fff';
+      } else if (L === 'manufacturing') {
+        // v10.1350 — orange badge for Manufacturing keeps it visually
+        // aligned with the IN-HOUSE MFG pill + Build Stage stepper.
+        badge.style.background = active ? 'rgba(255,255,255,.18)' : 'rgba(230,81,0,.20)';
+        badge.style.color = active ? '#fff' : '#ff9800';
+        badge.style.webkitTextFillColor = active ? '#fff' : '#ff9800';
       } else {
         badge.style.background = active ? 'rgba(255,255,255,.18)' : 'rgba(0,230,118,.18)';
         badge.style.color = active ? '#fff' : '#00e676';
@@ -4105,6 +4143,13 @@ function renderOrdersTab() {
     } else {
       list.innerHTML = _renderOrdersScheduleGroupedHtml_(filtered);
     }
+  } else if (lens === 'manufacturing') {
+    // v10.1350 — Manufacturing lens groups MFG-marked orders by build
+    // stage. Each stage gets a section header with the count + the
+    // cards from that bucket. Clean up schedule-toggle if stale.
+    const toggleEl = document.getElementById('ordersScheduleViewToggle');
+    if (toggleEl) toggleEl.remove();
+    list.innerHTML = _renderOrdersManufacturingHtml_(filtered);
   } else {
     // Other lenses — clean up the schedule-toggle if it's stale
     const toggleEl = document.getElementById('ordersScheduleViewToggle');
@@ -5362,6 +5407,87 @@ async function _openSetCabPrompt_(orderNumber) {
 // the same addOrderByNumber path as the legacy Pack tab. Persists
 // open/closed in localStorage so the manager doesn't have to keep
 // re-expanding it.
+// v10.1350 (Zac 2026-07-22 21:47 EDT — Manufacturing Phase 1).
+// Render every MFG-marked cabinet order grouped by build stage.
+// Stages appear as section headers (icon + label + count); cards
+// under each header reuse the standard order-card render. Empty
+// buckets are skipped to keep the view compact.
+function _renderOrdersManufacturingHtml_(rows) {
+  rows = rows || [];
+  if (!rows.length) {
+    return '<div style="padding:32px 24px;text-align:center;color:var(--text-dim);background:rgba(230,81,0,.04);border:1px dashed rgba(230,81,0,.25);border-radius:12px">'
+      + '<div style="font-size:36px;margin-bottom:10px">🔨</div>'
+      + '<div style="font-size:15px;font-weight:800;color:var(--text);-webkit-text-fill-color:var(--text);margin-bottom:6px">Nothing being built right now</div>'
+      + '<div style="font-size:12.5px;line-height:1.6">Mark a cabinet order as <b style="color:#ff9800">IN-HOUSE MFG</b> from the Orders detail Production Source card to route it here. Every build stage (Cutting → Edging → Drilling → Assembly → Finish → Boxed) shows as a section below with the orders in that state.</div>'
+      + '</div>';
+  }
+  // Bucket by stage. Preserve stage order — blank+queued open the pipe.
+  const STAGE_META = [
+    { key: '',         icon: '❔', label: 'Unstaged',   hint: 'MFG-marked but no build stage set yet' },
+    { key: 'queued',   icon: '📋', label: 'Queued',    hint: 'Waiting for cutting slot' },
+    { key: 'cutting',  icon: '📏', label: 'Cutting',   hint: 'On the saw' },
+    { key: 'edging',   icon: '🎯', label: 'Edging',    hint: 'Banding + trimming' },
+    { key: 'drilling', icon: '🔩', label: 'Drilling',  hint: 'Cam + shelf-pin holes' },
+    { key: 'assembly', icon: '🧩', label: 'Assembly',  hint: 'Case squared + fastened' },
+    { key: 'finish',   icon: '🎨', label: 'Finish',    hint: 'Sanding, paint, cure' },
+    { key: 'boxed',    icon: '📦', label: 'Boxed',     hint: 'Wrapped and ready to ship' },
+  ];
+  const buckets = {};
+  rows.forEach(o => {
+    const s = String((o && o.production_stage) || '').toLowerCase();
+    (buckets[s] = buckets[s] || []).push(o);
+  });
+  // Rollup summary at top: N in the funnel + N boxed (ship-ready).
+  const totalInFlight = rows.length;
+  const boxedCt = (buckets['boxed'] || []).length;
+  const inShopCt = totalInFlight - boxedCt - (buckets['queued'] || []).length - (buckets[''] || []).length;
+  let h = '';
+  h += '<div style="margin-bottom:14px;padding:14px 16px;background:linear-gradient(135deg,rgba(230,81,0,.10),rgba(230,81,0,.02));border:1px solid rgba(230,81,0,.35);border-radius:12px">';
+  h +=   '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">';
+  h +=     '<div>';
+  h +=       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#ff9800;-webkit-text-fill-color:#ff9800;letter-spacing:.5px;text-transform:uppercase;line-height:1">🔨 On the Floor</div>';
+  h +=       '<div style="font-size:12px;color:var(--text-2);margin-top:4px">In-house manufacturing — cabinets Bedrock is building right now, grouped by build stage.</div>';
+  h +=     '</div>';
+  h +=     '<div style="display:flex;gap:10px;flex-wrap:wrap">';
+  h +=       '<div style="text-align:center;padding:6px 14px;background:rgba(255,255,255,.06);border-radius:8px;min-width:70px">';
+  h +=         '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:#ff9800;-webkit-text-fill-color:#ff9800;line-height:1">' + totalInFlight + '</div>';
+  h +=         '<div style="font-size:9.5px;color:var(--text-dim);letter-spacing:1.2px;text-transform:uppercase;margin-top:2px">In flight</div>';
+  h +=       '</div>';
+  h +=       '<div style="text-align:center;padding:6px 14px;background:rgba(255,255,255,.06);border-radius:8px;min-width:70px">';
+  h +=         '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:#42a5f5;-webkit-text-fill-color:#42a5f5;line-height:1">' + inShopCt + '</div>';
+  h +=         '<div style="font-size:9.5px;color:var(--text-dim);letter-spacing:1.2px;text-transform:uppercase;margin-top:2px">In shop</div>';
+  h +=       '</div>';
+  h +=       '<div style="text-align:center;padding:6px 14px;background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.35);border-radius:8px;min-width:70px">';
+  h +=         '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:#00e676;-webkit-text-fill-color:#00e676;line-height:1">' + boxedCt + '</div>';
+  h +=         '<div style="font-size:9.5px;color:#00e676;-webkit-text-fill-color:#00e676;letter-spacing:1.2px;text-transform:uppercase;margin-top:2px">Boxed</div>';
+  h +=       '</div>';
+  h +=     '</div>';
+  h +=   '</div>';
+  h += '</div>';
+  // Sections per stage — skip empties.
+  STAGE_META.forEach(sm => {
+    const bucket = buckets[sm.key] || [];
+    if (!bucket.length) return;
+    h += '<section style="margin-bottom:16px">';
+    h +=   '<header style="display:flex;align-items:baseline;gap:10px;padding:8px 4px 8px;border-bottom:1.5px solid rgba(230,81,0,.35);margin-bottom:10px">';
+    h +=     '<span style="font-size:20px;line-height:1">' + sm.icon + '</span>';
+    h +=     '<h3 style="margin:0;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:var(--text);-webkit-text-fill-color:var(--text);letter-spacing:1px;text-transform:uppercase">' + esc(sm.label) + '</h3>';
+    h +=     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:800;padding:2px 8px;background:rgba(230,81,0,.20);color:#ff9800;-webkit-text-fill-color:#ff9800;border-radius:999px">' + bucket.length + '</span>';
+    h +=     '<span style="font-size:12px;color:var(--text-dim);font-style:italic;margin-left:6px">' + esc(sm.hint) + '</span>';
+    h +=   '</header>';
+    // Sort within bucket by ship_date asc then order_number.
+    bucket.sort((a, b) => {
+      const sa = String(a.ship_date || '');
+      const sb = String(b.ship_date || '');
+      if (sa !== sb) return sa.localeCompare(sb);
+      return String(a.order_number || '').localeCompare(String(b.order_number || ''));
+    });
+    h += bucket.map(o => _renderOrdersCardHtml_(o, 'manufacturing')).join('');
+    h += '</section>';
+  });
+  return h;
+}
+
 function _renderOrdersUpcomingHtml_(rows) {
   rows = rows || [];
   const openKey = 'mbd_orders_pack_upcoming_open';
@@ -5590,6 +5716,15 @@ function _filterOrdersForLens_(orders, lens) {
         if (o.pipeline_status === 'stalled') return true;
         if (o.has_sku_drift) return true;
         return false;
+      });
+    case 'manufacturing':
+      // v10.1350 — every MFG-marked cabinet order that isn't yet
+      // complete. Grouped-by-stage rendering happens downstream in
+      // _renderOrdersManufacturingHtml_ (not via card list).
+      return orders.filter(o => {
+        if (!o) return false;
+        if (String(o.production_type || '').toLowerCase() !== 'mfg') return false;
+        return String(o.production_stage || '').toLowerCase() !== 'complete';
       });
     case 'schedule':
     default:
@@ -33584,7 +33719,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1349"></script>
+<script src="./pack.js?v=10.1350"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33595,7 +33730,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1349<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1350<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
