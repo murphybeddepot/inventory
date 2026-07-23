@@ -2058,7 +2058,7 @@ input::placeholder, textarea::placeholder {
 <div id="tab-lookup" class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
     <div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:1px;color:var(--text);text-transform:uppercase">🔍 Order Lookup</div>
-    <!-- v10.1360 (Zac 2026-07-22 21:44 EDT — Mozaik ? pattern round 4).
+    <!-- v10.1362 (Zac 2026-07-22 21:44 EDT — Mozaik ? pattern round 4).
          Jessica's CS home. ? icon opens the Lookup guide covering the
          four search modes + result-card actions + CS note logging. -->
     <button onclick="if(typeof openLookupGuide==='function')openLookupGuide()" title="Lookup guide — every input, every action" aria-label="Lookup tab help" style="width:32px;height:32px;border-radius:50%;background:rgba(255,179,0,.10);border:1.5px solid rgba(255,179,0,.55);color:#FFB300;-webkit-text-fill-color:#FFB300;font-size:16px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>
@@ -2205,7 +2205,7 @@ input::placeholder, textarea::placeholder {
   </div>
   <!-- v10.345 Lens chips — compact 2x2 grid, gold rivets removed (reserved
        for Refresh plaque), live count badge top-right, clear active state. -->
-  <!-- v10.1360 (Zac 2026-07-22 21:47 EDT — "fully build everything associated
+  <!-- v10.1362 (Zac 2026-07-22 21:47 EDT — "fully build everything associated
        with manufacturing that you can"). Grid switched from fixed 2-col to
        auto-fit min(140px) so a 5th lens (Manufacturing) wraps gracefully on
        phone / iPad / desktop without visual regression. The Manufacturing
@@ -2232,8 +2232,8 @@ input::placeholder, textarea::placeholder {
       <span style="font-size:16px;line-height:1">⚠</span><span style="flex:1">Needs Attention</span>
       <span class="ordersLensCount" data-count-lens="attention" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
     </button>
-    <!-- v10.1360 Manufacturing lens. Orange accent tags it visually to the
-         same MFG family as v10.1346 IN-HOUSE MFG pill + v10.1360 Build Stage
+    <!-- v10.1362 Manufacturing lens. Orange accent tags it visually to the
+         same MFG family as v10.1346 IN-HOUSE MFG pill + v10.1362 Build Stage
          card. Auto-hidden until listManufacturingQueue returns ≥1 row so the
          warehouse-primary 4 lenses stay clean during ordinary shifts. -->
     <button id="ordersLensManufacturing" onclick="setOrdersLens('manufacturing')" data-lens="manufacturing"
@@ -2322,7 +2322,7 @@ input::placeholder, textarea::placeholder {
        when devices got out of step. This is the compact top-tab version. -->
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;align-items:center">
     <span id="cabSyncTopStatus" style="font-size:11px;color:var(--text-dim);font-weight:600"></span>
-    <!-- v10.1360 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 2) —
+    <!-- v10.1362 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 2) —
          Cabinets tab help icon. Opens the openCabinetsGuide walkthrough
          (search rig · receive flow · upcoming · pull · damage · sync). -->
     <button onclick="if(typeof openCabinetsGuide==='function')openCabinetsGuide()" title="Cabinets tab guide — every button, every flow" aria-label="Cabinets tab help" style="width:32px;height:32px;border-radius:50%;background:rgba(255,179,0,.10);border:1.5px solid rgba(255,179,0,.55);color:#FFB300;-webkit-text-fill-color:#FFB300;font-size:16px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>
@@ -2889,7 +2889,7 @@ input::placeholder, textarea::placeholder {
       <!-- v10.699 (Mira) — phase label dropped; Stock 2.0 is now
            feature-complete for counting. -->
       <button type="button" onclick="switchTab('items')" style="padding:6px 11px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:transparent;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">↺ Stock 1.0</button>
-      <!-- v10.1360 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 3) —
+      <!-- v10.1362 (Zac 2026-07-22 21:44 EDT Mozaik ? pattern round 3) —
            Stock 2 tab help icon. Opens openStockGuide walkthrough. -->
       <button onclick="if(typeof openStockGuide==='function')openStockGuide()" title="Stock 2 tab guide — every button, every flow" aria-label="Stock 2 tab help" style="width:32px;height:32px;border-radius:50%;background:rgba(255,179,0,.10);border:1.5px solid rgba(255,179,0,.55);color:#FFB300;-webkit-text-fill-color:#FFB300;font-size:16px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>
     </div>
@@ -3827,7 +3827,7 @@ function switchTab(name) {
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
-  // v10.1360 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
+  // v10.1362 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
   // down a little then clicked orders and this is what happens").
   // The tab-switch had no scroll reset — panels are stacked in one
   // document, so tapping Orders while scrolled halfway down Cabinets
@@ -3927,7 +3927,7 @@ function switchTab(name) {
   }
   if (name==='cabinets') {
     renderCabinets();
-    // v10.1360 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
+    // v10.1362 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
     // there are still previous weeks under receiving that have been
     // cleared on my laptop"). renderCabinets calls _prefetchReceiveSessions_
     // but the throttle is 5 min, so switching to Cabinets within 5 min
@@ -4032,7 +4032,7 @@ function renderOrdersTab() {
     if (!ship) return false; // undated rows don't count
     return ship >= _todayIso449;
   }).length;
-  // v10.1360 — Manufacturing lens counts MFG-marked orders regardless
+  // v10.1362 — Manufacturing lens counts MFG-marked orders regardless
   // of pack/ship state (a boxed order is still a "recently built"
   // reference until completed). complete stage rows drop out.
   const _mfgCount = orders.filter(o => {
@@ -4051,7 +4051,7 @@ function renderOrdersTab() {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
     if (!btn) return;
     const active = (L === lens);
-    // v10.1360 — Manufacturing lens auto-hides when nothing is being
+    // v10.1362 — Manufacturing lens auto-hides when nothing is being
     // built. Prevents the primary-4 lens row from getting cluttered
     // during ordinary shifts where the shop floor has no MFG-marked
     // orders in flight. Reveals immediately on first MFG mark.
@@ -4084,7 +4084,7 @@ function renderOrdersTab() {
         badge.style.color = '#fff';
         badge.style.webkitTextFillColor = '#fff';
       } else if (L === 'manufacturing') {
-        // v10.1360 — orange badge for Manufacturing keeps it visually
+        // v10.1362 — orange badge for Manufacturing keeps it visually
         // aligned with the IN-HOUSE MFG pill + Build Stage stepper.
         badge.style.background = active ? 'rgba(255,255,255,.18)' : 'rgba(230,81,0,.20)';
         badge.style.color = active ? '#fff' : '#ff9800';
@@ -4155,7 +4155,7 @@ function renderOrdersTab() {
       list.innerHTML = _renderOrdersScheduleGroupedHtml_(filtered);
     }
   } else if (lens === 'manufacturing') {
-    // v10.1360 — Manufacturing lens groups MFG-marked orders by build
+    // v10.1362 — Manufacturing lens groups MFG-marked orders by build
     // stage. Each stage gets a section header with the count + the
     // cards from that bucket. Clean up schedule-toggle if stale.
     const toggleEl = document.getElementById('ordersScheduleViewToggle');
@@ -5418,7 +5418,7 @@ async function _openSetCabPrompt_(orderNumber) {
 // the same addOrderByNumber path as the legacy Pack tab. Persists
 // open/closed in localStorage so the manager doesn't have to keep
 // re-expanding it.
-// v10.1360 (Zac 2026-07-22 21:47 EDT — Manufacturing Phase 1).
+// v10.1362 (Zac 2026-07-22 21:47 EDT — Manufacturing Phase 1).
 // Render every MFG-marked cabinet order grouped by build stage.
 // Stages appear as section headers (icon + label + count); cards
 // under each header reuse the standard order-card render. Empty
@@ -5452,7 +5452,7 @@ function _renderOrdersManufacturingHtml_(rows) {
   const totalInFlight = rows.length;
   const boxedCt = (buckets['boxed'] || []).length;
   const inShopCt = totalInFlight - boxedCt - (buckets['queued'] || []).length - (buckets[''] || []).length;
-  // v10.1360 — WIP alert count. Anything sitting in its current stage
+  // v10.1362 — WIP alert count. Anything sitting in its current stage
   // longer than the per-stage threshold is stalled and needs a check-in.
   const stalledRows = rows.filter(o => {
     const d = _mfgDaysInStage_(o);
@@ -5479,10 +5479,10 @@ function _renderOrdersManufacturingHtml_(rows) {
   h +=     '<div>';
   h +=       '<div style="display:flex;align-items:center;gap:8px">';
   h +=         '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:24px;font-weight:900;color:#ff9800;-webkit-text-fill-color:#ff9800;letter-spacing:.5px;text-transform:uppercase;line-height:1">🔨 On the Floor</div>';
-  // v10.1360 (Zac 2026-07-22 21:44 EDT "I like how mozaik does it —
+  // v10.1362 (Zac 2026-07-22 21:44 EDT "I like how mozaik does it —
   // each page/screen has a question mark icon that opens a visual
   // explanation of every function/button"). ? icon opens the Orders
-  // Guide auto-scrolled to the Manufacturing section (v10.1360 addition).
+  // Guide auto-scrolled to the Manufacturing section (v10.1362 addition).
   h +=         '<button onclick="if(typeof openOrdersGuide===\'function\'){openOrdersGuide();setTimeout(function(){var t=document.getElementById(\'ogMfg\');if(t)t.scrollIntoView({behavior:\'smooth\',block:\'start\'});},150);}" title="What every button on this lens does" aria-label="Manufacturing lens help" style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.10);border:1.5px solid rgba(255,152,0,.55);color:#ff9800;-webkit-text-fill-color:#ff9800;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>';
   h +=       '</div>';
   h +=       '<div style="font-size:12px;color:var(--text-2);margin-top:4px">In-house manufacturing — cabinets Bedrock is building right now, grouped by build stage.</div>';
@@ -5503,7 +5503,7 @@ function _renderOrdersManufacturingHtml_(rows) {
   h +=     '</div>';
   h +=   '</div>';
   h += '</div>';
-  // v10.1360 — per-builder workload strip. Reads production_owner
+  // v10.1362 — per-builder workload strip. Reads production_owner
   // off every in-flight MFG order and groups. Great morning-glance
   // for "who's got what right now." Skipped when no owners are set
   // OR everything is one builder (adds no info).
@@ -5551,7 +5551,7 @@ function _renderOrdersManufacturingHtml_(rows) {
     // bucket — the ones most in need of a nudge — so scanning
     // top-down surfaces the WIP-alerts first.
     bucket.sort((a, b) => {
-      // v10.1360: WIP alert order within a bucket. Stale-first.
+      // v10.1362: WIP alert order within a bucket. Stale-first.
       const _daysA = _mfgDaysInStage_(a);
       const _daysB = _mfgDaysInStage_(b);
       if (_daysA !== _daysB) return _daysB - _daysA;
@@ -5566,7 +5566,7 @@ function _renderOrdersManufacturingHtml_(rows) {
   return h;
 }
 
-// v10.1360 (2026-07-23) — WIP alerting. Compute how long an MFG order
+// v10.1362 (2026-07-23) — WIP alerting. Compute how long an MFG order
 // has been sitting in its current stage from production_updated_at
 // (v10.1349 stamp). Threshold per stage is aggressive on early
 // milling steps (2 days) and generous on cure-time-heavy stages
@@ -5848,7 +5848,7 @@ function _filterOrdersForLens_(orders, lens) {
         return false;
       });
     case 'manufacturing':
-      // v10.1360 — every MFG-marked cabinet order that isn't yet
+      // v10.1362 — every MFG-marked cabinet order that isn't yet
       // complete. Grouped-by-stage rendering happens downstream in
       // _renderOrdersManufacturingHtml_ (not via card list).
       return orders.filter(o => {
@@ -15225,7 +15225,7 @@ async function renderStockV2Dashboard_() {
     // PDFs printed on demand, not physical inventory. Mattress SKUs
     // that dropship from Mattress Firm have flags.dropship=true.
     //
-    // v10.1360 (Zac 2026-07-23 06:58 EDT): 'on stock 2 you still have
+    // v10.1362 (Zac 2026-07-23 06:58 EDT): 'on stock 2 you still have
     // a bunch of non inventory items listed under not counted.'
     // Broader filter — kept flag-based (safe) + broader SKU-prefix
     // heuristics that historically identified non-physical SKUs:
@@ -15248,10 +15248,41 @@ async function renderStockV2Dashboard_() {
       const cat = String((fl.category || it.category || '')).toLowerCase();
       if (cat === 'digital' || cat === 'service' || cat === 'non_inventory') return true;
       const sku = String((it && it.item_sku) || '').toUpperCase();
+      const name = String((it && it.name) || '').toUpperCase();
       if (/^INST-/.test(sku)) return true;
       if (/^SAMPLES?-/.test(sku)) return true;
       if (/^GIFT(-|CARD)/.test(sku)) return true;
       if (/^(SVC|SERVICE)-/.test(sku)) return true;
+      // v10.1362 (Zac 2026-07-23 interactive: 'still leaking things
+      // like mattresses and murphy cabinet beds'). Bed families are
+      // finished goods sold-and-shipped; Norm doesn't cycle-count them.
+      // Mattresses dropship from MFRM — no on-shelf presence. Filter by
+      // SKU prefix AND product-name substring so items missing the flag
+      // still get caught.
+      const BED_FAMILY_PREFIXES = [
+        'MB-',    // Murphy bed family
+        'PB-',    // piston bed family
+        'PBFRAME-',
+        'PBCAB-',
+        'BOAZ-',  // Boaz bed family
+        'BOAZ ',
+        'LB-',    // library bed
+        'SBLM',   // Sofa bed lift mechanism / sofa-lift family
+        'SBF-',
+        'HLR',    // horizontal library / recline family
+        'NEXTBED',
+        'WMB',    // wall-mount bed variants
+      ];
+      for (const p of BED_FAMILY_PREFIXES) {
+        if (sku.startsWith(p)) return true;
+      }
+      // Mattress substring — catches MATTRESS*, TWIN-MATTRESS, KING-MATTRESS,
+      // OSB (mattress in the name), pillow, sheet-set, headboard-only, etc.
+      if (/MATTRESS|PILLOW|SHEETS?|MEMORY.?FOAM|BOX.?SPRING/.test(sku)) return true;
+      if (/MATTRESS|PILLOW|MEMORY FOAM|BOX SPRING/.test(name)) return true;
+      // Head-only / footboard-only / bed-frame accessories (also finished
+      // goods not cycle-counted).
+      if (/HEADBOARD|FOOTBOARD|BED.?FRAME/.test(name)) return true;
       return false;
     };
     const rawItemsCount = (res.items || []).length;
@@ -33872,7 +33903,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1360"></script>
+<script src="./pack.js?v=10.1362"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33883,7 +33914,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1360<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1362<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
