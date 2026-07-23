@@ -494,6 +494,45 @@ function _orderDetailHtml_(o) {
         +   (updatedAt ? '<span style="margin-left:auto;font-size:10px;font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);opacity:.75">last change ' + esc(updatedAt.slice(0, 16).replace('T', ' ')) + '</span>' : '')
         + '</div>'
         + '</div>';
+      // v10.1355 — per-stage timeline. Show stages the order has
+      // passed through with time-in-stage. Feeds the "days in previous
+      // stages" drill-down + eventual COGS labor rollup.
+      let history = [];
+      try {
+        const raw = String(o.production_stage_history_json || '').trim();
+        if (raw) history = JSON.parse(raw);
+        if (!Array.isArray(history)) history = [];
+      } catch (_e) { history = []; }
+      // Only render when there are actual past stages (2+ entries or
+      // one entry with meaningful duration).
+      if (history.length >= 1) {
+        const _fmtStageDuration_ = (ms) => {
+          if (!ms || ms < 1000) return '<1m';
+          const mins = Math.floor(ms / 60000);
+          if (mins < 60) return mins + 'm';
+          const hrs = mins / 60;
+          if (hrs < 24) return hrs.toFixed(1) + 'h';
+          return (hrs / 24).toFixed(1) + 'd';
+        };
+        const _stageMetaByKey = MFG_STAGES.reduce((acc, s) => (acc[s.key] = s, acc), {});
+        const totalMs = history.reduce((sum, h) => sum + Number(h.ms_in_prev_stage || 0), 0);
+        productionTypeSection += '<div style="margin-top:8px;padding:12px 14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.08);border-radius:8px">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
+          +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px">⏱ Stage Timeline</div>'
+          +   (totalMs > 0 ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;color:var(--text-dim)">total ' + _fmtStageDuration_(totalMs) + '</div>' : '')
+          + '</div>'
+          + '<div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">'
+          +   history.map(hEntry => {
+                const fromKey = String(hEntry.from || '').toLowerCase();
+                const fromMeta = _stageMetaByKey[fromKey];
+                const fromLabel = fromMeta ? (fromMeta.icon + ' ' + fromMeta.label) : (fromKey || '❔ Unstaged');
+                const durMs = Number(hEntry.ms_in_prev_stage || 0);
+                const durLabel = durMs > 0 ? _fmtStageDuration_(durMs) : '';
+                return '<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);border-radius:5px;font-size:10.5px;color:var(--text-2)"><span>' + esc(fromLabel) + '</span>' + (durLabel ? '<span style="font-family:\'JetBrains Mono\',monospace;color:#ffb74d;font-weight:700">' + esc(durLabel) + '</span>' : '') + '</span>';
+              }).join('')
+          + '</div>'
+          + '</div>';
+      }
     }
     productionTypeSection += '</div>';
   }
