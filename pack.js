@@ -1625,18 +1625,81 @@ async function _setCabinetProductionStage_(orderNumber, stage) {
   }
 }
 
+// v10.1356 (recap priority #3) — builder-picker cache.
+// Lazy-loaded from listBuilders. Refreshed on each modal open so
+// Script Property edits propagate without a full page reload.
+let _mfgBuildersCache = null;
+async function _fetchBuilders_(force) {
+  if (_mfgBuildersCache && !force) return _mfgBuildersCache;
+  try {
+    const res = await groundApi('listBuilders', {});
+    if (res && res.ok && Array.isArray(res.builders) && res.builders.length) {
+      _mfgBuildersCache = res.builders;
+      return _mfgBuildersCache;
+    }
+  } catch (_e) {}
+  // Safe fallback if server unreachable.
+  _mfgBuildersCache = ['Norm', 'Seth', 'Hire'];
+  return _mfgBuildersCache;
+}
+function _openBuilderPickerModal_(orderNumber, currentOwner, builders) {
+  const ord = String(orderNumber || '').trim();
+  const cur = String(currentOwner || '').trim();
+  const prev = document.getElementById('builderPickerOv');
+  if (prev) prev.remove();
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.id = 'builderPickerOv';
+    ov.className = 'keep-dark-text';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px';
+    const done = (val) => { ov.remove(); resolve(val); };
+    const btn = (name) => {
+      const active = String(name || '').toLowerCase() === cur.toLowerCase();
+      return '<button data-builder="' + esc(name) + '" style="padding:14px 18px;background:' + (active ? '#e65100' : 'rgba(255,255,255,.04)') + ';color:' + (active ? '#fff' : 'var(--text)') + ';-webkit-text-fill-color:' + (active ? '#fff' : 'var(--text)') + ';border:1.5px solid ' + (active ? '#e65100' : 'rgba(255,255,255,.20)') + ';border-radius:10px;font-size:16px;font-weight:800;letter-spacing:.4px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:10px">'
+        + '<span style="font-size:18px">🔨</span>'
+        + '<span>' + esc(name) + '</span>'
+        + (active ? '<span style="margin-left:auto;font-size:11px;color:#ffd8b8">current</span>' : '')
+        + '</button>';
+    };
+    ov.innerHTML = ''
+      + '<div onclick="event.stopPropagation()" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(230,81,0,.55);border-radius:14px;max-width:420px;width:100%;padding:22px 24px;font-family:Helvetica,Arial,sans-serif">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;letter-spacing:1px;margin-bottom:4px">👤 Assign Builder · #' + esc(ord) + '</div>'
+      +   '<div style="font-size:12px;color:rgba(255,255,255,.60);margin-bottom:16px">Current: ' + esc(cur || '(unassigned)') + '</div>'
+      +   '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">'
+      +     (builders || []).map(btn).join('')
+      +   '</div>'
+      +   '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +     '<button id="bpCustomBtn" style="flex:1;min-width:120px;padding:10px 14px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1px dashed rgba(255,255,255,.35);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">＋ Custom…</button>'
+      +     (cur ? '<button id="bpClearBtn" style="padding:10px 14px;background:rgba(255,143,0,.15);color:#ffb74d;-webkit-text-fill-color:#ffb74d;border:1px solid rgba(255,143,0,.55);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Unassign</button>' : '')
+      +     '<button id="bpCancelBtn" style="padding:10px 14px;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.30);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Cancel</button>'
+      +   '</div>'
+      + '</div>';
+    ov.addEventListener('click', (e) => { if (e.target === ov) done('cancel'); });
+    document.body.appendChild(ov);
+    ov.querySelectorAll('[data-builder]').forEach(el => {
+      el.onclick = () => done(el.getAttribute('data-builder') || '');
+    });
+    document.getElementById('bpCustomBtn').onclick = () => {
+      const raw = window.prompt('Custom builder name for #' + ord + '?', cur);
+      if (raw == null) return;
+      done(String(raw || '').trim());
+    };
+    const clearBtn = document.getElementById('bpClearBtn');
+    if (clearBtn) clearBtn.onclick = () => done('');
+    document.getElementById('bpCancelBtn').onclick = () => done('cancel');
+  });
+}
 async function _setCabinetProductionOwner_(orderNumber) {
   const ord = String(orderNumber || '').trim();
   if (!ord) { showToast('Missing order#'); return; }
   const cached = getCachedPipelineOrder(orderNumber);
   const curOwner = String((cached && cached.production_owner) || '').trim();
   const curStage = String((cached && cached.production_stage) || 'queued').toLowerCase() || 'queued';
-  // Cheap prompt for owner — a proper picker (Norm/Seth/hire list) is
-  // Phase 1 work. String input suffices for scaffold.
-  const nextRaw = window.prompt('Builder name for #' + ord + '?', curOwner);
-  if (nextRaw == null) return; // user cancelled
-  const next = String(nextRaw || '').trim();
-  if (next === curOwner) { showToast('Builder unchanged'); return; }
+  // v10.1356 — proper picker modal replacing v10.1349's window.prompt.
+  const builders = await _fetchBuilders_(false);
+  const next = await _openBuilderPickerModal_(ord, curOwner, builders);
+  if (next === 'cancel') return;
+  if (String(next) === curOwner) { showToast('Builder unchanged'); return; }
   const pin = (typeof ensurePin === 'function') ? ensurePin('Manager PIN to assign builder:') : null;
   if (!pin) { showToast('Assign cancelled (needs manager PIN)'); return; }
   try {
