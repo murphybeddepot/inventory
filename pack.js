@@ -18930,6 +18930,122 @@ function openStockGuide() {
 }
 window.openStockGuide = openStockGuide;
 
+// v10.1357 (Zac 2026-07-22 21:44 EDT — Mozaik ? pattern round 4).
+// Lookup Tab Guide. Jessica's CS home surface. Covers: 4 search
+// inputs (order# / customer / phone / email), result-card actions
+// (Send Replacement, Report Damage, add CS note, jump to Orders),
+// spine timeline read-through, cross-tab flows.
+function openLookupGuide() {
+  const prior = document.getElementById('lookupGuideOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'lookupGuideOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const H = (id, t) => '<div id="' + id + '" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.10)">' + t + '</div>';
+  const H2 = (t) => '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px">' + t + '</div>';
+  const P = (t) => '<div style="font-size:13px;line-height:1.55;color:#C7D2E0;margin-bottom:8px">' + t + '</div>';
+  const step = (n, t, d) => '<div style="display:flex;gap:10px;margin-bottom:8px"><div style="flex:0 0 22px;height:22px;border-radius:50%;background:rgba(66,165,245,.20);color:#5BB3FF;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;font-size:13px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + t + '</b> — ' + d + '</div></div>';
+  const chip = (icon, label, detail) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'
+    + '<span style="flex:0 0 32px;text-align:center;font-size:18px">' + icon + '</span>'
+    + '<div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + label + '</b> — ' + detail + '</div></div>';
+  const gotcha = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(255,179,0,.09);border-left:3px solid #FFB300;border-radius:4px"><span style="flex:0 0 20px">⚠️</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#F5E6C0">' + t + '</div></div>';
+  const tip = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(0,200,83,.08);border-left:3px solid #00C853;border-radius:4px"><span style="flex:0 0 20px">💡</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7EED0">' + t + '</div></div>';
+
+  const toc = '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(255,179,0,.08);border:1px solid rgba(255,179,0,.25);border-radius:10px;margin-bottom:14px">'
+    + '<div style="flex:1 1 100%;font-size:11px;font-weight:800;color:#FFB300;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Jump to</div>'
+    + '<button onclick="document.getElementById(\'lgTop\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🏠 Overview</button>'
+    + '<button onclick="document.getElementById(\'lgSearch\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🔍 Search input</button>'
+    + '<button onclick="document.getElementById(\'lgCard\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Result card</button>'
+    + '<button onclick="document.getElementById(\'lgCS\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📝 CS notes</button>'
+    + '<button onclick="document.getElementById(\'lgReplace\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🚨 Replacement</button>'
+    + '<button onclick="document.getElementById(\'lgTimeline\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🧭 Timeline</button>'
+    + '<button onclick="document.getElementById(\'lgFaq\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
+    + '</div>';
+
+  const secTop = H('lgTop', '🏠 What Lookup IS')
+    + P('The <b>🔍 Order Lookup</b> tab is the Customer Service home surface. When a customer calls in about an existing order — asking about ship date, reporting damage, requesting a replacement — Jessica opens Lookup and one search brings up everything Bedrock knows about that order in a single card.')
+    + H2('Who uses it')
+    + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.6"><b style="color:#fff">Jessica:</b> Primary user. Every customer call goes through Lookup first.<br><b style="color:#fff">Kim:</b> Cross-checks a booked order\'s state before responding to freight-related customer emails.<br><b style="color:#fff">Seth:</b> Occasionally, if a packer needs to verify an in-flight cabinet\'s history.<br><b style="color:#fff">Zac / Norm:</b> Rarely — Orders tab is faster for most operator tasks.</div>'
+    + H2('The one big idea')
+    + P('Lookup <em>joins</em> every source Bedrock has about an order: PackingQueue (cabinet/freight), OrderPack/OrderPackages (ground), the spine timeline (every event), Cabinets (assigned cabinet# + location), Damage Log, MattressDropships, Remakes. One card = full customer-facing picture. Search is fuzzy across order#, customer name, phone digits, email.');
+
+  const secSearch = H('lgSearch', '🔍 Search input — the black-and-green console')
+    + P('The big black input at the top is a fuzzy search across every order in the pipeline. Accepts multiple input types:')
+    + step(1, 'Order number', 'Full or partial. <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">32217</code>, <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">TEST-3</code>, etc. Exact match jumps straight to the card; partial lists every matching order.')
+    + step(2, 'Customer name', '<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">smith</code> or <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">jane doe</code>. Case-insensitive substring.')
+    + step(3, 'Phone digits', '<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">3055551234</code>. Digits-only; formatting stripped on both sides. Great for a customer who called from a number that\'s in their Shopify record.')
+    + step(4, 'Email', '<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">smith@</code> matches every order with a customer email starting with "smith@".')
+    + tip('Enter key or the search button triggers the search; there\'s also a live-search as-you-type debounce for phone digits (matches jump in as the customer speaks).')
+    + gotcha('The search is fuzzy — a very-short query (1-2 chars) will return many results. Type at least 3 chars for reliably scoped output.');
+
+  const secCard = H('lgCard', '📋 Result card — what you see')
+    + P('Each result is one card covering the whole order state. Fields (top to bottom):')
+    + chip('#️⃣', 'Order#', 'Big and monospace. Tap → jumps to the Orders tab detail view for that order (full workflow surface).')
+    + chip('👤', 'Customer', 'Name + email + phone. Tap phone → tel: link. Tap email → mailto: link.')
+    + chip('📍', 'Ship-to address', 'Street / city / state / zip. Copy button on hover.')
+    + chip('📅', 'Ship date + carrier', 'The current ship_date + carrier assignment. If freight, shows booker + booking_ref + booked_at.')
+    + chip('🚦', 'Status + lifecycle chip', 'Colored pill showing pipeline_status (Pack Today / Pre-Pack / Scheduled / Packed / Shipped / Stalled). Damage flag or on-hold banner appears above the card.')
+    + chip('🗄', 'Cabinets', 'For cabinet orders: list of cabinet# + location + pulled/damaged flag. Same badge palette as the Cabinets tab.')
+    + chip('📦', 'Boxes / SKU lines', 'For ground orders: OrderPackages rows with each box\'s dims/weight/carrier.')
+    + chip('🧭', 'Timeline', 'Spine event history for the order (newest first). See § Timeline below.');
+
+  const secCS = H('lgCS', '📝 CS notes — record what the customer said')
+    + P('At the bottom of each result card, an inline CS-note input lets Jessica record any interaction with the customer. Every note becomes a spine event so the audit trail is complete.')
+    + step(1, 'Type + save', 'Textarea takes free-form notes. Save button posts + clears.')
+    + step(2, 'Spine event', 'Emits <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">cs.note_added</code> with actor + payload. Renders in the Orders detail timeline for anyone who looks up this order later.')
+    + step(3, 'Categorize (optional)', 'Note type dropdown: general / hold_reason / delivery_change / complaint. Filters + reporting downstream use this.')
+    + tip('Notes about hold or shipping-change reasons should ALSO update the corresponding order fields (hold_reason, ship_date, etc). The note is the audit trail; the field is the current state.');
+
+  const secReplace = H('lgReplace', '🚨 Send Replacement / Damage report')
+    + P('When a customer calls about a missing or damaged item, tap the 🚨 button on the result card. Opens the Remakes flow pre-filled with the original order\'s ship-to.')
+    + step(1, 'Damage source', 'Radio: 🚨 carrier / 🔨 warehouse / 🛠 mfg defect / ↩ wrong part. Each preset drives the email subject prefix + who gets CC\'d.')
+    + step(2, 'Capture details', 'Damaged carrier + tracking# (for carrier-damage claim), photo uploads (auto-compressed JPEG, per-remake Drive subfolder), free-text notes.')
+    + step(3, 'Create replacement order', 'Bedrock creates a new PackingQueue row tied back to the original. Original order stays intact — the replacement is a distinct fulfillment.')
+    + step(4, 'Compose email', 'Auto-draft to customer with tracking + replacement ETA. Jessica reviews before send.')
+    + chip('🚨', 'Report Customer Damage (extended)', 'For damage discovered post-shipping. Same flow but captures the after-ship-damage claim fields + auto-CCs Jessica on the ARCH claim email.');
+
+  const secTimeline = H('lgTimeline', '🧭 Timeline — every event, newest first')
+    + P('The 🧭 Timeline section at the bottom of each result card renders every spine event for that order. Same source as the Orders detail timeline — the source of truth for "what happened when."')
+    + P('Event types you\'ll see:')
+    + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11.5px;color:#C7D2E0;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:6px;padding:10px 14px;margin:6px 0 12px">'
+      + '<div><span style="color:#42a5f5">📥 order.imported</span> · from Shopify or ShipStation V1</div>'
+      + '<div><span style="color:#FFB300">🔧 pack.started</span> · packer claimed the job</div>'
+      + '<div><span style="color:#42a5f5">👀 ready_for_check</span> · packer → checker phase</div>'
+      + '<div><span style="color:#00C853">✓ checker.passed</span> · checker scan complete</div>'
+      + '<div><span style="color:#00C853">📦 pack.completed</span> · packed + email to Seth</div>'
+      + '<div><span style="color:#42a5f5">📞 freight.booked</span> · Kim booked the carrier</div>'
+      + '<div><span style="color:#42a5f5">🏷 label.created</span> · ground label bought</div>'
+      + '<div><span style="color:#1A5C1A">🚚 shipped</span> · marked shipped in ShipStation</div>'
+      + '<div><span style="color:#1A5C1A">📬 delivered</span> · tracking webhook confirmed</div>'
+      + '<div><span style="color:#ff5252">🛑 hold.set / ✅ hold.cleared</span> · CS or Kim toggle</div>'
+      + '<div><span style="color:#ab47bc">🛏 mattress.ordered / .shipped</span> · MFRM dropship</div>'
+      + '<div><span style="color:#ce93d8">📝 cs.note_added</span> · a CS note like above</div>'
+    + '</div>'
+    + tip('Timeline reads left-to-right chronologically inside each event — carrier name / booking# / tracking# all show inline. Zero-click audit trail.');
+
+  const secFaq = H('lgFaq', '❓ Frequently asked')
+    + '<div style="font-size:13px;line-height:1.6;color:#C7D2E0">'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: Customer says their order shipped but I see no shipped event.</b><br>Two possibilities: (a) the auto-flip-to-shipped watcher runs on a 15-min cadence — might not have caught up yet; (b) the shipment happened via MFRM home delivery (not ShipStation) so it fires a partial Shopify fulfillment instead. Check the Timeline for a mattress.shipped or delivered event.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: I searched by phone and got 0 results but I know we have the order.</b><br>The phone digits are stored per-order at import time. If the customer changed phones since ordering, search by name or email instead.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: A note I saved isn\'t showing up in the timeline.</b><br>The spine event is fire-and-forget — the note lands even if the spine emit fails. Refresh; if still missing, check for a red banner in the notes section (spine-outage indicator).</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: How do I mark an order as on-hold from Lookup?</b><br>Result card → 🛑 Set Hold button. Prompts for a reason (feeds hold_reason on the order + emits hold.set). Toggle clears via ✅ Clear Hold.</div>'
+    + '<div><b style="color:#fff">Q: Send Replacement created a new order but the tracking email didn\'t go out.</b><br>Bedrock creates the replacement order + drafts the email — sending is a manual button. Review the draft in Gmail (Drafts) and send from there.</div>'
+    + '</div>';
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Lookup Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every input, every action, every audit trail · v10.1357</div></div>'
+    +   '<button onclick="document.getElementById(\'lookupGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
+    + '</div>'
+    + toc + secTop + secSearch + secCard + secCS + secReplace + secTimeline + secFaq
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1357.</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+window.openLookupGuide = openLookupGuide;
+
 // v10.1275 (Zac Sun 11:44pm ask "melamine inventory and ordering") —
 // C2 Melamine Vendors list surface. Reads via listMelamineVendors
 // (server side seeded 2026-07-20 via runSeedMelamineVendors). Groups by
