@@ -18582,6 +18582,133 @@ function openGroundGuide() {
 }
 window.openGroundGuide = openGroundGuide;
 
+// v10.1353 (Zac 2026-07-22 21:44 EDT — Mozaik ? pattern round 2).
+// Cabinets Tab Guide. Extends the pattern from v10.1352 (openOrdersGuide
+// Manufacturing section) to Cabinets — the daily-most-hit surface.
+// Covers: search rig, receive-session flow, damage reports, pull for
+// fulfillment, ARCH-announced upcoming cabinets, cross-device sync.
+function openCabinetsGuide() {
+  const prior = document.getElementById('cabinetsGuideOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'cabinetsGuideOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+
+  const H = (id, t) => '<div id="' + id + '" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.10)">' + t + '</div>';
+  const H2 = (t) => '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:800;color:#5BB3FF;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px">' + t + '</div>';
+  const P = (t) => '<div style="font-size:13px;line-height:1.55;color:#C7D2E0;margin-bottom:8px">' + t + '</div>';
+  const step = (n, t, d) => '<div style="display:flex;gap:10px;margin-bottom:8px"><div style="flex:0 0 22px;height:22px;border-radius:50%;background:rgba(66,165,245,.20);color:#5BB3FF;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;font-size:13px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + t + '</b> — ' + d + '</div></div>';
+  const chip = (icon, label, detail) => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'
+    + '<span style="flex:0 0 32px;text-align:center;font-size:18px">' + icon + '</span>'
+    + '<div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7D2E0"><b style="color:#fff">' + label + '</b> — ' + detail + '</div></div>';
+  const gotcha = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(255,179,0,.09);border-left:3px solid #FFB300;border-radius:4px"><span style="flex:0 0 20px">⚠️</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#F5E6C0">' + t + '</div></div>';
+  const tip = (t) => '<div style="display:flex;gap:10px;margin-bottom:6px;padding:8px 10px;background:rgba(0,200,83,.08);border-left:3px solid #00C853;border-radius:4px"><span style="flex:0 0 20px">💡</span><div style="flex:1;font-size:12.5px;line-height:1.5;color:#C7EED0">' + t + '</div></div>';
+
+  const toc = '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(255,179,0,.08);border:1px solid rgba(255,179,0,.25);border-radius:10px;margin-bottom:14px">'
+    + '<div style="flex:1 1 100%;font-size:11px;font-weight:800;color:#FFB300;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Jump to</div>'
+    + '<button onclick="document.getElementById(\'cgTop\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🏠 Overview</button>'
+    + '<button onclick="document.getElementById(\'cgSearch\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🔍 Search rig</button>'
+    + '<button onclick="document.getElementById(\'cgReceive\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📦 Receive</button>'
+    + '<button onclick="document.getElementById(\'cgUpcoming\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📅 Upcoming</button>'
+    + '<button onclick="document.getElementById(\'cgPull\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🔗 Pull for Fulfillment</button>'
+    + '<button onclick="document.getElementById(\'cgDamage\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🚨 Damage</button>'
+    + '<button onclick="document.getElementById(\'cgSync\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">⟳ Sync</button>'
+    + '<button onclick="document.getElementById(\'cgFaq\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#B37200;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">❓ FAQ</button>'
+    + '</div>';
+
+  // ── OVERVIEW ─────────────────────────────────────────────────────
+  const secTop = H('cgTop', '🏠 What the Cabinets tab IS')
+    + P('The <b>Cabinets tab</b> (🗄 in the main nav) is where every physical cabinet in the Jacksonville warehouse gets tracked — receive → locate → pull → ship. Every cabinet has a serial number (e.g. <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">D351</code>) and a location code (e.g. <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">A1-4</code>).')
+    + H2('Who uses it')
+    + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.6"><b style="color:#fff">Shane / Zoe / Peter:</b> Receiving — scan each cabinet as it comes off the truck<br><b style="color:#fff">Kim / Seth:</b> Search + pull cabinets for fulfillment (feeds Orders detail)<br><b style="color:#fff">Jessica:</b> Damage report intake from CS calls<br><b style="color:#fff">Zac / Norm:</b> Glance-check inventory, cross-check ARCH-announced upcoming</div>'
+    + H2('The four cabinet states')
+    + chip('📅', 'Announced', 'ARCH invoice email seeded a future receive session. Cabinet# known, not yet physically arrived. Search shows a blue "Arriving Week of MMM D" card. Move/Pull/Damage are LOCKED until arrival.')
+    + chip('📦', 'Received', 'Physically arrived + checked off in a receive session. Has a location code. Available for pull.')
+    + chip('🔗', 'Pulled', 'Location cleared, cabinet moved to pack line for outbound. Order it belongs to has been noted.')
+    + chip('🚨', 'Damaged', 'Damage report open. Hidden from pull search until the Damage Log record is closed (status → complete auto-restores).');
+
+  // ── SEARCH RIG ───────────────────────────────────────────────────
+  const secSearch = H('cgSearch', '🔍 Search rig · FIND A CABINET')
+    + P('The big weathered-metal search bar at the top is the workhorse. It accepts multiple input types:')
+    + step(1, 'Cabinet serial', 'Type or scan <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">D351</code> or <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">C127</code>. Exact match → jumps straight to the card.')
+    + step(2, 'Location code', 'Type <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">A1-4</code> to list every cabinet at that location. Great for physical audits.')
+    + step(3, 'Order number', 'Type an order # → shows every cabinet assigned to that order (via pull records or ARCH invoice).')
+    + step(4, 'Partial / fuzzy', 'Partial serials work. "D3" lists every D3xx cabinet in inventory.')
+    + tip('Camera button (right of the input) → barcode scanner. Works for the printed serial stickers ARCH puts on each cabinet.')
+    + gotcha('Damaged cabinets are HIDDEN from search by default. Toggle "Show damaged" (top-right, above result list) to include them — useful when hunting down a damage report.')
+    + gotcha('ARCH-announced (📅 arriving) cabinets appear in search too since v10.129 (blue gradient card). Move/Pull/Damage buttons are LOCKED with an explanation until the cabinet physically arrives.');
+
+  // ── RECEIVE ──────────────────────────────────────────────────────
+  const secReceive = H('cgReceive', '📦 Receiving cabinets (Receive Session flow)')
+    + P('Weekly ARCH invoice emails auto-seed a <b>Receive Session</b> — a checklist of every cabinet expected in an incoming shipment. When the truck arrives, receivers open the session, check off each cabinet as it comes off, and assign locations.')
+    + step(1, 'Open the session', 'Tap "📦 Receive" (top nav on Cabinets) or the delivery-day chip at the top. Session name is the delivery date (e.g. "Nov 12").')
+    + step(2, 'Scan or type each cabinet', 'Barcode scanner reads the sticker; falls back to keyboard typing. Each check-off is <em>persistent</em> — locally + server-side (v3.11 shadow-write).')
+    + step(3, 'Assign the location', 'After check-off, the modal prompts for a location code (e.g. <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">A1-4</code>). Default location can be pre-filled per session so all cabinets on that truck default to one bay.')
+    + step(4, 'Report damage in-line', 'If a cabinet arrives damaged, tap 🚨 during the receive flow — same modal as the Cabinet-tab damage flow. Fires an alert to Jessica so she can start the ARCH claim immediately.')
+    + step(5, 'Approve + archive', 'Once everything checked, tap "Approve + Archive". Session drops off the open list. Server-side runArchiveAllPastReceiveSessions also archives past sessions daily.')
+    + tip('Multiple receivers can work on the same session simultaneously — the server merges each device\'s check-offs on sync. Just tell each other which bay you\'re working.')
+    + gotcha('An "Auto-loaded" session name means the client picked it up from the server but hasn\'t yet been synced with a delivery-date. Refresh (⟳ Sync) once, name will update.')
+    + gotcha('Pre-receive count: if the item ledger says an item is at negative on-hand when the receive prompts, Bedrock will prompt for a pre-receive count first. Answer honestly — it prevents inventory drift from compounding.');
+
+  // ── UPCOMING (ARCH-announced) ───────────────────────────────────
+  const secUpcoming = H('cgUpcoming', '📅 Upcoming cabinets (ARCH-announced, not yet arrived)')
+    + P('When an ARCH invoice email lands, Bedrock reads the "delivering week of X" line and pre-seeds a future receive session with the cabinet# list. These future cabinets are visible in search + on the attention strip so Kim can plan around them.')
+    + chip('🔍', 'Visible in search', 'Blue-gradient result card with "📅 Arriving Week of MMM D" label. Same cabinet# format as physical cabinets, so search "just works."')
+    + chip('🔒', 'LOCKED actions', 'Move / Pull / Damage buttons all disabled with an explanation. Nothing physical to touch until the truck arrives.')
+    + chip('📊', 'Attention strip', 'Cross-tab chip on Cabinets header shows "N arriving this week" so nothing gets lost between now and delivery.')
+    + tip('Extends 8 weeks ahead by default (listUpcomingCabinets). Kim can plan freight bookings against ARCH deliveries without waiting for the truck.')
+    + gotcha('If an ARCH invoice arrives labeled with wrong dates, the future session will still show — clean it up manually via the receive-session admin. Don\'t rely on ARCH invoice dates being perfect.');
+
+  // ── PULL FOR FULFILLMENT ────────────────────────────────────────
+  const secPull = H('cgPull', '🔗 Pulling cabinets for fulfillment')
+    + P('When Kim/Seth need to pack a cabinet order, they search the target cabinet# → tap Pull. Bedrock records the pull (location cleared, cabinet marked pulled-for-order-X), then cross-tabs to the Orders detail so the packer can complete the ship.')
+    + step(1, 'Search the target cabinet', 'From Cabinets tab OR from the Orders detail "🗄 Cabinets" card (which lists the cabinets assigned to an order).')
+    + step(2, 'Tap Pull', 'Prompts for the order# it\'s going on (auto-filled if you came from Orders detail). Optional damaged-during-pull check.')
+    + step(3, 'Server records the pull', 'Cabinet.pulled = true, location cleared, Order timeline gets a "pulled" event. Cabinet drops out of default search results (toggle "Show pulled" to see them).')
+    + tip('The Orders detail 🗄 Cabinets card color-codes each cabinet: green = at a location, amber = received but no location, red = not in inventory. Use it as a pre-pull sanity check.')
+    + gotcha('A damaged cabinet won\'t appear in default pull search — you have to close the damage report first (Damage Log → status = complete) which auto-clears the damaged flag.');
+
+  // ── DAMAGE ──────────────────────────────────────────────────────
+  const secDamage = H('cgDamage', '🚨 Damage reports')
+    + P('MBD tracks damaged cabinets separately from healthy inventory. Damage reports feed into ARCH claims (for freight damage) or Bedrock manufacturing (for in-house rework).')
+    + step(1, 'Report on any cabinet', 'Damage button appears on every cabinet card (search result or drill-in). Modal captures: damage source (carrier / warehouse / mfg defect / wrong part), photo uploads (JPEG compression + per-remake Drive subfolder), carrier claim ID + tracking (for ARCH claims).')
+    + step(2, 'Auto-hide from pull', 'Damaged cabinets vanish from default pull search until the report is closed. Prevents accidentally pulling a damaged unit for a customer.')
+    + step(3, 'Log tracks status', 'Damage Log tab (⋯ More → Damage Log) lists every open + closed report. Update status → status=complete auto-restores the cabinet.')
+    + chip('🚨', 'Report Customer Damage', 'Jessica\'s CS button — extends the standard damage flow with damaged_carrier + damaged_tracking_number + damaged_at fields for after-ship-damage claims. Jessica auto-CC\'d on the resulting email.')
+    + tip('Photos are compressed to JPEG on upload + stored in a per-remake Drive subfolder for cleanness. If Zac hasn\'t set REMAKE_PHOTOS_PARENT_FOLDER_ID script property, they fall back to PACK_PHOTOS_FOLDER_ID.');
+
+  // ── SYNC ────────────────────────────────────────────────────────
+  const secSync = H('cgSync', '⟳ Sync · cross-device staleness')
+    + P('The Cabinets tab keeps a local cache in localStorage (cabinets + receive sessions + damage log) so it works offline and fast. Cross-device changes propagate via periodic server-side pulls. The <b>⟳ Sync</b> button in the header is the manual override.')
+    + chip('⟳', 'Sync button', 'Header top-right. Fires syncCabinetsNow(true) + _prefetchReceiveSessions_(true) in parallel. Use if you know another device made changes and yours doesn\'t show them yet.')
+    + chip('🔄', 'Auto-refresh on tab-open', 'Since v10.1348, tapping the Cabinets tab in the nav bypasses the 5-min throttle and force-refreshes. So opening the tab is effectively the same as tapping ⟳ Sync.')
+    + tip('If a laptop-side Approve+Archive of a receive session doesn\'t appear on phone within 30 sec, force-refresh once — the merge+prune will drop the stale session.')
+    + gotcha('Muted receive sessions (via the local mute button) stay muted per-device. Only Approve+Archive fully propagates cross-device.');
+
+  // ── FAQ ─────────────────────────────────────────────────────────
+  const secFaq = H('cgFaq', '❓ Frequently asked')
+    + '<div style="font-size:13px;line-height:1.6;color:#C7D2E0">'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: A cabinet is definitely in the warehouse but Bedrock says "not in inventory."</b><br>Either it wasn\'t checked in during receive (look for a stale open session), or it was checked in on another device that hasn\'t synced. Force ⟳ Sync + check the ARCH-announced upcoming list — if it\'s there, it wasn\'t received yet.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: The location code shows blank on a received cabinet.</b><br>Location assignment was skipped or deferred. Tap the cabinet card → tap "+ Set location" — Bedrock will prompt for the code. Or edit the cabinet directly in the Cabinets Sheet.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: I want to Pull a damaged cabinet on purpose (rework flow).</b><br>Close the damage report first (Damage Log → status = complete). The auto-restore clears the damaged flag and it re-appears in pull search.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: The receive session says "Approve + Archive" but doesn\'t archive.</b><br>Tap it a second time (occasional race). If still stuck: from the Apps Script editor, run <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">runArchiveAllPastReceiveSessions</code> once — daily trigger otherwise runs at 5am.</div>'
+    + '<div style="margin-bottom:14px"><b style="color:#fff">Q: How does ARCH-announced turn into physically-received?</b><br>When the truck arrives + the receiver opens the future session (already seeded from the ARCH invoice), checking off a cabinet promotes it to Received. Bedrock tracks the same cabinet# across both states.</div>'
+    + '<div><b style="color:#fff">Q: Where does the in-house MFG cabinet flow live?</b><br>Not in Cabinets — that\'s the Manufacturing lens on the Orders tab (🔨 icon, auto-hidden until first mark). See the Orders Guide → 🔨 Manufacturing section for the full walkthrough.</div>'
+    + '</div>';
+
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Cabinets Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every flow, every gotcha · v10.1353</div></div>'
+    +   '<button onclick="document.getElementById(\'cabinetsGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
+    + '</div>'
+    + toc + secTop + secSearch + secReceive + secUpcoming + secPull + secDamage + secSync + secFaq
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1353.</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+window.openCabinetsGuide = openCabinetsGuide;
+
 // v10.1275 (Zac Sun 11:44pm ask "melamine inventory and ordering") —
 // C2 Melamine Vendors list surface. Reads via listMelamineVendors
 // (server side seeded 2026-07-20 via runSeedMelamineVendors). Groups by
