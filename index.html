@@ -2201,7 +2201,7 @@ input::placeholder, textarea::placeholder {
   </div>
   <!-- v10.345 Lens chips — compact 2x2 grid, gold rivets removed (reserved
        for Refresh plaque), live count badge top-right, clear active state. -->
-  <!-- v10.1350 (Zac 2026-07-22 21:47 EDT — "fully build everything associated
+  <!-- v10.1351 (Zac 2026-07-22 21:47 EDT — "fully build everything associated
        with manufacturing that you can"). Grid switched from fixed 2-col to
        auto-fit min(140px) so a 5th lens (Manufacturing) wraps gracefully on
        phone / iPad / desktop without visual regression. The Manufacturing
@@ -2228,8 +2228,8 @@ input::placeholder, textarea::placeholder {
       <span style="font-size:16px;line-height:1">⚠</span><span style="flex:1">Needs Attention</span>
       <span class="ordersLensCount" data-count-lens="attention" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
     </button>
-    <!-- v10.1350 Manufacturing lens. Orange accent tags it visually to the
-         same MFG family as v10.1346 IN-HOUSE MFG pill + v10.1350 Build Stage
+    <!-- v10.1351 Manufacturing lens. Orange accent tags it visually to the
+         same MFG family as v10.1346 IN-HOUSE MFG pill + v10.1351 Build Stage
          card. Auto-hidden until listManufacturingQueue returns ≥1 row so the
          warehouse-primary 4 lenses stay clean during ordinary shifts. -->
     <button id="ordersLensManufacturing" onclick="setOrdersLens('manufacturing')" data-lens="manufacturing"
@@ -3816,7 +3816,7 @@ function switchTab(name) {
     const btn = document.getElementById('tab-'+t+'-btn');
     if (btn) btn.classList.toggle('active', t===name);
   });
-  // v10.1350 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
+  // v10.1351 (Zac 2026-07-22 23:13 EDT: "I was on cabinets then scrolled
   // down a little then clicked orders and this is what happens").
   // The tab-switch had no scroll reset — panels are stacked in one
   // document, so tapping Orders while scrolled halfway down Cabinets
@@ -3916,7 +3916,7 @@ function switchTab(name) {
   }
   if (name==='cabinets') {
     renderCabinets();
-    // v10.1350 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
+    // v10.1351 (Zac 2026-07-22 23:13 EDT: "on cabinets on my phone
     // there are still previous weeks under receiving that have been
     // cleared on my laptop"). renderCabinets calls _prefetchReceiveSessions_
     // but the throttle is 5 min, so switching to Cabinets within 5 min
@@ -4021,7 +4021,7 @@ function renderOrdersTab() {
     if (!ship) return false; // undated rows don't count
     return ship >= _todayIso449;
   }).length;
-  // v10.1350 — Manufacturing lens counts MFG-marked orders regardless
+  // v10.1351 — Manufacturing lens counts MFG-marked orders regardless
   // of pack/ship state (a boxed order is still a "recently built"
   // reference until completed). complete stage rows drop out.
   const _mfgCount = orders.filter(o => {
@@ -4040,7 +4040,7 @@ function renderOrdersTab() {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
     if (!btn) return;
     const active = (L === lens);
-    // v10.1350 — Manufacturing lens auto-hides when nothing is being
+    // v10.1351 — Manufacturing lens auto-hides when nothing is being
     // built. Prevents the primary-4 lens row from getting cluttered
     // during ordinary shifts where the shop floor has no MFG-marked
     // orders in flight. Reveals immediately on first MFG mark.
@@ -4073,7 +4073,7 @@ function renderOrdersTab() {
         badge.style.color = '#fff';
         badge.style.webkitTextFillColor = '#fff';
       } else if (L === 'manufacturing') {
-        // v10.1350 — orange badge for Manufacturing keeps it visually
+        // v10.1351 — orange badge for Manufacturing keeps it visually
         // aligned with the IN-HOUSE MFG pill + Build Stage stepper.
         badge.style.background = active ? 'rgba(255,255,255,.18)' : 'rgba(230,81,0,.20)';
         badge.style.color = active ? '#fff' : '#ff9800';
@@ -4144,7 +4144,7 @@ function renderOrdersTab() {
       list.innerHTML = _renderOrdersScheduleGroupedHtml_(filtered);
     }
   } else if (lens === 'manufacturing') {
-    // v10.1350 — Manufacturing lens groups MFG-marked orders by build
+    // v10.1351 — Manufacturing lens groups MFG-marked orders by build
     // stage. Each stage gets a section header with the count + the
     // cards from that bucket. Clean up schedule-toggle if stale.
     const toggleEl = document.getElementById('ordersScheduleViewToggle');
@@ -5407,7 +5407,7 @@ async function _openSetCabPrompt_(orderNumber) {
 // the same addOrderByNumber path as the legacy Pack tab. Persists
 // open/closed in localStorage so the manager doesn't have to keep
 // re-expanding it.
-// v10.1350 (Zac 2026-07-22 21:47 EDT — Manufacturing Phase 1).
+// v10.1351 (Zac 2026-07-22 21:47 EDT — Manufacturing Phase 1).
 // Render every MFG-marked cabinet order grouped by build stage.
 // Stages appear as section headers (icon + label + count); cards
 // under each header reuse the standard order-card render. Empty
@@ -5441,7 +5441,28 @@ function _renderOrdersManufacturingHtml_(rows) {
   const totalInFlight = rows.length;
   const boxedCt = (buckets['boxed'] || []).length;
   const inShopCt = totalInFlight - boxedCt - (buckets['queued'] || []).length - (buckets[''] || []).length;
+  // v10.1351 — WIP alert count. Anything sitting in its current stage
+  // longer than the per-stage threshold is stalled and needs a check-in.
+  const stalledRows = rows.filter(o => {
+    const d = _mfgDaysInStage_(o);
+    const stage = String((o && o.production_stage) || '').toLowerCase();
+    const t = _MFG_STAGE_THRESHOLDS_DAYS[stage] != null
+      ? _MFG_STAGE_THRESHOLDS_DAYS[stage]
+      : 3;
+    return t > 0 && d >= t;
+  });
   let h = '';
+  if (stalledRows.length) {
+    h += '<div style="margin-bottom:12px;padding:12px 16px;background:linear-gradient(90deg,rgba(198,40,40,.20),rgba(255,82,82,.06));border:1.5px solid #c62828;border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">'
+      +   '<div style="display:flex;align-items:center;gap:10px">'
+      +     '<span style="font-size:22px">⚠</span>'
+      +     '<div>'
+      +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;color:#ff8a80;-webkit-text-fill-color:#ff8a80;letter-spacing:.6px;text-transform:uppercase;line-height:1">' + stalledRows.length + ' Stalled Build' + (stalledRows.length === 1 ? '' : 's') + '</div>'
+      +       '<div style="font-size:11.5px;color:var(--text-2);margin-top:2px">Over the stage-time threshold. Check in with the builder or advance the stage.</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
   h += '<div style="margin-bottom:14px;padding:14px 16px;background:linear-gradient(135deg,rgba(230,81,0,.10),rgba(230,81,0,.02));border:1px solid rgba(230,81,0,.35);border-radius:12px">';
   h +=   '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">';
   h +=     '<div>';
@@ -5475,17 +5496,76 @@ function _renderOrdersManufacturingHtml_(rows) {
     h +=     '<span style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:800;padding:2px 8px;background:rgba(230,81,0,.20);color:#ff9800;-webkit-text-fill-color:#ff9800;border-radius:999px">' + bucket.length + '</span>';
     h +=     '<span style="font-size:12px;color:var(--text-dim);font-style:italic;margin-left:6px">' + esc(sm.hint) + '</span>';
     h +=   '</header>';
-    // Sort within bucket by ship_date asc then order_number.
+    // Sort within bucket by ship_date asc then order_number. Cards
+    // that have been in-stage the longest float to the top of the
+    // bucket — the ones most in need of a nudge — so scanning
+    // top-down surfaces the WIP-alerts first.
     bucket.sort((a, b) => {
+      // v10.1351: WIP alert order within a bucket. Stale-first.
+      const _daysA = _mfgDaysInStage_(a);
+      const _daysB = _mfgDaysInStage_(b);
+      if (_daysA !== _daysB) return _daysB - _daysA;
       const sa = String(a.ship_date || '');
       const sb = String(b.ship_date || '');
       if (sa !== sb) return sa.localeCompare(sb);
       return String(a.order_number || '').localeCompare(String(b.order_number || ''));
     });
-    h += bucket.map(o => _renderOrdersCardHtml_(o, 'manufacturing')).join('');
+    h += bucket.map(o => _renderMfgCardWithWipChip_(o)).join('');
     h += '</section>';
   });
   return h;
+}
+
+// v10.1351 (2026-07-23) — WIP alerting. Compute how long an MFG order
+// has been sitting in its current stage from production_updated_at
+// (v10.1349 stamp). Threshold per stage is aggressive on early
+// milling steps (2 days) and generous on cure-time-heavy stages
+// (Finish 4 days, Queued 5 days). When exceeded, the card gets a
+// red-border WIP chip prompting a check-in.
+const _MFG_STAGE_THRESHOLDS_DAYS = {
+  '':         5,  // unstaged for 5+ days = something wrong
+  'queued':   5,
+  'cutting':  2,
+  'edging':   2,
+  'drilling': 2,
+  'assembly': 3,
+  'finish':   4,
+  'boxed':    3,
+};
+function _mfgDaysInStage_(o) {
+  if (!o) return 0;
+  const iso = String(o.production_updated_at || o.production_started_at || '').trim();
+  if (!iso) return 0;
+  const then = Date.parse(iso);
+  if (isNaN(then)) return 0;
+  const diffMs = Date.now() - then;
+  if (diffMs <= 0) return 0;
+  return Math.floor(diffMs / 86400000);
+}
+function _renderMfgCardWithWipChip_(o) {
+  const days = _mfgDaysInStage_(o);
+  const stage = String((o && o.production_stage) || '').toLowerCase();
+  const threshold = _MFG_STAGE_THRESHOLDS_DAYS[stage] != null
+    ? _MFG_STAGE_THRESHOLDS_DAYS[stage]
+    : 3;
+  const over = threshold > 0 && days >= threshold;
+  const chipBg = over ? '#c62828' : 'rgba(255,179,0,.16)';
+  const chipColor = over ? '#fff' : '#ffb74d';
+  const dayLabel = days === 0 ? 'today' : (days === 1 ? '1 day' : days + ' days');
+  const stageLabel = stage ? stage.charAt(0).toUpperCase() + stage.slice(1) : 'Unstaged';
+  const chip = '<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:' + chipBg + ';border:1px solid ' + (over ? '#c62828' : 'rgba(255,179,0,.4)') + ';border-radius:6px;font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:700;color:' + chipColor + ';-webkit-text-fill-color:' + chipColor + ';letter-spacing:.3px;margin-bottom:4px;width:fit-content">'
+    + (over ? '⚠ ' : '⏱ ')
+    + esc(dayLabel) + ' in ' + esc(stageLabel)
+    + (over ? ' · check in' : '')
+    + '</div>';
+  // Wrapping the standard card in a warning frame when over threshold
+  // gives the manager a hard visual cue without rewriting the card
+  // renderer itself.
+  const frameStart = over
+    ? '<div style="padding:2px;background:linear-gradient(90deg,#c62828,#ff5252);border-radius:10px;margin-bottom:6px">'
+    : '<div style="margin-bottom:6px">';
+  const frameEnd = '</div>';
+  return frameStart + chip + _renderOrdersCardHtml_(o, 'manufacturing') + frameEnd;
 }
 
 function _renderOrdersUpcomingHtml_(rows) {
@@ -5718,7 +5798,7 @@ function _filterOrdersForLens_(orders, lens) {
         return false;
       });
     case 'manufacturing':
-      // v10.1350 — every MFG-marked cabinet order that isn't yet
+      // v10.1351 — every MFG-marked cabinet order that isn't yet
       // complete. Grouped-by-stage rendering happens downstream in
       // _renderOrdersManufacturingHtml_ (not via card list).
       return orders.filter(o => {
@@ -33719,7 +33799,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1350"></script>
+<script src="./pack.js?v=10.1351"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -33730,7 +33810,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1350<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1351<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
