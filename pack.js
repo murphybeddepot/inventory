@@ -445,8 +445,57 @@ function _orderDetailHtml_(o) {
       +   '<button onclick="_setCabinetProductionType_(\'' + ord + '\',\'mfg\')" title="Build in-house — routes to manufacturing flow" style="padding:8px 12px;font-size:12px;font-weight:800;background:' + (pt === 'mfg' ? '#e65100' : 'rgba(230,81,0,.10)') + ';color:' + (pt === 'mfg' ? '#fff' : '#ff9800') + ';-webkit-text-fill-color:' + (pt === 'mfg' ? '#fff' : '#ff9800') + ';border:1px solid ' + (pt === 'mfg' ? '#e65100' : 'rgba(230,81,0,.45)') + ';border-radius:6px;cursor:pointer">🔨 IN-HOUSE MFG</button>'
       +   '<button onclick="_setCabinetProductionType_(\'' + ord + '\',\'twins\')" title="Twins Upholstery MTO dropship" style="padding:8px 12px;font-size:12px;font-weight:800;background:' + (pt === 'twins' ? '#6a1b9a' : 'rgba(106,27,154,.10)') + ';color:' + (pt === 'twins' ? '#fff' : '#ce93d8') + ';-webkit-text-fill-color:' + (pt === 'twins' ? '#fff' : '#ce93d8') + ';border:1px solid ' + (pt === 'twins' ? '#6a1b9a' : 'rgba(106,27,154,.45)') + ';border-radius:6px;cursor:pointer">🛋 TWINS MTO</button>'
       +   (pt ? '<button onclick="_setCabinetProductionType_(\'' + ord + '\',\'\')" title="Clear routing — order returns to unset" style="padding:8px 12px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border:1px dashed rgba(255,255,255,.20);border-radius:6px;cursor:pointer">✕ Clear</button>' : '')
-      + '</div>'
       + '</div>';
+    // v10.1349 (Zac 2026-07-22 21:47 EDT — Manufacturing flow Phase 0).
+    // MFG-marked orders get a stage stepper below the routing pill so
+    // Norm/Seth can move the order through the build. Non-MFG orders
+    // don't need this — ARCH deliveries and Twins dropships arrive
+    // built, they don't traverse in-house stages.
+    if (pt === 'mfg') {
+      const MFG_STAGES = [
+        { key: 'queued',   label: 'Queued',   icon: '📋' },
+        { key: 'cutting',  label: 'Cutting',  icon: '📏' },
+        { key: 'edging',   label: 'Edging',   icon: '🎯' },
+        { key: 'drilling', label: 'Drilling', icon: '🔩' },
+        { key: 'assembly', label: 'Assembly', icon: '🧩' },
+        { key: 'finish',   label: 'Finish',   icon: '🎨' },
+        { key: 'boxed',    label: 'Boxed',    icon: '📦' },
+        { key: 'complete', label: 'Complete', icon: '✓'  },
+      ];
+      const curStage = String(o.production_stage || '').toLowerCase();
+      const curIdx = MFG_STAGES.findIndex(s => s.key === curStage);
+      const curOwner = String(o.production_owner || '').trim();
+      const startedAt = String(o.production_started_at || '').trim();
+      const updatedAt = String(o.production_updated_at || '').trim();
+      productionTypeSection += '<div style="margin-top:8px;padding:14px;background:rgba(230,81,0,.06);border:1px solid rgba(230,81,0,.35);border-radius:8px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+        +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;color:#ff9800;-webkit-text-fill-color:#ff9800;text-transform:uppercase;letter-spacing:1px">🔨 Build Stage</div>'
+        +   (startedAt ? '<span style="font-size:10px;color:var(--text-dim);font-family:\'JetBrains Mono\',monospace">started ' + esc(startedAt.slice(0, 16).replace('T', ' ')) + '</span>' : '')
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:4px;margin-bottom:12px">'
+        +   MFG_STAGES.map((s, i) => {
+              const done = curIdx >= 0 && i <= curIdx;
+              const isCur = i === curIdx;
+              const bg = isCur ? '#e65100' : (done ? 'rgba(230,81,0,.20)' : 'rgba(255,255,255,.04)');
+              const border = isCur ? '#e65100' : (done ? 'rgba(230,81,0,.55)' : 'rgba(255,255,255,.14)');
+              const color = isCur ? '#fff' : (done ? '#ffb74d' : 'var(--text-dim)');
+              return '<button onclick="_setCabinetProductionStage_(\'' + ord + '\',\'' + s.key + '\')" title="Set build stage → ' + esc(s.label) + '" style="padding:8px 6px;background:' + bg + ';color:' + color + ';-webkit-text-fill-color:' + color + ';border:1px solid ' + border + ';border-radius:6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;line-height:1.1">'
+                + '<span style="font-size:15px">' + s.icon + '</span>'
+                + '<span>' + esc(s.label) + '</span>'
+                + '</button>';
+            }).join('')
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--text-dim)">'
+        +   '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px">👤 Builder</span>'
+        +   (curOwner
+                ? '<span style="font-size:12px;font-weight:800;color:var(--text);background:rgba(230,81,0,.14);padding:3px 10px;border-radius:6px">' + esc(curOwner) + '</span>'
+                : '<span style="font-size:12px;color:var(--text-dim);font-style:italic">— unassigned —</span>')
+        +   '<button onclick="_setCabinetProductionOwner_(\'' + ord + '\')" title="Assign or change builder" style="padding:5px 10px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.18);border-radius:6px;cursor:pointer">' + (curOwner ? '↻ Change' : '+ Assign') + '</button>'
+        +   (updatedAt ? '<span style="margin-left:auto;font-size:10px;font-family:\'JetBrains Mono\',monospace;color:var(--text-dim);opacity:.75">last change ' + esc(updatedAt.slice(0, 16).replace('T', ' ')) + '</span>' : '')
+        + '</div>'
+        + '</div>';
+    }
+    productionTypeSection += '</div>';
   }
   // HW SKUs (Pre-Pack)
   let hwSection = '';
@@ -1495,6 +1544,86 @@ async function _setCabinetProductionType_(orderNumber, productionType) {
     setTimeout(() => refreshOrderPipeline({ force: true }), 1200);
   } catch (e) {
     showToast('Route error: ' + e.message);
+  }
+}
+
+// v10.1349 (Zac 2026-07-22 21:47 EDT — Manufacturing flow Phase 0).
+// Stage stepper on MFG-marked cabinet orders. Same PIN-cached pattern
+// as the routing button so Seth/Norm can move multiple orders through
+// stages without re-entering the PIN each time. Fresh pipeline
+// refresh after the write so timeline + card both update in place.
+async function _setCabinetProductionStage_(orderNumber, stage) {
+  const ord = String(orderNumber || '').trim();
+  const s = String(stage || '').toLowerCase().trim();
+  if (!ord || !s) { showToast('Missing order# or stage'); return; }
+  const cached = getCachedPipelineOrder(orderNumber);
+  const currentStage = String((cached && cached.production_stage) || '').toLowerCase();
+  if (currentStage === s) { showToast('Already at ' + s); return; }
+  const pin = (typeof ensurePin === 'function') ? ensurePin('Manager PIN to set build stage:') : null;
+  if (!pin) { showToast('Stage change cancelled (needs manager PIN)'); return; }
+  try {
+    const res = await groundApi('setCabinetProductionStage', {
+      orderNumber: ord,
+      stage: s,
+      manager_pin: String(pin || '').trim(),
+    });
+    if (!res || !res.ok) {
+      showToast('Stage change failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('🔨 ' + ord + ' → ' + s.toUpperCase());
+    if (cached) {
+      cached.production_stage = s;
+      cached.production_updated_at = new Date().toISOString();
+      if (s && s !== 'queued' && !cached.production_started_at) {
+        cached.production_started_at = cached.production_updated_at;
+      }
+    }
+    _renderInOrdersDetail_(cached || { order_number: orderNumber });
+    setTimeout(() => refreshOrderPipeline({ force: true }), 1200);
+  } catch (e) {
+    showToast('Stage change error: ' + e.message);
+  }
+}
+
+async function _setCabinetProductionOwner_(orderNumber) {
+  const ord = String(orderNumber || '').trim();
+  if (!ord) { showToast('Missing order#'); return; }
+  const cached = getCachedPipelineOrder(orderNumber);
+  const curOwner = String((cached && cached.production_owner) || '').trim();
+  const curStage = String((cached && cached.production_stage) || 'queued').toLowerCase() || 'queued';
+  // Cheap prompt for owner — a proper picker (Norm/Seth/hire list) is
+  // Phase 1 work. String input suffices for scaffold.
+  const nextRaw = window.prompt('Builder name for #' + ord + '?', curOwner);
+  if (nextRaw == null) return; // user cancelled
+  const next = String(nextRaw || '').trim();
+  if (next === curOwner) { showToast('Builder unchanged'); return; }
+  const pin = (typeof ensurePin === 'function') ? ensurePin('Manager PIN to assign builder:') : null;
+  if (!pin) { showToast('Assign cancelled (needs manager PIN)'); return; }
+  try {
+    // setCabinetProductionStage accepts optional owner — re-set the current
+    // stage with the new owner in one call. If stage was blank, promote to
+    // 'queued' so subsequent stage-set stampings work.
+    const res = await groundApi('setCabinetProductionStage', {
+      orderNumber: ord,
+      stage: curStage,
+      owner: next,
+      manager_pin: String(pin || '').trim(),
+    });
+    if (!res || !res.ok) {
+      showToast('Assign failed: ' + ((res && res.error) || 'unknown'));
+      return;
+    }
+    showToast('👤 ' + ord + ' → ' + (next || '(unassigned)'));
+    if (cached) {
+      cached.production_owner = next;
+      cached.production_updated_at = new Date().toISOString();
+      if (!cached.production_stage) cached.production_stage = 'queued';
+    }
+    _renderInOrdersDetail_(cached || { order_number: orderNumber });
+    setTimeout(() => refreshOrderPipeline({ force: true }), 1200);
+  } catch (e) {
+    showToast('Assign error: ' + e.message);
   }
 }
 
