@@ -16979,13 +16979,55 @@ async function runLookup() {
 
 function renderLookupHit_(hit) {
   let body;
-  if (hit.source === 'cabinet')       body = renderLookupCabinet_(hit);
-  else if (hit.source === 'ground')   body = renderLookupGround_(hit);
-  else if (hit.source === 'mattress') body = renderLookupMattress_(hit);
-  else if (hit.source === 'damage')   body = renderLookupDamage_(hit);
-  else if (hit.source === 'calendar') body = renderLookupCalendar_(hit);
+  if (hit.source === 'cabinet')            body = renderLookupCabinet_(hit);
+  else if (hit.source === 'ground')        body = renderLookupGround_(hit);
+  else if (hit.source === 'mattress')      body = renderLookupMattress_(hit);
+  else if (hit.source === 'damage')        body = renderLookupDamage_(hit);
+  else if (hit.source === 'calendar')      body = renderLookupCalendar_(hit);
+  else if (hit.source === 'shopify_only')  body = renderLookupShopifyOnly_(hit);
   else body = '<pre style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:11px;color:var(--text)">' + esc(JSON.stringify(hit, null, 2)) + '</pre>';
   return body + _lkEmailLink_(hit);
+}
+
+// v10.1383 — render a Shopify-only lookup hit (order predates Bedrock's
+// local index). Same visual language as the v10.1382 Shopify modal but
+// inlined into the Lookup results list. Read-only; buttons to open in
+// Shopify Admin or trigger a Bedrock re-ingest if the order eventually
+// gets a Bedrock record.
+function renderLookupShopifyOnly_(hit) {
+  const items = Array.isArray(hit.line_items) ? hit.line_items : [];
+  const adminUrl = hit.shopify_admin_url || '';
+  return '<div style="background:rgba(91,33,182,.08);border:1.5px solid #5B21B6;border-radius:12px;padding:14px 16px;margin-bottom:10px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:8px;flex-wrap:wrap">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:.5px">📦 #' + esc(hit.order_number) + '</div>'
+    +   '<span style="background:#5B21B6;color:#fff;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:900;letter-spacing:1px">SHOPIFY ONLY</span>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">This order predates Bedrock\'s local index. Data is pulled live from Shopify.</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">'
+    +   '<div><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:var(--text-dim);letter-spacing:1px;margin-bottom:2px">Customer</div>'
+    +     '<div style="font-size:13px;font-weight:700;color:var(--text)">' + esc(hit.customer_name || '(unknown)') + '</div>'
+    +     '<div style="font-size:11px;color:var(--text-dim)">' + esc(hit.customer_email || '') + '</div>'
+    +   '</div>'
+    +   '<div><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:var(--text-dim);letter-spacing:1px;margin-bottom:2px">Ship to</div>'
+    +     '<div style="font-size:12px;color:var(--text)">' + esc(hit.customer_address || '') + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'
+    +   (hit.total_price ? '<span style="font-size:11px;background:rgba(255,255,255,.06);padding:3px 7px;border-radius:4px">💰 $' + esc(hit.total_price) + '</span>' : '')
+    +   (hit.created_at ? '<span style="font-size:11px;background:rgba(255,255,255,.06);padding:3px 7px;border-radius:4px">📅 ' + esc(String(hit.created_at).slice(0, 10)) + '</span>' : '')
+    +   (hit.financial_status ? '<span style="font-size:11px;background:rgba(0,200,83,.15);padding:3px 7px;border-radius:4px;color:#00e676">💳 ' + esc(hit.financial_status) + '</span>' : '')
+    +   (hit.fulfillment_status ? '<span style="font-size:11px;background:rgba(66,165,245,.15);padding:3px 7px;border-radius:4px;color:#42a5f5">📦 ' + esc(hit.fulfillment_status) + '</span>' : '')
+    + '</div>'
+    + (items.length
+        ? '<div style="font-size:10px;font-weight:800;text-transform:uppercase;color:var(--text-dim);letter-spacing:1px;margin-bottom:4px">Line items (' + items.length + ')</div>'
+          + items.map(it => '<div style="display:flex;justify-content:space-between;padding:4px 8px;background:rgba(255,255,255,.04);border-radius:5px;margin-bottom:3px;font-size:12px;color:var(--text)">'
+              + '<span><span style="font-family:\'JetBrains Mono\',monospace;font-weight:700">' + esc(it.sku || '(no sku)') + '</span> <span style="color:var(--text-dim)">' + esc(it.name || '') + '</span></span>'
+              + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#00e676">×' + Number(it.quantity || 0) + '</span>'
+              + '</div>').join('')
+        : '')
+    + (hit.note ? '<div style="font-size:12px;background:rgba(255,193,7,.10);border:1px solid rgba(255,193,7,.4);border-radius:6px;padding:8px 10px;margin-top:10px;color:#FFB300"><strong>Order note:</strong> ' + esc(hit.note) + '</div>' : '')
+    + (adminUrl ? '<div style="margin-top:10px"><a href="' + esc(adminUrl) + '" target="_blank" style="display:inline-block;padding:8px 14px;background:#5B21B6;color:#fff;border-radius:6px;font-size:12px;font-weight:800;text-decoration:none">🛒 Open in Shopify Admin ↗</a></div>' : '')
+    + '</div>';
 }
 
 // One-tap "find the email thread for this order" — opens Gmail
