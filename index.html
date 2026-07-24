@@ -2753,7 +2753,7 @@ input::placeholder, textarea::placeholder {
          flex-basis + tolerant min-width so it fits alongside the 9
          buttons on iPad without wrapping to its own line. -->
     <div id="groundSearchWrap" style="position:relative;flex:1 1 160px;min-width:140px;margin-left:auto">
-      <input type="search" id="groundSearchInput" placeholder="🔍 Search order#, customer, SKU…" oninput="_groundSearchFilter_(this.value)" style="width:100%;padding:12px 34px 12px 12px;background:var(--surface-2) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;box-sizing:border-box" autocomplete="off">
+      <input type="search" id="groundSearchInput" placeholder="🔍 Order# → Enter to jump" oninput="_groundSearchFilter_(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();_groundSearchJump_(this.value);}" style="width:100%;padding:12px 34px 12px 12px;background:var(--surface-2) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;box-sizing:border-box" autocomplete="off">
       <button type="button" id="groundSearchClearBtn" onclick="_groundSearchClear_()" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:3px 7px;font-size:11px;font-weight:800;cursor:pointer" title="Clear search">✕</button>
     </div>
   </div>
@@ -30478,6 +30478,172 @@ function _groundSearchJumpToLookup_(orderNum) {
   }
 }
 
+// v10.1382 (Seth's ask 2026-07-24): Ground search Enter = jump-to-order.
+// The old flow filtered the visible queue and, on miss, showed a menu of
+// buttons ("Open in Lookup", "Orders tab"). Seth wants Enter to take him
+// straight to the order card — no menu, no clicks. This function is the
+// jumper:
+//
+//   1. If the exact order# matches a visible ground card → click it
+//      (opens the Ground pack view for that order).
+//   2. Else call resolveOrderForJump on the server, which checks:
+//      OrderPack (Ground, incl. shipped) → PackingQueue (cabinet/freight)
+//      → holds → Shopify by name.
+//   3. Navigate based on `source`:
+//      - ground   → click that queue card (or fall through to Lookup if
+//                   it's shipped and no longer in the visible queue)
+//      - packing  → Orders tab, open order detail
+//      - hold     → Lookup with hold context
+//      - shopify  → open a Shopify order card modal (orders that predate
+//                   Bedrock's index, per Seth's exact ask)
+//      - none     → toast "not found" — never a dead-end menu.
+async function _groundSearchJump_(rawQuery) {
+  const q = String(rawQuery || '').trim().replace(/^#/, '');
+  if (!q) return;
+  const searchEmpty = document.getElementById('groundSearchEmpty');
+  const list = document.getElementById('groundQueueList');
+
+  // Step 1: exact match in the current visible ground queue?
+  if (list) {
+    const visibleCards = Array.from(list.children).filter(c => c.style.display !== 'none');
+    // Prefer exact order# match; fall back to first visible if only one.
+    let target = null;
+    for (const card of visibleCards) {
+      const on = (card.getAttribute('data-order-num') || card.getAttribute('data-order-number') || '').trim();
+      if (on === q) { target = card; break; }
+    }
+    if (!target && visibleCards.length === 1) target = visibleCards[0];
+    if (target) {
+      target.click();
+      return;
+    }
+  }
+
+  // Step 2: server-side resolve.
+  if (searchEmpty) {
+    searchEmpty.style.display = 'block';
+    searchEmpty.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><div class="loader" style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite"></div><span>Looking for #' + esc(q) + ' in Bedrock and Shopify…</span></div>';
+  }
+  let res;
+  try {
+    res = await groundApi('resolveOrderForJump', { orderNumber: q });
+  } catch (err) {
+    if (searchEmpty) searchEmpty.textContent = 'Search error: ' + (err.message || 'unknown');
+    return;
+  }
+  if (!res || !res.ok) {
+    if (searchEmpty) searchEmpty.textContent = 'Search error: ' + ((res && res.error) || 'unknown');
+    return;
+  }
+  const source = String(res.source || 'none');
+
+  // Step 3: navigate based on source.
+  if (source === 'ground') {
+    // Order was in OrderPack but not in the currently-visible queue
+    // (probably shipped). Deep-link Lookup — that shows full detail
+    // including tracking, boxes, and any Bedrock history.
+    if (typeof jumpToLookup_ === 'function') {
+      jumpToLookup_(q);
+    } else if (typeof switchTab === 'function') {
+      switchTab('lookup');
+    }
+    if (searchEmpty) searchEmpty.style.display = 'none';
+    return;
+  }
+  if (source === 'packing') {
+    // Cabinet/freight order — open Orders tab with this order surfaced.
+    if (typeof switchTab === 'function') switchTab('orders');
+    setTimeout(() => {
+      // Best-effort: if the Orders tab has its own search, prime it.
+      const oi = document.getElementById('ordersSearchInput') || document.getElementById('lookupInput');
+      if (oi) { oi.value = q; oi.dispatchEvent(new Event('input')); }
+      if (typeof jumpToLookup_ === 'function') jumpToLookup_(q);
+    }, 150);
+    if (searchEmpty) searchEmpty.style.display = 'none';
+    return;
+  }
+  if (source === 'hold') {
+    if (typeof jumpToLookup_ === 'function') jumpToLookup_(q);
+    if (searchEmpty) searchEmpty.style.display = 'none';
+    return;
+  }
+  if (source === 'shopify') {
+    // The predates-Bedrock fallback Seth explicitly asked for.
+    if (typeof _openShopifyOrderCard_ === 'function') {
+      _openShopifyOrderCard_(res.order || {}, q);
+    } else if (typeof jumpToLookup_ === 'function') {
+      // Fallback if the modal helper isn't loaded for some reason.
+      jumpToLookup_(q);
+    }
+    if (searchEmpty) searchEmpty.style.display = 'none';
+    return;
+  }
+  // source === 'none'
+  if (searchEmpty) {
+    searchEmpty.innerHTML = '<div style="padding:6px 0"><strong>#' + esc(q) + '</strong> not found in Bedrock or Shopify.</div>'
+      + '<div style="color:var(--text-dim);font-size:12px;margin-top:4px">Double-check the number, or try Lookup for legacy history.</div>'
+      + '<button onclick="_groundSearchJumpToLookup_(\'' + esc(q) + '\')" style="margin-top:8px;padding:8px 14px;background:#003087;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">Try Lookup</button>';
+  }
+}
+
+// v10.1382 — Shopify order card modal. Shown when resolveOrderForJump
+// returns source='shopify' (order predates Bedrock's index). Renders
+// customer + shipping + line items + status inline so Seth doesn't
+// have to context-switch to Shopify Admin.
+function _openShopifyOrderCard_(order, orderNum) {
+  const prior = document.getElementById('shopifyOrderCardOverlay');
+  if (prior) prior.remove();
+  const items = Array.isArray(order.line_items) ? order.line_items : [];
+  const sa = order.shipping_address || {};
+  const ov = document.createElement('div');
+  ov.id = 'shopifyOrderCardOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const shopUrl = 'https://murphybeddepot.myshopify.com/admin/orders/' + esc(order.id || '');
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:720px;max-height:92vh;border-radius:18px 18px 0 0;padding:18px 20px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35)">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 14px"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">'
+    +   '<div><span style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:22px;font-weight:900;letter-spacing:.5px">📦 ' + esc(order.name || ('#' + orderNum)) + '</span>'
+    +     '<span style="background:#5B21B6;color:#fff;-webkit-text-fill-color:#fff;padding:2px 7px;border-radius:5px;font-size:10px;font-weight:900;letter-spacing:1px;margin-left:8px;vertical-align:middle">SHOPIFY</span></div>'
+    +   '<button onclick="document.getElementById(\'shopifyOrderCardOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#999 !important;-webkit-text-fill-color:#999 !important;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:11px;color:#888 !important;-webkit-text-fill-color:#888 !important;margin-bottom:12px">Shopify record (predates Bedrock). Read-only here; edits happen in Shopify Admin.</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
+    +   '<div><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#888 !important;-webkit-text-fill-color:#888 !important;letter-spacing:1px;margin-bottom:3px">Customer</div>'
+    +     '<div style="font-size:14px;font-weight:700">' + esc(order.customer_name || '(unknown)') + '</div>'
+    +     '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(order.customer_email || '') + '</div>'
+    +     '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(order.customer_phone || '') + '</div>'
+    +   '</div>'
+    +   '<div><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#888 !important;-webkit-text-fill-color:#888 !important;letter-spacing:1px;margin-bottom:3px">Ship to</div>'
+    +     '<div style="font-size:13px">' + esc(sa.address1 || '') + (sa.address2 ? ' ' + esc(sa.address2) : '') + '</div>'
+    +     '<div style="font-size:13px">' + esc(sa.city || '') + ', ' + esc(sa.province || '') + ' ' + esc(sa.zip || '') + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    +   '<span style="font-size:11px;background:#eef;padding:4px 8px;border-radius:5px">💰 $' + esc(order.total_price || '') + '</span>'
+    +   '<span style="font-size:11px;background:#eef;padding:4px 8px;border-radius:5px">📅 ' + esc(String(order.created_at || '').slice(0, 10)) + '</span>'
+    +   (order.financial_status ? '<span style="font-size:11px;background:#efe;padding:4px 8px;border-radius:5px">💳 ' + esc(order.financial_status) + '</span>' : '')
+    +   (order.fulfillment_status ? '<span style="font-size:11px;background:#eef;padding:4px 8px;border-radius:5px">📦 ' + esc(order.fulfillment_status) + '</span>' : '')
+    + '</div>'
+    + (order.note ? '<div style="font-size:12px;background:#FFF8E1;border:1px solid #FFC107;border-radius:6px;padding:8px 10px;margin-bottom:12px;color:#5a3e00 !important;-webkit-text-fill-color:#5a3e00 !important"><strong>Order note:</strong> ' + esc(order.note) + '</div>' : '')
+    + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#888 !important;-webkit-text-fill-color:#888 !important;letter-spacing:1px;margin-bottom:6px">Line items</div>'
+    + '<div style="margin-bottom:14px">'
+    + (items.length
+        ? items.map(it => '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 10px;background:#fafafa;border:1px solid #eee;border-radius:6px;margin-bottom:4px;font-size:13px">'
+            + '<div><span style="font-family:\'JetBrains Mono\',monospace !important;font-weight:700">' + esc(it.sku || '(no sku)') + '</span> <span style="color:#666 !important;-webkit-text-fill-color:#666 !important">' + esc(it.name || '') + '</span></div>'
+            + '<div style="font-family:\'JetBrains Mono\',monospace !important;font-weight:800;color:#1A5C1A !important;-webkit-text-fill-color:#1A5C1A !important">×' + Number(it.quantity || 0) + '</div>'
+            + '</div>').join('')
+        : '<div style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic;font-size:12px">(no line items in Shopify response)</div>')
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +   '<a href="' + shopUrl + '" target="_blank" style="padding:9px 14px;background:#5B21B6;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;text-decoration:none">🛒 Open in Shopify Admin ↗</a>'
+    +   '<button onclick="_groundSearchJumpToLookup_(\'' + esc(orderNum) + '\')" style="padding:9px 14px;background:#003087;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">🔍 Bedrock Lookup</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+
 function paintGroundQueue_(queue, list, empty) {
   list.innerHTML = '';
   // v63 issue #3: priority first, then newest-first within each bucket.
@@ -34006,7 +34172,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1378<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1382<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
