@@ -4127,9 +4127,21 @@ function renderOrdersTab() {
   }
   const list = document.getElementById('ordersList');
   if (!list) return;
-  if (filtered.length === 0) {
+  // v10.1388 — for pack/prepack lenses we must NOT early-return on
+  // empty because the manager needs + Add Orders / Update List /
+  // fill-mode chip to top up. For other lenses, empty means empty —
+  // render the italic hint + return.
+  if (filtered.length === 0 && lens !== 'pack' && lens !== 'prepack') {
     list.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-dim);font-size:13px;font-style:italic">No orders in this lens right now.</div>';
     return;
+  }
+  if (filtered.length === 0) {
+    // Pack/Prepack empty — render the empty hint as the list body but
+    // fall through to the toolbar block below so + Add Orders is
+    // reachable. The toolbar block replaces list.innerHTML for pack
+    // via its normal path; we set an empty-but-informative body here
+    // that the toolbar-postscript won't overwrite.
+    list.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-dim);font-size:13px;font-style:italic">No orders on today\'s list yet. Tap <b>+ Add Orders</b> or <b>↻ Update List</b> above to top up.</div>';
   }
   // v10.329 — Schedule lens groups by ship_date with a sticky day
   // header (matches the original Schedule tab feel per A5a). Other
@@ -4224,6 +4236,13 @@ function renderOrdersTab() {
       // Non-pack lens — clean up the warning banner if it's stale.
       const soonEl = document.getElementById('ordersPackSoonWarning');
       if (soonEl) soonEl.remove();
+    }
+    // v10.1388 — for pack/prepack, if bodyHtml ended up empty (no
+    // today rows + no upcoming rows), inject an actionable hint that
+    // points at + Add Orders / Update List instead of the blank canvas
+    // the previous branch would leave.
+    if (!bodyHtml && (lens === 'pack' || lens === 'prepack')) {
+      bodyHtml = '<div style="padding:30px;text-align:center;color:var(--text-dim);font-size:13px;font-style:italic">No orders on today\'s list yet. Tap <b>+ Add Orders</b> or <b>↻ Update List</b> above to top up.</div>';
     }
     list.innerHTML = bodyHtml;
   }
@@ -34249,7 +34268,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1387"></script>
+<script src="./pack.js?v=10.1388"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34260,7 +34279,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1387<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1388<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
