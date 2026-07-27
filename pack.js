@@ -18774,6 +18774,9 @@ function openOrdersGuide() {
     + chip('+', 'Add to List', 'Manager PIN. Picks next N in-flight orders by ship_date + flips their on_active_list flag. Header button. Repeat until list matches tomorrow.')
     + chip('👤', 'Manager Mode', 'PIN-gated. Enables checkboxes on cards + sticky action bar (Mark Packed / Mark Shipped / Remove / Reset). See §Manager Mode.')
     + chip('🖨', 'Print All Instructions', 'Bulk-fires PrintNode for every order on today\'s list. Sorted by ship_date so packets stack in pack order. Also runs overnight via 3am cron — see Scheduler Guide.')
+    + chip('✋ / 🤖', 'Fill-mode chip (v10.1387)', 'Small chip in the toolbar shows whether auto-fill is on (🤖 amber) or off (✋ green). MANUAL default — Kim/Seth tap + Add Orders. AUTO tops-up nightly via _packListRollIfNeeded_. Toggle from retired Pack tab (Script Property PACK_LIST_FILL_MODE).')
+    + chip('⚠', 'Ship-soon warning banner (v10.1386)', 'Red gradient banner above the toolbar when there are orders shipping within 7 biz days that AREN\'T on today\'s list. Each row shows order # + ship date + 🟢 + Today one-tap add. Silent when the soon-set is empty.')
+    + chip('📭', 'Empty-state hint (v10.1388)', 'When the list is empty the body now says "No orders on today\'s list yet. Tap + Add Orders or ↻ Update List above to top up." — the toolbar buttons stay reachable so the manager can populate from zero without switching lenses.')
     + H2('⚠ Needs Attention lens')
     + P('Jessica\'s + Seth\'s escalation view. Orders with a <b>hold</b>, <b>past-due ship date without carrier</b>, <b>missing instructions</b>, or <b>customer-not-ready</b>. Fix here → order drops off the lens automatically.');
 
@@ -18904,11 +18907,11 @@ function openOrdersGuide() {
 
   ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
-    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Orders Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every lens, every workflow · v10.1273</div></div>'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Orders Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every lens, every workflow · v10.1391</div></div>'
     +   '<button onclick="document.getElementById(\'ordersGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
     + '</div>'
     + toc + secTop + secHeader + secLenses + secSearch + secCards + secDetail + secPlanner + secBulk + secMfg + secFaq
-    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1273.</div>'
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1391.</div>'
     + '</div>';
   document.body.appendChild(ov);
 }
