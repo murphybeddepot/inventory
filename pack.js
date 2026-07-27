@@ -9943,7 +9943,17 @@ function openHowItWorks() {
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">How Bedrock Works</div>'
     +   '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.1050 (2026-07-03).</div>'
+    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.1391 (2026-07-27).</div>'
+
+    + H('🆕 Since v10.1050 (2026-07-03 → 07-27)')
+    + pill('live', '📊 Daytime Status Dashboard (v10.1385)', 'More menu → 📊 · at-a-glance snapshot: Ground queue count · MFG in flight by stage · Ship today · Melamine drafts · COGS ledger counts · systems-healthy pill. Phase 0 = snapshot at open; auto-refresh + order-360 pane deferred.')
+    + pill('live', '📦 Pack Today polish (v10.1386–v10.1391)', 'Orders tab Pack lens got: ⚠ ship-soon warning banner (v10.1386, orders shipping ≤7 biz days but not on list, with 1-tap + Today), ✋/🤖 fill-mode chip (v10.1387, MANUAL vs AUTO visibility), empty-state buttons stay reachable + hint (v10.1388/1389), More menu Pack + Pre-Pack matched Schedule\'s brown LEGACY style so Orders tab reads as the single primary workflow (v10.1390).')
+    + pill('live', '🌲 Melamine PO Generator (v10.1119–v10.1391)', 'Stock 2 → Melamine section: dry-run PO drafts per vendor, editable qty rows, self-diagnostic panel that reports draft count + last activity. Discovery reads [MELAMINE:*] tag from suppliers.notes (v10.1375 fix — was originally items.category).')
+    + pill('live', '🥞 Stacking Recipe Editor (v10.1322–v10.1354)', 'Full-page /inventory/stacking.html route with API storage. Spine-unified into the same Supabase project as orders_spine + writes recipe_events journal (Zac 2026-07-22 authorization).')
+    + pill('live', '💰 COGS Phase 1 (v10.1355–v10.1391)', 'Odoo-style cost ledger. Schema-only ship of cost_ledger + purchase_orders + purchase_order_lines. runDiagCogs endpoint reports counts + surfaces on the Dashboard.')
+    + pill('live', '🏭 Manufacturing auto-mark (v10.1349)', 'When a stock cabinet is assigned OR the order is sent to ARCH, production_type flips automatically. Removes the manual toggle friction (Zac 2026-07-23 authorization).')
+    + pill('live', '🔍 Ground search jump-to-order + Shopify fallback (v10.1382–v10.1384)', 'Enter in the Ground search box always resolves to open the order card. Same rule extended to Lookup (v10.1383) and Orders tab (v10.1384). Pre-Bedrock orders fall back to a Shopify lookup so old orders remain reachable.')
+    + pill('live', '📚 Guides refreshed (v10.1391)', 'Orders Tab Guide bumped to v10.1391 with new chips for the ship-soon banner + fill-mode chip + empty-state hint. This "How Bedrock Works" doc likewise refreshed (v10.1392).')
 
     + H('🆕 Diagnostics + Dashboards (v10.1015–v10.1091)')
     + pill('live', '🩺 Diagnostics', 'More menu → 🩺 · runs 22 subsystem diags in one tap · verdict ALL_GREEN / PARTIAL / ALL_RED. Answers "is everything wired up?" — after activating triggers or a Supabase migration, tap this to verify.')
