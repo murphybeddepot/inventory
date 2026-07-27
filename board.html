@@ -67,8 +67,13 @@
   </div>
 </header>
 <div class="grid">
-  <div class="col"><h2>📦 To Pack <span class="badge" id="packBadge">0</span></h2><div class="body" id="packBody"><div class="empty">Loading…</div></div></div>
-  <div class="col"><h2>🚚 Carriers <span class="badge" id="carrBadge">0</span></h2><div class="body" id="carrBody"></div></div>
+  <!-- v10.1395 (Playwright walkthrough 2026-07-27): initial badges show
+       '—' not '0' so the first-load state doesn't look like "queue empty"
+       when it's actually "still fetching". carrBody also gets a Loading…
+       message to match packBody (was blank, looked broken next to
+       packBody's message). -->
+  <div class="col"><h2>📦 To Pack <span class="badge" id="packBadge">—</span></h2><div class="body" id="packBody"><div class="empty">Loading…</div></div></div>
+  <div class="col"><h2>🚚 Carriers <span class="badge" id="carrBadge">—</span></h2><div class="body" id="carrBody"><div class="empty">Loading…</div></div></div>
   <div class="col"><h2>📋 Today <span class="badge" id="dateBadge"></span></h2><div class="body" id="noteBody"></div></div>
 </div>
 <footer id="foot">board v3 · —</footer>
