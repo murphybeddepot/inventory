@@ -4047,7 +4047,73 @@ async function printNativePickList_(orderNumber) {
 // v10.906 — the previous "fire straight to print" path is preserved
 // for the (rare) fallback + can be re-wired to a "Skip preview, print
 // now" option if we ever add one back.
-async function _printNativePickListDirect_(ord) {
+// v10.1396 (Zac 2026-07-27) — "when printing we should be able to select
+// which printnode printer (and see printer statuses)".
+//
+// Shows a picker before firing. Each row carries PrintNode's live `state`
+// (printer) + `computer_state` (the host running the PrintNode client) —
+// an "online" printer on an offline computer silently swallows jobs, which
+// is the failure mode this surfaces. Server default stays the top option so
+// the common path is still one tap.
+async function _printNativePickListWithPicker_(ord) {
+  const order = String(ord || '').trim();
+  if (!order) return;
+  const prev = document.getElementById('nativePickPrinterOv');
+  if (prev) prev.remove();
+  const ov = document.createElement('div');
+  ov.id = 'nativePickPrinterOv';
+  ov.className = 'no-dark keep-dark-text';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.82);display:flex;align-items:flex-start;justify-content:center;padding:36px 14px;overflow:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(0,135,254,.45);border-radius:14px;max-width:520px;width:100%;overflow:hidden;font-family:Helvetica,Arial,sans-serif">'
+    + '<div style="background:#000;color:#FFB300;-webkit-text-fill-color:#FFB300;padding:14px 18px;font-weight:900;font-size:13px;letter-spacing:1px">🖨 PRINT PICK LIST — #' + order.replace(/</g,'&lt;') + '</div>'
+    + '<div id="nppBody" style="padding:16px"><div style="font-size:13px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;text-align:center;padding:26px 0">Loading printers…</div></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const close = () => { const x = document.getElementById('nativePickPrinterOv'); if (x) x.remove(); };
+  window._nppClose_ = close;
+  window._nppGo_ = (pid) => { close(); _printNativePickListDirect_(order, Number(pid) || 0); };
+
+  let data;
+  try { data = await groundApi('listPrinters', {}); }
+  catch (e) { data = { ok: false, error: e.message }; }
+  const bodyEl = document.getElementById('nppBody');
+  if (!bodyEl) return;
+
+  const btn = (label, sub, onclick, tone) => '<button onclick="' + onclick + '" class="no-dark keep-dark-text" style="width:100%;text-align:left;padding:12px 14px;margin-bottom:8px;border-radius:8px;cursor:pointer;border:1.5px solid ' + (tone || 'rgba(255,255,255,.22)') + ';background:#1a1a1a;color:#E8EDF4;-webkit-text-fill-color:#E8EDF4">'
+    + '<div style="font-size:13px;font-weight:800">' + label + '</div>'
+    + (sub ? '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:2px">' + sub + '</div>' : '')
+    + '</button>';
+
+  if (!data || !data.ok) {
+    bodyEl.innerHTML = '<div style="font-size:12px;color:#FF8A80;-webkit-text-fill-color:#FF8A80;line-height:1.5;margin-bottom:10px">Could not list printers: ' + String((data && data.error) || 'unknown').replace(/</g,'&lt;') + '</div>'
+      + btn('🖨 Print to server default anyway', 'Uses PRINTNODE_INSTRUCTIONS_PRINTER_ID → PRINTNODE_DEFAULT_PRINTER_ID', '_nppGo_(0)', 'rgba(0,230,118,.55)')
+      + btn('Cancel', '', '_nppClose_()');
+    return;
+  }
+  const printers = Array.isArray(data.printers) ? data.printers : [];
+  let h = btn('⭐ Server default' + (data.default_printer_id ? ' (#' + data.default_printer_id + ')' : ''),
+    'Pick-list printer from Script Properties', '_nppGo_(0)', 'rgba(0,230,118,.55)');
+  if (!printers.length) {
+    h += '<div style="font-size:12px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;padding:6px 0">No printers reported by PrintNode.</div>';
+  }
+  printers.forEach(p => {
+    const pOnline = String(p.state || '').toLowerCase() === 'online';
+    const cOnline = String(p.computer_state || '').toLowerCase() === 'connected'
+      || String(p.computer_state || '').toLowerCase() === 'online';
+    // Both must be healthy for a job to actually land on paper.
+    const ok = pOnline && cOnline;
+    const dot = ok ? '🟢' : (pOnline ? '🟡' : '🔴');
+    const status = 'printer ' + String(p.state || '?') + ' · host ' + (String(p.computer_name || '?')) + ' ' + String(p.computer_state || '?');
+    h += btn(dot + ' ' + String(p.name || ('printer #' + p.id)).replace(/</g,'&lt;'),
+      status.replace(/</g,'&lt;') + (ok ? '' : ' — may not print'),
+      '_nppGo_(' + Number(p.id) + ')',
+      ok ? 'rgba(0,230,118,.35)' : 'rgba(255,145,0,.55)');
+  });
+  h += btn('Cancel', '', '_nppClose_()');
+  bodyEl.innerHTML = h;
+}
+
+async function _printNativePickListDirect_(ord, printerId) {
   const prev = document.getElementById('printNativePickListOv');
   if (prev) prev.remove();
   const ov = document.createElement('div');
@@ -4084,7 +4150,11 @@ async function _printNativePickListDirect_(ord) {
     if (showOk) f.style.display = 'block';
   };
   try {
-    const res = await groundApi('printNativePickListForOrder', { orderNumber: ord });
+    // v10.1396 — pass the chosen printer through. 0/undefined lets the
+    // server fall back to PRINTNODE_INSTRUCTIONS_PRINTER_ID → DEFAULT.
+    const _req_ = { orderNumber: ord };
+    if (Number(printerId) > 0) _req_.printerId = Number(printerId);
+    const res = await groundApi('printNativePickListForOrder', _req_);
     if (res && res.ok) {
       setOverlay('✓', '#0a7a3f', '✓ Pick list printed for #' + ord, 'Sent to PrintNode (printer ' + (res.printer_id || '?') + ', job ' + (res.job_id || '?') + ')', true);
       // Auto-dismiss after 6s on success
@@ -6777,7 +6847,11 @@ function _bedrockPickToSkuLines_(session) {
   // order# instead of the stock #. Frame + hardware are the picked items.
   // frame + hardware are picked; instruction is the INST-* sheet to print
   // (rendered with a Print chip). Cabinet is excluded (Cabinets to Pull).
-  ['frame', 'hardware', 'instruction'].forEach(function (b) {
+  // v10.1396 — 'side_cabinet' added. Side-cab bodies (16-LTB / 16-RTB) ARE
+  // scanned pick lines; they were previously inside the hardware bucket, so
+  // splitting them out without adding them here would have silently removed
+  // them from scan-to-verify.
+  ['frame', 'side_cabinet', 'hardware', 'instruction'].forEach(function (b) {
     (buckets[b] || []).forEach(function (it) {
       const sku = String(it.item_sku || it.sku || '').trim();
       if (!sku) return;

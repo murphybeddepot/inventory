@@ -17387,8 +17387,13 @@ async function openInspectOrderModal(preFillOrder) {
       // this reads as a phantom cabinet). If any row looks like a real
       // cabinet SKU (non-numeric), keep the bucket.
       const _cabinetRows_ = (bk.cabinet || []).filter(r => !/^\d{4,6}$/.test(String(r.item_sku || '')));
+      // v10.1396 (Zac 2026-07-27) — side cabinets are their own section.
+      // 16-LTB / 16-RTB are cabinet bodies off the ARCH pallet, not bin
+      // hardware; the server now buckets them separately.
+      const _sideCabs_ = bk.side_cabinet || [];
       const displayBuckets = [
         ['cabinet', _cabinetRows_],
+        ['side cabinets', _sideCabs_],
         ['frame', bk.frame || []],
         ['hardware', hardware],
         ['instructions', instructions],
@@ -17397,18 +17402,43 @@ async function openInspectOrderModal(preFillOrder) {
       displayBuckets.forEach(([name, rows]) => {
         if (!rows.length) return;
         html += '<div style="background:#f5f5f7 !important;border-radius:8px;padding:8px 10px;margin-bottom:6px">';
-        html += '<div style="font-size:11px;color:#333 !important;-webkit-text-fill-color:#333 !important;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px">' + name + ' (' + rows.length + ')</div>';
+        html += '<div style="font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px">' + name + ' (' + rows.length + ')</div>';
         rows.forEach(r => {
-          html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;padding:1px 0">' + (r.item_sku || '?') + ' × ' + (r.qty || '?') + '</div>';
+          // v10.1396 (Zac) — "NO hafele item numbers. it should have both."
+          // Render part # AND descriptive name on the same line. The server
+          // attaches hafele_part for cabinet hardware whose SKU is a
+          // descriptive name; SKUs that already ARE a part # render as-is.
+          const _sku_ = String(r.item_sku || '?');
+          const _haf_ = String(r.hafele_part || '');
+          let _label_ = '';
+          if (_haf_ && _sku_.indexOf(_haf_) === -1) {
+            _label_ = '<span style="color:#0d47a1 !important;-webkit-text-fill-color:#0d47a1;font-weight:700">'
+              + _haf_.replace(/</g,'&lt;') + '</span>'
+              + '<span style="color:#555 !important;-webkit-text-fill-color:#555"> · </span>'
+              + _sku_.replace(/</g,'&lt;');
+          } else {
+            _label_ = _sku_.replace(/</g,'&lt;');
+          }
+          // Side-cab hardware carries `from` — show which cabinet it belongs to.
+          const _from_ = (r.is_side_hw && r.from) ? String(r.from) : '';
+          const _fromTag_ = _from_
+            ? '<span style="color:#5d4037 !important;-webkit-text-fill-color:#5d4037;font-size:10px"> ← ' + _from_.replace(/</g,'&lt;') + '</span>'
+            : '';
+          html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a;padding:1px 0">' + _label_ + ' × ' + (r.qty || '?') + _fromTag_ + '</div>';
         });
+        if (name === 'side cabinets') {
+          html += '<div style="font-size:10px;color:#4a3b30 !important;-webkit-text-fill-color:#4a3b30;margin-top:4px;line-height:1.4">Cabinet bodies (pulled off the pallet). Their BOM hardware — cams, pins, hinges, screws — is listed under HARDWARE, tagged with the cabinet it came from.</div>';
+        }
         html += '</div>';
       });
       const unr = expansion.unresolved || [];
       if (unr.length) {
-        html += '<div style="background:#fff8e1 !important;border:1px solid #ffe082;border-radius:8px;padding:8px 10px;margin-top:6px">';
-        html += '<div style="font-size:10px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px">⚠ Unresolved (' + unr.length + ')</div>';
+        // v10.1396 — contrast fix. #7a5500 on #fff8e1 washed out on the
+        // iPad in daylight; darkened to #4a3300 + bolded the SKU token.
+        html += '<div style="background:#fff8e1 !important;border:1px solid #ffb300;border-radius:8px;padding:8px 10px;margin-top:6px">';
+        html += '<div style="font-size:10px;color:#4a3300 !important;-webkit-text-fill-color:#4a3300;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px">⚠ Unresolved (' + unr.length + ')</div>';
         unr.forEach(u => {
-          html += '<div style="font-size:11px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500;padding:1px 0">' + (u.sku || '(no SKU)') + ' · ' + String(u.name || '').replace(/</g,'&lt;') + ' · ' + (u.reason || '?') + '</div>';
+          html += '<div style="font-size:11px;color:#4a3300 !important;-webkit-text-fill-color:#4a3300;padding:1px 0;line-height:1.45"><b>' + (u.sku || '(no SKU)').replace(/</g,'&lt;') + '</b> · ' + String(u.name || '').replace(/</g,'&lt;') + ' · ' + (u.reason || '?') + '</div>';
         });
         html += '</div>';
       }
@@ -17506,8 +17536,15 @@ async function openInspectOrderModal(preFillOrder) {
   window._inspectOrderPrint_ = async function () {
     const ord = (document.getElementById('inspectOrderInput').value || '').trim();
     if (!ord) { alert('Order # required'); return; }
-    if (typeof printNativePickList_ === 'function') {
-      printNativePickList_(ord);
+    // v10.1396 — BUG FIX. This called printNativePickList_(ord), which
+    // redirects to openInspectOrderModal() — so tapping "🖨 Print pick list"
+    // from INSIDE the Inspect modal just re-rendered the modal and never
+    // sent anything to PrintNode. Silent no-op since v10.906. Now goes
+    // through the printer picker straight to the print call.
+    if (typeof _printNativePickListWithPicker_ === 'function') {
+      _printNativePickListWithPicker_(ord);
+    } else if (typeof _printNativePickListDirect_ === 'function') {
+      _printNativePickListDirect_(ord, 0);
     } else {
       // Fallback: call directly without the overlay (unlikely)
       const r = await groundApi('printNativePickListForOrder', { orderNumber: ord });
@@ -34290,7 +34327,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1394"></script>
+<script src="./pack.js?v=10.1396"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34301,7 +34338,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1394<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1396<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
