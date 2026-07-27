@@ -14941,6 +14941,150 @@ let _poPanelMode = 'reorder';
 let _poPanelVendorSel = '';
 let _poDraftLines = [];
 
+// v10.1385 — Daytime Status Dashboard Phase 0 (task #45).
+// Design: docs/DAYTIME_STATUS_DASHBOARD.md.
+// One-screen state-of-the-warehouse. Left panel of status pills fed
+// by existing endpoints (no new server work). No order-360 pane in
+// Phase 0. No auto-refresh in Phase 0. Opened from More menu.
+async function openDaytimeDashboard() {
+  const prior = document.getElementById('daytimeDashOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'daytimeDashOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div onclick="event.stopPropagation()" class="keep-dark-text" style="background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;width:100%;max-width:780px;max-height:94vh;border-radius:18px 18px 0 0;padding:16px 18px 28px;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.35);box-sizing:border-box">'
+    + '<div style="width:40px;height:4px;background:#ccc;border-radius:999px;margin:0 auto 12px"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:24px !important;font-weight:900 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">📊 Dashboard</div>'
+    +   '<button onclick="document.getElementById(\'daytimeDashOverlay\').remove()" style="background:none;border:none;font-size:24px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer;padding:0 4px">✕</button>'
+    + '</div>'
+    + '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:14px">Snapshot at open. Tap 🔄 to refresh. Phase 0 — no order-360 pane yet.</div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
+    +   '<button onclick="_daytimeDashLoad_()" style="background:rgba(0,48,135,.10);color:#003087 !important;-webkit-text-fill-color:#003087 !important;border:1.5px solid #003087;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit">🔄 Refresh</button>'
+    + '</div>'
+    + '<div id="daytimeDashBody" style="min-height:120px">Loading…</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  _daytimeDashLoad_();
+}
+
+// Fires the parallel endpoint reads + renders pills. Split so 🔄
+// Refresh can re-invoke without re-opening the modal.
+async function _daytimeDashLoad_() {
+  const body = document.getElementById('daytimeDashBody');
+  if (!body) return;
+  body.innerHTML = '<div style="padding:24px;text-align:center;color:#888 !important;-webkit-text-fill-color:#888 !important;font-size:13px">Loading… fetching queue, packing, melamine, cogs, health in parallel</div>';
+  const t0 = Date.now();
+  const results = await Promise.all([
+    groundApi('getQueue', {}).catch(e => ({ ok: false, error: e.message })),
+    groundApi('listPackingQueue', {}).catch(e => ({ ok: false, error: e.message })),
+    groundApi('listMelaminePODrafts', { limit: 50 }).catch(e => ({ ok: false, error: e.message })),
+    groundApi('runDiagCogs', {}).catch(e => ({ ok: false, error: e.message })),
+    groundApi('runHealthSweep', {}).catch(e => ({ ok: false, error: e.message })),
+  ]);
+  const [qRes, pqRes, melRes, cogsRes, healthRes] = results;
+  const elapsed = Date.now() - t0;
+
+  // Ground queue pill
+  const q = (qRes && qRes.ok && Array.isArray(qRes.queue)) ? qRes.queue : [];
+  const qCount = q.length;
+  const qByState = {};
+  q.forEach(o => { const s = o.state || '?'; qByState[s] = (qByState[s] || 0) + 1; });
+  const qStates = Object.entries(qByState).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([s, n]) => s + ':' + n).join(' · ');
+  const qColor = qCount === 0 ? '#00c853' : (qCount < 5 ? '#00c853' : (qCount < 15 ? '#FFC107' : '#FF5252'));
+
+  // MFG in-flight pill (from PackingQueue rows with production_type set + stage != shipped)
+  const pq = (pqRes && pqRes.ok && Array.isArray(pqRes.rows)) ? pqRes.rows : [];
+  const mfgRows = pq.filter(r => String(r.production_type || '').toLowerCase() === 'mfg' && String(r.production_stage || '').toLowerCase() !== 'shipped');
+  const mfgByStage = {};
+  mfgRows.forEach(r => { const s = r.production_stage || 'pending'; mfgByStage[s] = (mfgByStage[s] || 0) + 1; });
+  const mfgStages = Object.entries(mfgByStage).sort((a, b) => b[1] - a[1]).map(([s, n]) => s + ':' + n).join(' · ') || '—';
+
+  // Ship-today pill (packing queue rows with ship_date == today)
+  const today = new Date().toISOString().slice(0, 10);
+  const shipToday = pq.filter(r => String(r.ship_date || '').slice(0, 10) === today);
+  const shipTodayN = shipToday.length + qCount;
+
+  // Melamine pill
+  const mel = (melRes && melRes.ok && Array.isArray(melRes.drafts)) ? melRes.drafts : [];
+  const melN = mel.length;
+
+  // COGS pill
+  const cogsCounts = (cogsRes && cogsRes.counts) || {};
+  const cogsSummary = cogsRes && cogsRes.schema_ready
+    ? 'ledger=' + (cogsCounts.cost_ledger != null ? cogsCounts.cost_ledger : '?')
+      + ' · recipes=' + (cogsCounts.recipe_events != null ? cogsCounts.recipe_events : '?')
+    : 'not wired';
+
+  // Health pill (attention pill only if there's a real issue)
+  const healthPass = (healthRes && healthRes.pass) || 0;
+  const healthFail = (healthRes && healthRes.fail) || 0;
+  const failedChecks = (healthRes && Array.isArray(healthRes.checks))
+    ? healthRes.checks.filter(c => !c.ok).map(c => c.name)
+    : [];
+
+  // Render.
+  function pill(emoji, label, value, chip, color, drill) {
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:#fafafa;border:1.5px solid #eee;border-left:4px solid ' + color + ';border-radius:10px;margin-bottom:6px' + (drill ? ';cursor:pointer' : '') + '"' + (drill ? ' onclick="' + drill + '"' : '') + '>'
+      + '<span style="font-size:22px;flex-shrink:0">' + emoji + '</span>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:800;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">' + label + '</div>'
+      +   '<div style="font-size:11px;color:#666 !important;-webkit-text-fill-color:#666 !important;font-family:\'JetBrains Mono\',monospace">' + value + '</div>'
+      + '</div>'
+      + (chip ? '<span style="background:' + color + ';color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:13px;font-weight:900;padding:4px 10px;border-radius:6px;font-family:\'JetBrains Mono\',monospace">' + chip + '</span>' : '')
+      + (drill ? '<span style="color:#999 !important;-webkit-text-fill-color:#999 !important;font-size:16px">›</span>' : '')
+      + '</div>';
+  }
+
+  let html = '';
+  html += pill('🚚', 'Ground queue',
+    qStates || 'no awaiting orders',
+    String(qCount),
+    qColor,
+    'document.getElementById(\'daytimeDashOverlay\').remove();switchTab(\'orders\')');
+  html += pill('🏗', 'MFG in flight',
+    mfgStages,
+    String(mfgRows.length),
+    mfgRows.length === 0 ? '#00c853' : '#42a5f5',
+    'document.getElementById(\'daytimeDashOverlay\').remove();switchTab(\'cabinets\')');
+  html += pill('📦', 'Ship today',
+    shipTodayN === 0 ? 'nothing scheduled today' : shipToday.length + ' cabinet/freight + ' + qCount + ' ground',
+    String(shipTodayN),
+    shipTodayN === 0 ? '#00c853' : (shipTodayN < 20 ? '#00c853' : (shipTodayN < 50 ? '#FFC107' : '#FF5252')),
+    '');
+  html += pill('🌲', 'Melamine drafts',
+    melN === 0 ? 'auto-generator OK — none below reorder' : 'per vendor · tap More → Purchase Orders → Melamine Drafts',
+    String(melN),
+    melN === 0 ? '#00c853' : '#1A5C1A',
+    melN === 0 ? '' : 'document.getElementById(\'daytimeDashOverlay\').remove();openPurchaseOrdersPanel({mode:\'melamine\'})');
+  html += pill('💰', 'COGS ledger',
+    cogsSummary,
+    (cogsCounts.cost_ledger != null ? String(cogsCounts.cost_ledger) : '—'),
+    (cogsCounts.cost_ledger === 0 ? '#888' : '#00c853'),
+    '');
+
+  // Attention pill (only shows when there's a real issue)
+  if (healthFail > 0 || failedChecks.length > 0) {
+    html += pill('⚠️', 'Attention needed',
+      failedChecks.join(' · '),
+      String(healthFail),
+      '#FF5252',
+      '');
+  } else {
+    html += pill('✅', 'All systems healthy',
+      healthPass + '/' + (healthPass + healthFail) + ' diag endpoints passing',
+      String(healthPass),
+      '#00c853',
+      '');
+  }
+
+  html += '<div style="text-align:center;margin-top:12px;font-size:10px;color:#999 !important;-webkit-text-fill-color:#999 !important">'
+    + 'Fetched in ' + elapsed + 'ms · Phase 0 (v10.1385) · order-360 pane next</div>';
+
+  body.innerHTML = html;
+}
+
 async function openPurchaseOrdersPanel(opts) {
   opts = opts || {};
   _poPanelMode = opts.mode || _poPanelMode || 'reorder';
