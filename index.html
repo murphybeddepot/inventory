@@ -1562,21 +1562,28 @@ input::placeholder, textarea::placeholder {
       </div>
       <span style="color:#c9b993;font-size:18px">›</span>
     </button>
-    <button onclick="goToTabFromMore('pack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">📦</span>
+    <!-- v10.1390 — Pack + Pre-Pack promoted from "current workflow"
+         cards (green badges) to matched-with-Schedule LEGACY cards.
+         Round 75 walkthrough turned this up: green "+ PRE-PACK" +
+         "NOW INSIDE PACK" badges read as active features when they
+         actually just point at retired tabs — Orders tab has been the
+         primary surface since v10.341+. Matching Schedule's brown-
+         LEGACY style makes the retirement obvious. -->
+    <button onclick="goToTabFromMore('pack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#faf3e0;border:1.5px solid #d4c68f;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#6b5c2d;-webkit-text-fill-color:#6b5c2d;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px;filter:grayscale(.4)">📦</span>
       <div style="flex:1">
-        <div>Pack <span style="font-size:9px;background:#00C853;color:#0a0a0a;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">+ PRE-PACK</span></div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Cabinet / freight packing · two-phase checker · Pre-Pack mode for hardware prep</div>
+        <div>Pack <span style="font-size:10px;font-weight:900;letter-spacing:1px;padding:2px 6px;background:#8a6d3b;color:#fff;-webkit-text-fill-color:#fff;border-radius:4px;margin-left:6px;vertical-align:middle">LEGACY</span></div>
+        <div style="font-size:11px;color:#8a6d3b;-webkit-text-fill-color:#8a6d3b;font-weight:500;margin-top:2px">Old cabinet/freight pack surface · use <b>📦 Orders → 📦 Pack Today lens</b> instead. Kept for reference.</div>
       </div>
-      <span style="color:#999;font-size:18px">›</span>
+      <span style="color:#c9b993;font-size:18px">›</span>
     </button>
-    <button onclick="closeMoreMenu();switchTab('prepack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
-      <span style="font-size:22px">🔧</span>
+    <button onclick="closeMoreMenu();switchTab('prepack')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#faf3e0;border:1.5px solid #d4c68f;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#6b5c2d;-webkit-text-fill-color:#6b5c2d;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px;filter:grayscale(.4)">🔧</span>
       <div style="flex:1">
-        <div>Pre-Pack <span style="font-size:9px;background:#00C853;color:#0a0a0a;padding:1px 5px;border-radius:3px;font-weight:900;letter-spacing:.5px;margin-left:4px">NOW INSIDE PACK</span></div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Direct jump to Pack tab → Pre-Pack mode (hardware-box prep, day-before scan-to-verify)</div>
+        <div>Pre-Pack <span style="font-size:10px;font-weight:900;letter-spacing:1px;padding:2px 6px;background:#8a6d3b;color:#fff;-webkit-text-fill-color:#fff;border-radius:4px;margin-left:6px;vertical-align:middle">LEGACY</span></div>
+        <div style="font-size:11px;color:#8a6d3b;-webkit-text-fill-color:#8a6d3b;font-weight:500;margin-top:2px">Old Pre-Pack surface · use <b>📦 Orders → 🔧 Pre-Pack Today lens</b> instead. Kept for reference.</div>
       </div>
-      <span style="color:#999;font-size:18px">›</span>
+      <span style="color:#c9b993;font-size:18px">›</span>
     </button>
     <button onclick="goToTabFromMore('items')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📋</span>
@@ -34273,7 +34280,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1389"></script>
+<script src="./pack.js?v=10.1390"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34284,7 +34291,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1389<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1390<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
