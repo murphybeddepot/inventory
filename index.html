@@ -4271,7 +4271,26 @@ function renderOrdersTab() {
     const clearListBtn = showActiveListActions
       ? '<button onclick="resetTodaysPackList(); setTimeout(()=>refreshOrderPipeline({force:true}).then(()=>renderOrdersTab()), 1200)" style="padding:10px 18px;background:#8B0000;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Remove every in-flight order from today\'s active list (reversible — orders move to Upcoming)">↺ Clear List</button>'
       : '';
-    topActionsEl.innerHTML = updateBtn + addOrderBtn + printBtn + routeBtn + clearListBtn;
+    // v10.1387 — small info chip showing the current pack-list fill
+    // mode (MANUAL vs AUTO). The mode is a Script Property that gates
+    // server-side _packListRollIfNeeded_'s auto-fill behavior. Toggle
+    // still lives on the retired Pack tab (togglePackFillMode_) — this
+    // is visibility-only on the Orders tab so managers know which mode
+    // is active without clicking through.
+    let modeChip = '';
+    try {
+      const mode = String(typeof _orderPipelineFillMode !== 'undefined' ? _orderPipelineFillMode : 'manual').toLowerCase();
+      const isManual = mode === 'manual';
+      const bg = isManual ? 'rgba(0,200,83,.14)' : 'rgba(255,179,0,.14)';
+      const fg = isManual ? '#00E676' : '#FFB300';
+      const bd = isManual ? 'rgba(0,200,83,.55)' : 'rgba(255,179,0,.55)';
+      const label = isManual ? '✋ MANUAL' : '🤖 AUTO-FILL';
+      const title = isManual
+        ? 'Fill mode: MANUAL. The list only changes when a manager taps + Add Orders or Update List. Toggle from Pack tab.'
+        : 'Fill mode: AUTO. Server auto-tops-up the list each morning with next-eligible orders by ship date. Toggle from Pack tab.';
+      modeChip = '<div style="display:inline-flex;align-items:center;gap:6px;padding:10px 14px;background:' + bg + ' !important;color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border:1px solid ' + bd + ' !important;border-radius:8px;font-size:12px;font-weight:800;letter-spacing:.4px;flex-shrink:0" title="' + title + '">' + label + '</div>';
+    } catch (e) {}
+    topActionsEl.innerHTML = modeChip + updateBtn + addOrderBtn + printBtn + routeBtn + clearListBtn;
 
     // v10.557 — one-time info banner on Pre-Pack lens explaining that
     // some Add-Orders results land on Pack Today instead. Dismissed
@@ -34230,7 +34249,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1386"></script>
+<script src="./pack.js?v=10.1387"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34241,7 +34260,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1386<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1387<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

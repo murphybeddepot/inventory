@@ -152,6 +152,9 @@ let _packDetailOrderNumber = null;
 
 let _orderPipelineCache = [];
 let _orderPipelineFetchedAt = 0;
+// v10.1387 — track fill_mode from getOrderPipeline so the Orders tab
+// Pack lens can show a chip. 'manual' default matches server.
+let _orderPipelineFillMode = 'manual';
 const ORDER_PIPELINE_CACHE_KEY = 'mbd_order_pipeline_cache_v1';
 const ORDER_PIPELINE_REFRESH_MS = 60 * 1000;  // throttle to once/min unless forced
 
@@ -164,6 +167,9 @@ try {
     if (_parsed && Array.isArray(_parsed.orders)) {
       _orderPipelineCache = _parsed.orders;
       _orderPipelineFetchedAt = Number(_parsed.fetched_at_ms || 0);
+      // v10.1387 — restore fill_mode from hydrated cache so the chip
+      // paints correctly on cold boot before the next network refresh.
+      if (_parsed.fill_mode) _orderPipelineFillMode = String(_parsed.fill_mode).toLowerCase();
     }
   }
 } catch (e) { _orderPipelineCache = []; }
@@ -201,10 +207,15 @@ async function refreshOrderPipeline(opts) {
     if (res && res.ok && Array.isArray(res.orders)) {
       _orderPipelineCache = res.orders;
       _orderPipelineFetchedAt = Date.now();
+      // v10.1387 — stash fill_mode alongside the cache so the Orders
+      // tab Pack lens can render a small chip showing which mode is
+      // active without a separate round-trip.
+      _orderPipelineFillMode = String(res.fill_mode || 'manual').toLowerCase();
       try {
         localStorage.setItem(ORDER_PIPELINE_CACHE_KEY, JSON.stringify({
           orders: _orderPipelineCache,
           fetched_at_ms: _orderPipelineFetchedAt,
+          fill_mode: _orderPipelineFillMode,
         }));
       } catch (e) {}
     }
