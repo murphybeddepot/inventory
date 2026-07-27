@@ -2048,6 +2048,85 @@ function paintPackFillModeAndWarning_(state) {
   host.innerHTML = modeChip + warningHtml;
 }
 
+// v10.1386 — ORDERS-TAB Pack lens surface for the ship-soon warning.
+// The retired Pack tab's paintPackFillModeAndWarning_ above is bound to
+// #packQueueList and never renders on the Orders tab (where Kim + Seth
+// actually work). This variant is called from renderOrdersTab when
+// lens=pack, receives the client-side computed unscheduled_soon rows,
+// and inserts a red-hot banner above #ordersList's toolbar. Silent
+// no-op when soon.length===0.
+//
+// Zac 2026-07-27 Playwright walkthrough turned this up: Pack Today
+// showed "1 order" but 9+ ship-soon rows sat invisible in the collapsed
+// UPCOMING panel. The manager has no visual signal that action is needed.
+function paintOrdersPackShipSoonWarning_(soonRows) {
+  const list = document.getElementById('ordersList');
+  if (!list || !list.parentNode) return;
+  let host = document.getElementById('ordersPackSoonWarning');
+  const soon = Array.isArray(soonRows) ? soonRows.slice() : [];
+  // Sort by ship_date ASC so the most urgent surfaces first.
+  soon.sort((a, b) => {
+    const da = String(a.ship_date || '9999-99-99').slice(0, 10);
+    const db = String(b.ship_date || '9999-99-99').slice(0, 10);
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+  if (!soon.length) {
+    if (host) host.remove();
+    return;
+  }
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'ordersPackSoonWarning';
+    host.style.cssText = 'margin:0 0 12px 0';
+    // Insert above the top-actions bar if it exists, else above the list.
+    const anchor = document.getElementById('ordersTopActionsBar') || list;
+    list.parentNode.insertBefore(host, anchor);
+  }
+  const rows = soon.slice(0, 10).map(o => {
+    const on = String(o.order_number || '');
+    const ship = String(o.ship_date || '').slice(0, 10);
+    const cust = String(o.customer_name || '').slice(0, 30);
+    const src = String(o.source || '').toLowerCase() === 'cabinet' ? '🏗' : (String(o.source || '').toLowerCase() === 'mattress' ? '🛏' : '📦');
+    // Add-to-today is what solves the problem — one tap, no PIN needed
+    // (uses addUpcomingToToday_ which piggybacks on addToTodaysListPrompt
+    // batch add). Falls back to opening the order detail if the fn is
+    // absent for any reason.
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,82,82,.10);border:1px solid rgba(255,82,82,.45);border-radius:6px">'
+      + '<span style="font-size:14px;flex-shrink:0">' + src + '</span>'
+      + '<span onclick="openOrderDetail(\'' + esc(on) + '\')" style="font-family:\'JetBrains Mono\',monospace;font-weight:900;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;cursor:pointer;flex-shrink:0">#' + esc(on) + '</span>'
+      + '<span style="flex:1;color:#fff !important;-webkit-text-fill-color:#fff !important;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(cust) + '</span>'
+      + '<span style="color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;font-size:11px;font-weight:800;flex-shrink:0">ship ' + esc(ship) + '</span>'
+      + '<button onclick="addUpcomingToToday_(\'' + esc(on) + '\')" style="background:var(--green-bright);color:#000 !important;-webkit-text-fill-color:#000 !important;border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:900;cursor:pointer;flex-shrink:0">+ Today</button>'
+      + '</div>';
+  }).join('');
+  const more = soon.length > 10 ? '<div style="font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;margin-top:6px">…and ' + (soon.length - 10) + ' more in Upcoming</div>' : '';
+  host.innerHTML = ''
+    + '<div style="padding:12px 14px;background:linear-gradient(135deg,rgba(255,82,82,.18),rgba(183,28,28,.22)) !important;border:1.5px solid #FF5252 !important;border-radius:10px">'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:1px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">⚠ ' + soon.length + ' ORDER' + (soon.length === 1 ? '' : 'S') + ' SHIPPING WITHIN 7 BIZ DAYS · NOT ON TODAY\'S LIST</div>'
+    +   '</div>'
+    +   '<div style="display:flex;flex-direction:column;gap:6px">' + rows + more + '</div>'
+    +   '<div style="font-size:11px;color:#FFD27A !important;-webkit-text-fill-color:#FFD27A !important;margin-top:10px;font-style:italic">Tap <b>+ Today</b> to move onto today\'s list, or tap the order # to open detail.</div>'
+    + '</div>';
+}
+
+// v10.1386 — client-side biz-day cutoff: today + N business days
+// (Mon-Fri, no holiday awareness — matches server _addBusinessDaysIso_).
+// Returns YYYY-MM-DD string.
+function _addBizDaysIsoClient_(n) {
+  const d = new Date();
+  let added = 0;
+  while (added < n) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) added++;
+  }
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return yr + '-' + mo + '-' + da;
+}
+
 async function togglePackFillMode_() {
   const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('change Pack Today fill mode') : null;
   if (!pin) return;
