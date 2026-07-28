@@ -30360,8 +30360,45 @@ async function groundApi(action, payload) {
   // successfully — but Seth saw a red error and had no signal that
   // the buy actually finished. Same class of "silent success" bug
   // as v10.1174/v10.1208.
-  const _needsMore = /sample/i.test(_actStr) ||
-    /startPack|startGroundPack|createLabel|buyLabel|buildOrderPack|listAwaiting|recordPackage|GroundSync|createManualGround|packerOverride|savePackInstruction/i.test(_actStr);
+  // v10.1398 (Zac 2026-07-28) — the regex above this line used to carry
+  // SIX dead identifiers: startGroundPack, createLabel, buyLabel,
+  // buildOrderPack, listAwaiting, savePackInstruction. None of them match
+  // any action in the doPost dispatcher. They were written against imagined
+  // names and rotted silently — that is precisely how order 32721 ended up
+  // on the 45s default, aborting mid-label-buy (v10.1394).
+  //
+  // Replaced with explicit name lists, verified against Orchestrator.js by
+  // scripts/test-timeout-actions.js so a typo or renamed action fails the
+  // test suite instead of quietly costing an operator a timeout.
+  //
+  // _MONEY_ACTIONS_ buy labels, void, book freight, or mark shipped. If one
+  // of these aborts client-side the server may well have COMPLETED it, so
+  // the abort message must say "do not re-tap" rather than the old
+  // "signal is aborted without reason" (which reads as a plain failure and
+  // invites the double-tap that bills a second label).
+  const _MONEY_ACTIONS_ = [
+    'startPack', 'completePack', 'groundBulkPrint', 'createManualGroundOrder',
+    'voidOrderForRepack', 'deleteGroundOrder', 'printLabel',
+    'reprintAllLabelsForOrder', 'reprintLabelForShipment', 'reprintFreightLabel',
+    'fedexShipForOrder', 'fedexParcelShip', 'fedexFreightBook', 'fedexBookOrder',
+    'fedexFreightSchedulePickup', 'fedexPickupOrder',
+    'markPackJobComplete', 'markPackJobShipped',
+  ];
+  // Slow but not money — heavy reads, bulk prints, rate shopping.
+  const _SLOW_ACTIONS_ = [
+    'getQueue', 'runGroundSync', 'recordPackageScanned', 'recordPackScan',
+    'recordPackCheckScan', 'managerCheckOffPackage', 'savePackerOverride',
+    'listPackerOverrides', 'listPackingQueue', 'updatePackJobSkus',
+    'printNativePickListForOrder', 'printCorrectedPickList',
+    'printTodaysPackInstructions', 'printPackInstructions',
+    'printPickListPdfForOrder', 'pickListSessionForOrder',
+    'compareCarrierRates', 'getRateCompareRates', 'fedexParcelRate',
+    'fedexParcelRateForOrder', 'freightRateCompareAll', 'markPackJobBooked',
+  ];
+  const _isMoneyAction_ = _MONEY_ACTIONS_.indexOf(_actStr) !== -1;
+  const _needsMore = /sample/i.test(_actStr)
+    || _isMoneyAction_
+    || _SLOW_ACTIONS_.indexOf(_actStr) !== -1;
   // v10.1161 (Zac 2026-07-07): 90s still tripping on samples pack-start
   // — enrichment can serially fetch Shopify for each color, blowing past.
   // Bump samples/pack-heavy to 180s. Genuine hangs still get caught.
@@ -30412,6 +30449,22 @@ async function groundApi(action, payload) {
     // log reportIssue itself (would loop on outages).
     if (action !== 'reportIssue' && typeof logBedrockIssue === 'function') {
       logBedrockIssue('fetch_error', 'Network: ' + action, netErr.message, netErr);
+    }
+    // v10.1398 — make the money-path timeout LOUD and honest. A client
+    // abort does NOT mean the server failed: on 32721 the labels were
+    // bought and saved while the operator stared at "COULD NOT START PACK
+    // — signal is aborted without reason" and re-tapped. Rewrite the
+    // message so it says what actually happened and what to do next.
+    const _isAbort_ = netErr && (netErr.name === 'AbortError' || /abort/i.test(String(netErr.message || '')));
+    if (_isAbort_ && _isMoneyAction_) {
+      const _secs_ = Math.round(_timeoutMs / 1000);
+      const _e_ = new Error(
+        'Timed out waiting for the server after ' + _secs_ + 's — but this step may have COMPLETED. '
+        + 'Do NOT tap again. Refresh and re-open the order first: if labels/tracking are already there, it worked. '
+        + '(action: ' + _actStr + ')');
+      _e_.mbdMoneyTimeout = true;
+      _e_.mbdAction = _actStr;
+      throw _e_;
     }
     throw netErr;
   }
@@ -34415,7 +34468,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1397"></script>
+<script src="./pack.js?v=10.1398"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34426,7 +34479,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1397<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1398<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
