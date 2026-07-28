@@ -2804,6 +2804,11 @@ input::placeholder, textarea::placeholder {
   <div id="groundView-queue">
     <!-- v10.592 — ground-source holds banner (Zac 2026-06-16: held
          orders only appeared on Cabinets tab; they were missed daily). -->
+    <!-- v10.1399 — label-printer health. If the PrintNode bridge computer is
+         off, every shipping label silently "submits" and never prints. The
+         pre-flight check existed since v10.938 but was wired ONLY to bin
+         labels; Ground never used it. -->
+    <div id="groundPrinterBanner" style="display:none;margin-bottom:10px"></div>
     <div id="groundHoldsBanner" style="display:none;margin-bottom:10px"></div>
     <!-- v10.1320 (Seth 2026-07-22 14:41 EDT): search input moved UP
          into groundStatusBar (see #groundSearchWrap). Removed from
@@ -31099,6 +31104,46 @@ function openGroundExcludedModal_() {
   document.body.appendChild(ov);
 }
 
+// v10.1399 (Zac 2026-07-28, "make failures loud" / label problems) —
+// label-printer pre-flight for the Ground tab.
+//
+// PrintNode accepts a print job and returns a job id even when the bridge
+// computer is off; the label then never physically prints. Bedrock's own
+// printer picker (v10.1396) showed several printers "online" on a host that
+// was disconnected, which is exactly this failure. Bin labels have had a
+// pre-flight since v10.938 — Ground, where the actual shipping labels come
+// out, never got one. A packer could work a whole queue whose labels went
+// nowhere and get no signal at all.
+//
+// Runs AFTER the queue paints and never blocks packing: this is advisory.
+// If the check itself fails we stay silent rather than crying wolf.
+async function refreshGroundPrinterHealth_() {
+  const el = document.getElementById('groundPrinterBanner');
+  if (!el) return;
+  let chk = null;
+  try {
+    chk = await groundApi('checkPrintNodePrinterOnline', { for: 'label' });
+  } catch (e) { return; }
+  if (!chk || !chk.ok) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  if (chk.online) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const name = escapeHtml(chk.printer_name || ('printer #' + (chk.printer_id || '?')));
+  const host = escapeHtml(chk.computer_name || 'the bridge computer');
+  const bridgeDown = String(chk.computer_state || '').toLowerCase().indexOf('disconnect') !== -1;
+  el.style.display = 'block';
+  el.innerHTML =
+      '<div style="background:linear-gradient(135deg,#8E0000,#B71C1C);border:1.5px solid #ff5252;border-radius:10px;padding:12px 14px">'
+    + '<div style="font-size:14px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff;letter-spacing:.3px">'
+    + '🖨 LABEL PRINTER OFFLINE — labels will NOT print</div>'
+    + '<div style="font-size:12px;color:#ffe0e0;-webkit-text-fill-color:#ffe0e0;margin-top:4px;line-height:1.5">'
+    + name + ' · printer <b>' + escapeHtml(chk.state || '?') + '</b> · bridge <b>' + escapeHtml(chk.computer_state || '?') + '</b><br>'
+    + (bridgeDown
+        ? 'The PrintNode bridge on <b>' + host + '</b> is not running. Labels will still "submit" and look successful, but nothing comes out of the printer. Start PrintNode on ' + host + ', then tap Recheck.'
+        : 'The printer is not reachable. Check power/paper and that it is connected, then tap Recheck.')
+    + '</div>'
+    + '<button onclick="refreshGroundPrinterHealth_()" style="margin-top:8px;padding:7px 16px;background:#fff;color:#B71C1C;-webkit-text-fill-color:#B71C1C;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">↻ Recheck</button>'
+    + '</div>';
+}
+
 function renderGroundHoldsBanner_(holds) {
   const el = document.getElementById('groundHoldsBanner');
   if (!el) return;
@@ -31340,6 +31385,9 @@ async function refreshGroundQueue() {
     }
     status.innerHTML = esc(String(_v1Total_) + ' in ShipStation · '
       + groundQueue.length + ' to pack' + holdsLabel) + _reconLabel_;
+    // v10.1399 — advisory label-printer pre-flight. Fire-and-forget AFTER
+    // the queue has painted so it can never delay or block packing.
+    try { refreshGroundPrinterHealth_(); } catch (_e) {}
     try {
       localStorage.setItem(GROUND_QUEUE_CACHE_KEY, JSON.stringify({
         queue: groundQueue,
@@ -34468,7 +34516,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1398"></script>
+<script src="./pack.js?v=10.1399"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34479,7 +34527,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1398<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1399<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
