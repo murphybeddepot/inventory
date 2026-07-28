@@ -30975,6 +30975,77 @@ async function openVoidOrderPrompt_() {
 // panel → ⚙ Configure → modal; now: row's ⚙ → modal). Non-unknown
 // holds (Beacon-Hold, size-confirm, etc.) still route to the Holds
 // panel where their kind-specific flow runs.
+// v10.1397 (Zac 2026-07-28: "seth really isn't even confident he didn't miss
+// any orders") — the accountability view for the Ground queue's filter chain.
+// Shows every awaiting ShipStation order that Bedrock chose NOT to show, and
+// exactly why. Grouped so the "this is normal" bulk (mattress dropship,
+// cabinet, wholesale) collapses visually and anything needing a human floats
+// to the top.
+function openGroundExcludedModal_() {
+  const rows = Array.isArray(window._groundExcluded_) ? window._groundExcluded_ : [];
+  const prev = document.getElementById('groundExcludedOv');
+  if (prev) prev.remove();
+  // Reasons that mean "a human should look at this", in priority order.
+  const NEEDS_REVIEW = { no_items_unexpected: 1, autoheal_failed: 1 };
+  const GROUP_META = {
+    no_items_unexpected: { icon: '⚠', title: 'Needs checking — no line items but a real order', tone: '#ff5252' },
+    autoheal_failed:     { icon: '⚠', title: 'Needs checking — could not auto-heal stale row', tone: '#ff5252' },
+    beacon_hold:         { icon: '🛑', title: 'Beacon fraud / shipping-rules hold', tone: '#FFB300' },
+    hold:                { icon: '⏸', title: 'On hold', tone: '#FFB300' },
+    mattress_dropship:   { icon: '🛏', title: 'Mattress dropship — ships from Mattress Firm', tone: '#4FC3F7' },
+    cabinet:             { icon: '🗄', title: 'Cabinet / freight — packs on the Orders tab', tone: '#9AAAC0' },
+    wholesale:           { icon: '🏭', title: 'Wholesale — warehouse PACK schedule', tone: '#9AAAC0' },
+    all_items_ignored:   { icon: '∅', title: 'Nothing packable (samples / shipping protection)', tone: '#9AAAC0' },
+    no_items_shell:      { icon: '∅', title: 'Empty ShipStation shell order', tone: '#9AAAC0' },
+  };
+  const groups = {};
+  rows.forEach(r => { (groups[r.reason] = groups[r.reason] || []).push(r); });
+  const keys = Object.keys(groups).sort((a, b) => (NEEDS_REVIEW[b] ? 1 : 0) - (NEEDS_REVIEW[a] ? 1 : 0));
+  const reviewCount = rows.filter(r => NEEDS_REVIEW[r.reason]).length;
+
+  let h = '<div style="padding:14px 18px;font-size:12px;line-height:1.6;color:#C7D2DE;-webkit-text-fill-color:#C7D2DE;border-bottom:1px solid rgba(255,255,255,.12)">'
+    + 'ShipStation has <b style="color:#fff;-webkit-text-fill-color:#fff">' + rows.length + '</b> awaiting order'
+    + (rows.length === 1 ? '' : 's') + ' that the Ground queue does not show. '
+    + (reviewCount
+        ? '<b style="color:#ff8a80;-webkit-text-fill-color:#ff8a80">' + reviewCount + ' need' + (reviewCount === 1 ? 's' : '') + ' a human look.</b> The rest are filtered on purpose.'
+        : '<b style="color:#69F0AE;-webkit-text-fill-color:#69F0AE">All of them are filtered on purpose — nothing is lost.</b>')
+    + '</div>';
+
+  keys.forEach(k => {
+    const meta = GROUP_META[k] || { icon: '•', title: k, tone: '#9AAAC0' };
+    const list = groups[k];
+    h += '<div style="padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.07)">'
+      + '<div style="font-size:12px;font-weight:900;color:' + meta.tone + ';-webkit-text-fill-color:' + meta.tone
+      + ';text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'
+      + meta.icon + ' ' + meta.title + ' (' + list.length + ')</div>';
+    list.forEach(r => {
+      const when = r.order_date ? String(r.order_date).slice(0, 10) : '';
+      h += '<div style="padding:6px 0;border-top:1px solid rgba(255,255,255,.06)">'
+        + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:#fff;-webkit-text-fill-color:#fff">'
+        + escapeHtml(r.order_number || '?')
+        + '<span style="color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-weight:400;font-size:11px"> · '
+        + escapeHtml(r.customer_name || '') + (r.state ? ' · ' + escapeHtml(r.state) : '')
+        + (when ? ' · ' + escapeHtml(when) : '') + '</span></div>'
+        + (r.skus && r.skus.length
+            ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#8FA0B4;-webkit-text-fill-color:#8FA0B4">' + escapeHtml(r.skus.join(' · ')) + '</div>'
+            : '')
+        + '<div style="font-size:11px;color:#B8C4D2;-webkit-text-fill-color:#B8C4D2;margin-top:2px">' + escapeHtml(r.explain || '') + '</div>'
+        + '</div>';
+    });
+    h += '</div>';
+  });
+
+  const ov = document.createElement('div');
+  ov.id = 'groundExcludedOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(0,0,0,.85);display:flex;align-items:flex-start;justify-content:center;padding:30px 14px;overflow:auto';
+  ov.innerHTML = '<div style="background:#0E1520;border:1.5px solid rgba(255,255,255,.18);border-radius:14px;max-width:640px;width:100%;overflow:hidden;font-family:Helvetica,Arial,sans-serif">'
+    + '<div style="background:#000;padding:14px 18px;display:flex;align-items:center;gap:10px">'
+    + '<div style="flex:1;color:#FFB300;-webkit-text-fill-color:#FFB300;font-weight:900;font-size:13px;letter-spacing:1px">FILTERED FROM THE GROUND QUEUE</div>'
+    + '<button onclick="document.getElementById(\'groundExcludedOv\').remove()" style="padding:7px 16px;background:#1a1a1a;color:#E8EDF4;-webkit-text-fill-color:#E8EDF4;border:1px solid rgba(255,255,255,.25);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>' + h + '</div>';
+  document.body.appendChild(ov);
+}
+
 function renderGroundHoldsBanner_(holds) {
   const el = document.getElementById('groundHoldsBanner');
   if (!el) return;
@@ -31196,9 +31267,26 @@ async function refreshGroundQueue() {
     const holds = Array.isArray(data.holds) ? data.holds : [];
     renderGroundHoldsBanner_(holds);
     const holdsLabel = holds.length ? ' · ' + holds.length + ' on hold' : '';
-    status.textContent = (groundQueue.length === 0
-      ? '0 awaiting'
-      : groundQueue.length + ' awaiting') + holdsLabel;
+    // v10.1397 — reconciliation line. ShipStation's awaiting count and the
+    // Ground tab's count have always differed (six silent filter rules), and
+    // there was no way to tell "correctly filtered" from "lost an order".
+    // Now the numbers add up on screen and the filtered set is one tap away.
+    const _excl_ = Array.isArray(data.excluded) ? data.excluded : [];
+    window._groundExcluded_ = _excl_;
+    const _v1Total_ = Number(data.v1_total) || (groundQueue.length + _excl_.length);
+    let _reconLabel_ = '';
+    if (_excl_.length) {
+      const _review_ = _excl_.filter(e => e.reason === 'no_items_unexpected' || e.reason === 'autoheal_failed').length;
+      _reconLabel_ = ' · <button onclick="openGroundExcludedModal_()" style="padding:2px 8px;background:'
+        + (_review_ ? 'rgba(255,82,82,.22)' : 'rgba(255,255,255,.10)') + ';color:'
+        + (_review_ ? '#ff8a80' : '#9AAAC0') + ';-webkit-text-fill-color:'
+        + (_review_ ? '#ff8a80' : '#9AAAC0') + ';border:1px solid '
+        + (_review_ ? 'rgba(255,82,82,.55)' : 'rgba(255,255,255,.20)')
+        + ';border-radius:5px;font-size:11px;font-weight:800;cursor:pointer">'
+        + (_review_ ? '⚠ ' : '') + _excl_.length + ' filtered' + (_review_ ? ' · ' + _review_ + ' to check' : '') + '</button>';
+    }
+    status.innerHTML = esc(String(_v1Total_) + ' in ShipStation · '
+      + groundQueue.length + ' to pack' + holdsLabel) + _reconLabel_;
     try {
       localStorage.setItem(GROUND_QUEUE_CACHE_KEY, JSON.stringify({
         queue: groundQueue,
@@ -34327,7 +34415,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1396"></script>
+<script src="./pack.js?v=10.1397"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34338,7 +34426,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1396<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1397<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
