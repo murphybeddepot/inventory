@@ -291,6 +291,20 @@
       <div class="colhead">Parts <span class="spacer"></span><span id="trayCount" class="muted mono"></span></div>
       <div class="traytools">
         <div class="row"><input type="search" id="traySearch" placeholder="Filter parts…" spellcheck="false"></div>
+        <div class="row" style="gap:6px">
+          <label style="font-size:11px;color:var(--ink2)" for="traySort">Sort</label>
+          <select id="traySort" style="flex:1;font-size:11px;padding:3px 6px;border:1px solid var(--line2);border-radius:6px;background:var(--field);color:var(--ink)">
+            <option value="section">Section (default)</option>
+            <option value="lenDesc">Length ↓ (longest first)</option>
+            <option value="lenAsc">Length ↑ (shortest first)</option>
+            <option value="widDesc">Width ↓</option>
+            <option value="widAsc">Width ↑</option>
+            <option value="qtyDesc">Qty ↓</option>
+            <option value="qtyAsc">Qty ↑</option>
+            <option value="nameAsc">Name A→Z</option>
+            <option value="partAsc">Part # A→Z</option>
+          </select>
+        </div>
         <div class="row" style="justify-content:space-between">
           <span class="muted" style="font-size:11px">Click a part, then click the pallet</span>
           <button id="btnExpand" class="ghost" style="font-size:11px">Collapse all</button>
@@ -644,7 +658,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.2';
+const APP_VERSION = '3.3';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -722,6 +736,7 @@ const S = {
   origin:'TL', datum:'foot', ref:'center',
   collapsed:new Set(),
   cartons:[], placedCartons:[],
+  traySort:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_sort')||'section'; }catch(_){return 'section';} })(),
 };
 /* placed part shape: {id, key, partNum, name, secIdx, L, W, thickness, cx, cy, angle} */
 
@@ -1302,42 +1317,68 @@ function totalPlaced(){let n=0;for(const layer of S.layers)n+=layer.length;retur
 function totalRequired(){let n=0;for(const m of S.manifest)n+=m.qty;return n;}
 
 /* ---------- TRAY ---------- */
+/* v3.3: sort options. When sort='section' (default) keeps the section-
+   grouped view with collapse controls. Any other sort key flattens to a
+   single sortable list — sections stop being visually distinct but the
+   swatch color still identifies the source section for each row. */
+function _partSortComparator_(key){
+  switch(key){
+    case 'lenDesc': return (a,b)=>b.Lmm-a.Lmm || b.Wmm-a.Wmm;
+    case 'lenAsc':  return (a,b)=>a.Lmm-b.Lmm || a.Wmm-b.Wmm;
+    case 'widDesc': return (a,b)=>b.Wmm-a.Wmm || b.Lmm-a.Lmm;
+    case 'widAsc':  return (a,b)=>a.Wmm-b.Wmm || a.Lmm-b.Lmm;
+    case 'qtyDesc': return (a,b)=>b.qty-a.qty || b.Lmm-a.Lmm;
+    case 'qtyAsc':  return (a,b)=>a.qty-b.qty || a.Lmm-b.Lmm;
+    case 'nameAsc': return (a,b)=>String(a.name).localeCompare(String(b.name)) || a.Lmm-b.Lmm;
+    case 'partAsc': return (a,b)=>String(a.partNum).localeCompare(String(b.partNum));
+    default:        return (a,b)=>a.secIdx-b.secIdx;
+  }
+}
+function _renderPartRow_(m){
+  const col=SECTION_COLORS[m.secIdx%SECTION_COLORS.length];
+  const placed=placedCount(m.key), done=placed>=m.qty;
+  const row=el('div',{class:'partrow'+(done?' depleted':'')+(S.armed===m.key?' armed':'')});
+  row.innerHTML=`<span class="swatch" style="background:${col}" title="Section: ${esc(m.section||'')}"></span>
+    <div class="info">
+      <div class="dim">${dimStr(m.Lmm)}×${dimStr(m.Wmm)} <span class="thk${m.thickness!==19?' t58':''}">${thkLabel(m.thickness)}</span></div>
+      <div class="nm">${esc(m.name)}</div>
+      <div class="pn">${esc(m.partNum)}</div>
+    </div>
+    <span class="badge${done?' done':''}">${placed}/${m.qty}</span>`;
+  row.onclick=()=>{ if(S.armed===m.key){S.armed=null;}else{S.armed=m.key;S.armedAngle=0;} updateArmHint(); renderTray(); };
+  row.oncontextmenu=ev=>{ev.preventDefault();toggleThickness(m.key);};
+  return row;
+}
 function renderTray(){
   const body=$('trayBody');body.innerHTML='';
   if(!S.manifest.length){body.innerHTML='<div class="emptytray">No parts loaded.<br>Use <b>Import part list…</b> to paste an order.</div>';
     $('trayCount').textContent='';return;}
   const q=($('traySearch').value||'').toLowerCase();
-  // group by section
-  const groups={};
-  for(const m of S.manifest){(groups[m.secIdx]=groups[m.secIdx]||{name:m.section,idx:m.secIdx,items:[]}).items.push(m);}
-  const order=Object.values(groups).sort((a,b)=>a.idx-b.idx);
-  for(const g of order){
-    const items=g.items.filter(m=>!q||(m.partNum+' '+m.name).toLowerCase().includes(q));
-    if(!items.length)continue;
-    const col=SECTION_COLORS[g.idx%SECTION_COLORS.length];
-    const placedSum=items.reduce((s,m)=>s+placedCount(m.key),0);
-    const reqSum=items.reduce((s,m)=>s+m.qty,0);
-    const collapsed=S.collapsed.has(g.idx);
-    const grp=el('div',{class:'secgroup'+(collapsed?' collapsed':'')});
-    const head=el('div',{class:'sechead'});
-    head.innerHTML=`<span class="dot" style="background:${col}"></span><span class="nm">${esc(g.name)}</span><span class="ct">${placedSum}/${reqSum}</span><span class="tw">▼</span>`;
-    head.onclick=()=>{if(S.collapsed.has(g.idx))S.collapsed.delete(g.idx);else S.collapsed.add(g.idx);renderTray();};
-    grp.appendChild(head);
-    for(const m of items){
-      const placed=placedCount(m.key), done=placed>=m.qty;
-      const row=el('div',{class:'partrow'+(done?' depleted':'')+(S.armed===m.key?' armed':'')});
-      row.innerHTML=`<span class="swatch" style="background:${col}"></span>
-        <div class="info">
-          <div class="dim">${dimStr(m.Lmm)}×${dimStr(m.Wmm)} <span class="thk${m.thickness!==19?' t58':''}">${thkLabel(m.thickness)}</span></div>
-          <div class="nm">${esc(m.name)}</div>
-          <div class="pn">${esc(m.partNum)}</div>
-        </div>
-        <span class="badge${done?' done':''}">${placed}/${m.qty}</span>`;
-      row.onclick=()=>{ if(S.armed===m.key){S.armed=null;}else{S.armed=m.key;S.armedAngle=0;} updateArmHint(); renderTray(); };
-      // thickness toggle via dblclick on the thk chip is fiddly; add ctrl+click to toggle 19/5/8
-      row.oncontextmenu=ev=>{ev.preventDefault();toggleThickness(m.key);};
-      grp.appendChild(row);
+  const sort=S.traySort||'section';
+  const filtered=S.manifest.filter(m=>!q||(m.partNum+' '+m.name).toLowerCase().includes(q));
+  if(sort==='section'){
+    const groups={};
+    for(const m of filtered){(groups[m.secIdx]=groups[m.secIdx]||{name:m.section,idx:m.secIdx,items:[]}).items.push(m);}
+    const order=Object.values(groups).sort((a,b)=>a.idx-b.idx);
+    for(const g of order){
+      if(!g.items.length)continue;
+      const col=SECTION_COLORS[g.idx%SECTION_COLORS.length];
+      const placedSum=g.items.reduce((s,m)=>s+placedCount(m.key),0);
+      const reqSum=g.items.reduce((s,m)=>s+m.qty,0);
+      const collapsed=S.collapsed.has(g.idx);
+      const grp=el('div',{class:'secgroup'+(collapsed?' collapsed':'')});
+      const head=el('div',{class:'sechead'});
+      head.innerHTML=`<span class="dot" style="background:${col}"></span><span class="nm">${esc(g.name)}</span><span class="ct">${placedSum}/${reqSum}</span><span class="tw">▼</span>`;
+      head.onclick=()=>{if(S.collapsed.has(g.idx))S.collapsed.delete(g.idx);else S.collapsed.add(g.idx);renderTray();};
+      grp.appendChild(head);
+      for(const m of g.items) grp.appendChild(_renderPartRow_(m));
+      body.appendChild(grp);
     }
+  }else{
+    // Flat list — sorted by chosen key.
+    const sorted=[...filtered].sort(_partSortComparator_(sort));
+    const grp=el('div',{class:'secgroup'});
+    for(const m of sorted) grp.appendChild(_renderPartRow_(m));
     body.appendChild(grp);
   }
   $('trayCount').textContent=totalPlaced()+'/'+totalRequired()+' placed';
@@ -3043,6 +3084,15 @@ $('chkGhost').onchange=()=>{S.ghost=$('chkGhost').checked;render();scheduleSave(
 $('chkLabels').onchange=()=>{S.labels=$('chkLabels').checked;render();scheduleSave();};
 $('gridSel').onchange=()=>{const v=$('gridSel').value;if(v.endsWith('in')){S.gridIn=true;S.grid=parseFloat(v);}else{S.gridIn=false;S.grid=parseFloat(v);}scheduleSave();};
 $('traySearch').oninput=renderTray;
+// v3.3: sort dropdown. Selection is per-user (persists across recipes)
+// so it lives in localStorage, not the snapshot. Restore the previous
+// choice on boot so refresh doesn't dump you back to Section order.
+$('traySort').value=S.traySort||'section';
+$('traySort').onchange=()=>{
+  S.traySort=$('traySort').value||'section';
+  try{ localStorage.setItem('mbd_stacking_tray_sort', S.traySort); }catch(_){}
+  renderTray();
+};
 $('btnExpand').onclick=()=>{
   const anyOpen=S.manifest.some(m=>!S.collapsed.has(m.secIdx));
   if(anyOpen){S.manifest.forEach(m=>S.collapsed.add(m.secIdx));$('btnExpand').textContent='Expand all';}
