@@ -8,6 +8,19 @@
      Defines window.STACKING_CONFIG. If missing, editor still works
      from localStorage (offline mode); server sync is disabled. -->
 <script src="./config.js"></script>
+<!-- JSZip 3.10.1 — needed by js/moz_build.mjs (Mozaik job export). CDN
+     matches moz-layer-editor's original load. Loads BEFORE the module
+     block below so it's available on globalThis when moz_build imports. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- Phase 1 .moz I/O: import parts from .moz files, export as per-layer
+     .moz or a full Mozaik job zip. Module exports are stashed on window
+     so the (non-module) main script below can call them. -->
+<script type="module">
+  import { parseMoz } from './js/moz_parse.mjs';
+  import { buildJobZip } from './js/moz_build.mjs';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs';
+  window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
+</script>
 <style>
   :root{
     --bg:#e9e7e1; --panel:#f6f5f1; --panel2:#fbfaf7; --field:#ffffff;
@@ -238,6 +251,11 @@
 <body>
 <div id="app">
   <header>
+    <a href="../" class="brand" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:4px" title="Back to Bedrock">
+      <span style="font-size:16px;line-height:1">‹</span>
+      <span>Bedrock</span>
+    </a>
+    <span style="width:1px;height:20px;background:var(--line2);margin:0 4px"></span>
     <div class="brand">Stacking Recipe Editor <small>Murphy bed TFL parts · <span id="verTag"></span></small></div>
     <div class="sku">
       <label>SKU</label>
@@ -247,7 +265,12 @@
     <div class="spacer"></div>
     <div class="grp">
       <button id="btnImport" class="primary">Import part list…</button>
+      <button id="btnImportMoz" title="Import parts from one or more Mozaik .moz files">Import .moz(s)…</button>
       <button id="btnValidate">Match order…</button>
+      <button id="btnMatchMoz" title="Match imported .moz files to an existing saved recipe by geometry signature">Match .moz(s)…</button>
+      <!-- Hidden file input the two buttons above trigger via .click(). -->
+      <input id="mozFileInput" type="file" accept=".moz" multiple style="display:none">
+      <input id="mozMatchInput" type="file" accept=".moz" multiple style="display:none">
       <button id="btnLibrary">Library…</button>
       <button id="btnSave">Save recipe</button>
       <button id="btnExport">Export…</button>
@@ -483,6 +506,9 @@
         <button id="dlPDF" class="primary">Download PDF — colour</button>
         <button id="dlPDFBW" class="primary">Download PDF — B&amp;W</button>
         <button id="copyCSV">Copy CSV</button>
+        <span style="width:1px;background:var(--line2);align-self:stretch"></span>
+        <button id="dlMozFiles" class="primary" title="Emit one .moz file per stacking layer — feed to Mozaik individually.">Mozaik files (per-layer .moz)</button>
+        <button id="dlMozJob" class="primary" title="Full Mozaik job zip: Room1 + N layer .moz + JobDat + JobParms.">Mozaik job zip</button>
       </div>
       <p class="hint" style="margin:-4px 0 12px">The PDF is a visual, shareable layout: a cover summary, an all-layers overview sheet, and one page per layer (parts labelled, support flagged) — for discussion, not for the robot.</p>
       <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px">
@@ -682,6 +708,7 @@ Adjustable Shelves
 const S = {
   sku:'',
   manifest:[],            // [{partNum,name,section,secIdx,Lmm,Wmm,Lin,Win,qty,thickness,key}]
+  importedParts:[],       // Phase-1 .moz round-trip: full parsed CabProdPart records w/ ops+bands+pos
   layers:[[]],            // array of layers; each = array of placed parts
   activeLayer:0,
   sel:new Set(),          // selected placed-part ids (within active layer)
@@ -2261,6 +2288,79 @@ $('importGo').onclick=()=>{
   toast('Loaded '+rows.reduce((s,r)=>s+r.qty,0)+' parts');
 };
 $('loadSample').onclick=()=>{$('importText').value=SAMPLE_PARTS;$('importText').dispatchEvent(new Event('input'));$('importText').focus();};
+
+/* ============================================================
+   .MOZ IMPORT / MATCH — Phase 1 (2026-07-29)
+   window.MozIO is populated by the <script type="module"> block in
+   <head> — it exposes importMozFiles(), exportJobZip(), and
+   exportPerLayerMoz() glued to js/moz_parse.mjs + js/moz_build.mjs.
+   ============================================================ */
+
+$('btnImportMoz').onclick=()=>$('mozFileInput').click();
+$('mozFileInput').onchange=async(e)=>{
+  const files=[...e.target.files]; e.target.value='';
+  if(!files.length)return;
+  if(!window.MozIO){toast('.moz import not loaded (module error)');return;}
+  try{
+    const res=await window.MozIO.importMozFiles(files);
+    if(res.errors.length){toast('Import errors: '+res.errors[0]);return;}
+    if(!res.rows.length){toast('No parts parsed from '+files.length+' file(s)');return;}
+    loadManifest(res.rows,true);
+    // Stash the full parsed records so exportJobZip has ops+bands later.
+    S.importedParts=res.importedParts;
+    scheduleSave();
+    toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts from '+files.length+' .moz file(s)'+(res.warnings.length?' — '+res.warnings.length+' warning(s)':''));
+  }catch(err){toast('Import failed: '+err.message);}
+};
+
+$('btnMatchMoz').onclick=()=>$('mozMatchInput').click();
+$('mozMatchInput').onchange=async(e)=>{
+  const files=[...e.target.files]; e.target.value='';
+  if(!files.length)return;
+  if(!window.MozIO){toast('.moz match not loaded (module error)');return;}
+  try{
+    const res=await window.MozIO.importMozFiles(files);
+    if(res.errors.length){toast('Parse errors: '+res.errors[0]);return;}
+    if(!res.rows.length){toast('No parts parsed');return;}
+    // Compute signature over the freshly-imported rows (same algorithm
+    // manifestSignatureFromRows uses for the existing text-paste
+    // "Match order…" flow, so signatures compare apples-to-apples).
+    const sig=manifestSignatureFromRows(res.rows);
+    // Search the localStorage library for signature matches. The SRE's
+    // primary persistence is loadLib()/saveLib() — remote save/load
+    // exists in the codebase but isn't wired to any UI action yet, so
+    // localStorage is where recipes actually live.
+    const lib=loadLib();
+    const matches=Object.entries(lib)
+      .filter(([sku,snap])=>snap && snap.signature===sig)
+      .map(([sku,snap])=>({sku,snap,savedAt:snap.savedAt||''}))
+      .sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));
+    if(!matches.length){
+      loadManifest(res.rows,true);
+      S.importedParts=res.importedParts;
+      scheduleSave();
+      toast('No matching recipe in library — imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
+      return;
+    }
+    const first=matches[0];
+    const msg='Matching recipe found: '+first.sku+'\n'+
+      (matches.length>1?'('+(matches.length-1)+' more matching recipe(s) also in library)\n\n':'\n')+
+      'OK = Load this recipe · Cancel = Import as new manifest';
+    if(confirm(msg)){
+      restoreSnapshot(first.snap);
+      // Refresh importedParts from the freshly-parsed .mozs since the
+      // saved snapshot may pre-date .moz import (no importedParts).
+      S.importedParts=res.importedParts;
+      scheduleSave();
+      toast('Loaded '+first.sku);
+    }else{
+      loadManifest(res.rows,true);
+      S.importedParts=res.importedParts;
+      scheduleSave();
+      toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
+    }
+  }catch(err){toast('Match failed: '+err.message);}
+};
 function loadManifest(rows,replace){
   // merge identical line items? keep as separate manifest entries keyed by identity, summing qty
   const map=new Map();
@@ -2350,6 +2450,36 @@ $('dlJSON').onclick=()=>download((S.sku||'recipe')+'.json',exportJSON(),'applica
 $('dlPDF').onclick=()=>exportStackPDF(false);
 $('dlPDFBW').onclick=()=>exportStackPDF(true);
 $('copyCSV').onclick=()=>{navigator.clipboard.writeText(exportCSV()).then(()=>toast('CSV copied'));};
+
+/* .moz exports (Phase 1). Both require an importedParts array in the
+   snapshot, which is populated by btnImportMoz / btnMatchMoz. If
+   the recipe was authored via paste-text (no .moz import behind it),
+   exportJobZip throws with a clear "re-import source .moz files"
+   message which we surface as a toast. */
+$('dlMozFiles').onclick=async()=>{
+  if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
+  try{
+    const snap=snapshot();
+    snap.importedParts=S.importedParts;
+    const files=await window.MozIO.exportPerLayerMoz(snap);
+    for(const f of files) download(f.name,f.text,'application/octet-stream');
+    toast('Downloaded '+files.length+' per-layer .moz file(s)');
+  }catch(err){toast('Export failed: '+err.message);}
+};
+$('dlMozJob').onclick=async()=>{
+  if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
+  try{
+    const snap=snapshot();
+    snap.importedParts=S.importedParts;
+    const blob=await window.MozIO.exportJobZip(snap,{jobName:S.sku||'Order'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=(S.sku||'Order')+'.zip';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Downloaded Mozaik job zip');
+  }catch(err){toast('Export failed: '+err.message);}
+};
 
 /* ===========================================================================
    PDF EXPORT — a tiny self-contained vector-PDF writer (no libraries, works
@@ -2610,7 +2740,12 @@ function snapshot(){
     layers:S.layers.map(l=>l.map(p=>({key:p.key,partNum:p.partNum,name:p.name,secIdx:p.secIdx,L:p.L,W:p.W,thickness:p.thickness,cx:p.cx,cy:p.cy,angle:p.angle}))),
     signature:sigString(currentSigArr()),
     cartons:(S.cartons||[]).map(c=>({...c})),
-    placedCartons:(S.placedCartons||[]).map(c=>({...c}))
+    placedCartons:(S.placedCartons||[]).map(c=>({...c})),
+    // Phase-1 .moz round-trip: full parsed CabProdPart records with
+    // ops/bands/pos. Populated by btnImportMoz/btnMatchMoz. Empty
+    // when the recipe was authored via paste-text; Mozaik export will
+    // ask the user to re-import the source .moz files in that case.
+    importedParts:(S.importedParts||[]).map(p=>({...p}))
   };
 }
 function restoreSnapshot(snap){
@@ -2622,6 +2757,10 @@ function restoreSnapshot(snap){
   S.layers=(snap.layers&&snap.layers.length?snap.layers:[[]]).map(l=>l.map(p=>{const id=++maxId;return {...p,id,key:p.key||mkey({partNum:p.partNum,name:p.name,Lmm:p.L,Wmm:p.W,thickness:p.thickness})};}));
   S.cartons=(snap.cartons||[]).map(c=>({...c}));
   S.placedCartons=(snap.placedCartons||[]).map(c=>({...c}));
+  // Phase-1 .moz round-trip. Older snapshots pre-date importedParts
+  // and won't have this field; empty array is safe (Mozaik export
+  // will error with a "re-import source .moz" message).
+  S.importedParts=(snap.importedParts||[]).map(p=>({...p}));
   S.nextId=maxId+1;S.activeLayer=0;S.sel=new Set();S.armed=null;
   syncSettingControls();renderAll();updateSig();
 }
