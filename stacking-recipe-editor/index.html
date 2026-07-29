@@ -644,7 +644,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2764,27 +2764,109 @@ function restoreSnapshot(snap){
   S.nextId=maxId+1;S.activeLayer=0;S.sel=new Set();S.armed=null;
   syncSettingControls();renderAll();updateSig();
 }
-$('btnSave').onclick=()=>{
+/* Save (v3.1 — Phase 1.1 cross-device):
+   1) Write to localStorage (always, even offline / unprovisioned).
+   2) If the device is provisioned for Bedrock sync, also POST to
+      Supabase via remoteSaveRecipe. Optimistic concurrency: pass the
+      stored _revision back so the RPC detects conflicts from other
+      devices. Conflict → toast + keep local; user reloads from library
+      to merge. Non-conflict → stash new_revision back into localStorage. */
+$('btnSave').onclick=async()=>{
   S.sku=$('skuInput').value.trim();
   if(!S.sku){toast('Enter a SKU first');$('skuInput').focus();return;}
   if(!totalPlaced() && !confirm('No parts are placed. Save an empty layout for '+S.sku+'?'))return;
   const lib=loadLib();const exists=!!lib[S.sku];
   if(exists && !confirm('Overwrite saved recipe "'+S.sku+'"?'))return;
-  lib[S.sku]=snapshot();saveLib(lib);toast('Saved recipe '+S.sku);
+  const snap=snapshot();
+  snap.savedAt=new Date().toISOString();
+  const prevRev=(exists && lib[S.sku] && lib[S.sku]._revision) ? lib[S.sku]._revision : null;
+  lib[S.sku]=snap;saveLib(lib);
+  if(!isProvisioned()){
+    toast('Saved '+S.sku+' (local only — device not provisioned for cloud sync)');
+    return;
+  }
+  try{
+    const result=await remoteSaveRecipe(S.sku, snap, prevRev);
+    if(result && result.conflict){
+      toast('Saved local. CLOUD CONFLICT — another device has newer rev '+result.current_revision+'; open Library and Load to fetch the newer version.');
+      return;
+    }
+    if(result && result.new_revision){
+      snap._revision=result.new_revision;
+      lib[S.sku]._revision=result.new_revision;
+      saveLib(lib);
+      toast('Saved '+S.sku+' (local + cloud rev '+result.new_revision+')');
+    }else{
+      toast('Saved '+S.sku+' (local; cloud returned no revision)');
+    }
+  }catch(err){
+    toast('Saved local. Cloud save failed: '+err.message);
+  }
 };
-$('btnLibrary').onclick=()=>{renderLibList();openModal('libModal');};
-function renderLibList(){
-  const lib=loadLib();const list=$('libList');const keys=Object.keys(lib).sort();
-  $('libCount').textContent=keys.length+' recipe'+(keys.length!==1?'s':'')+' stored';
+$('btnLibrary').onclick=async()=>{await renderLibList();openModal('libModal');};
+async function renderLibList(){
+  const local=loadLib();
+  const list=$('libList');
+  list.innerHTML='<div class="hint" style="text-align:center;padding:20px">Loading…</div>';
+  let remote=null; let remoteErr=null;
+  if(isProvisioned()){
+    try{ remote=await remoteListLib(); }catch(err){ remoteErr=err.message; }
+  }
+  // Union of SKUs from local + remote. remote entries carry {sku, revision,
+  // signature, updated_at, updated_by} — NO snapshot (list RPC omits it
+  // for bandwidth). Snapshot is fetched on Load.
+  const union=new Map();
+  for(const k of Object.keys(local)) union.set(k,{local:local[k], remote:null});
+  if(remote && Array.isArray(remote)){
+    for(const r of remote){
+      const sku=r.sku||''; if(!sku)continue;
+      if(!union.has(sku)) union.set(sku,{local:null, remote:r});
+      else union.get(sku).remote=r;
+    }
+  }
+  const keys=[...union.keys()].sort();
+  const syncTag=remoteErr?' · cloud sync ERROR ('+remoteErr+')':remote?' · cloud sync ON':isProvisioned()?' · cloud sync OFF':' · local only (not provisioned)';
+  $('libCount').textContent=keys.length+' recipe'+(keys.length!==1?'s':'')+syncTag;
   if(!keys.length){list.innerHTML='<div class="hint" style="text-align:center;padding:20px">No saved recipes yet. Build a layout and click <b>Save recipe</b>.</div>';return;}
   list.innerHTML='';
   for(const k of keys){
-    const r=lib[k];const np=(r.layers||[]).reduce((s,l)=>s+l.length,0);
+    const {local:L, remote:R}=union.get(k);
+    const src=L||{};
+    const layers=src.layers||[];
+    const np=layers.reduce((s,l)=>s+(l||[]).length,0);
+    let badgeHtml='';
+    if(L && R){
+      const drift=(L._revision && L._revision!==R.revision)?' <span class="pill warn">local rev '+L._revision+' ≠ cloud rev '+R.revision+'</span>':'';
+      badgeHtml='<span class="pill">Local+Cloud rev '+R.revision+'</span>'+drift;
+    }else if(L){
+      badgeHtml='<span class="pill warn">Local only</span>';
+    }else{
+      badgeHtml='<span class="pill">Cloud only rev '+(R.revision||'?')+'</span>';
+    }
+    const dateStr=L&&L.savedAt?new Date(L.savedAt).toLocaleDateString():R&&R.updated_at?new Date(R.updated_at).toLocaleDateString():'';
+    const sigStr=L?sigShort((L.signature||'').split('|').filter(Boolean)):R?sigShort((R.signature||'').split('|').filter(Boolean)):'';
     const card=el('div',{class:'reccard'});
-    card.innerHTML=`<div class="info"><div class="nm">${esc(k)}</div>
-      <div class="sub">${np} parts · ${(r.layers||[]).length} layers · sig ${sigShort((r.signature||'').split('|').filter(Boolean))} · ${new Date(r.savedAt).toLocaleDateString()}</div></div>`;
-    const bLoad=el('button',{class:'primary',text:'Load'});bLoad.onclick=()=>{restoreSnapshot(r);closeModal('libModal');toast('Loaded '+k);};
-    const bDel=el('button',{class:'danger',text:'Delete'});bDel.onclick=()=>{if(confirm('Delete recipe "'+k+'"?')){const L=loadLib();delete L[k];saveLib(L);renderLibList();}};
+    card.innerHTML=`<div class="info"><div class="nm">${esc(k)} ${badgeHtml}</div>
+      <div class="sub">${L?np+' parts · '+layers.length+' layers · ':'(cloud snapshot — click Load to fetch) · '}sig ${sigStr}${dateStr?' · '+dateStr:''}</div></div>`;
+    const bLoad=el('button',{class:'primary',text:'Load'});
+    bLoad.onclick=async()=>{
+      let snap=L;
+      if(isProvisioned() && R){
+        try{
+          const remoteFull=await remoteLoadRecipe(k);
+          if(remoteFull && remoteFull.snapshot){
+            snap={...remoteFull.snapshot, _revision:remoteFull.revision};
+            // Refresh localStorage with cloud copy so subsequent local edits
+            // start from the freshest revision.
+            const LL=loadLib();LL[k]=snap;saveLib(LL);
+          }
+        }catch(err){ toast('Cloud fetch failed, using local: '+err.message); }
+      }
+      if(!snap){ toast('No snapshot available for '+k); return; }
+      restoreSnapshot(snap);closeModal('libModal');toast('Loaded '+k+(snap._revision?' (cloud rev '+snap._revision+')':' (local)'));
+    };
+    const bDel=el('button',{class:'danger',text:'Delete'});
+    bDel.onclick=()=>{if(confirm('Delete LOCAL copy of "'+k+'"? (Cloud copy is not affected in v3.1)')){const LL=loadLib();delete LL[k];saveLib(LL);renderLibList();}};
     card.appendChild(bLoad);card.appendChild(bDel);
     list.appendChild(card);
   }
