@@ -644,7 +644,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.1';
+const APP_VERSION = '3.2';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2326,33 +2326,74 @@ $('mozMatchInput').onchange=async(e)=>{
     // manifestSignatureFromRows uses for the existing text-paste
     // "Match order…" flow, so signatures compare apples-to-apples).
     const sig=manifestSignatureFromRows(res.rows);
-    // Search the localStorage library for signature matches. The SRE's
-    // primary persistence is loadLib()/saveLib() — remote save/load
-    // exists in the codebase but isn't wired to any UI action yet, so
-    // localStorage is where recipes actually live.
+    // v3.2: search BOTH local library AND cloud library (all provisioned
+    // devices). Local is instant; remote is a single list_stacking_recipes
+    // RPC we filter client-side by signature (list is small — few dozen
+    // recipes tops, and the RPC omits snapshot bodies for bandwidth).
     const lib=loadLib();
-    const matches=Object.entries(lib)
+    const localMatches=Object.entries(lib)
       .filter(([sku,snap])=>snap && snap.signature===sig)
-      .map(([sku,snap])=>({sku,snap,savedAt:snap.savedAt||''}))
-      .sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));
+      .map(([sku,snap])=>({sku, source:'local', snap, savedAt:snap.savedAt||'', revision:snap._revision||null}));
+    let cloudMatches=[];
+    if(isProvisioned()){
+      try{
+        const cloud=await remoteListLib();
+        if(cloud && Array.isArray(cloud)){
+          cloudMatches=cloud
+            .filter(r=>r && r.signature===sig)
+            .map(r=>({sku:r.sku, source:'cloud', snap:null, savedAt:r.updated_at||'', revision:r.revision||null}));
+        }
+      }catch(err){ /* silent — local search still runs */ }
+    }
+    // Merge by SKU: local wins for display+load, cloud fills in the
+    // "also matches on other device" story via the source badge.
+    const bySku=new Map();
+    for(const m of localMatches) bySku.set(m.sku, m);
+    for(const m of cloudMatches){
+      if(bySku.has(m.sku)){
+        const existing=bySku.get(m.sku);
+        existing.source='local+cloud';
+        existing.cloudRevision=m.revision;
+      }else{
+        bySku.set(m.sku, m);
+      }
+    }
+    const matches=[...bySku.values()].sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));
     if(!matches.length){
       loadManifest(res.rows,true);
       S.importedParts=res.importedParts;
       scheduleSave();
-      toast('No matching recipe in library — imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
+      const provTag=isProvisioned()?' (searched local + cloud)':' (local only — device not provisioned)';
+      toast('No matching recipe'+provTag+' — imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
       return;
     }
     const first=matches[0];
-    const msg='Matching recipe found: '+first.sku+'\n'+
-      (matches.length>1?'('+(matches.length-1)+' more matching recipe(s) also in library)\n\n':'\n')+
+    const sourceLabel=first.source==='local+cloud'?'Local + Cloud':first.source==='cloud'?'Cloud only':'Local only';
+    const otherLines=matches.length>1
+      ? '('+(matches.length-1)+' more matching recipe(s): '+matches.slice(1).map(m=>m.sku+' ['+m.source+']').join(', ')+')\n\n'
+      : '\n';
+    const msg='Matching recipe found: '+first.sku+' ['+sourceLabel+']\n'+otherLines+
       'OK = Load this recipe · Cancel = Import as new manifest';
     if(confirm(msg)){
-      restoreSnapshot(first.snap);
+      let snapToLoad=first.snap;
+      if(!snapToLoad && first.source==='cloud'){
+        // Cloud-only match: fetch the full snapshot from Supabase.
+        try{
+          const remoteFull=await remoteLoadRecipe(first.sku);
+          if(remoteFull && remoteFull.snapshot){
+            snapToLoad={...remoteFull.snapshot, _revision:remoteFull.revision};
+            // Stash into local library so next open is instant.
+            const LL=loadLib();LL[first.sku]=snapToLoad;saveLib(LL);
+          }
+        }catch(err){ toast('Cloud fetch failed: '+err.message); return; }
+      }
+      if(!snapToLoad){ toast('No snapshot available for '+first.sku); return; }
+      restoreSnapshot(snapToLoad);
       // Refresh importedParts from the freshly-parsed .mozs since the
       // saved snapshot may pre-date .moz import (no importedParts).
       S.importedParts=res.importedParts;
       scheduleSave();
-      toast('Loaded '+first.sku);
+      toast('Loaded '+first.sku+' ['+sourceLabel+']');
     }else{
       loadManifest(res.rows,true);
       S.importedParts=res.importedParts;
