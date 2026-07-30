@@ -194,7 +194,9 @@ function clearProgress(){
 }
 
 /* ---------- STORAGE ---------- */
-const LS_LIB='mbd_stacking_library';
+// v3.9b HOTFIX: the SRE uses `_v1` suffix (see index.html:577). Without
+// matching this, the guide never finds recipes saved in the editor.
+const LS_LIB='mbd_stacking_library_v1';
 const DEV_KEY='mbd_stacking_device';
 function loadLib(){try{return JSON.parse(localStorage.getItem(LS_LIB)||'{}');}catch(_){return {};}}
 function getDeviceSecret(){try{return localStorage.getItem(DEV_KEY)||'';}catch(_){return '';}}
