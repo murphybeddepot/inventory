@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.24';
+const APP_VERSION = '3.25';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2462,7 +2462,28 @@ function costOfPlan(plan,Lf,Wf){
   const topFillTerm = noCartons ? -topFill * 25000 : topFill * 1500;
   const gapPen = _stackedGapPenalty_(plan, Lf, Wf);
   const seamPen = _seamAlignPenalty_(plan, Lf, Wf);
-  return L*1e6 + supPenalty*150000 + thTerm + topFillTerm + gapPen*60 + seamPen*2000 + (plan.unplaced||0)*1e9 + (plan.cartonDropped||0)*1e9;
+  return L*1e6 + supPenalty*150000 + thTerm + topFillTerm + gapPen*300 + seamPen*5000 + (plan.unplaced||0)*1e9 + (plan.cartonDropped||0)*1e9;
+}
+// v3.25 — brick-mirror pass. Walks each layer top-down and X-mirrors it if
+// doing so reduces the stacked-gap penalty. Fixes the "L5–L8 all pack the
+// same parts into the same slots → 4-layer-deep void" pattern that greedy
+// packStack creates: mirror moves each layer's void to the opposite side,
+// so consecutive layers' voids no longer stack vertically. Guard on no
+// cartons (cartons anchor top rigidly; can't be safely flipped).
+function _brickMirrorPass_(layers, cartons, Lf, Wf){
+  if(cartons && cartons.length) return;
+  const n = layers.length;
+  if(n < 3) return;
+  const mockPlan = { layers, cartons: [] };
+  for(let li=1; li<n; li++){
+    if(!layers[li].length) continue;
+    const before = _stackedGapPenalty_(mockPlan, Lf, Wf);
+    for(const p of layers[li]) p.cx = Lf - p.cx;
+    const after = _stackedGapPenalty_(mockPlan, Lf, Wf);
+    if(after >= before){
+      for(const p of layers[li]) p.cx = Lf - p.cx;   // revert
+    }
+  }
 }
 function planHash(plan){return plan.layers.length+'|'+plan.layers.map(l=>{let u=0;for(const it of l)u+=it.vw*it.vh;return Math.round(u/2000);}).join(',');}
 
@@ -2679,6 +2700,7 @@ function centerPlan(plan){
 }
 
 function applyPlan(plan){
+  _brickMirrorPass_(plan.layers, plan.cartons, S.foot.L, S.foot.W);
   centerPlan(plan);
   S.layers=plan.layers.map(layer=>layer.map(it=>{const m=it.m;return {id:S.nextId++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,L:m.Lmm,W:m.Wmm,thickness:m.thickness,cx:it.cx,cy:it.cy,angle:it.angle};}));
   if(!S.layers.length) S.layers=[[]];
