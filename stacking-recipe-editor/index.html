@@ -554,6 +554,18 @@
   <div class="modal" style="width:620px">
     <h2>How it works <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
     <div class="mbody">
+      <h3 style="margin:0 0 8px;font-size:13px">🆕 What's new (v3.0 → v3.10)</h3>
+      <div class="hint" style="margin-bottom:14px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px">
+        <ul style="margin:0;padding-left:18px;line-height:1.7">
+          <li><b>.moz import + export</b> — <b>Import .moz…</b> reads Mozaik files (parts + drills + bands) straight into the tray; <b>Export → Mozaik files / job zip</b> writes them back out.</li>
+          <li><b>Match .moz…</b> — feed it a set of .moz files and it finds a matching saved recipe by geometry signature, then offers <b>Load V1</b> or <b>Fork as V2</b> (auto-suggests QBZ-WHITE → QBZ-WHITE V2, or bumps V3 → V4).</li>
+          <li><b>Cross-device Save</b> — recipes now sync via Supabase when the device is provisioned. Library shows every recipe on every device with <span class="pill">Local + Cloud rev N</span> / <span class="pill">Local only</span> / <span class="pill">Cloud only</span> badges. Delete offers "both local + cloud" or local-only.</li>
+          <li><b>Tray sort</b> — dropdown at the top of the parts list: Section, Length ↓/↑, Width ↓/↑, Qty ↓/↑, Name, Part #.</li>
+          <li><b>Stacker Guide</b> — full-screen shop view for iPad/TV. Open from Library → <b>🎯 Guide</b>. Tap each part to mark it in-place, tap Layer Complete, auto-advance. Progress persists across iPad reloads.</li>
+          <li><b>Drill / band viewer</b> — <b>ⓘ</b> button on every tray row opens a per-part detail with ops table + preview.</li>
+          <li><b>← Bedrock</b> link at top-left returns to the PWA. Save toast always fires (with ✓); empty-SKU flashes red.</li>
+        </ul>
+      </div>
       <h3 style="margin:0 0 8px;font-size:13px">Placing parts</h3>
       <div class="hint" style="margin-bottom:14px">Click a part in the left tray to arm it, press <span class="kbd">R</span> to set its rotation, then click the pallet to drop it on the active layer. Drag placed parts to move them; they snap to the footprint walls and to each other (set a <b>Gap</b> to leave kerf between parts, or turn <b>Snap</b> off for free movement). Parts are held inside the footprint while <b>Keep in bounds</b> is on. Two parts overlapping within one layer turn red; overlaps between layers are fine — that's the stack. <b>Suggest layer</b> densely packs the current (or a new) layer with as many tray parts as fit, trying both orientations and backfilling leftover space, then leaves the rest in the tray — click it again to fill the next layer. A starting point you can rearrange.</div>
       <h3 style="margin:0 0 8px;font-size:13px">Shortcuts</h3>
