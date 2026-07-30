@@ -31557,25 +31557,58 @@ async function refreshGroundQueue() {
       console.log('[refreshGround] GAS quota detected — failing over to worker');
       try {
         const relayCfg = await _getPrintRelayConfig_();
-        const r = await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/ground/queue-direct', {
+        // v10.1419 — try the FILTER-EQUIVALENT worker queue first.
+        //
+        // Context: Apps Script is running at ~50% of its daily request budget,
+        // and if it ever hits 100% this fallback is all that keeps Ground
+        // working. Until now the fallback was /ground/queue-direct, which
+        // applies NO filtering — so an outage handed packers mattress
+        // dropships, cabinet orders and held orders as if they were packable.
+        // v10.1401 made that loud; it did not make it correct.
+        //
+        // /ground/queue-v2 (worker v31) implements all six filter rules and has
+        // been parity-checked against the Apps Script queue, with a watcher
+        // that alarms on drift. So the outage path can now be RIGHT rather than
+        // merely honest about being wrong.
+        //
+        // This is fallback-only. The normal path still goes through Apps
+        // Script — cutting the primary path over to the worker is Zac's call
+        // and is deliberately NOT what this does.
+        let usedV2 = false;
+        try {
+          const r2 = await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/ground/queue-v2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ secret: relayCfg && relayCfg.stamp_secret }),
+          });
+          if (r2.ok) {
+            const v2 = await r2.json();
+            if (v2 && v2.ok && Array.isArray(v2.queue)) {
+              data = v2;
+              data.note = (data.note || '') + ' (GAS-quota fallback · filtered)';
+              data._degradedFiltered = true;   // correct list, but not the normal path
+              usedV2 = true;
+            }
+          }
+        } catch (_v2e) { /* fall through to the unfiltered lifeboat */ }
+
+        const r = usedV2 ? null : await fetch('https://mbd-label-stamper.murphybeddepot.workers.dev/ground/queue-direct', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ secret: relayCfg && relayCfg.stamp_secret }),
         });
-        if (r.ok) {
+        if (r && r.ok) {
           const direct = await r.json();
           if (direct && direct.ok) {
             data = direct;
             data.note = (data.note || '') + ' (GAS-quota fallback)';
-            // v10.1401 — mark this list as UNFILTERED. The worker's
-            // queue-direct maps every awaiting ShipStation order straight
-            // through: no cabinet / wholesale / mattress-dropship /
-            // Beacon-hold / empty-shell exclusion, and no pack_status
-            // overlay. It exists to keep Ground usable during an Apps
-            // Script quota outage, not to be an equivalent queue. Until
-            // this fired it did so SILENTLY, which is exactly how a packer
-            // ends up working a mattress dropship that should never have
-            // been on the list.
+            // v10.1401 — LAST-RESORT lifeboat, reached only if queue-v2 also
+            // failed. Maps every awaiting ShipStation order straight through:
+            // no cabinet / wholesale / mattress-dropship / Beacon-hold /
+            // empty-shell exclusion, and no pack_status overlay. Keeps Ground
+            // usable, but it is NOT an equivalent queue — hence the loud
+            // banner. Silent before v10.1401, which is exactly how a packer
+            // ends up working a mattress dropship.
             data._degradedUnfiltered = true;
           }
         }
@@ -31616,7 +31649,23 @@ async function refreshGroundQueue() {
     try {
       const _degEl_ = document.getElementById('groundDegradedBanner');
       if (_degEl_) {
-        if (data._degradedUnfiltered) {
+        if (data._degradedFiltered) {
+          // v10.1419 — correct list, but not the usual path. Blue/informational
+          // rather than amber: nothing here is wrong, and dressing a working
+          // fallback as an alarm would teach people to ignore the amber one
+          // that actually matters.
+          _degEl_.style.display = 'block';
+          _degEl_.innerHTML =
+              '<div style="background:linear-gradient(135deg,#0a3a5c,#0d4f7a);border:1.5px solid #4FC3F7;border-radius:10px;padding:12px 14px">'
+            + '<div style="font-size:14px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff">↩ RUNNING ON THE BACKUP LIST</div>'
+            + '<div style="font-size:12px;color:#CDE9FA;-webkit-text-fill-color:#CDE9FA;margin-top:4px;line-height:1.5">'
+            + 'Bedrock\'s main server is unavailable, so this list is coming straight from the faster backup. '
+            + '<b>It is filtered the same way as normal</b> — mattress dropships, cabinet orders and held orders are correctly hidden. '
+            + 'Pack as usual. Pack status may look slightly out of date.'
+            + '</div>'
+            + '<button onclick="refreshGroundQueue()" style="margin-top:8px;min-height:44px;padding:8px 16px;background:#fff;color:#0d4f7a;-webkit-text-fill-color:#0d4f7a;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">↻ Try the main server again</button>'
+            + '</div>';
+        } else if (data._degradedUnfiltered) {
           _degEl_.style.display = 'block';
           _degEl_.innerHTML =
               '<div style="background:linear-gradient(135deg,#7A4F00,#A66300);border:1.5px solid #FFB300;border-radius:10px;padding:12px 14px">'
@@ -34765,7 +34814,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1417"></script>
+<script src="./pack.js?v=10.1419"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34776,7 +34825,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1417<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1419<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
