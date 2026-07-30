@@ -934,7 +934,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.18';
+const APP_VERSION = '3.19';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3698,6 +3698,100 @@ function _addOpToCurrentPart_(kind){
   scheduleSave();
   openPartDetail(window._openedDetailManifest_);
 }
+
+/* v3.19 — Hardware pattern library (Phase 1 per Zac 2026-07-30).
+   Each pattern is a named group of ops that add together in one click.
+   User picks an anchor via prompt(); pattern ops offset from the anchor.
+   Hardware specs:
+     • Häfele M200 Minifix pin (26228624) — 5mm dia hole, ~14mm deep,
+       accepts the pin's shank; the pin then engages a matching cam
+       housing across the joint.
+     • Häfele Minifix 15 cam housing (26226535) — 15mm dia face-drilled,
+       ~13mm deep, with a 5mm edge bore acting as the pin-shaft passage.
+     • Wooden dowel per Zac — 8mm dia, ~15mm deep (anti-rotation).
+   Phase 1 places ops on the CURRENT part only. Auto-paired hole on the
+   mating part comes in Phase 2 once the joint graph is built. */
+const _HW_PATTERNS_ = {
+  minifix_cam: {
+    label: 'Minifix (cam side)',
+    desc: 'For the shelf/deck: 15mm cam housing + 5mm edge bore (pin shaft) + 8mm wooden dowel.',
+    // (dx, dy) offsets from user-picked anchor (X, Y).
+    // Cam housing is face-drilled; edge bore is on X0 by default (user can
+    // change per-op after via the ops table).
+    ops: [
+      {kind:'hole', mode:'face', edge:'',   dx:0,   dy:0,   dia:15, depth:13, hdepth:9.5, flip:false, quan:1},
+      {kind:'hole', mode:'edge', edge:'X0', dx:-34, dy:0,   dia:5,  depth:34, hdepth:9.5, flip:false, quan:1},
+      {kind:'hole', mode:'face', edge:'',   dx:0,   dy:32,  dia:8,  depth:15, hdepth:9.5, flip:false, quan:1},
+    ],
+    anchorHint: 'Cam center. Edge bore lands 34mm toward the joint (X0). Dowel lands 32mm along Y from cam.',
+  },
+  minifix_pin: {
+    label: 'Minifix (pin side)',
+    desc: 'For the side/end: 5mm face hole for the M200 pin + 8mm wooden dowel.',
+    ops: [
+      {kind:'hole', mode:'face', edge:'', dx:0,  dy:0,  dia:5, depth:14, hdepth:9.5, flip:false, quan:1},
+      {kind:'hole', mode:'face', edge:'', dx:0,  dy:32, dia:8, depth:15, hdepth:9.5, flip:false, quan:1},
+    ],
+    anchorHint: 'M200 pin center. Dowel lands 32mm along Y from pin.',
+  },
+  dowel_only: {
+    label: 'Wooden dowel (8mm)',
+    desc: 'Single 8mm face hole × 15mm deep (anti-rotation companion).',
+    ops: [
+      {kind:'hole', mode:'face', edge:'', dx:0, dy:0, dia:8, depth:15, hdepth:9.5, flip:false, quan:1},
+    ],
+    anchorHint: 'Dowel center.',
+  },
+  shelf_pin: {
+    label: 'Shelf pin (5mm)',
+    desc: 'Single 5mm face hole × 13mm deep (adjustable shelf support).',
+    ops: [
+      {kind:'hole', mode:'face', edge:'', dx:0, dy:0, dia:5, depth:13, hdepth:9.5, flip:false, quan:1},
+    ],
+    anchorHint: 'Shelf-pin center.',
+  },
+  hinge_cup_35mm: {
+    label: 'Hinge cup (35mm Blum-style)',
+    desc: '35mm face hole × 13mm deep for a European-style hinge cup.',
+    ops: [
+      {kind:'hole', mode:'face', edge:'', dx:0, dy:0, dia:35, depth:13, hdepth:9.5, flip:false, quan:1},
+    ],
+    anchorHint: 'Cup center (usually 22.5mm from door edge).',
+  },
+};
+function _insertHardwarePattern_(patternKey){
+  const p = window._openedDetailPart_;
+  if(!p) return;
+  const pat = _HW_PATTERNS_[patternKey];
+  if(!pat) return;
+  const raw = prompt(
+    pat.label + ' — anchor position.\n' +
+    pat.desc + '\n\n' +
+    pat.anchorHint + '\n\n' +
+    'Enter as "X, Y" in mm from part origin (top-left). E.g. "34, 100":',
+    '34, 36'
+  );
+  if(raw === null) return;   // cancelled
+  const parts = String(raw).split(/[,\s]+/).map(s => Number(s));
+  if(parts.length < 2 || parts.some(n => isNaN(n))){
+    toast('Invalid anchor — expected "X, Y"');
+    return;
+  }
+  const [ax, ay] = parts;
+  p.ops = p.ops || [];
+  for(const t of pat.ops){
+    p.ops.push({
+      kind: t.kind, mode: t.mode, edge: t.edge,
+      x: Math.max(0, ax + (t.dx||0)),
+      y: Math.max(0, ay + (t.dy||0)),
+      dia: t.dia, depth: t.depth, hdepth: t.hdepth,
+      flip: !!t.flip, quan: t.quan || 1,
+    });
+  }
+  scheduleSave();
+  toast(pat.label + ' — added ' + pat.ops.length + ' op(s) at (' + ax + ', ' + ay + ')');
+  openPartDetail(window._openedDetailManifest_);
+}
 function _delOpFromCurrentPart_(idx){
   const p = window._openedDetailPart_;
   if(!p || !Array.isArray(p.ops)) return;
@@ -3840,11 +3934,17 @@ function openPartDetail(m){
         <th>#</th><th>Kind</th><th>Mode</th><th>Edge</th><th>X</th><th>Y</th><th>Ø</th><th>Depth</th><th>Axis h.</th><th>Flip</th><th>Qty</th><th></th>
       </tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="hint" style="padding:14px;background:var(--panel2);border:1px solid var(--line);border-radius:6px">No operations yet. Add one below.</div>`;
-  const addBtns = `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+  const patternOpts = Object.entries(_HW_PATTERNS_)
+    .map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('');
+  const addBtns = `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
     <button onclick="_addOpToCurrentPart_('hole')" title="Add a face-drilled hole">+ Face hole</button>
     <button onclick="_addOpToCurrentPart_('edge')" title="Add a horizontal edge bore">+ Edge bore</button>
     <button onclick="_addOpToCurrentPart_('lb')" title="Add a line-bore row (5 dots @ 32mm)">+ Line bore row</button>
-    <span class="hint" style="align-self:center;margin-left:8px">Positions are physical mm. Edits round-trip through Save + Mozaik Export.</span>
+    <span style="width:1px;height:20px;background:var(--line2);margin:0 4px"></span>
+    <label style="font-size:11px;color:var(--ink3)">🔧 Hardware pattern</label>
+    <select id="_hwPatternSel" style="font-size:11px;padding:3px 6px">${patternOpts}</select>
+    <button class="primary" onclick="_insertHardwarePattern_(document.getElementById('_hwPatternSel').value)" title="Insert the selected hardware pattern at a chosen anchor position">Insert…</button>
+    <span class="hint" style="align-self:center;margin-left:8px;flex:1;min-width:200px">Positions are physical mm. Edits round-trip through Save + Mozaik Export.</span>
   </div>`;
   const opsBlock = opsHeader + opsTable + addBtns;
   const preview = `<h3 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Preview</h3>${_drillPreviewSVG_(p)}
