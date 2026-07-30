@@ -378,8 +378,10 @@
           <h3>Layers <span class="spacer"></span><span id="stackTag" class="mono muted" style="font-size:10.5px"></span></h3>
           <div class="layerlist" id="layerList"></div>
           <div class="layeradd">
-            <button id="btnAddLayer">+ Layer</button>
-            <button id="btnDupLayer">Duplicate</button>
+            <button id="btnAddLayer" title="Add a new empty layer on top of the stack">+ Layer</button>
+            <button id="btnDupLayer" title="Duplicate the active layer's placement into a new layer above it">Duplicate</button>
+            <button id="btnSuggestHere" title="Replace THIS layer's contents with a fresh suggested config (clears first, then suggests)">↻ Suggest here</button>
+            <button id="btnSuggestAbove" title="Insert a new layer directly above the active one and suggest for it">↑ Suggest above</button>
             <button id="btnClearStack" class="danger" title="Remove every placed part and reset to one empty layer. Keeps the imported part list and your carton definitions.">Clear stack</button>
           </div>
           <div class="stacksum" id="stackSum"></div>
@@ -932,7 +934,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.16';
+const APP_VERSION = '3.17';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1818,6 +1820,43 @@ function stackSupportCounts(){let m=0,s=0;for(let i=0;i<S.layers.length;i++){con
 function setLayer(i){S.activeLayer=i;S.sel=new Set();render();renderLayers();renderInspector();scheduleSave();}
 function addLayer(){S.layers.push([]);S.activeLayer=S.layers.length-1;S.sel=new Set();render();renderLayers();renderInspector();scheduleSave();}
 function dupLayer(){const src=S.layers[S.activeLayer];const copy=src.map(p=>({...p,id:S.nextId++}));S.layers.splice(S.activeLayer+1,0,copy);S.activeLayer++;S.sel=new Set();render();renderLayers();renderInspector();scheduleSave();}
+/* v3.17 — Zac 2026-07-30 ask: two new suggest primitives that target
+   the currently-selected layer, not just "push a new layer on top". */
+function _runSuggestForActive_(label){
+  const li = S.activeLayer;
+  const crit = (($('suggestCrit')||{}).value) || 'big';
+  const items = [];
+  for(const m of S.manifest){ const need = m.qty - placedCount(m.key); for(let i=0;i<need;i++) items.push(m); }
+  if(!items.length){ toast('All parts are already placed'); render();renderTray();renderLayers();renderInspector();scheduleSave(); return; }
+  const {placed, leftover} = _suggestPack(items, li, crit, 0);
+  if(!placed.length){ toast('Nothing fits Layer '+(li+1)+' — try a different criterion or empty layer'); render();renderLayers(); return; }
+  for(const pl of placed) S.layers[li].push(placedToPart(pl));
+  S.sel = new Set();
+  render();renderTray();renderLayers();renderInspector();updateSig();scheduleSave();
+  const remain = leftover.length;
+  toast(label+' Layer '+(li+1)+' — '+placed.length+' part'+(placed.length!==1?'s':'')+(remain?' · '+remain+' left in tray':' · all parts placed'));
+}
+function suggestHere(){
+  // "Delete then suggest" for the active layer — wipes contents first,
+  // then packs fresh with the current tray leftovers.
+  const li = S.activeLayer;
+  const had = (S.layers[li] || []).length;
+  if(had && !confirm('Replace Layer '+(li+1)+"'s current "+had+' part(s) with a fresh suggested layout?')) return;
+  S.layers[li] = [];
+  SUGGEST_SEED = 0;
+  _runSuggestForActive_(had ? 'Replaced' : 'Filled');
+}
+function suggestAbove(){
+  // Insert a new empty layer directly above the active one, make it
+  // active, and suggest for it. Physically "above" = higher index in
+  // the stack (index li+1). Layer numbering is bottom-up.
+  const li = S.activeLayer;
+  S.layers.splice(li + 1, 0, []);
+  S.activeLayer = li + 1;
+  S.sel = new Set();
+  SUGGEST_SEED = 0;
+  _runSuggestForActive_('Inserted');
+}
 /* remove every placed part + placed carton, reset to one empty layer. KEEPS the part list (S.manifest) and carton definitions (S.cartons). */
 function clearStack(){
   S.layers=[[]]; S.placedCartons=[]; S.activeLayer=0; S.sel=new Set(); S.armed=null;
@@ -3462,6 +3501,8 @@ $('btnRotate').onclick=()=>{if(S.sel.size)rotateSel(90);};
 $('btnDup').onclick=()=>{if(S.sel.size)dupSel();};
 $('btnDelete').onclick=()=>{if(S.sel.size)delSel();};
 $('btnAddLayer').onclick=addLayer;$('btnDupLayer').onclick=dupLayer;$('btnSuggest').onclick=()=>suggestLayer(false);{const _rs=$('btnResuggest'); if(_rs)_rs.onclick=()=>suggestLayer(true);}
+{const _sh=$('btnSuggestHere'); if(_sh)_sh.onclick=suggestHere;}
+{const _sa=$('btnSuggestAbove'); if(_sa)_sa.onclick=suggestAbove;}
 {let _clrArm=null; const b=$('btnClearStack'); if(b) b.onclick=()=>{
   if(_clrArm){clearTimeout(_clrArm);_clrArm=null;b.textContent='Clear stack';b.classList.remove('armed');clearStack();return;}
   b.textContent='Tap again to clear';b.classList.add('armed');
