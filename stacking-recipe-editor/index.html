@@ -934,7 +934,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.17';
+const APP_VERSION = '3.18';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2524,6 +2524,43 @@ function renderOptResults(top){
 function buildStack(){ runOptimize('fast'); }
 /* Suggest ONE layer: dense pack of remaining tray parts onto the current/new layer (around any cartons there). */
 let SUGGEST_SEED=0;
+
+/* v3.18 — Gap-aware scoring.
+   The problem Zac hit: the packer's per-layer greedy fit produces the
+   same layout when the remaining parts are similar, so the same gap
+   position stacks 3-4 layers high (a vertical column of dead space).
+   Fix: when packing layer N > 0, score each candidate layout by
+   BOTH area-covered AND how much of the placed footprint lies over the
+   layer-below's gaps. The algorithm now prefers placements that
+   staircase past holes below, breaking vertical gap columns.
+   Cheap enough to explore multiple pool shuffles too. */
+function _layerBelowGaps_(li){
+  if(li <= 0) return null;   // ground floor — nothing below, no bonus applies
+  const Lf=S.foot.L, Wf=S.foot.W;
+  const below = S.layers[li-1] || [];
+  let free = [{x:0, y:0, w:Lf, h:Wf}];
+  for(const p of below){
+    const bb = bbox(p);
+    free = carve(free, {x:bb.minX, y:bb.minY, w:bb.maxX-bb.minX, h:bb.maxY-bb.minY});
+  }
+  for(const c of cartonRectsOnLayer(li-1)) free = carve(free, {x:c.x, y:c.y, w:c.w, h:c.h});
+  return free;
+}
+function _gapCoverageArea_(placed, gapRects){
+  if(!gapRects || !gapRects.length) return 0;
+  let sum = 0;
+  for(const p of placed){
+    const px1=p.px, py1=p.py, px2=p.px+p.vw, py2=p.py+p.vh;
+    for(const g of gapRects){
+      const gx1=g.x, gy1=g.y, gx2=g.x+g.w, gy2=g.y+g.h;
+      const ox1=Math.max(px1,gx1), oy1=Math.max(py1,gy1);
+      const ox2=Math.min(px2,gx2), oy2=Math.min(py2,gy2);
+      if(ox2>ox1 && oy2>oy1) sum += (ox2-ox1)*(oy2-oy1);
+    }
+  }
+  return sum;
+}
+
 /* pack remaining tray parts onto a fresh free region for layer li, biased by criterion (and re-rolled by seed) */
 function _suggestPack(items, li, crit, seed){
   const gap=Math.max(0,S.gap||0), Lf=S.foot.L, Wf=S.foot.W;
@@ -2534,11 +2571,46 @@ function _suggestPack(items, li, crit, seed){
     for(let k=0;k<n;k++){const i=(rng()*pool.length)|0,j=(rng()*pool.length)|0;const t=pool[i];pool[i]=pool[j];pool[j]=t;} }
   const baseFree=()=>{ let f=[{x:0,y:0,w:Lf+gap,h:Wf+gap}]; for(const c of cartonRectsOnLayer(li,Math.max(gap,10))) f=carve(f,{x:c.x,y:c.y,w:c.w,h:c.h}); return f; };
   const heurs = (crit==='tight') ? ['bssf','baf'] : ['bssf'];
-  let best=null;
-  for(const h of heurs){
-    const r=packBin(baseFree(), pool, gap, h);
+
+  // v3.18: when packing above ground floor, gather layer-below gap
+  // regions and explore a few extra pool orderings so we have candidates
+  // to score for gap-cover-alignment. First pool = original ordering
+  // (kept for backward-compat); the rest are small shuffles seeded
+  // deterministically per layer.
+  const gapRects = _layerBelowGaps_(li);
+  const useGapAware = !!(gapRects && gapRects.length);
+  const attempts = [];
+  const shuffleSeeds = useGapAware ? [0, 101, 202, 303, 404] : [0];
+  for(const ss of shuffleSeeds){
+    let variantPool;
+    if(ss === 0){ variantPool = pool; }
+    else {
+      const rng = makeRng(seedStr('gapaware|'+li+'|'+ss));
+      variantPool = pool.slice();
+      // shuffle ~30% of positions to explore new packings without
+      // completely losing the criterion-based ordering.
+      const n = Math.max(2, Math.round(variantPool.length * 0.3));
+      for(let k=0; k<n; k++){
+        const i=(rng()*variantPool.length)|0, j=(rng()*variantPool.length)|0;
+        const t=variantPool[i]; variantPool[i]=variantPool[j]; variantPool[j]=t;
+      }
+    }
+    for(const h of heurs){
+      const r = packBin(baseFree(), variantPool, gap, h);
+      attempts.push(r);
+    }
+  }
+  let best = null;
+  for(const r of attempts){
     let used=0; for(const pl of r.placed) used+=pl.vw*pl.vh;
-    const score = (crit==='count') ? [-r.placed.length,-used] : [-used,-r.placed.length];   // count: most parts; else: most area
+    const gapCov = useGapAware ? _gapCoverageArea_(r.placed, gapRects) : 0;
+    // Gap coverage weight = 1.0 relative to placed area. Two placements
+    // that pack the same square-mm of parts get ranked by which one
+    // sat more of its area over holes in the layer below.
+    const scoreArea = -(used + gapCov);
+    const score = (crit==='count')
+      ? [-r.placed.length, scoreArea]
+      : [scoreArea, -r.placed.length];
     if(!best || score[0]<best.score[0] || (score[0]===best.score[0] && score[1]<best.score[1])) best={r,score};
   }
   return best.r;

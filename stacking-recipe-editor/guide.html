@@ -143,9 +143,13 @@
 
 <script>
 const SVGNS='http://www.w3.org/2000/svg';
+// v3.18 palette — removed the two green-ish entries (sage #7d9a6f and
+// teal #6cb0a8) that read as "already marked in-place" before the
+// packer taps them. Replaced with dusty violet + dusty magenta so
+// green only ever means "the packer said this is done".
 const SECTION_COLORS=[
-  '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
-  '#6cb0a8','#c0954a','#a36c6c','#5f8aa6','#9a8e6f','#7a7f8c'
+  '#6c8ebf','#b08968','#7d6f9a','#bf6c8e','#8e6cbf',
+  '#a86cb0','#c0954a','#a36c6c','#5f8aa6','#9a8e6f','#7a7f8c'
 ];
 const $=id=>document.getElementById(id);
 const svgel=(tag,attrs)=>{const e=document.createElementNS(SVGNS,tag);
