@@ -700,7 +700,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.7';
+const APP_VERSION = '3.8';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2931,34 +2931,59 @@ function restoreSnapshot(snap){
       to merge. Non-conflict → stash new_revision back into localStorage. */
 $('btnSave').onclick=async()=>{
   S.sku=$('skuInput').value.trim();
-  if(!S.sku){toast('Enter a SKU first');$('skuInput').focus();return;}
-  if(!totalPlaced() && !confirm('No parts are placed. Save an empty layout for '+S.sku+'?'))return;
+  if(!S.sku){
+    // v3.8: was a easy-to-miss toast. Now also flash the input red so
+    // the packer knows exactly what's missing.
+    toast('Enter a SKU first (top of the header)');
+    const inp=$('skuInput');
+    inp.focus();
+    inp.style.transition='box-shadow .3s';
+    inp.style.boxShadow='0 0 0 3px var(--bad-soft), 0 0 0 5px var(--bad)';
+    setTimeout(()=>{inp.style.boxShadow='';}, 1600);
+    return;
+  }
+  // v3.8: killed the "No parts placed. Save empty layout?" confirm.
+  // Zac hit Cancel on it and got silent abort → "clicked Save but nothing
+  // in Library" (2026-07-29 22:00). Empty-layout saves are perfectly
+  // fine — the tray-only manifest still gets persisted, and toast makes
+  // the state clear so nothing is silent.
   const lib=loadLib();const exists=!!lib[S.sku];
-  if(exists && !confirm('Overwrite saved recipe "'+S.sku+'"?'))return;
+  if(exists && !confirm('Overwrite saved recipe "'+S.sku+'"?')){
+    toast('Save cancelled — "'+S.sku+'" not overwritten');
+    return;
+  }
   const snap=snapshot();
   snap.savedAt=new Date().toISOString();
   const prevRev=(exists && lib[S.sku] && lib[S.sku]._revision) ? lib[S.sku]._revision : null;
   lib[S.sku]=snap;saveLib(lib);
+  // v3.8: if Library modal is open, refresh its list so the newly-saved
+  // recipe appears immediately without a close/reopen dance.
+  const libOpen = $('libModal') && $('libModal').classList.contains('show');
+  const placedNote = totalPlaced() ? '' : ' · 0 parts placed';
   if(!isProvisioned()){
-    toast('Saved '+S.sku+' (local only — device not provisioned for cloud sync)');
+    toast('✓ Saved '+S.sku+' (local only'+placedNote+')');
+    if(libOpen) renderLibList();
     return;
   }
   try{
     const result=await remoteSaveRecipe(S.sku, snap, prevRev);
     if(result && result.conflict){
       toast('Saved local. CLOUD CONFLICT — another device has newer rev '+result.current_revision+'; open Library and Load to fetch the newer version.');
+      if(libOpen) renderLibList();
       return;
     }
     if(result && result.new_revision){
       snap._revision=result.new_revision;
       lib[S.sku]._revision=result.new_revision;
       saveLib(lib);
-      toast('Saved '+S.sku+' (local + cloud rev '+result.new_revision+')');
+      toast('✓ Saved '+S.sku+' (local + cloud rev '+result.new_revision+placedNote+')');
     }else{
-      toast('Saved '+S.sku+' (local; cloud returned no revision)');
+      toast('✓ Saved '+S.sku+' (local; cloud returned no revision'+placedNote+')');
     }
+    if(libOpen) renderLibList();
   }catch(err){
     toast('Saved local. Cloud save failed: '+err.message);
+    if(libOpen) renderLibList();
   }
 };
 $('btnLibrary').onclick=async()=>{await renderLibList();openModal('libModal');};
