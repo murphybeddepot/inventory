@@ -10017,7 +10017,15 @@ function openHowItWorks() {
     +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:.5px;text-transform:uppercase">How Bedrock Works</div>'
     +   '<button onclick="document.getElementById(\'howItWorksOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:26px;cursor:pointer;padding:4px 8px;min-height:40px">✕</button>'
     + '</div>'
-    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.1391 (2026-07-27).</div>'
+    + '<div style="font-size:12px;color:#7E8CA0;margin-bottom:6px">Plain-language map of how an order moves through Bedrock today + what each surface does. Updated through v10.1416 (2026-07-29).</div>'
+
+    + H('🆕 Newest — automatic ground labels (v10.1399–v10.1416)')
+    + pill('live', '🕒 3pm plan + 4pm auto-buy', 'Bedrock now buys and prints ground labels on a schedule so the stack is ready instead of made order-by-order. 2pm silent self-check · 3pm post listing exactly what is about to be bought · 4pm buys + prints with tracking. An order in by 3pm prints the same day; later ones wait for the next business day. Scheduled from the Cloudflare worker, not Apps Script, so it fires on the hour.')
+    + pill('live', '⏸ Hold today\'s run', 'More → Printing & labels → 🕒 Today\'s Ground Print Plan. Same list as the 3pm post, on the iPad, with a red HOLD button. Holds today only and clears overnight, so nobody has to remember to switch it back on.')
+    + pill('live', '🖨 Label-printer offline warning (v10.1399)', 'PrintNode accepts jobs even when the bridge computer is asleep — the label never prints. Ground now warns before you work a queue whose labels are going nowhere.')
+    + pill('live', '🔍 Filtered-orders reconciliation (v10.1397)', 'Ground header reads "N in ShipStation · M to pack · K filtered". Tap the filtered count to see every hidden order and why — mattress dropship, cabinet, on-hold, fraud hold, empty shell. Previously all six rules were silent.')
+    + pill('live', '🛡 Double-charge guard (v10.1413)', 'If labels buy but the record fails to save, Bedrock now refuses to buy again and says so with the tracking number, instead of a generic error that invited a second purchase.')
+    + pill('live', '☰ More menu grouped (v10.1411)', '54 items in one flat list became 10 collapsible categories. Same buttons, same behaviour — findable. Legacy surfaces collapsed shut by default.')
 
     + H('🆕 Since v10.1050 (2026-07-03 → 07-27)')
     + pill('live', '📊 Daytime Status Dashboard (v10.1385)', 'More menu → 📊 · at-a-glance snapshot: Ground queue count · MFG in flight by stage · Ship today · Melamine drafts · COGS ledger counts · systems-healthy pill. Phase 0 = snapshot at open; auto-refresh + order-360 pane deferred.')
@@ -19028,6 +19036,7 @@ function openGroundGuide() {
     + '<button onclick="document.getElementById(\'ggTop\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🏠 Overview</button>'
     + '<button onclick="document.getElementById(\'ggHeader\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">⚙ Header</button>'
     + '<button onclick="document.getElementById(\'ggFlow\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📋 Pack Flow</button>'
+    + '<button onclick="document.getElementById(\'ggAuto\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#0a4fb0;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🕒 3pm/4pm Auto</button>'
     + '<button onclick="document.getElementById(\'ggManual\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🚨 Manual Orders</button>'
     + '<button onclick="document.getElementById(\'ggPrinters\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🖨 Printers</button>'
     + '<button onclick="document.getElementById(\'ggFedex\').scrollIntoView({behavior:\'smooth\',block:\'start\'})" style="flex:1 1 auto;min-width:130px;padding:10px 12px;background:#1E5FA8;border:none;border-radius:8px;color:#fff;font-weight:800;font-size:13px;cursor:pointer">🚚 FedEx Pickups</button>'
@@ -19094,6 +19103,30 @@ function openGroundGuide() {
     + step(3, 'Fix any red before packing starts', 'If a printer\'s offline, restart it or swap paper. If PrintNode is down, restart the daemon on the office machine.')
     + tip('Overnight print (B2) has the same failure modes but you don\'t see them until morning. The A3 day-start check prevents "3am cron submitted everything, printer was out of paper, whole stack failed" scenarios.');
 
+  // v10.1416 — AUTOMATED 3pm/4pm ground labels. Added because this changed
+  // how the day actually works and the guide said nothing about it. CLAUDE.md
+  // standing rule: update the operator docs whenever a workflow changes.
+  const secAuto = H('ggAuto', '🕒 Automatic label buying (3pm + 4pm)')
+    + P('<b>New as of 2026-07-30.</b> Bedrock now buys and prints ground labels on a schedule, so the stack is waiting rather than being made order-by-order. Seth set the times; Zac authorised the spending.')
+    + H2('What happens each weekday')
+    + step(1, '2:00pm — silent self-check', 'Bedrock verifies it can actually do the job: switch on, label printer awake (including the bridge computer), rulebook loading, queue readable. If anything would stop tonight working it posts in #ground_shipping. If all is well it says nothing.')
+    + step(2, '3:00pm — "here is what I am about to buy"', 'A post listing every order, its SKUs, each box with dims/weight/label text. This is your hour to check it.')
+    + step(3, '4:00pm — buys + prints', 'Labels bought and sent to the label printer. Posts what was bought with tracking numbers, plus anything skipped or failed.')
+    + H2('Which orders get picked up')
+    + P('An order that arrives <b>by 3:00pm</b> prints the <b>same day</b> at 4pm. After 3:00pm it waits for the next business day. Weekend orders go on Monday. The 3:00pm cutoff matches the 3pm post deliberately — so the post and the purchase describe exactly the same orders.')
+    + chip('↩', 'Catch-up', 'If the 4pm run misses a day (outage, held, switched off), those orders are picked up on the next run rather than being stranded.')
+    + chip('🕰', 'Too old', 'Anything more than 3 days overdue is NOT auto-bought — it is listed for a human instead. Auto-buying a month-old order would usually be wrong.')
+    + chip('🚧', 'Needs a person', 'Orders whose breakdown raises a hold are never auto-bought. They appear in the report as skipped.')
+    + H2('⏸ Stopping it — the brake')
+    + P('<b>More → Printing &amp; labels → 🕒 Today\'s Ground Print Plan.</b> Same list as the 3pm post, on the iPad, with a red <b>HOLD TODAY\'S RUN</b> button.')
+    + step(1, 'Tap Hold', 'Nothing is bought or printed at 4pm today.')
+    + step(2, 'It clears overnight', 'Tomorrow runs normally. You do not have to remember to switch it back on.')
+    + step(3, 'Pack by hand today', 'If those orders still need to ship, pack them the normal way — holding only stops the automatic buying.')
+    + tip('You can hold early. The plan is empty until orders arrive, but holding at 9am covers the whole day.')
+    + gotcha('If Seth (or anyone) packs an order manually before 4pm, the automatic run leaves it alone — it never buys labels for an order that already has them. A quiet "nothing to print today" after a busy afternoon is normal, not a fault.')
+    + gotcha('A label that buys but fails to print is reported as <b>bought — reprint, do NOT re-buy</b>. Use 🔄 Reprint Label. Buying again would charge a second time.')
+    + gotcha('If labels for an order already exist somewhere Bedrock cannot see — bought directly in ShipStation, for instance — tell Zac so the order can be flagged. Otherwise the 4pm run treats it as unlabelled and buys a second set.');
+
   // FEDEX
   const secFedex = H('ggFedex', '🚚 FedEx Express auto-pickup')
     + P('When Bedrock buys a FedEx Express label (Priority Overnight, 2-Day, etc.), it automatically books a courier pickup with FedEx for that day. Prevents the "labels bought but not scanned" tail scenario.')
@@ -19133,11 +19166,11 @@ function openGroundGuide() {
 
   ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
-    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Ground Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every flow, every gotcha · v10.1274</div></div>'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Ground Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every flow, every gotcha · v10.1416</div></div>'
     +   '<button onclick="document.getElementById(\'groundGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
     + '</div>'
-    + toc + secTop + secHeader + secFlow + secManual + secPrinters + secFedex + secVoid + secFaq
-    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1274.</div>'
+    + toc + secTop + secHeader + secFlow + secAuto + secManual + secPrinters + secFedex + secVoid + secFaq
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1416.</div>'
     + '</div>';
   document.body.appendChild(ov);
 }
