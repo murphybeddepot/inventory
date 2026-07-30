@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.22';
+const APP_VERSION = '3.23';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2302,7 +2302,50 @@ function planStack(panels, cartonDefs, Lf, Wf, gap, P){
   }
 
   if(!layers.length) layers.push([]);
+  // v3.23 — top+bottom-big + doors policy applied as a post-pack layer
+  // permutation. Skipped when cartons anchor the top (they lock ordering).
+  if(!(cartons && cartons.length)) _shapeStackEnds_(layers);
   return {layers,cartons,unplaced,cartonDropped,Z,order};
+}
+// v3.23 — reorder finished layers so the top layer ALSO carries a big
+// max-area part (previous behavior left the smallest-max layer on top,
+// which Zac reported as "top layer with 4 small parts"). Also enforces
+// S.doorsPolicy — DOOR-bearing layer floats to the top or bottom.
+// Non-mutating for <3 layers; safe when doors span multiple layers
+// (picks the one with the most doors).
+function _shapeStackEnds_(layers){
+  const n = layers.length;
+  if(n < 2) return;
+  const maxA = layer => { let m=0; for(const p of layer){ const a=p.vw*p.vh; if(a>m) m=a; } return m; };
+  const doorN = layer => { let c=0; for(const p of layer){ if(p.m && _isDoor_(p.m)) c++; } return c; };
+  // 1) Big-on-top: if there's another layer with a MUCH bigger max-area
+  //    part than the current top, swap it to the top slot. Threshold =
+  //    1.25× so we don't churn on near-ties.
+  if(n >= 3){
+    const topA = maxA(layers[n-1]);
+    let bestJ = -1, bestA = topA * 1.25;
+    for(let j=1; j<n-1; j++){
+      const a = maxA(layers[j]);
+      if(a > bestA){ bestA = a; bestJ = j; }
+    }
+    if(bestJ >= 0){
+      const tmp = layers[n-1]; layers[n-1] = layers[bestJ]; layers[bestJ] = tmp;
+    }
+  }
+  // 2) Doors policy — reserve the DOOR-heavy layer for the requested end.
+  //    Skipped in 'default' mode. Only fires when at least one layer has
+  //    doors (else it's a no-op).
+  const policy = (typeof S!=='undefined' && S.doorsPolicy) || 'default';
+  if(policy === 'top' || policy === 'bottom'){
+    let bestI = -1, bestC = 0;
+    for(let i=0; i<n; i++){ const c = doorN(layers[i]); if(c > bestC){ bestC = c; bestI = i; } }
+    if(bestI >= 0){
+      const target = (policy === 'top') ? n-1 : 0;
+      if(bestI !== target){
+        const tmp = layers[target]; layers[target] = layers[bestI]; layers[bestI] = tmp;
+      }
+    }
+  }
 }
 function costOfPlan(plan,Lf,Wf){
   const L=plan.layers.length; let topHeavy=0,total=0;
