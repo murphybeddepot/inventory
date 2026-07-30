@@ -1637,11 +1637,22 @@ input::placeholder, textarea::placeholder {
     <div class="more-section" data-more-section="print">
       <button onclick="_moreSectionToggle_('print')" style="width:100%;display:flex;align-items:center;gap:10px;padding:13px 12px;margin:10px 0 4px;background:#f2f4f7;border:1px solid #dde1e7;border-radius:9px;cursor:pointer;text-align:left;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;text-transform:uppercase;letter-spacing:.6px;min-height:44px">
         <span style="font-size:17px">🖨</span>
-        <span style="flex:1">Printing & labels</span>
-        <span style="font-size:11px;color:#667;-webkit-text-fill-color:#667;font-weight:700">5</span>
+        <span style="flex:1">Printing &amp; labels</span>
+        <span style="font-size:11px;color:#667;-webkit-text-fill-color:#667;font-weight:700">6</span>
         <span class="more-caret" style="font-size:15px;color:#667;-webkit-text-fill-color:#667">▾</span>
       </button>
       <div class="more-section-body" data-default-open="true">
+        <!-- v10.1414 — Seth's review screen for the automated 4pm buy, plus the
+             brake. Until now the 3pm Slack post gave him an hour to look at
+             what was about to be bought but no way to stop it. -->
+        <button onclick="closeMoreMenu();openGroundPrintPlanModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#0a4fb0,#003087);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;-webkit-text-fill-color:#fff;text-align:left;margin-bottom:8px">
+      <span style="font-size:22px">🕒</span>
+      <div style="flex:1">
+        <div>Today's Ground Print Plan</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.85);-webkit-text-fill-color:rgba(255,255,255,.85);font-weight:500;margin-top:2px">What auto-buys at 4pm — review it, or hold today's run</div>
+      </div>
+      <span style="color:rgba(255,255,255,.7);font-size:18px">›</span>
+    </button>
         <button onclick="closeMoreMenu();openPrinterPickerModal()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🖨</span>
       <div style="flex:1">
@@ -6697,6 +6708,101 @@ function openMoreMenu() {
   _injectMoreMenuPinToggles_();
   // v10.1411 — restore which category sections were left open.
   _moreSectionsRestore_();
+}
+
+// ── v10.1414 — Today's Ground Print Plan (Seth's review screen + the brake) ──
+//
+// The 3pm Slack post tells Seth what the 4pm job is about to buy. He had an
+// hour to look at it and no way to act on it — only Zac could stop the run, by
+// editing a Script Property. A review window with no brake isn't a review.
+//
+// This shows the same plan on the iPad, where Seth actually works, with a
+// one-tap "hold today's run". The hold is stored as a DATE server-side so it
+// expires by itself tomorrow — a sticky "paused" flag is how label buying
+// silently stops for a week.
+async function openGroundPrintPlanModal() {
+  const prev = document.getElementById('groundPrintPlanOv');
+  if (prev) prev.remove();
+  const ov = document.createElement('div');
+  ov.id = 'groundPrintPlanOv';
+  ov.className = 'no-dark keep-dark-text';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10070;background:rgba(0,0,0,.82);display:flex;align-items:flex-start;justify-content:center;padding:26px 12px;overflow:auto';
+  ov.innerHTML = '<div class="no-dark keep-dark-text" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(0,135,254,.45);border-radius:14px;max-width:640px;width:100%;overflow:hidden;font-family:Helvetica,Arial,sans-serif">'
+    + '<div style="background:#000;padding:14px 18px;display:flex;align-items:center;gap:10px">'
+    + '<div style="flex:1;color:#FFB300;-webkit-text-fill-color:#FFB300;font-weight:900;font-size:13px;letter-spacing:1px">🕒 TODAY\'S GROUND PRINT PLAN</div>'
+    + '<button onclick="document.getElementById(\'groundPrintPlanOv\').remove()" style="min-height:44px;padding:8px 16px;background:#1a1a1a;color:#E8EDF4;-webkit-text-fill-color:#E8EDF4;border:1px solid rgba(255,255,255,.25);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Close</button>'
+    + '</div>'
+    + '<div id="gppBody" style="padding:16px"><div style="color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;text-align:center;padding:26px 0;font-size:13px">Loading today\'s plan…</div></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  window._gppRefresh_ = openGroundPrintPlanModal;
+  window._gppSetHold_ = async function (hold) {
+    const body = document.getElementById('gppBody');
+    if (body) body.innerHTML = '<div style="color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;text-align:center;padding:26px 0;font-size:13px">' + (hold ? 'Holding today\'s run…' : 'Releasing hold…') + '</div>';
+    try { await groundApi('setGroundAutoBuyHold', { hold: !!hold }); } catch (e) {}
+    openGroundPrintPlanModal();
+  };
+
+  let d = null;
+  try { d = await groundApi('getGroundPrintPlanForUi', {}); }
+  catch (e) { d = { ok: false, error: e.message }; }
+  const el = document.getElementById('gppBody');
+  if (!el) return;
+  if (!d || !d.ok) {
+    el.innerHTML = '<div style="color:#FF8A80;-webkit-text-fill-color:#FF8A80;font-size:13px;line-height:1.5">Could not load the plan: '
+      + escapeHtml(String((d && d.error) || 'unknown')) + '</div>';
+    return;
+  }
+
+  let h = '';
+  // State banner first — held / disabled / armed. Never leave the operator
+  // guessing whether money is about to move.
+  if (d.held_today) {
+    h += '<div style="background:linear-gradient(135deg,#7A4F00,#A66300);border:1.5px solid #FFB300;border-radius:10px;padding:12px 14px;margin-bottom:12px">'
+      + '<div style="font-size:14px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff">⏸ TODAY\'S RUN IS ON HOLD</div>'
+      + '<div style="font-size:12px;color:#FFECB3;-webkit-text-fill-color:#FFECB3;margin-top:4px;line-height:1.5">Nothing will be bought or printed at 4pm today. This clears by itself tomorrow — pack by hand today if these need to ship.</div>'
+      + '<button onclick="_gppSetHold_(false)" style="margin-top:9px;min-height:44px;padding:8px 16px;background:#fff;color:#7A4F00;-webkit-text-fill-color:#7A4F00;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">▶ Resume today\'s run</button>'
+      + '</div>';
+  } else if (!d.autobuy_enabled) {
+    h += '<div style="background:#2a2f3a;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:#C7D2DE;-webkit-text-fill-color:#C7D2DE;line-height:1.5">'
+      + 'Automatic buying is switched <b>off</b> right now, so nothing will happen at 4pm regardless of what\'s listed below.</div>';
+  } else {
+    h += '<div style="background:rgba(0,230,118,.10);border:1px solid rgba(0,230,118,.45);border-radius:10px;padding:12px 14px;margin-bottom:12px">'
+      + '<div style="font-size:13px;font-weight:800;color:#69F0AE;-webkit-text-fill-color:#69F0AE">Armed — buys at ' + escapeHtml(d.buys_at) + '</div>'
+      + '<div style="font-size:12px;color:#C7D2DE;-webkit-text-fill-color:#C7D2DE;margin-top:3px">' + d.planned_count + ' order' + (d.planned_count === 1 ? '' : 's') + ' will be bought and printed automatically.</div>'
+      + '</div>';
+  }
+
+  if (!d.planned_count) {
+    h += '<div style="color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;font-size:13px;padding:8px 0">Nothing is scheduled to print today.</div>';
+  } else {
+    (d.planned || []).forEach(r => {
+      const skus = (r.skus || []).map(s => escapeHtml(s.sku) + '×' + s.qty).join(' · ');
+      h += '<div style="background:#161d2a;border:1px solid rgba(255,255,255,.10);border-radius:9px;padding:10px 12px;margin-bottom:8px">'
+        + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:14px;font-weight:800;color:#fff;-webkit-text-fill-color:#fff">#'
+        + escapeHtml(String(r.order_number)) + (r.catch_up ? '<span style="margin-left:8px;font-size:10px;background:rgba(255,179,0,.22);color:#FFD54F;-webkit-text-fill-color:#FFD54F;padding:2px 6px;border-radius:4px;font-family:Helvetica,Arial,sans-serif">CATCH-UP</span>' : '')
+        + '</div>'
+        + '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0">' + escapeHtml(r.customer_name || '') + (r.state ? ' · ' + escapeHtml(r.state) : '') + '</div>'
+        + (skus ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:#B8C4D2;-webkit-text-fill-color:#B8C4D2;margin-top:3px">' + skus + '</div>' : '')
+        + (r.package_count ? '<div style="font-size:11px;color:#C7D2DE;-webkit-text-fill-color:#C7D2DE;margin-top:3px">' + r.package_count + ' package' + (r.package_count === 1 ? '' : 's') + ': '
+            + (r.packages || []).map(p => escapeHtml(p.box_sku || '?') + (p.weight_lb ? ' ' + p.weight_lb + 'lb' : '')).join(' · ') + '</div>' : '')
+        + ((r.holds && r.holds.length) ? '<div style="font-size:11px;color:#FF8A80;-webkit-text-fill-color:#FF8A80;margin-top:3px">🚧 would hold: ' + escapeHtml(r.holds.join(' · ')) + '</div>' : '')
+        + '</div>';
+    });
+  }
+
+  if (d.stale_count) {
+    h += '<div style="background:#2a2118;border:1px solid rgba(255,179,0,.4);border-radius:9px;padding:10px 12px;margin-top:4px">'
+      + '<div style="font-size:11px;font-weight:800;color:#FFD54F;-webkit-text-fill-color:#FFD54F;text-transform:uppercase;letter-spacing:.5px">🕰 ' + d.stale_count + ' overdue — NOT auto-bought</div>'
+      + (d.stale || []).map(s => '<div style="font-size:11px;color:#E0C89A;-webkit-text-fill-color:#E0C89A;margin-top:3px">#' + escapeHtml(String(s.order_number)) + ' — due ' + escapeHtml(String(s.print_date)) + ' (' + s.days_late + ' days ago)</div>').join('')
+      + '</div>';
+  }
+
+  if (!d.held_today && d.autobuy_enabled && d.planned_count) {
+    h += '<button onclick="_gppSetHold_(true)" style="width:100%;min-height:52px;margin-top:14px;padding:12px;background:linear-gradient(135deg,#8E0000,#B71C1C);color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid #ff5252;border-radius:9px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">⏸ HOLD TODAY\'S RUN — don\'t buy these</button>'
+      + '<div style="font-size:11px;color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;margin-top:6px;text-align:center;line-height:1.5">Stops today only. Tomorrow resumes automatically.</div>';
+  }
+  el.innerHTML = h;
 }
 
 // v10.1411 (Zac 2026-07-29: "the bedrock more menu has grown way too long and
@@ -34649,7 +34755,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1411"></script>
+<script src="./pack.js?v=10.1414"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34660,7 +34766,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1411<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1414<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
