@@ -133,6 +133,7 @@
     <div class="stat"><span class="num" id="layerParts">—</span><span class="lbl">Parts</span></div>
     <div class="stat"><span class="num" id="layerHeight">—</span><span class="lbl">Height (mm)</span></div>
     <span class="spacer"></span>
+    <button id="btnReset" title="Clear all in-place marks for this recipe">Reset</button>
     <button id="btnPrev" disabled>← Prev Layer</button>
     <button id="btnComplete" class="success" disabled>Layer Complete →</button>
     <button id="btnNext" class="primary" disabled>Next Layer →</button>
@@ -160,6 +161,37 @@ const S={
   activeLayerIdx:0,
   inPlace:new Set(),      // "layerIdx:partIdx" keys of parts marked in-place
 };
+
+/* v3.9 Phase 2 lite: persist tap marks + active layer to localStorage
+   keyed on the recipe SKU so an iPad reload mid-stack doesn't lose
+   progress. Server-side multi-device sync is Phase 3 (deferred — one
+   iPad per station is the common case). */
+const PROGRESS_KEY = sku => 'mbd_stacking_guide:' + sku;
+function saveProgress(){
+  if(!S.sku) return;
+  try{
+    localStorage.setItem(PROGRESS_KEY(S.sku), JSON.stringify({
+      layer: S.activeLayerIdx,
+      inPlace: [...S.inPlace],
+      savedAt: new Date().toISOString(),
+    }));
+  }catch(_){}
+}
+function restoreProgress(){
+  if(!S.sku) return false;
+  try{
+    const raw = localStorage.getItem(PROGRESS_KEY(S.sku));
+    if(!raw) return false;
+    const j = JSON.parse(raw);
+    S.activeLayerIdx = Number(j.layer)||0;
+    S.inPlace = new Set(Array.isArray(j.inPlace) ? j.inPlace : []);
+    return true;
+  }catch(_){ return false; }
+}
+function clearProgress(){
+  if(!S.sku) return;
+  try{ localStorage.removeItem(PROGRESS_KEY(S.sku)); }catch(_){}
+}
 
 /* ---------- STORAGE ---------- */
 const LS_LIB='mbd_stacking_library';
@@ -215,7 +247,8 @@ async function loadRecipe(sku){
   S.activeLayerIdx=0;
   S.inPlace.clear();
   $('emptyState')?.remove();
-  toast('Loaded '+sku+' — '+source);
+  const resumed=restoreProgress();
+  toast('Loaded '+sku+' — '+source + (resumed?' (resumed '+S.inPlace.size+' in-place)':''));
   renderAll();
 }
 
@@ -304,23 +337,33 @@ function renderStage(layer){
 
 function togglePart(key){
   if(S.inPlace.has(key)) S.inPlace.delete(key); else S.inPlace.add(key);
+  saveProgress();
   renderAll();
 }
 
 /* ---------- NAV ---------- */
 $('btnPrev').onclick=()=>{
-  if(S.activeLayerIdx>0){S.activeLayerIdx--; renderAll();}
+  if(S.activeLayerIdx>0){S.activeLayerIdx--; saveProgress(); renderAll();}
 };
 $('btnNext').onclick=()=>{
   const layers=S.snapshot?.layers||[];
-  if(S.activeLayerIdx<layers.length-1){S.activeLayerIdx++; renderAll();}
+  if(S.activeLayerIdx<layers.length-1){S.activeLayerIdx++; saveProgress(); renderAll();}
 };
 $('btnComplete').onclick=()=>{
   const layers=S.snapshot?.layers||[];
   const li=S.activeLayerIdx;
   toast('Layer '+(li+1)+' complete!');
-  if(li<layers.length-1){setTimeout(()=>{S.activeLayerIdx++; renderAll();}, 800);}
+  if(li<layers.length-1){setTimeout(()=>{S.activeLayerIdx++; saveProgress(); renderAll();}, 800);}
   else{setTimeout(()=>toast('Stack complete!'), 900);}
+};
+$('btnReset').onclick=()=>{
+  if(!S.snapshot) return;
+  if(!confirm('Reset all in-place marks for '+S.sku+'? (Layer view returns to Layer 1.)')) return;
+  S.inPlace.clear();
+  S.activeLayerIdx=0;
+  clearProgress();
+  toast('Progress reset for '+S.sku);
+  renderAll();
 };
 
 /* ---------- BOOT ---------- */
