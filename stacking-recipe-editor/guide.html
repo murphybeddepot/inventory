@@ -157,30 +157,35 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 /* ---------- STATE ---------- */
 const S={
   sku:null,
+  orderNumber:null,       // v3.13: when opened via ?order=N, progress keys by order
   snapshot:null,          // the loaded recipe snapshot
   activeLayerIdx:0,
   inPlace:new Set(),      // "layerIdx:partIdx" keys of parts marked in-place
 };
 
-/* v3.9 Phase 2 lite: persist tap marks + active layer to localStorage
-   keyed on the recipe SKU so an iPad reload mid-stack doesn't lose
-   progress. Server-side multi-device sync is Phase 3 (deferred — one
-   iPad per station is the common case). */
-const PROGRESS_KEY = sku => 'mbd_stacking_guide:' + sku;
+/* Persist tap marks + active layer to localStorage. v3.13: prefer
+   order-scoped key when opened from an order context so two orders
+   sharing a recipe don't collide. Falls back to SKU-scoped for the
+   standalone `?sku=X` case. */
+const PROGRESS_KEY = () => S.orderNumber
+  ? ('mbd_stacking_guide_order:' + S.orderNumber)
+  : ('mbd_stacking_guide:' + S.sku);
 function saveProgress(){
-  if(!S.sku) return;
+  if(!S.sku && !S.orderNumber) return;
   try{
-    localStorage.setItem(PROGRESS_KEY(S.sku), JSON.stringify({
+    localStorage.setItem(PROGRESS_KEY(), JSON.stringify({
       layer: S.activeLayerIdx,
       inPlace: [...S.inPlace],
       savedAt: new Date().toISOString(),
+      order: S.orderNumber || null,
+      sku: S.sku || null,
     }));
   }catch(_){}
 }
 function restoreProgress(){
-  if(!S.sku) return false;
+  if(!S.sku && !S.orderNumber) return false;
   try{
-    const raw = localStorage.getItem(PROGRESS_KEY(S.sku));
+    const raw = localStorage.getItem(PROGRESS_KEY());
     if(!raw) return false;
     const j = JSON.parse(raw);
     S.activeLayerIdx = Number(j.layer)||0;
@@ -189,8 +194,8 @@ function restoreProgress(){
   }catch(_){ return false; }
 }
 function clearProgress(){
-  if(!S.sku) return;
-  try{ localStorage.removeItem(PROGRESS_KEY(S.sku)); }catch(_){}
+  if(!S.sku && !S.orderNumber) return;
+  try{ localStorage.removeItem(PROGRESS_KEY()); }catch(_){}
 }
 
 /* ---------- STORAGE ---------- */
@@ -220,6 +225,24 @@ async function remoteLoadRecipe(sku){
   const s=getDeviceSecret();
   if(!s) return null;
   const rows=await _rpc('load_stacking_recipe',{p_device_secret:s, p_sku:sku});
+  return (rows && rows[0]) ? rows[0] : null;
+}
+async function remoteListLib(){
+  const s=getDeviceSecret();
+  if(!s) return null;
+  return await _rpc('list_stacking_recipes',{p_device_secret:s});
+}
+// v3.13 — order↔recipe assignment. Column + RPCs live in orders_spine.
+async function remoteGetOrderRecipe(orderNumber){
+  const s=getDeviceSecret();
+  if(!s) throw new Error('Device not provisioned — cloud lookup unavailable.');
+  const rows=await _rpc('get_order_recipe',{p_device_secret:s, p_order_number:String(orderNumber)});
+  return (rows && rows[0]) ? rows[0] : null;
+}
+async function remoteSetOrderRecipe(orderNumber, sku){
+  const s=getDeviceSecret();
+  if(!s) throw new Error('Device not provisioned — assignment requires cloud sync.');
+  const rows=await _rpc('set_order_recipe',{p_device_secret:s, p_order_number:String(orderNumber), p_sku:String(sku||'')});
   return (rows && rows[0]) ? rows[0] : null;
 }
 
@@ -383,12 +406,117 @@ $('btnReset').onclick=()=>{
   renderAll();
 };
 
+/* ---------- ORDER-CONTEXT BOOT (v3.13) ---------- */
+
+// When opened with ?order=N, look up the assigned recipe SKU in
+// orders_spine, then load that recipe. Progress persists per-order.
+// If no recipe is assigned, show a picker so the packer can assign one
+// on the spot without leaving the guide.
+async function bootWithOrder(orderNumber, explicitSku){
+  S.orderNumber = String(orderNumber);
+  // Show order in header
+  $('skuLabel').textContent = 'Order #' + orderNumber;
+  if(!hasBackend()){
+    $('emptyState').innerHTML = '<div class="big">Bedrock backend not configured</div>'+
+      '<div class="hint">Order-context guide needs Supabase config. Open <a href="./">the Recipe Editor</a> to check setup.</div>';
+    return;
+  }
+  if(!isProvisioned()){
+    $('emptyState').innerHTML = '<div class="big">Device not provisioned</div>'+
+      '<div class="hint">Order → recipe assignment requires cloud sync. Ask Zac for the setup URL, or open with <code>?sku=X</code> instead.</div>';
+    return;
+  }
+  // If URL also names a SKU (from a link/QR code), trust it and assign
+  // right away — one round-trip instead of two.
+  if(explicitSku){
+    try{
+      await remoteSetOrderRecipe(orderNumber, explicitSku);
+      toast('Assigned recipe '+explicitSku+' to order '+orderNumber);
+    }catch(err){ toast('Assignment failed: '+err.message); }
+    S.sku = explicitSku;
+    $('skuLabel').textContent = 'Order #'+orderNumber+' · '+explicitSku;
+    await loadRecipe(explicitSku);
+    return;
+  }
+  // Otherwise look up whatever's assigned.
+  let assignedSku = null;
+  try{
+    const row = await remoteGetOrderRecipe(orderNumber);
+    if(row) assignedSku = row.stacking_recipe_sku;
+  }catch(err){
+    $('emptyState').innerHTML = '<div class="big">Cloud lookup failed</div>'+
+      '<div class="hint">'+String(err.message||err)+'</div>';
+    return;
+  }
+  if(assignedSku){
+    S.sku = assignedSku;
+    $('skuLabel').textContent = 'Order #'+orderNumber+' · '+assignedSku;
+    await loadRecipe(assignedSku);
+    return;
+  }
+  // Unassigned — draw a picker in the empty state.
+  await renderOrderRecipePicker(orderNumber);
+}
+
+async function renderOrderRecipePicker(orderNumber){
+  const empty = $('emptyState');
+  if(!empty){ return; }
+  empty.innerHTML = '<div class="big">No recipe assigned yet</div>'+
+    '<div class="hint">Order <b>#'+orderNumber+'</b> has no stacking recipe. Pick one below — it saves to the order so any device opens the same recipe next time.</div>'+
+    '<div id="pickerBox" class="hint">Loading library…</div>';
+  let recipes = [];
+  try{
+    const rows = await remoteListLib();
+    if(Array.isArray(rows)) recipes = rows;
+  }catch(err){
+    $('pickerBox').textContent = 'Failed to load recipe library: ' + err.message;
+    return;
+  }
+  if(!recipes.length){
+    $('pickerBox').innerHTML = 'No recipes in the cloud library yet. Build one in the <a href="./">Recipe Editor</a> and Save it first.';
+    return;
+  }
+  recipes.sort((a,b)=>String(a.sku).localeCompare(String(b.sku)));
+  const box = $('pickerBox');
+  box.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px;max-width:560px;margin:16px auto 0">' +
+    recipes.map(r =>
+      '<button data-sku="'+encodeURIComponent(r.sku)+'" class="pickBtn" style="'+
+      'padding:14px 18px;font-size:16px;font-weight:600;background:var(--panel2);border:1px solid var(--line2);'+
+      'border-radius:10px;color:var(--ink);text-align:left;cursor:pointer;font-family:inherit">'+
+      '<span style="font-family:var(--mono);color:var(--accent)">'+String(r.sku).replace(/</g,'&lt;')+'</span>'+
+      '<span style="color:var(--ink3);float:right;font-size:12px">rev '+r.revision+' · '+
+      new Date(r.updated_at).toLocaleDateString()+'</span></button>'
+    ).join('') +
+    '</div>';
+  box.querySelectorAll('.pickBtn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const sku = decodeURIComponent(btn.getAttribute('data-sku'));
+      btn.textContent = 'Assigning ' + sku + '…';
+      try{
+        await remoteSetOrderRecipe(orderNumber, sku);
+        // Rewrite URL so a reload brings the same context back.
+        const url = new URL(location.href);
+        url.searchParams.set('sku', sku);
+        history.replaceState(null, '', url.toString());
+        S.sku = sku;
+        $('skuLabel').textContent = 'Order #'+orderNumber+' · '+sku;
+        await loadRecipe(sku);
+      }catch(err){
+        toast('Assignment failed: '+err.message);
+        btn.textContent = 'Retry ' + sku;
+      }
+    });
+  });
+}
+
 /* ---------- BOOT ---------- */
 window.addEventListener('resize', ()=>{if(S.snapshot)renderAll();});
 (function boot(){
   const qs=new URLSearchParams(location.search);
+  const order=qs.get('order');
   const sku=qs.get('sku');
-  if(sku){loadRecipe(sku);}
+  if(order){ bootWithOrder(order, sku); return; }
+  if(sku){ loadRecipe(sku); return; }
 })();
 </script>
 </body>
