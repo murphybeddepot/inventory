@@ -321,12 +321,14 @@ function renderStage(layer){
     const rect=svgel('rect',{x,y,width:w,height:h,rx:4,
       class:'part-shape'+(inplace?' inplace':''),
       'data-key':key});
-    // Bolder fills — solid color at 88% (E0) instead of 33% (55).
-    // In-place stays flat green so it POPS against the section colors.
+    // Solid fills + DARK stroke so adjacent parts show a visible gap.
+    // Zac 2026-07-30 feedback: v3.11 was bolder but parts blurred together.
+    // Stroke color = page bg (#101317). Where two parts share an edge,
+    // their two strokes stack into a dark ~6px line.
     const secColor = SECTION_COLORS[p.secIdx%SECTION_COLORS.length];
-    rect.style.fill = inplace ? '#1fb063' : (secColor + 'E0');
-    rect.style.stroke = inplace ? '#39c46f' : secColor;
-    rect.style.strokeWidth = inplace ? 4 : 3;
+    rect.style.fill = inplace ? '#1fb063' : secColor;
+    rect.style.stroke = inplace ? '#0e1116' : '#0e1116';
+    rect.style.strokeWidth = 4;
     rect.addEventListener('click', ()=>togglePart(key));
     svg.appendChild(rect);
     // Uniform-size label — short 2A-style code preferred. If a part has
