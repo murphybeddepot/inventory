@@ -551,25 +551,205 @@
 
 <!-- HELP MODAL -->
 <div class="modal-bg" id="helpModal">
-  <div class="modal" style="width:620px">
-    <h2>How it works <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
-    <div class="mbody">
-      <h3 style="margin:0 0 8px;font-size:13px">🆕 What's new (v3.0 → v3.10)</h3>
-      <div class="hint" style="margin-bottom:14px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px">
-        <ul style="margin:0;padding-left:18px;line-height:1.7">
-          <li><b>.moz import + export</b> — <b>Import .moz…</b> reads Mozaik files (parts + drills + bands) straight into the tray; <b>Export → Mozaik files / job zip</b> writes them back out.</li>
-          <li><b>Match .moz…</b> — feed it a set of .moz files and it finds a matching saved recipe by geometry signature, then offers <b>Load V1</b> or <b>Fork as V2</b> (auto-suggests QBZ-WHITE → QBZ-WHITE V2, or bumps V3 → V4).</li>
-          <li><b>Cross-device Save</b> — recipes now sync via Supabase when the device is provisioned. Library shows every recipe on every device with <span class="pill">Local + Cloud rev N</span> / <span class="pill">Local only</span> / <span class="pill">Cloud only</span> badges. Delete offers "both local + cloud" or local-only.</li>
-          <li><b>Tray sort</b> — dropdown at the top of the parts list: Section, Length ↓/↑, Width ↓/↑, Qty ↓/↑, Name, Part #.</li>
-          <li><b>Stacker Guide</b> — full-screen shop view for iPad/TV. Open from Library → <b>🎯 Guide</b>. Tap each part to mark it in-place, tap Layer Complete, auto-advance. Progress persists across iPad reloads.</li>
-          <li><b>Drill / band viewer</b> — <b>ⓘ</b> button on every tray row opens a per-part detail with ops table + preview.</li>
-          <li><b>← Bedrock</b> link at top-left returns to the PWA. Save toast always fires (with ✓); empty-SKU flashes red.</li>
+  <div class="modal" style="width:820px;max-width:96vw">
+    <h2>Stacking Recipe Editor — full guide <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody" style="line-height:1.55">
+
+      <!-- TABLE OF CONTENTS -->
+      <div style="padding:10px 14px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;margin-bottom:16px;font-size:12px;line-height:1.9">
+        <b style="font-size:13px">Contents</b><br>
+        <a href="#help-quick">1. Quick start</a> · <a href="#help-header">2. The header</a> · <a href="#help-import">3. Importing parts</a> · <a href="#help-match">4. Matching an order</a> · <a href="#help-place">5. Placing parts</a> · <a href="#help-layers">6. Layers panel</a> · <a href="#help-auto">7. Auto-stacking</a> · <a href="#help-cartons">8. Cartons</a> · <a href="#help-drill">9. Drill / band editor</a> · <a href="#help-save">10. Save + Library + cross-device</a> · <a href="#help-export">11. Exports</a> · <a href="#help-guide">12. Stacker Guide</a> · <a href="#help-sort">13. Tray sort + search</a> · <a href="#help-mobile">14. Phone / tablet</a> · <a href="#help-coord">15. Coordinate model</a> · <a href="#help-shortcuts">16. Keyboard shortcuts</a> · <a href="#help-trouble">17. Troubleshooting</a> · <a href="#help-new">18. What's new</a>
+      </div>
+
+      <h3 id="help-quick" style="margin:0 0 8px;font-size:14px">1. Quick start</h3>
+      <div class="hint" style="margin-bottom:16px">
+        The whole flow, three steps:
+        <ol style="margin:6px 0 0 0;padding-left:22px">
+          <li><b>Get parts into the tray.</b> Either drop <b>Import .moz(s)…</b> from Mozaik (full drill + band data), paste a text order via <b>Import parts…</b>, or hit <b>Load sample list</b> in the import modal.</li>
+          <li><b>Place them on the pallet.</b> Tap a tray row to arm it, tap the pallet to drop it. Or let <b>Suggest layer</b> pack a layer for you, or <b>Build stack</b> do the whole stack in a search.</li>
+          <li><b>Save.</b> Type a SKU in the top bar (e.g. <code>QBZ-WHITE</code>), hit <b>Save recipe</b>. If your device is provisioned it syncs to the cloud so every device sees it. Open the <b>Stacker Guide</b> from Library → <b>🎯 Guide</b> for the shop-floor view.</li>
+        </ol>
+      </div>
+
+      <h3 id="help-header" style="margin:0 0 8px;font-size:14px">2. The header (left → right)</h3>
+      <div class="hint" style="margin-bottom:16px">
+        <ul style="margin:0;padding-left:18px">
+          <li><b>‹ Bedrock</b> — go back to the main PWA.</li>
+          <li><b>Stacking Recipe Editor · v3.x</b> — version pill; the number tells you what's live.</li>
+          <li><b>SKU</b> input — the name this recipe saves under. Required to Save.</li>
+          <li><b>sig …</b> — geometry fingerprint of the current tray. Two orders with the same parts get the same signature (order-independent). Used to match orders to recipes.</li>
+          <li><b>Import parts… / Import .moz… / Match text… / Match .moz…</b> — load parts or find matching recipes (see §3, §4).</li>
+          <li><b>Library…</b> — browse saved recipes (see §10).</li>
+          <li><b>Save recipe</b> — writes the current state under the SKU.</li>
+          <li><b>Export…</b> — CSV / JSON / PDF / Mozaik files / Mozaik job zip (see §11).</li>
+          <li><b>?</b> — this guide.</li>
         </ul>
       </div>
-      <h3 style="margin:0 0 8px;font-size:13px">Placing parts</h3>
-      <div class="hint" style="margin-bottom:14px">Click a part in the left tray to arm it, press <span class="kbd">R</span> to set its rotation, then click the pallet to drop it on the active layer. Drag placed parts to move them; they snap to the footprint walls and to each other (set a <b>Gap</b> to leave kerf between parts, or turn <b>Snap</b> off for free movement). Parts are held inside the footprint while <b>Keep in bounds</b> is on. Two parts overlapping within one layer turn red; overlaps between layers are fine — that's the stack. <b>Suggest layer</b> densely packs the current (or a new) layer with as many tray parts as fit, trying both orientations and backfilling leftover space, then leaves the rest in the tray — click it again to fill the next layer. A starting point you can rearrange.</div>
-      <h3 style="margin:0 0 8px;font-size:13px">Shortcuts</h3>
-      <div class="helpgrid">
+
+      <h3 id="help-import" style="margin:0 0 8px;font-size:14px">3. Importing parts</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Four ways to fill the tray:
+        <ul style="margin:6px 0;padding-left:18px">
+          <li><b>Import parts…</b> — text-import modal. Paste rows in the format <code>partNum &nbsp; name &nbsp; qty &nbsp; L_in &nbsp; L_mm &nbsp; W_in &nbsp; W_mm</code> (tab-separated). Section headers like <code>Outer Fascia</code> group the rows. The modal has a <b>Load sample list</b> button to see the shape.</li>
+          <li><b>Import .moz…</b> — pick one or more Mozaik <code>.moz</code> files. Reads part identity, dimensions, quantity, plus the full drill/band record (needed for the Drill editor and Mozaik export round-trip).</li>
+          <li><b>Match text… / Match .moz…</b> — see §4. Also imports parts as a side-effect.</li>
+        </ul>
+        <p style="margin:6px 0 0 0"><b>What .moz gives you that text doesn't:</b> per-part drilling operations (face holes, edge bores, line-bore rows), edge-band flags, part type. You can only edit drills on parts that came from a .moz.</p>
+      </div>
+
+      <h3 id="help-match" style="margin:0 0 8px;font-size:14px">4. Matching an order to a saved recipe</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Both <b>Match text…</b> and <b>Match .moz…</b> compute the signature of what you're feeding in, then search the Library (local + cloud) for recipes with the same signature.
+        <ul style="margin:6px 0;padding-left:18px">
+          <li><b>Match text…</b> — paste an order; if a recipe matches, offers to Load it (or Remap part numbers to this order's).</li>
+          <li><b>Match .moz…</b> — the important one. Given the same match, offers three options:
+            <ol style="margin:4px 0 0 0;padding-left:20px">
+              <li><b>Load V1</b> — open the existing recipe.</li>
+              <li><b>Fork as V2</b> — copy the existing layout to a new SKU (auto-suggests QBZ-WHITE → QBZ-WHITE V2, or bumps V3 → V4). Change one thing and Save without touching V1.</li>
+              <li><b>New blank</b> — throw away the match, start from empty.</li>
+            </ol>
+          </li>
+        </ul>
+      </div>
+
+      <h3 id="help-place" style="margin:0 0 8px;font-size:14px">5. Placing parts on the pallet</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Click a part row in the tray → it arms. Click on the pallet → it drops on the active layer. Repeat.
+        <ul style="margin:6px 0;padding-left:18px">
+          <li>Press <span class="kbd">R</span> before you drop to pre-rotate the armed part 90° (<span class="kbd">Shift</span>+<span class="kbd">R</span> = −90°). Rotation is remembered until you disarm.</li>
+          <li>Drag placed parts to move them. They snap to the footprint walls and to each other.</li>
+          <li><b>Snap</b> checkbox turns snapping on/off. <b>Gap</b> field sets a kerf/gap in mm that separates snapping parts.</li>
+          <li><b>Keep in bounds</b> — parts can't leave the footprint while it's on.</li>
+          <li>Two parts overlapping <b>within one layer</b> turn red (a real collision). Overlaps between layers are fine — that's the stack.</li>
+          <li><b>Ghost below</b> checkbox draws the previous layer faintly under the current one, so you can align stacks.</li>
+          <li><b>Labels</b> checkbox toggles the part# text drawn on each placed part.</li>
+          <li><b>Grid</b> dropdown snaps positions to a grid (5/10/25/50 mm or 0.5/1/2 in).</li>
+        </ul>
+      </div>
+
+      <h3 id="help-layers" style="margin:0 0 8px;font-size:14px">6. Layers panel</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Right column, <b>LAYERS</b>. Each row is one horizontal layer in the pallet stack.
+        <ul style="margin:6px 0;padding-left:18px">
+          <li>Click <b>L1 / L2 / …</b> to switch the active layer.</li>
+          <li><b>+ Layer</b> — add a new empty layer on top.</li>
+          <li><b>Duplicate</b> — copy the active layer's placement.</li>
+          <li><b>Clear stack</b> — wipe every placement (keeps the tray).</li>
+          <li>Per-layer controls: ↑/↓ reorder, Copy, Clear, Delete.</li>
+        </ul>
+        The panel also shows Parts placed / Layers / Stack height / Active-layer fill / Support (%). Support flags severe issues (a part sitting on <70% support from below).
+      </div>
+
+      <h3 id="help-auto" style="margin:0 0 8px;font-size:14px">7. Auto-stacking</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Two levels of automation:
+        <ul style="margin:6px 0;padding-left:18px">
+          <li><b>Suggest layer</b> — packs one layer densely. Try both orientations per part, backfills leftover space, leaves what didn't fit in the tray. Click again to fill the next layer.</li>
+          <li><b>Build stack</b> — runs a nesting search across many part orderings + carton placements. Effort selector (Fast / Balanced / Thorough) trades time for quality. Returns three distinct layouts to flip between; big panels go low, small parts high.</li>
+          <li><b>Big parts first</b> checkbox biases the search toward large panels on lower layers.</li>
+          <li>Same SKU at the same effort reproduces the same result — it's deterministic.</li>
+        </ul>
+      </div>
+
+      <h3 id="help-cartons" style="margin:0 0 8px;font-size:14px">8. Cartons</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Cartons are frame-boxes stacked in the void reserved by <b>Build stack</b> across the top layers.
+        <ul style="margin:6px 0;padding-left:18px">
+          <li>Define a carton by <b>Name / L / W / H</b> in the Cartons pane. A 100mm-tall carton spans ~6 layers of 19mm panels.</li>
+          <li>Auto-stacking reserves the void; you set the actual carton into place by hand.</li>
+          <li>Cartons render dashed on the pallet, distinct from parts.</li>
+        </ul>
+      </div>
+
+      <h3 id="help-drill" style="margin:0 0 8px;font-size:14px">9. Drill / band editor (ⓘ button)</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Every part row in the tray has a small <b>ⓘ</b> button. Tap it to open a per-part detail modal with:
+        <ul style="margin:6px 0;padding-left:18px">
+          <li><b>Identity</b> — part #, name, section, dims, type, source layer.</li>
+          <li><b>Bands</b> — four checkboxes (Front/Y0, Back/YW, Left/X0, Right/XL). Toggle any edge on/off.</li>
+          <li><b>Operations</b> — editable table of drilling ops. Every X/Y/Ø/depth/axis-h/flip/qty cell is an input. Rules mirror Mozaik: X locked on X0/XL edges, Y locked on Y0/YW edges, Axis-h + Flip only where meaningful, Qty only on line-bores.</li>
+          <li><b>+ Face hole</b> — add a face-drilled hole at default position (34, 36) with 5mm Ø × 15mm depth.</li>
+          <li><b>+ Edge bore</b> — add a horizontal edge bore on the X0 edge.</li>
+          <li><b>+ Line bore row</b> — add a 5-dot line-bore row at 32mm spacing.</li>
+          <li><b>✕</b> per row — delete an op.</li>
+          <li>Live SVG preview redraws after every change. Green segments = banded edges. Solid dots = near-face holes. Red dashed = flip-side. Amber ticks = edge bores. Blue dots = line-bore.</li>
+        </ul>
+        <b>Edits auto-save to the recipe.</b> Hit Save on the header to persist to the cloud; Mozaik files / Mozaik job zip exports carry the edits verbatim.<br>
+        <b>Parts imported from text</b> have no .moz drill data — the modal shows a "re-import .moz to view drills" message.
+      </div>
+
+      <h3 id="help-save" style="margin:0 0 8px;font-size:14px">10. Save + Library + cross-device sync</h3>
+      <div class="hint" style="margin-bottom:16px">
+        <b>Save recipe</b> writes the current state under the SKU in the top bar. Requires a SKU (input flashes red if empty). Overwrite prompt if the SKU already exists.
+        <p style="margin:6px 0"><b>Cross-device sync:</b> when your device is provisioned, Save writes to Supabase too. Library shows every recipe on every provisioned device, badged:</p>
+        <ul style="margin:0 0 6px 0;padding-left:18px">
+          <li><span class="pill">Local + Cloud rev N</span> — saved here AND in the cloud.</li>
+          <li><span class="pill warn">Local only</span> — only on this device.</li>
+          <li><span class="pill">Cloud only</span> — on another device, not this one yet. Tap Load to fetch.</li>
+        </ul>
+        <p style="margin:6px 0"><b>Delete</b> in the Library shows a two-step dialog when a cloud copy exists: "Delete BOTH local AND cloud" (permanent, every device loses it) OR "Delete LOCAL only" (cloud copy stays).</p>
+        <p style="margin:6px 0"><b>To provision a device</b> for cloud sync: get the setup URL from Zac and open it once — you'll see a toast "✓ Device provisioned for Bedrock sync". After that this device reads + writes the cloud library automatically.</p>
+        <p style="margin:6px 0"><b>Diagnostic:</b> in DevTools console, run <code>stackingDiag()</code> — dumps provisioning + cloud reachability + local recipe count.</p>
+      </div>
+
+      <h3 id="help-export" style="margin:0 0 8px;font-size:14px">11. Exports</h3>
+      <div class="hint" style="margin-bottom:16px">
+        <b>Export…</b> opens six options:
+        <ul style="margin:6px 0;padding-left:18px">
+          <li><b>CSV</b> — per-part placement (layer, partNum, X/Y, angle, dims). Includes cartons.</li>
+          <li><b>JSON</b> — full snapshot (same data + footprint/pallet/settings). Machine-readable.</li>
+          <li><b>PDF — colour</b> — cover + all-layers overview + one page per layer. Shareable.</li>
+          <li><b>PDF — B&amp;W</b> — same PDF, flattened for cheaper printing.</li>
+          <li><b>Copy CSV</b> — clipboard, no download.</li>
+          <li><b>Mozaik files (per-layer .moz)</b> — one .moz per stacking layer. Feed them into Mozaik individually.</li>
+          <li><b>Mozaik job zip</b> — full Mozaik job structure: Room1 + N layer .moz + JobDat + JobParms. Unzip into your Mozaik Jobs folder and open the job.</li>
+        </ul>
+        Mozaik exports carry any drill/band edits you made in the ⓘ editor.
+      </div>
+
+      <h3 id="help-guide" style="margin:0 0 8px;font-size:14px">12. Stacker Guide (guide.html)</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Full-screen shop-floor view for the iPad or TV next to the stacking station. Big dark UI, giant tap-targets, no glare.
+        <ul style="margin:6px 0;padding-left:18px">
+          <li><b>Open from the Recipe Editor</b> — Library → any recipe row has a <b>🎯 Guide</b> button.</li>
+          <li><b>Direct URL</b> — <code>guide.html?sku=YOUR-SKU</code>.</li>
+          <li><b>Tied to an order</b> — <code>guide.html?order=32748</code> looks up the assigned recipe from Supabase. If none is assigned, shows a picker to pick one; the pick saves back to the order so any device opens the same recipe next time. Progress keys under order_number, so two orders sharing a recipe track separately.</li>
+          <li><b>Auto-assign shortcut</b> — <code>guide.html?order=N&amp;sku=X</code> assigns + loads in one round-trip. Good for QR codes or Bedrock deep-links.</li>
+          <li><b>Bedrock integration</b> — the Inspect Order modal has a green "🎯 Stacker Guide" button that opens the guide for that order.</li>
+        </ul>
+        In the guide itself:
+        <ul style="margin:6px 0;padding-left:18px">
+          <li>Tap each part on the layer → turns green with a ✓, in-place counter increments.</li>
+          <li>Progress persists to localStorage per SKU (or per order). If the iPad reloads mid-stack, tap-marks resume — you'll see "resumed N in-place" in the toast.</li>
+          <li><b>← Prev / Layer Complete → / Next Layer →</b> at the bottom. Complete auto-advances after 800ms.</li>
+          <li><b>Reset</b> button clears all tap marks + returns to Layer 1.</li>
+          <li>If you re-save the recipe with a different layout, guide progress for that SKU auto-clears (stale marks would point at wrong parts).</li>
+        </ul>
+      </div>
+
+      <h3 id="help-sort" style="margin:0 0 8px;font-size:14px">13. Tray sort + search</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Above the parts list:
+        <ul style="margin:6px 0;padding-left:18px">
+          <li><b>Filter parts…</b> — search box, matches partNum + name (case-insensitive).</li>
+          <li><b>Sort</b> dropdown — <i>Section (default)</i> keeps the grouped/collapsible layout. Any other choice (Length ↓/↑, Width ↓/↑, Qty ↓/↑, Name, Part #) flattens to one list sorted by that key. Swatch color still identifies each part's source section.</li>
+          <li><b>Collapse all / Expand all</b> — Section view only.</li>
+        </ul>
+        Your sort choice persists per-device across recipes.
+      </div>
+
+      <h3 id="help-mobile" style="margin:0 0 8px;font-size:14px">14. On a phone or tablet</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Pinch to zoom, drag one finger on empty space to pan, tap <b>Fit</b> to reset the view. Tap a part to select it — the bar at the bottom nudges, rotates, duplicates, or deletes it. Use the tabs under the canvas to reach Parts, Selection, Layers, Cartons, and Settings. Header wraps to two rows on narrow screens so every button stays reachable.
+      </div>
+
+      <h3 id="help-coord" style="margin:0 0 8px;font-size:14px">15. Coordinate model</h3>
+      <div class="hint" style="margin-bottom:16px">
+        Coordinates are distances from the chosen <b>origin corner</b> of the chosen <b>datum</b> (footprint or pallet), measured inward, so values are always positive. X runs along the long side, Y along the short side. Angle is the part rotation in degrees. The <b>Reference</b> setting picks whether an exported part position points at the center or one of the corners. Export carries the reference point you pick plus the center, angle, and L×W, so it can be re-mapped to whatever downstream tool expects.
+      </div>
+
+      <h3 id="help-shortcuts" style="margin:0 0 8px;font-size:14px">16. Keyboard shortcuts</h3>
+      <div class="helpgrid" style="margin-bottom:16px">
         <span class="kbd">R</span><span>Rotate selection +90° &nbsp; (<span class="kbd">Shift</span>+<span class="kbd">R</span> = −90°)</span>
         <span class="kbd">← ↑ → ↓</span><span>Nudge by grid &nbsp; (<span class="kbd">Shift</span> = ×5)</span>
         <span class="kbd">Del</span><span>Remove selected parts (returns them to the tray)</span>
@@ -579,12 +759,38 @@
         <span>Click empty + drag</span><span>Marquee-select parts on the active layer</span>
         <span><span class="kbd">Shift</span>+click</span><span>Add / remove from selection</span>
       </div>
-      <h3 style="margin:16px 0 8px;font-size:13px">Auto-stacking &amp; cartons</h3>
-      <div class="hint" style="margin-bottom:14px"><b>Suggest layer</b> fills one layer at a time. <b>Build stack</b> runs a nesting-style search (Fast / Balanced / Thorough — slower = more thorough) over many part orderings and carton placements, and hands back the best 3 distinct layouts to click between. It puts big panels low, saves small parts for the top, and reserves frame-carton voids across the top layers with panels packed around them — you set the cartons into those voids by hand. Define a carton by name and L×W×H; a 100mm carton spans 6 of the 19mm layers. The same SKU at the same effort reproduces the same result.</div>
-      <h3 style="margin:16px 0 8px;font-size:13px">On a phone or tablet</h3>
-      <div class="hint" style="margin-bottom:14px">Pinch to zoom, drag one finger on empty space to pan, tap <b>Fit</b> to reset the view. Tap a part to select it &mdash; the bar at the bottom nudges, rotates, duplicates, or deletes it. Use the tabs under the canvas to reach Parts, Selection, Layers, Cartons, and Settings.</div>
-      <h3 style="margin:16px 0 8px;font-size:13px">Coordinate model</h3>
-      <div class="hint">Coordinates are distances from the chosen <b>origin corner</b> of the chosen <b>datum</b> (footprint or pallet), measured inward, so values are always positive. X runs along the long side, Y along the short side. Angle is the part rotation in degrees. Export carries the reference point you pick plus the center, angle, and L×W, so it can be re-mapped to whatever Edge's cell expects.</div>
+
+      <h3 id="help-trouble" style="margin:0 0 8px;font-size:14px">17. Troubleshooting</h3>
+      <div class="hint" style="margin-bottom:16px">
+        <ul style="margin:0;padding-left:18px">
+          <li><b>Saved a recipe but not in Library</b> — check the toast. Missing SKU flashes the input red; overwrite-cancel says "Save cancelled". Every successful save toasts <b>✓ Saved SKU …</b>. If you're on mobile and see nothing, quit and reopen the browser (cache) and reload with <code>?cachebust=1</code>.</li>
+          <li><b>Guide says "Recipe not found"</b> — the SKU in the URL doesn't match any local or cloud recipe. Open the Editor, check Library for the exact spelling.</li>
+          <li><b>Cloud sync says "OFF"</b> — this device isn't provisioned. Get the setup URL from Zac and open it once.</li>
+          <li><b>Drill editor says "no .moz drill data"</b> — this recipe was authored from text-paste, not .moz. Re-import the source .moz file(s) via <b>Import .moz…</b> to get drills + bands.</li>
+          <li><b>Save button did nothing</b> (mobile) — check the version pill in the header. If below 3.11, browser is serving cached HTML — quit Safari, reopen, load with <code>?cachebust=1</code>.</li>
+          <li><b>Diagnostic dump</b> — open DevTools console (Chrome ⌘⌥J), run <code>stackingDiag()</code>. Prints provisioning state + cloud reachability + local recipe count. Paste that to Zac.</li>
+          <li><b>Debug mode</b> — append <code>?debug=1</code> to the URL. A pinned green log at the bottom of the screen records every tap and toast — useful when a button seems to do nothing on mobile.</li>
+        </ul>
+      </div>
+
+      <h3 id="help-new" style="margin:0 0 8px;font-size:14px">18. What's new (v3.0 → v3.14)</h3>
+      <div class="hint" style="margin-bottom:6px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px">
+        <ul style="margin:0;padding-left:18px;line-height:1.7">
+          <li><b>3.0 – 3.1</b>: .moz import + export, cross-device Save via Supabase.</li>
+          <li><b>3.2</b>: Match .moz searches cloud too.</li>
+          <li><b>3.3</b>: Parts-tray sort dropdown.</li>
+          <li><b>3.4</b>: Header wraps to 2 rows on narrow screens.</li>
+          <li><b>3.5</b>: Match .moz three-way — Load V1 / Fork as V2 / New blank.</li>
+          <li><b>3.6</b>: Delete offers both-or-local for cloud recipes; <code>stackingDiag()</code> helper.</li>
+          <li><b>3.7 – 3.8b</b>: Stacker Guide scaffold + Save UX fixes + debug mode.</li>
+          <li><b>3.9 – 3.9c</b>: Guide tap-marks persist to localStorage; auto-clear on recipe layout change.</li>
+          <li><b>3.10</b>: Drill/band <b>viewer</b> — ⓘ per tray row with ops table + preview.</li>
+          <li><b>3.11 – 3.12</b>: Guide part fills bolder + uniform font + always short code + clear gap between parts.</li>
+          <li><b>3.13</b>: Order → recipe assignment. <code>guide.html?order=N</code> looks up assigned SKU or shows picker.</li>
+          <li><b>3.14</b>: Drill/band <b>editor</b> — bands + ops table all editable, + Face hole / + Edge bore / + Line bore, ✕ per row.</li>
+        </ul>
+      </div>
+
     </div>
     <div class="mfoot"><button class="primary" data-close>Got it</button></div>
   </div>
@@ -726,7 +932,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.14';
+const APP_VERSION = '3.15';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
