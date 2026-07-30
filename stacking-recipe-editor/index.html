@@ -307,9 +307,13 @@
             <option value="partAsc">Part # A→Z</option>
           </select>
         </div>
-        <div class="row" style="justify-content:space-between">
-          <span class="muted" style="font-size:11px">Click a part, then click the pallet</span>
+        <div class="row" style="justify-content:space-between;gap:4px">
+          <button id="btnTrayGroup" class="ghost" style="font-size:11px" title="Collapse rows with the same L × W × thickness into one card">🗂 Group same</button>
+          <button id="btnTrayVisual" class="ghost" style="font-size:11px" title="Show each unique part scaled to the pallet — Seth ask">🖼 Sized</button>
           <button id="btnExpand" class="ghost" style="font-size:11px">Collapse all</button>
+        </div>
+        <div class="row">
+          <span class="muted" style="font-size:11px">Click a part, then click the pallet</span>
         </div>
       </div>
       <div class="colbody" id="trayBody">
@@ -934,7 +938,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.20';
+const APP_VERSION = '3.21';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1013,6 +1017,8 @@ const S = {
   collapsed:new Set(),
   cartons:[], placedCartons:[],
   traySort:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_sort')||'section'; }catch(_){return 'section';} })(),
+  trayGroupByDim:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_group_dim')==='1'; }catch(_){return false;} })(),
+  trayVisual:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_visual')==='1'; }catch(_){return false;} })(),
 };
 /* placed part shape: {id, key, partNum, name, secIdx, L, W, thickness, cx, cy, angle} */
 
@@ -1643,16 +1649,17 @@ function _partSortComparator_(key){
     default:        return (a,b)=>a.secIdx-b.secIdx;
   }
 }
-function _renderPartRow_(m){
+function _renderPartRow_(m, opts){
+  opts = opts || {};
   const col=SECTION_COLORS[m.secIdx%SECTION_COLORS.length];
   const placed=placedCount(m.key), done=placed>=m.qty;
   const row=el('div',{class:'partrow'+(done?' depleted':'')+(S.armed===m.key?' armed':'')});
-  // v3.10: ⓘ icon opens the drill/band detail modal. Sits before the badge
-  // so a tap on the icon doesn't arm the part — the click handler stops
-  // propagation.
+  // v3.21: opts.dense hides the dim line (shown by group header above)
+  const dimLine = opts.dense ? '' :
+    `<div class="dim">${dimStr(m.Lmm)}×${dimStr(m.Wmm)} <span class="thk${m.thickness!==19?' t58':''}">${thkLabel(m.thickness)}</span></div>`;
   row.innerHTML=`<span class="swatch" style="background:${col}" title="Section: ${esc(m.section||'')}"></span>
     <div class="info">
-      <div class="dim">${dimStr(m.Lmm)}×${dimStr(m.Wmm)} <span class="thk${m.thickness!==19?' t58':''}">${thkLabel(m.thickness)}</span></div>
+      ${dimLine}
       <div class="nm">${esc(m.name)}</div>
       <div class="pn">${esc(m.partNum)}</div>
     </div>
@@ -1663,6 +1670,111 @@ function _renderPartRow_(m){
   row.querySelector('.partDetailBtn').onclick=(ev)=>{ ev.stopPropagation(); openPartDetail(m); };
   return row;
 }
+
+/* v3.21 — Seth ask: group same-dim rows into one card; Zac ask: visual
+   sized cards. Both are per-user toggles, no schema change. */
+function _dimKey_(m){ return Math.round(m.Lmm)+'x'+Math.round(m.Wmm)+'x'+m.thickness; }
+function _groupItemsByDim_(items){
+  const map = new Map(); const order = [];
+  for(const m of items){
+    const k = _dimKey_(m);
+    if(!map.has(k)){ const g = {key:k, dimL:m.Lmm, dimW:m.Wmm, thk:m.thickness, items:[]}; map.set(k, g); order.push(g); }
+    map.get(k).items.push(m);
+  }
+  return order;
+}
+function _renderDimGroupCard_(dg){
+  // Grouped card: shared dim header + compact rows below (dense mode).
+  const totalReq = dg.items.reduce((s,m)=>s+m.qty, 0);
+  const totalPl  = dg.items.reduce((s,m)=>s+placedCount(m.key), 0);
+  const done = totalPl >= totalReq;
+  const swatchColor = SECTION_COLORS[dg.items[0].secIdx%SECTION_COLORS.length];
+  const card = el('div',{class:'dimgroupcard'});
+  card.style.cssText = 'border:1px solid var(--line2);border-radius:8px;margin:6px 4px;background:var(--panel2);overflow:hidden';
+  const head = el('div');
+  head.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line);font-size:11px';
+  head.innerHTML = `<span class="swatch" style="background:${swatchColor};width:10px;height:10px;border-radius:2px;display:inline-block"></span>
+    <b class="mono">${dimStr(dg.dimL)} × ${dimStr(dg.dimW)}</b>
+    <span class="thk${dg.thk!==19?' t58':''}" style="font-size:10px">${thkLabel(dg.thk)}</span>
+    <span style="flex:1"></span>
+    <span class="badge${done?' done':''}">${totalPl}/${totalReq}</span>`;
+  card.appendChild(head);
+  for(const m of dg.items) card.appendChild(_renderPartRow_(m, {dense:true}));
+  return card;
+}
+function _renderVisualCard_(m, pxPerMm){
+  const col = SECTION_COLORS[m.secIdx%SECTION_COLORS.length];
+  const placed = placedCount(m.key), done = placed>=m.qty;
+  const w = m.Lmm * pxPerMm, h = m.Wmm * pxPerMm;
+  const card = el('div',{class:'partrow'+(done?' depleted':'')+(S.armed===m.key?' armed':'')});
+  card.style.cssText = 'display:flex;gap:8px;align-items:center;padding:6px;flex-direction:column';
+  const rectHtml = `<div style="width:${Math.max(20,Math.min(w,280))}px;height:${Math.max(12,Math.min(h,180))}px;background:${col};border:2px solid #0e1116;border-radius:3px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-family:var(--mono);font-size:${Math.max(9,Math.min(w/6,20))}px;text-align:center;line-height:1;padding:2px" title="${dimStr(m.Lmm)} × ${dimStr(m.Wmm)}">${esc(m.partNum||'?')}</div>`;
+  const meta = `<div style="display:flex;gap:6px;align-items:center;font-size:11px;width:100%;justify-content:space-between">
+    <span class="mono muted">${dimStr(m.Lmm)}×${dimStr(m.Wmm)}</span>
+    <span class="nm" style="flex:1;text-align:left;padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name)}</span>
+    <button class="ghost partDetailBtn" title="Drill / band detail" style="padding:1px 6px;font-size:11px;line-height:1">ⓘ</button>
+    <span class="badge${done?' done':''}">${placed}/${m.qty}</span>
+  </div>`;
+  card.innerHTML = rectHtml + meta;
+  card.onclick=()=>{ if(S.armed===m.key){S.armed=null;}else{S.armed=m.key;S.armedAngle=0;} updateArmHint(); renderTray(); };
+  card.oncontextmenu=ev=>{ev.preventDefault();toggleThickness(m.key);};
+  card.querySelector('.partDetailBtn').onclick=(ev)=>{ ev.stopPropagation(); openPartDetail(m); };
+  return card;
+}
+function _visualPxPerMm_(){
+  // Scale so the longest side of the pallet fits in ~260px (tray column
+  // is 286px wide with some padding). Same scale for every part in the
+  // tray, so parts read as proportional to each other AND to the pallet.
+  const trayW = 260;
+  const palL = (S.pal && S.pal.L) || 2032;
+  return trayW / palL;
+}
+
+function _renderTraySectionMode_(body, filtered){
+  const groups={};
+  for(const m of filtered){(groups[m.secIdx]=groups[m.secIdx]||{name:m.section,idx:m.secIdx,items:[]}).items.push(m);}
+  const order=Object.values(groups).sort((a,b)=>a.idx-b.idx);
+  const useVisual = !!S.trayVisual;
+  const useDimGroup = !!S.trayGroupByDim;
+  const pxPerMm = useVisual ? _visualPxPerMm_() : 0;
+  for(const g of order){
+    if(!g.items.length)continue;
+    const col=SECTION_COLORS[g.idx%SECTION_COLORS.length];
+    const placedSum=g.items.reduce((s,m)=>s+placedCount(m.key),0);
+    const reqSum=g.items.reduce((s,m)=>s+m.qty,0);
+    const collapsed=S.collapsed.has(g.idx);
+    const grp=el('div',{class:'secgroup'+(collapsed?' collapsed':'')});
+    const head=el('div',{class:'sechead'});
+    head.innerHTML=`<span class="dot" style="background:${col}"></span><span class="nm">${esc(g.name)}</span><span class="ct">${placedSum}/${reqSum}</span><span class="tw">▼</span>`;
+    head.onclick=()=>{if(S.collapsed.has(g.idx))S.collapsed.delete(g.idx);else S.collapsed.add(g.idx);renderTray();};
+    grp.appendChild(head);
+    if(useVisual){
+      // Visual sized cards — no dim grouping in visual mode (each part is
+      // its own tile so packer sees each identity's size vs the pallet).
+      for(const m of g.items) grp.appendChild(_renderVisualCard_(m, pxPerMm));
+    } else if(useDimGroup){
+      for(const dg of _groupItemsByDim_(g.items)) grp.appendChild(_renderDimGroupCard_(dg));
+    } else {
+      for(const m of g.items) grp.appendChild(_renderPartRow_(m));
+    }
+    body.appendChild(grp);
+  }
+}
+function _renderTrayFlatMode_(body, filtered, sort){
+  const sorted=[...filtered].sort(_partSortComparator_(sort));
+  const grp=el('div',{class:'secgroup'});
+  const useVisual = !!S.trayVisual;
+  const useDimGroup = !!S.trayGroupByDim;
+  const pxPerMm = useVisual ? _visualPxPerMm_() : 0;
+  if(useVisual){
+    for(const m of sorted) grp.appendChild(_renderVisualCard_(m, pxPerMm));
+  } else if(useDimGroup){
+    for(const dg of _groupItemsByDim_(sorted)) grp.appendChild(_renderDimGroupCard_(dg));
+  } else {
+    for(const m of sorted) grp.appendChild(_renderPartRow_(m));
+  }
+  body.appendChild(grp);
+}
 function renderTray(){
   const body=$('trayBody');body.innerHTML='';
   if(!S.manifest.length){body.innerHTML='<div class="emptytray">No parts loaded.<br>Use <b>Import part list…</b> to paste an order.</div>';
@@ -1670,32 +1782,12 @@ function renderTray(){
   const q=($('traySearch').value||'').toLowerCase();
   const sort=S.traySort||'section';
   const filtered=S.manifest.filter(m=>!q||(m.partNum+' '+m.name).toLowerCase().includes(q));
-  if(sort==='section'){
-    const groups={};
-    for(const m of filtered){(groups[m.secIdx]=groups[m.secIdx]||{name:m.section,idx:m.secIdx,items:[]}).items.push(m);}
-    const order=Object.values(groups).sort((a,b)=>a.idx-b.idx);
-    for(const g of order){
-      if(!g.items.length)continue;
-      const col=SECTION_COLORS[g.idx%SECTION_COLORS.length];
-      const placedSum=g.items.reduce((s,m)=>s+placedCount(m.key),0);
-      const reqSum=g.items.reduce((s,m)=>s+m.qty,0);
-      const collapsed=S.collapsed.has(g.idx);
-      const grp=el('div',{class:'secgroup'+(collapsed?' collapsed':'')});
-      const head=el('div',{class:'sechead'});
-      head.innerHTML=`<span class="dot" style="background:${col}"></span><span class="nm">${esc(g.name)}</span><span class="ct">${placedSum}/${reqSum}</span><span class="tw">▼</span>`;
-      head.onclick=()=>{if(S.collapsed.has(g.idx))S.collapsed.delete(g.idx);else S.collapsed.add(g.idx);renderTray();};
-      grp.appendChild(head);
-      for(const m of g.items) grp.appendChild(_renderPartRow_(m));
-      body.appendChild(grp);
-    }
-  }else{
-    // Flat list — sorted by chosen key.
-    const sorted=[...filtered].sort(_partSortComparator_(sort));
-    const grp=el('div',{class:'secgroup'});
-    for(const m of sorted) grp.appendChild(_renderPartRow_(m));
-    body.appendChild(grp);
-  }
+  if(sort==='section') _renderTraySectionMode_(body, filtered);
+  else _renderTrayFlatMode_(body, filtered, sort);
   $('trayCount').textContent=totalPlaced()+'/'+totalRequired()+' placed';
+  // Reflect toggle state in button styling.
+  const gBtn = $('btnTrayGroup'); if(gBtn) gBtn.style.background = S.trayGroupByDim ? 'var(--accent-soft)' : '';
+  const vBtn = $('btnTrayVisual'); if(vBtn) vBtn.style.background = S.trayVisual ? 'var(--accent-soft)' : '';
 }
 function dimStr(mm){return S.unit==='in'?mmToIn(mm).toFixed(2):Math.round(mm);}
 function thkLabel(t){return t===19?'19mm':(Math.abs(t-15.875)<0.1?'⅝″':t+'mm');}
@@ -3606,6 +3698,19 @@ $('traySort').onchange=()=>{
   try{ localStorage.setItem('mbd_stacking_tray_sort', S.traySort); }catch(_){}
   renderTray();
 };
+// v3.21 — dim grouping toggle (#3) + visual sized cards toggle (#2).
+// Mutually compatible; visual mode wins visually and skips grouping so
+// each identity gets its own scaled tile.
+{const gb=$('btnTrayGroup'); if(gb) gb.onclick=()=>{
+  S.trayGroupByDim = !S.trayGroupByDim;
+  try{ localStorage.setItem('mbd_stacking_tray_group_dim', S.trayGroupByDim?'1':'0'); }catch(_){}
+  renderTray();
+};}
+{const vb=$('btnTrayVisual'); if(vb) vb.onclick=()=>{
+  S.trayVisual = !S.trayVisual;
+  try{ localStorage.setItem('mbd_stacking_tray_visual', S.trayVisual?'1':'0'); }catch(_){}
+  renderTray();
+};}
 $('btnExpand').onclick=()=>{
   const anyOpen=S.manifest.some(m=>!S.collapsed.has(m.secIdx));
   if(anyOpen){S.manifest.forEach(m=>S.collapsed.add(m.secIdx));$('btnExpand').textContent='Expand all';}
@@ -3714,6 +3819,7 @@ function _addOpToCurrentPart_(kind){
 const _HW_PATTERNS_ = {
   minifix_cam: {
     label: 'Minifix (cam side)',
+    pair: 'minifix_pin',       // v3.21 — Phase 2: auto-drop the pin on mating part
     desc: 'Cam housing (15mm × 14mm deep) + 8mm × 34mm edge bore on X0 centered on part thickness.',
     // (dx, dy) offsets from user-picked anchor (X, Y). Zac 2026-07-30 spec:
     //  • cam: 15mm dia × 14mm deep face hole, anchored 34mm from the
@@ -3730,6 +3836,7 @@ const _HW_PATTERNS_ = {
   },
   minifix_pin: {
     label: 'Minifix (pin side)',
+    pair: 'minifix_cam',
     desc: 'Single 5mm face hole for the M200 pin at anchor.',
     ops: [
       {kind:'hole', mode:'face', edge:'', dx:0, dy:0, dia:5, depth:14, hdepth:9.5, flip:false, quan:1},
@@ -3780,22 +3887,55 @@ function _insertHardwarePattern_(patternKey){
     return;
   }
   const [ax, ay] = parts;
-  // Resolve dynamic fields against the actual part. hdepth `null` = "center
-  // on part thickness" so a 19mm panel gets 9.5, a 15.875mm (5/8″) gets ~7.94.
-  const thk = Number(p.thickness) || 19;
-  p.ops = p.ops || [];
-  for(const t of pat.ops){
-    const hdepth = (t.hdepth === null || t.hdepth === undefined) ? (thk / 2) : t.hdepth;
-    p.ops.push({
-      kind: t.kind, mode: t.mode, edge: t.edge,
-      x: Math.max(0, ax + (t.dx||0)),
-      y: Math.max(0, ay + (t.dy||0)),
-      dia: t.dia, depth: t.depth, hdepth: hdepth,
-      flip: !!t.flip, quan: t.quan || 1,
-    });
+  // Apply the pattern to a given part at (anchorX, anchorY). Resolves
+  // dynamic `hdepth: null` marker → part.thickness/2 (9.5 for 19mm panels,
+  // ~7.94 for 5/8″, etc.). Returns count of ops added.
+  function _applyPatternTo_(targetPart, pattern, anchorX, anchorY){
+    const thk = Number(targetPart.thickness) || 19;
+    targetPart.ops = targetPart.ops || [];
+    for(const t of pattern.ops){
+      const hdepth = (t.hdepth === null || t.hdepth === undefined) ? (thk / 2) : t.hdepth;
+      targetPart.ops.push({
+        kind: t.kind, mode: t.mode, edge: t.edge,
+        x: Math.max(0, anchorX + (t.dx||0)),
+        y: Math.max(0, anchorY + (t.dy||0)),
+        dia: t.dia, depth: t.depth, hdepth: hdepth,
+        flip: !!t.flip, quan: t.quan || 1,
+      });
+    }
+    return pattern.ops.length;
+  }
+  const addedHere = _applyPatternTo_(p, pat, ax, ay);
+
+  // v3.21 Phase 2 — if this pattern has a `pair` (e.g. minifix_cam ↔
+  // minifix_pin), offer to drop the paired pattern on a mating part.
+  // Uses a lightweight prompt-based picker: enumerate all importedParts
+  // by partNum, ask user for the index of the mating part. Skip if only
+  // this one part exists in the manifest.
+  let pairMsg = '';
+  if(pat.pair && _HW_PATTERNS_[pat.pair]){
+    const others = (S.importedParts || []).filter(x => x !== p);
+    if(others.length){
+      const menu = others.map((op, i) =>
+        (i+1).toString().padStart(2,'0') + '. ' + (op.partNum || op.name || '?') +
+        ' · ' + (op.name || '') + ' · ' + Math.round(op.L) + '×' + Math.round(op.W)
+      ).join('\n');
+      const pickRaw = prompt(
+        'Auto-pair the mating pattern (' + _HW_PATTERNS_[pat.pair].label + ')?\n' +
+        'It will drop at the same anchor (' + ax + ', ' + ay + '). Edit positions on the mating part after via its ops table.\n\n' +
+        'Enter the number of the mating part, or blank to skip:\n\n' + menu,
+        ''
+      );
+      const pickIdx = pickRaw === null || String(pickRaw).trim() === '' ? -1 : (parseInt(String(pickRaw), 10) - 1);
+      if(pickIdx >= 0 && pickIdx < others.length){
+        const matePart = others[pickIdx];
+        const addedThere = _applyPatternTo_(matePart, _HW_PATTERNS_[pat.pair], ax, ay);
+        pairMsg = ' + ' + addedThere + ' on ' + (matePart.partNum || matePart.name);
+      }
+    }
   }
   scheduleSave();
-  toast(pat.label + ' — added ' + pat.ops.length + ' op(s) at (' + ax + ', ' + ay + ')');
+  toast(pat.label + ' — added ' + addedHere + ' op(s) at (' + ax + ', ' + ay + ')' + pairMsg);
   openPartDetail(window._openedDetailManifest_);
 }
 function _delOpFromCurrentPart_(idx){
