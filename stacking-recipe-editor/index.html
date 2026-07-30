@@ -543,7 +543,7 @@
       <div class="hint">Click a part in the tray to see its detail.</div>
     </div>
     <div class="mfoot">
-      <span class="hint" style="flex:1">Read-only view — .moz round-trip preserves everything shown here.</span>
+      <span class="hint" style="flex:1">Edits auto-save to the recipe — .moz Export carries them to Mozaik.</span>
       <button class="ghost" data-close>Close</button>
     </div>
   </div>
@@ -726,7 +726,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.13';
+const APP_VERSION = '3.14';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3359,9 +3359,58 @@ function _drillPreviewSVG_(p){
   });
   return `<svg viewBox="0 0 ${SW} ${SH}" style="width:100%;max-width:${SW}px;background:#14171c;border:1px solid var(--line2);border-radius:6px">${parts.join('')}</svg>`;
 }
+// v3.14 — EDITING widgets ported from moz-layer-editor v1-1 renderDetail().
+// Bands become checkboxes; ops table cells become inputs; + Face hole
+// / + Edge bore / + Line bore row buttons at the bottom; per-row ✕.
+// All edits mutate S.importedParts[i] in-place, then re-render + save
+// so a subsequent Save round-trips through snapshot + .moz Export.
+const _DRILL_DEFAULT_OP_ = {
+  hole:  {kind:'hole', mode:'face', edge:'',  x:34, y:36, dia:5, depth:15, hdepth:9.5, flip:false, quan:1},
+  edge:  {kind:'hole', mode:'edge', edge:'X0',x:0,  y:36, dia:8, depth:34, hdepth:9.5, flip:false, quan:1},
+  lb:    {kind:'lb',   mode:'face', edge:'',  x:319,y:43, dia:5, depth:10, hdepth:9.5, flip:false, quan:5},
+};
+function _addOpToCurrentPart_(kind){
+  if(!window._openedDetailPart_) return;
+  const p = window._openedDetailPart_;
+  const preset = _DRILL_DEFAULT_OP_[kind];
+  if(!preset) return;
+  p.ops = p.ops || [];
+  p.ops.push({...preset});
+  scheduleSave();
+  openPartDetail(window._openedDetailManifest_);
+}
+function _delOpFromCurrentPart_(idx){
+  const p = window._openedDetailPart_;
+  if(!p || !Array.isArray(p.ops)) return;
+  p.ops.splice(idx,1);
+  scheduleSave();
+  openPartDetail(window._openedDetailManifest_);
+}
+function _updateOpField_(idx, field, value){
+  const p = window._openedDetailPart_;
+  if(!p || !p.ops || !p.ops[idx]) return;
+  const o = p.ops[idx];
+  if(field==='flip') o.flip = !!value;
+  else if(field==='edge'){ o.edge = String(value); openPartDetail(window._openedDetailManifest_); scheduleSave(); return; }
+  else if(field==='quan') o.quan = Math.max(1, Number(value)||1);
+  else o[field] = Number(value)||0;
+  scheduleSave();
+  // Re-render only the preview + row order — quick full re-render OK
+  openPartDetail(window._openedDetailManifest_);
+}
+function _updateBand_(edge, on){
+  const p = window._openedDetailPart_;
+  if(!p) return;
+  p.bands = p.bands || {};
+  p.bands[edge] = !!on;
+  scheduleSave();
+  openPartDetail(window._openedDetailManifest_);
+}
 function openPartDetail(m){
   const body=$('partDetailBody');
   const p=_lookupImportedPart_(m);
+  window._openedDetailManifest_ = m;
+  window._openedDetailPart_ = p;
   const dims=`${dimStr(m.Lmm)} × ${dimStr(m.Wmm)} × ${thkLabel(m.thickness)}`;
   const identity=`<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;margin-bottom:12px">
     <span class="muted">Part #</span><b>${esc(m.partNum||'')}</b>
@@ -3383,35 +3432,62 @@ function openPartDetail(m){
     return;
   }
   const bands = p.bands||{};
-  const bChip = (on,label,edge) => `<span class="pill" style="background:${on?'#173a26':'transparent'};color:${on?'#39c46f':'var(--ink3)'};border-color:${on?'#39c46f':'var(--line)'};padding:3px 10px;margin-right:4px">${on?'●':'○'} ${label} <small style="color:var(--ink3)">(${edge})</small></span>`;
+  // Editable band checkboxes. Same labels as moz-layer-editor v1-1
+  // (F=Front/Y0, B=Back/YW, S=Left/X0, E=Right/XL).
   const bandsBlock = `<h3 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Bands</h3>
-    <div style="margin-bottom:14px">${bChip(bands.F,'Front','Y0')}${bChip(bands.B,'Back','YW')}${bChip(bands.S,'Left','X0')}${bChip(bands.E,'Right','XL')}</div>`;
+    <div style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;padding:8px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:6px">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" ${bands.F?'checked':''} onchange="_updateBand_('F',this.checked)"><span>Front <span class="muted">(Y0)</span></span></label>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" ${bands.B?'checked':''} onchange="_updateBand_('B',this.checked)"><span>Back <span class="muted">(YW)</span></span></label>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" ${bands.S?'checked':''} onchange="_updateBand_('S',this.checked)"><span>Left <span class="muted">(X0)</span></span></label>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" ${bands.E?'checked':''} onchange="_updateBand_('E',this.checked)"><span>Right <span class="muted">(XL)</span></span></label>
+    </div>`;
   const ops = p.ops||[];
-  let opsBlock;
-  if(!ops.length){
-    opsBlock = `<h3 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Operations</h3>
-      <div class="hint">No drilling operations recorded on this part.</div>`;
-  } else {
-    const rows = ops.map((o,i)=>`<tr>
-      <td class="mono">${i+1}</td>
-      <td>${o.kind==='lb'?'Line bore':'Hole'}</td>
-      <td>${o.mode||''}</td>
-      <td>${o.edge||'—'}</td>
-      <td class="mono">${o.x!=null?o.x.toFixed(1):''}</td>
-      <td class="mono">${o.y!=null?o.y.toFixed(1):''}</td>
-      <td class="mono">${o.dia||''}</td>
-      <td class="mono">${o.depth||''}</td>
-      <td class="mono">${o.hdepth||''}</td>
-      <td>${o.flip?'<span style="color:var(--bad)">flip</span>':''}</td>
-      <td class="mono">${o.quan||1}</td>
-    </tr>`).join('');
-    opsBlock = `<h3 style="margin:12px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Operations (${ops.length})</h3>
-      <div style="overflow-x:auto"><table class="tbl" style="font-size:11px"><thead><tr>
-        <th>#</th><th>Kind</th><th>Mode</th><th>Edge</th><th>X</th><th>Y</th><th>Ø</th><th>Depth</th><th>Axis h.</th><th>Flip</th><th>Qty</th>
-      </tr></thead><tbody>${rows}</tbody></table></div>
-      <div class="hint" style="margin-top:6px">Positions are physical mm. Green = banded edge · solid = near-face · red dashed = flip-side · dots = line bore · amber tick = edge bore.</div>`;
-  }
-  const preview = `<h3 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Preview</h3>${_drillPreviewSVG_(p)}`;
+  // Editable ops table. Cells port the moz-layer-editor renderDetail()
+  // behavior — X disabled on X0/XL edges, Y disabled on Y0/YW edges,
+  // Axis-h + Flip only on the appropriate mode, Qty only on line-bore.
+  const rows = ops.map((o,i)=>{
+    const xDis = o.mode==='edge' && (o.edge==='X0'||o.edge==='XL');
+    const yDis = o.mode==='edge' && (o.edge==='Y0'||o.edge==='YW');
+    const num = (v)=>v==null?'':v;
+    const inpStyle = 'width:60px;padding:2px 5px;font-size:11px';
+    const edgeCell = o.mode==='edge'
+      ? `<select onchange="_updateOpField_(${i},'edge',this.value)" style="${inpStyle}">${['X0','XL','Y0','YW'].map(e=>`<option${e===o.edge?' selected':''}>${e}</option>`).join('')}</select>`
+      : '—';
+    const axisCell = o.mode==='edge'
+      ? `<input type="number" step="0.5" value="${num(o.hdepth)}" onchange="_updateOpField_(${i},'hdepth',this.value)" style="${inpStyle}">`
+      : '—';
+    const flipCell = o.mode==='edge' ? '—' : `<input type="checkbox" ${o.flip?'checked':''} onchange="_updateOpField_(${i},'flip',this.checked)">`;
+    const quanCell = o.kind==='lb' ? `<input type="number" min="1" value="${num(o.quan)}" onchange="_updateOpField_(${i},'quan',this.value)" style="${inpStyle}">` : '—';
+    return `<tr>
+      <td class="mono" style="text-align:center;color:var(--ink3)">${i+1}</td>
+      <td>${o.kind==='lb'?'LineBore':'Hole'}</td>
+      <td>${o.mode==='edge'?'EDGE':'face'}</td>
+      <td>${edgeCell}</td>
+      <td><input type="number" step="0.1" value="${num(o.x)}" ${xDis?'disabled':''} onchange="_updateOpField_(${i},'x',this.value)" style="${inpStyle}"></td>
+      <td><input type="number" step="0.1" value="${num(o.y)}" ${yDis?'disabled':''} onchange="_updateOpField_(${i},'y',this.value)" style="${inpStyle}"></td>
+      <td><input type="number" step="0.5" value="${num(o.dia)}" onchange="_updateOpField_(${i},'dia',this.value)" style="${inpStyle}"></td>
+      <td><input type="number" step="0.5" value="${num(o.depth)}" onchange="_updateOpField_(${i},'depth',this.value)" style="${inpStyle}"></td>
+      <td>${axisCell}</td>
+      <td style="text-align:center">${flipCell}</td>
+      <td>${quanCell}</td>
+      <td style="text-align:center"><button class="ghost" onclick="_delOpFromCurrentPart_(${i})" title="Delete this operation" style="padding:2px 8px;color:var(--bad);border-color:var(--bad-soft)">✕</button></td>
+    </tr>`;
+  }).join('');
+  const opsHeader = `<h3 style="margin:12px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Operations (${ops.length}) — editable</h3>`;
+  const opsTable = ops.length
+    ? `<div style="overflow-x:auto"><table class="tbl" style="font-size:11px"><thead><tr>
+        <th>#</th><th>Kind</th><th>Mode</th><th>Edge</th><th>X</th><th>Y</th><th>Ø</th><th>Depth</th><th>Axis h.</th><th>Flip</th><th>Qty</th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<div class="hint" style="padding:14px;background:var(--panel2);border:1px solid var(--line);border-radius:6px">No operations yet. Add one below.</div>`;
+  const addBtns = `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+    <button onclick="_addOpToCurrentPart_('hole')" title="Add a face-drilled hole">+ Face hole</button>
+    <button onclick="_addOpToCurrentPart_('edge')" title="Add a horizontal edge bore">+ Edge bore</button>
+    <button onclick="_addOpToCurrentPart_('lb')" title="Add a line-bore row (5 dots @ 32mm)">+ Line bore row</button>
+    <span class="hint" style="align-self:center;margin-left:8px">Positions are physical mm. Edits round-trip through Save + Mozaik Export.</span>
+  </div>`;
+  const opsBlock = opsHeader + opsTable + addBtns;
+  const preview = `<h3 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Preview</h3>${_drillPreviewSVG_(p)}
+    <div class="hint" style="margin-top:6px">Green = banded edge · solid = near-face · red dashed = flip-side · dots = line-bore · amber tick = edge bore.</div>`;
   body.innerHTML = identity + bandsBlock + opsBlock + preview;
   openModal('partDetailModal');
 }
