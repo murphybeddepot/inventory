@@ -54,13 +54,14 @@
 
   /* layout */
   #app{display:flex;flex-direction:column;height:100vh}
-  header{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line2);flex:0 0 auto;z-index:5}
-  header .brand{font-weight:650;letter-spacing:.2px;white-space:nowrap}
+  header{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line2);flex:0 0 auto;z-index:5;overflow-x:auto}
+  header .brand{font-weight:650;letter-spacing:.2px;white-space:nowrap;flex-shrink:0}
   header .brand small{font-weight:500;color:var(--ink3);margin-left:6px;letter-spacing:0}
-  header .sku{display:flex;align-items:center;gap:6px;margin-left:6px}
+  header .sku{display:flex;align-items:center;gap:6px;margin-left:6px;flex-shrink:0}
   header .sku input{width:190px;font-family:var(--mono)}
-  header .spacer{flex:1}
-  header .grp{display:flex;gap:6px;align-items:center}
+  header .spacer{flex:1;min-width:8px}
+  header .grp{display:flex;gap:6px;align-items:center;flex-shrink:0}
+  header .grp button{white-space:nowrap;flex-shrink:0}
   .sig{font-family:var(--mono);font-size:11px;color:var(--ink3);background:var(--panel2);border:1px solid var(--line);padding:3px 7px;border-radius:5px;white-space:nowrap}
 
   main{flex:1;display:grid;grid-template-columns:286px 1fr 326px;min-height:0}
@@ -264,10 +265,10 @@
     <span id="sigBadge" class="sig" title="Geometry fingerprint of the current part list">sig —</span>
     <div class="spacer"></div>
     <div class="grp">
-      <button id="btnImport" class="primary">Import part list…</button>
-      <button id="btnImportMoz" title="Import parts from one or more Mozaik .moz files">Import .moz(s)…</button>
-      <button id="btnValidate">Match order…</button>
-      <button id="btnMatchMoz" title="Match imported .moz files to an existing saved recipe by geometry signature">Match .moz(s)…</button>
+      <button id="btnImport" class="primary" title="Paste a text order to build a parts manifest">Import parts…</button>
+      <button id="btnImportMoz" title="Import parts from one or more Mozaik .moz files">Import .moz…</button>
+      <button id="btnValidate" title="Match a text order against saved recipes">Match text…</button>
+      <button id="btnMatchMoz" title="Match imported .moz files to an existing saved recipe by geometry signature">Match .moz…</button>
       <!-- Hidden file input the two buttons above trigger via .click(). -->
       <input id="mozFileInput" type="file" accept=".moz" multiple style="display:none">
       <input id="mozMatchInput" type="file" accept=".moz" multiple style="display:none">
@@ -658,7 +659,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.3';
+const APP_VERSION = '3.4';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
