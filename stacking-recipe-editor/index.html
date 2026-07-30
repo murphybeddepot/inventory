@@ -660,7 +660,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.5';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -842,6 +842,14 @@ function refPoint(p){
 }
 
 /* ---------- signature (geometry fingerprint) ---------- */
+/* v3.5: for the Match .moz fork flow — bump/append a "V<n>" suffix so
+   QBZ-WHITE → QBZ-WHITE V2, QBZ-WHITE V3 → QBZ-WHITE V4, etc. */
+function _suggestForkSku_(baseSku){
+  const s=String(baseSku||'').trim();
+  const m=s.match(/^(.+?)\s*V(\d+)$/i);
+  if(m) return m[1].trim()+' V'+(Number(m[2])+1);
+  return (s||'RECIPE')+' V2';
+}
 function manifestSignatureFromRows(rows){
   const arr=[];
   for(const r of rows){for(let i=0;i<r.qty;i++)arr.push(r.Lmm+'x'+r.Wmm+'x'+(r.thickness||19));}
@@ -2415,34 +2423,60 @@ $('mozMatchInput').onchange=async(e)=>{
     const otherLines=matches.length>1
       ? '('+(matches.length-1)+' more matching recipe(s): '+matches.slice(1).map(m=>m.sku+' ['+m.source+']').join(', ')+')\n\n'
       : '\n';
-    const msg='Matching recipe found: '+first.sku+' ['+sourceLabel+']\n'+otherLines+
-      'OK = Load this recipe · Cancel = Import as new manifest';
-    if(confirm(msg)){
+    // v3.5: three-way choice — Load V1 / Fork as V2 / New blank manifest.
+    // Zac's ask: same signature → offer both "use existing" AND "fork as
+    // new version" so QBZ-WHITE V1 can spawn V2 with the layout copied
+    // over as a starting point.
+    const loadMsg='Matching recipe found: '+first.sku+' ['+sourceLabel+']\n'+otherLines+
+      'OK  = Load this recipe (V1)\n'+
+      'Cancel = Fork as new version OR import as blank';
+    if(confirm(loadMsg)){
       let snapToLoad=first.snap;
       if(!snapToLoad && first.source==='cloud'){
-        // Cloud-only match: fetch the full snapshot from Supabase.
         try{
           const remoteFull=await remoteLoadRecipe(first.sku);
           if(remoteFull && remoteFull.snapshot){
             snapToLoad={...remoteFull.snapshot, _revision:remoteFull.revision};
-            // Stash into local library so next open is instant.
             const LL=loadLib();LL[first.sku]=snapToLoad;saveLib(LL);
           }
         }catch(err){ toast('Cloud fetch failed: '+err.message); return; }
       }
       if(!snapToLoad){ toast('No snapshot available for '+first.sku); return; }
       restoreSnapshot(snapToLoad);
-      // Refresh importedParts from the freshly-parsed .mozs since the
-      // saved snapshot may pre-date .moz import (no importedParts).
       S.importedParts=res.importedParts;
       scheduleSave();
       toast('Loaded '+first.sku+' ['+sourceLabel+']');
-    }else{
-      loadManifest(res.rows,true);
+      return;
+    }
+    // === FORK or blank
+    const suggestedFork=_suggestForkSku_(first.sku);
+    const forkMsg='Fork "'+first.sku+'" as a NEW version?\n\n'+
+      'OK  = Copy the existing layout to a new SKU\n'+
+      'Cancel = Import as blank new manifest\n\n'+
+      'Suggested new SKU: '+suggestedFork+' (you can rename in the SKU field before Save)';
+    if(confirm(forkMsg)){
+      let snapToFork=first.snap;
+      if(!snapToFork && first.source==='cloud'){
+        try{
+          const remoteFull=await remoteLoadRecipe(first.sku);
+          if(remoteFull && remoteFull.snapshot) snapToFork=remoteFull.snapshot;
+        }catch(err){ toast('Cloud fetch of source failed: '+err.message); return; }
+      }
+      if(!snapToFork){ toast('No snapshot to fork from '+first.sku); return; }
+      // Fork: SKU changes, drop _revision so first Save creates a new
+      // cloud row (rev 1) instead of trying to overwrite V1's history.
+      const forked={...JSON.parse(JSON.stringify(snapToFork)), sku:suggestedFork, _revision:null};
+      restoreSnapshot(forked);
       S.importedParts=res.importedParts;
       scheduleSave();
-      toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
+      toast('Forked '+first.sku+' → '+suggestedFork+' (layout copied — Save when ready)');
+      return;
     }
+    // === Fall through: blank new manifest
+    loadManifest(res.rows,true);
+    S.importedParts=res.importedParts;
+    scheduleSave();
+    toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
   }catch(err){toast('Match failed: '+err.message);}
 };
 function loadManifest(rows,replace){
