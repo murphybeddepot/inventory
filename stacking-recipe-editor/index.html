@@ -787,7 +787,32 @@ const $=id=>document.getElementById(id);
 const el=(tag,attrs,kids)=>{const e=document.createElementNS(tag.match(/^(svg|g|rect|line|text|circle|path|polygon)$/)?SVGNS:'http://www.w3.org/1999/xhtml',tag);
   if(attrs)for(const k in attrs){if(k==='class')e.setAttribute('class',attrs[k]);else if(k==='text')e.textContent=attrs[k];else e.setAttribute(k,attrs[k]);}
   if(kids)kids.forEach(k=>e.appendChild(k)); return e;};
-function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1900);}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1900);_dbg('toast: '+msg);}
+// v3.8: ?debug=1 shows an on-screen event log so mobile users can screenshot
+// what's happening when Save/etc. misbehave — no DevTools access needed.
+const _DEBUG=new URLSearchParams(location.search).get('debug')==='1';
+function _dbg(msg){
+  if(!_DEBUG) return;
+  let box=document.getElementById('_dbgBox');
+  if(!box){
+    box=document.createElement('div');
+    box.id='_dbgBox';
+    box.setAttribute('style','position:fixed;left:8px;bottom:8px;right:8px;max-height:35vh;overflow-y:auto;background:rgba(0,0,0,.88);color:#0f0;font:11px/1.3 SF Mono,Menlo,monospace;padding:8px 10px;border-radius:6px;z-index:99999;pointer-events:none;white-space:pre-wrap;word-break:break-word');
+    document.body.appendChild(box);
+  }
+  const ts=new Date().toISOString().slice(11,23);
+  box.textContent=(box.textContent+'\n'+ts+' '+msg).split('\n').slice(-40).join('\n');
+  box.scrollTop=box.scrollHeight;
+}
+if(_DEBUG){
+  window.addEventListener('DOMContentLoaded',()=>{
+    _dbg('v'+APP_VERSION+' loaded · UA='+navigator.userAgent.slice(0,60));
+    document.addEventListener('click',(e)=>{
+      const t=e.target.closest('button,a,input,select');
+      if(t){_dbg('click #'+(t.id||'?')+' <'+t.tagName.toLowerCase()+'> "'+(t.textContent||'').slice(0,30)+'"');}
+    },true);
+  });
+}
 
 /* ---------- units ---------- */
 const mmToIn=mm=>mm/MM_PER_IN;
