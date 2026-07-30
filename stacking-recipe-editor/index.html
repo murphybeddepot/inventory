@@ -449,6 +449,23 @@
             <div class="hint">Export always also carries center + angle + part L×W, so any robot grip convention can be derived later.</div>
           </div>
         </div>
+
+        <div class="panelsec" data-mtab="settings">
+          <h3>Packing policy</h3>
+          <div class="pad">
+            <div class="field"><label>Doors placement</label><div class="ctl">
+              <select id="doorsPolicy" title="Where doors go in the stack. Foil doors need to be added first or last in drilling — pick which end.">
+                <option value="default" selected>Default (mixed in)</option>
+                <option value="top">Reserve for TOP layer(s)</option>
+                <option value="bottom">Reserve for BOTTOM layer(s)</option>
+              </select>
+            </div></div>
+            <div class="hint" style="margin-top:6px">v3.22 packer changes:<br>
+              • <b>Top &amp; bottom layers</b> are always packed big-first for stability (boxes sit flat on top, nothing slides).<br>
+              • <b>Doors policy</b> above holds doors back from mid-layers so foil doors enter drilling first or last as planned.
+            </div>
+          </div>
+        </div>
       </div>
     </section>
     <div id="mobileActions" aria-hidden="true">
@@ -938,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.21';
+const APP_VERSION = '3.22';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1019,6 +1036,7 @@ const S = {
   traySort:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_sort')||'section'; }catch(_){return 'section';} })(),
   trayGroupByDim:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_group_dim')==='1'; }catch(_){return false;} })(),
   trayVisual:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_visual')==='1'; }catch(_){return false;} })(),
+  doorsPolicy:(function(){ try{ return localStorage.getItem('mbd_stacking_doors_policy')||'default'; }catch(_){return 'default';} })(),
 };
 /* placed part shape: {id, key, partNum, name, secIdx, L, W, thickness, cx, cy, angle} */
 
@@ -2653,16 +2671,54 @@ function _gapCoverageArea_(placed, gapRects){
   return sum;
 }
 
+/* v3.22 — Zac 2026-07-30 asks:
+   • Top layer AND bottom layer should always favor large parts (top so
+     boxes sit stable; bottom because same big-parts-low logic applied
+     to layer 0 makes sense).
+   • Doors placement policy: reserve doors for the top-most layer, or the
+     bottom-most, or leave default. Foil doors need to enter the drill
+     process first or last — this puts them where they can be swapped in.
+   Both act by filtering + reordering the pool before packBin runs, so
+   the underlying algorithm is untouched. */
+function _isDoor_(m){
+  // Match to importedParts entry (has .type from Mozaik). Fall back to
+  // name heuristic for text-imported recipes (no importedParts row).
+  const ip = _lookupImportedPart_(m);
+  if(ip && String(ip.type||'').toUpperCase() === 'DOOR') return true;
+  return /(^|\s)door(s|\b)/i.test(String(m.name||''));
+}
 /* pack remaining tray parts onto a fresh free region for layer li, biased by criterion (and re-rolled by seed) */
 function _suggestPack(items, li, crit, seed){
   const gap=Math.max(0,S.gap||0), Lf=S.foot.L, Wf=S.foot.W;
-  let pool=items.slice();
-  if(crit==='count') pool.sort((a,b)=>(a.Lmm*a.Wmm)-(b.Lmm*b.Wmm));   // small-first packs the most pieces
-  else pool.sort((a,b)=>(b.Lmm*b.Wmm)-(a.Lmm*a.Wmm));                  // big-first for 'big' and 'tight'
+
+  // Policy pass 1 — doors placement. Reserve doors for the target end
+  // by excluding them from every OTHER layer. When we're ON the target
+  // end, keep everything (doors + non-doors will pack together).
+  const totalLayers = Math.max(1, (S.layers||[]).length);
+  const isTop = li >= totalLayers - 1;   // top-most known layer
+  const isBottom = li === 0;
+  const policy = S.doorsPolicy || 'default';
+  let filtered = items.slice();
+  if(policy === 'top' && !isTop){
+    filtered = filtered.filter(m => !_isDoor_(m));
+  } else if(policy === 'bottom' && !isBottom){
+    filtered = filtered.filter(m => !_isDoor_(m));
+  }
+  // If policy filter emptied the pool but there are actual parts left in
+  // the tray, fall back to the unfiltered pool — better to place SOME
+  // part than leave the layer empty and stall progress.
+  const pool = filtered.length ? filtered : items.slice();
+
+  // Policy pass 2 — top and bottom get big-first regardless of criterion,
+  // so stability matters more than "most pieces" here. Middle layers
+  // honor the user's criterion selection.
+  const effectiveCrit = (isTop || isBottom) ? 'big' : crit;
+  if(effectiveCrit==='count') pool.sort((a,b)=>(a.Lmm*a.Wmm)-(b.Lmm*b.Wmm));   // small-first packs the most pieces
+  else pool.sort((a,b)=>(b.Lmm*b.Wmm)-(a.Lmm*a.Wmm));                          // big-first for 'big' and 'tight'
   if(seed>0){ const rng=makeRng(seedStr('suggest|'+crit+'|'+li+'|'+seed)); const n=Math.max(1,Math.round(pool.length*0.25));
     for(let k=0;k<n;k++){const i=(rng()*pool.length)|0,j=(rng()*pool.length)|0;const t=pool[i];pool[i]=pool[j];pool[j]=t;} }
   const baseFree=()=>{ let f=[{x:0,y:0,w:Lf+gap,h:Wf+gap}]; for(const c of cartonRectsOnLayer(li,Math.max(gap,10))) f=carve(f,{x:c.x,y:c.y,w:c.w,h:c.h}); return f; };
-  const heurs = (crit==='tight') ? ['bssf','baf'] : ['bssf'];
+  const heurs = (effectiveCrit==='tight') ? ['bssf','baf'] : ['bssf'];
 
   // v3.18: when packing above ground floor, gather layer-below gap
   // regions and explore a few extra pool orderings so we have candidates
@@ -2700,7 +2756,7 @@ function _suggestPack(items, li, crit, seed){
     // that pack the same square-mm of parts get ranked by which one
     // sat more of its area over holes in the layer below.
     const scoreArea = -(used + gapCov);
-    const score = (crit==='count')
+    const score = (effectiveCrit==='count')
       ? [-r.placed.length, scoreArea]
       : [scoreArea, -r.placed.length];
     if(!best || score[0]<best.score[0] || (score[0]===best.score[0] && score[1]<best.score[1])) best={r,score};
@@ -3659,6 +3715,16 @@ $('footPos').onchange=()=>{S.footPos=$('footPos').value;render();scheduleSave();
 $('originSel').onchange=()=>{S.origin=$('originSel').value;render();renderInspector();scheduleSave();};
 $('datumSel').onchange=()=>{S.datum=$('datumSel').value;render();renderInspector();scheduleSave();};
 $('refSel').onchange=()=>{S.ref=$('refSel').value;render();renderInspector();scheduleSave();};
+// v3.22 — doors placement policy (per Zac 2026-07-30). Reserves DOOR-typed
+// parts for the top-most or bottom-most layer so foil doors can be handled
+// first/last in the drilling process without mid-stack surprises.
+{const dp=$('doorsPolicy'); if(dp){
+  dp.value = S.doorsPolicy || 'default';
+  dp.onchange = () => {
+    S.doorsPolicy = dp.value || 'default';
+    try{ localStorage.setItem('mbd_stacking_doors_policy', S.doorsPolicy); }catch(_){}
+  };
+}}
 $('skuInput').onchange=()=>{S.sku=$('skuInput').value.trim();scheduleSave();};
 
 $('btnRotate').onclick=()=>{if(S.sel.size)rotateSel(90);};
