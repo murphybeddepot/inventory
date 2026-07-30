@@ -23693,9 +23693,22 @@ function saveCycleCount() {
   };
   cycleCounts.push(_cc);
   saveCycleCounts();
-  // P5: also persist durably server-side (additive — localStorage
-  // stays the offline buffer; idempotent on uuid). Fire-and-forget;
-  // a failure here changes nothing locally (existing behavior).
+  // P5: also persist durably server-side (additive). Fire-and-forget; a
+  // failure here changes nothing locally (existing behavior).
+  //
+  // WARNING (audited 2026-07-30): the original comment here called
+  // localStorage "the offline buffer", which reads as though a failed send
+  // gets retried later. It does not. `cycleCounts` is only ever read to
+  // render the local list — nothing re-sends. So a send that fails (quota
+  // exhausted, offline, transient) leaves that count on ONE device's
+  // localStorage permanently and the server ledger silently diverges.
+  //
+  // The server side IS built for retries: recordCycleCount requires a uuid
+  // and scans for an existing row before appending, so re-sending is safe.
+  // Only the client half is missing. Draining unsent counts is a real fix
+  // but needs a decision on how far back to replay and a cap, because the
+  // first drain would re-send history against an already-strained GAS quota
+  // — flagged to Zac rather than guessed at.
   try {
     groundApi('recordCycleCount', {
       uuid: _cc.uuid, sku: _cc.sku, location_code: _cc.locationCode,
