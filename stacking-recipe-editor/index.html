@@ -700,7 +700,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.8';
+const APP_VERSION = '3.9';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2980,6 +2980,14 @@ $('btnSave').onclick=async()=>{
   const snap=snapshot();
   snap.savedAt=new Date().toISOString();
   const prevRev=(exists && lib[S.sku] && lib[S.sku]._revision) ? lib[S.sku]._revision : null;
+  // v3.9c: If the layout signature changed from the existing save, wipe
+  // the Stacker Guide's in-progress tap marks for this SKU. Marks are
+  // keyed on layerIdx:partIdx and would highlight the WRONG parts if the
+  // layer arrangement changed underneath them.
+  const prevSig = exists && lib[S.sku] ? lib[S.sku].signature : null;
+  if(exists && prevSig && prevSig !== snap.signature){
+    try{ localStorage.removeItem('mbd_stacking_guide:'+S.sku); }catch(_){}
+  }
   lib[S.sku]=snap;saveLib(lib);
   // v3.8: if Library modal is open, refresh its list so the newly-saved
   // recipe appears immediately without a close/reopen dance.
