@@ -934,7 +934,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.19';
+const APP_VERSION = '3.20';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3714,25 +3714,27 @@ function _addOpToCurrentPart_(kind){
 const _HW_PATTERNS_ = {
   minifix_cam: {
     label: 'Minifix (cam side)',
-    desc: 'For the shelf/deck: 15mm cam housing + 5mm edge bore (pin shaft) + 8mm wooden dowel.',
-    // (dx, dy) offsets from user-picked anchor (X, Y).
-    // Cam housing is face-drilled; edge bore is on X0 by default (user can
-    // change per-op after via the ops table).
+    desc: 'Cam housing (15mm × 14mm deep) + 8mm × 34mm edge bore on X0 centered on part thickness.',
+    // (dx, dy) offsets from user-picked anchor (X, Y). Zac 2026-07-30 spec:
+    //  • cam: 15mm dia × 14mm deep face hole, anchored 34mm from the
+    //    mating edge (X0) — user picks the along-edge position.
+    //  • edge bore: 8mm dia × 34mm deep on X0, aligned with cam Y, and
+    //    hdepth (bore center) = part thickness / 2 so it's on-axis
+    //    (marker `null` → replaced at insert time from the part's own
+    //    thickness field).
     ops: [
-      {kind:'hole', mode:'face', edge:'',   dx:0,   dy:0,   dia:15, depth:13, hdepth:9.5, flip:false, quan:1},
-      {kind:'hole', mode:'edge', edge:'X0', dx:-34, dy:0,   dia:5,  depth:34, hdepth:9.5, flip:false, quan:1},
-      {kind:'hole', mode:'face', edge:'',   dx:0,   dy:32,  dia:8,  depth:15, hdepth:9.5, flip:false, quan:1},
+      {kind:'hole', mode:'face', edge:'',   dx:0, dy:0, dia:15, depth:14, hdepth:9.5,  flip:false, quan:1},
+      {kind:'hole', mode:'edge', edge:'X0', dx:0, dy:0, dia:8,  depth:34, hdepth:null, flip:false, quan:1},
     ],
-    anchorHint: 'Cam center. Edge bore lands 34mm toward the joint (X0). Dowel lands 32mm along Y from cam.',
+    anchorHint: 'Cam center. Recommended: X = 34mm from the mating edge (X0). The edge bore lands on X0 at the same Y, 8mm × 34mm deep, centered on the part thickness.',
   },
   minifix_pin: {
     label: 'Minifix (pin side)',
-    desc: 'For the side/end: 5mm face hole for the M200 pin + 8mm wooden dowel.',
+    desc: 'Single 5mm face hole for the M200 pin at anchor.',
     ops: [
-      {kind:'hole', mode:'face', edge:'', dx:0,  dy:0,  dia:5, depth:14, hdepth:9.5, flip:false, quan:1},
-      {kind:'hole', mode:'face', edge:'', dx:0,  dy:32, dia:8, depth:15, hdepth:9.5, flip:false, quan:1},
+      {kind:'hole', mode:'face', edge:'', dx:0, dy:0, dia:5, depth:14, hdepth:9.5, flip:false, quan:1},
     ],
-    anchorHint: 'M200 pin center. Dowel lands 32mm along Y from pin.',
+    anchorHint: 'M200 pin center.',
   },
   dowel_only: {
     label: 'Wooden dowel (8mm)',
@@ -3778,13 +3780,17 @@ function _insertHardwarePattern_(patternKey){
     return;
   }
   const [ax, ay] = parts;
+  // Resolve dynamic fields against the actual part. hdepth `null` = "center
+  // on part thickness" so a 19mm panel gets 9.5, a 15.875mm (5/8″) gets ~7.94.
+  const thk = Number(p.thickness) || 19;
   p.ops = p.ops || [];
   for(const t of pat.ops){
+    const hdepth = (t.hdepth === null || t.hdepth === undefined) ? (thk / 2) : t.hdepth;
     p.ops.push({
       kind: t.kind, mode: t.mode, edge: t.edge,
       x: Math.max(0, ax + (t.dx||0)),
       y: Math.max(0, ay + (t.dy||0)),
-      dia: t.dia, depth: t.depth, hdepth: t.hdepth,
+      dia: t.dia, depth: t.depth, hdepth: hdepth,
       flip: !!t.flip, quan: t.quan || 1,
     });
   }
