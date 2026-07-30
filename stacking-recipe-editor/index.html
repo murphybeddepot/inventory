@@ -535,6 +535,20 @@
   </div>
 </div>
 
+<!-- PART DETAIL MODAL (v3.10 — read-only drill/band viewer) -->
+<div class="modal-bg" id="partDetailModal">
+  <div class="modal" style="width:720px">
+    <h2>Part detail <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody" id="partDetailBody">
+      <div class="hint">Click a part in the tray to see its detail.</div>
+    </div>
+    <div class="mfoot">
+      <span class="hint" style="flex:1">Read-only view — .moz round-trip preserves everything shown here.</span>
+      <button class="ghost" data-close>Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- HELP MODAL -->
 <div class="modal-bg" id="helpModal">
   <div class="modal" style="width:620px">
@@ -700,7 +714,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.9';
+const APP_VERSION = '3.10';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1413,15 +1427,20 @@ function _renderPartRow_(m){
   const col=SECTION_COLORS[m.secIdx%SECTION_COLORS.length];
   const placed=placedCount(m.key), done=placed>=m.qty;
   const row=el('div',{class:'partrow'+(done?' depleted':'')+(S.armed===m.key?' armed':'')});
+  // v3.10: ⓘ icon opens the drill/band detail modal. Sits before the badge
+  // so a tap on the icon doesn't arm the part — the click handler stops
+  // propagation.
   row.innerHTML=`<span class="swatch" style="background:${col}" title="Section: ${esc(m.section||'')}"></span>
     <div class="info">
       <div class="dim">${dimStr(m.Lmm)}×${dimStr(m.Wmm)} <span class="thk${m.thickness!==19?' t58':''}">${thkLabel(m.thickness)}</span></div>
       <div class="nm">${esc(m.name)}</div>
       <div class="pn">${esc(m.partNum)}</div>
     </div>
+    <button class="ghost partDetailBtn" title="Show drilling / band detail" style="padding:2px 6px;font-size:11px;line-height:1;margin-right:4px">ⓘ</button>
     <span class="badge${done?' done':''}">${placed}/${m.qty}</span>`;
   row.onclick=()=>{ if(S.armed===m.key){S.armed=null;}else{S.armed=m.key;S.armedAngle=0;} updateArmHint(); renderTray(); };
   row.oncontextmenu=ev=>{ev.preventDefault();toggleThickness(m.key);};
+  row.querySelector('.partDetailBtn').onclick=(ev)=>{ ev.stopPropagation(); openPartDetail(m); };
   return row;
 }
 function renderTray(){
@@ -3268,6 +3287,124 @@ function setCartonUnit(u){S.cartonUnit=(u==='in'?'in':'mm');syncSettingControls(
 function setUnit(u){S.unit=u;syncSettingControls();renderAll();scheduleSave();}
 
 $('btnHelp').onclick=()=>openModal('helpModal');
+
+/* v3.10 — read-only drill/band detail viewer. Ports the moz-layer-editor
+   part-detail pane. Fed by S.importedParts[i], which the .moz import
+   populates and Save round-trips. Recipes authored from text-paste have
+   no .moz data → we show a clear "re-import to see drills" message. */
+function _lookupImportedPart_(m){
+  const parts = S.importedParts || [];
+  if(!parts.length) return null;
+  const targetPartNum = m.partNum, targetName = m.name;
+  const targetL = m.Lmm, targetW = m.Wmm, targetThk = m.thickness;
+  return parts.find(p =>
+    p.partNum === targetPartNum &&
+    p.name === targetName &&
+    Math.abs((p.L||0) - targetL) < 1 &&
+    Math.abs((p.W||0) - targetW) < 1 &&
+    Math.abs((p.thickness||19) - targetThk) < 1
+  ) || null;
+}
+function _drillPreviewSVG_(p){
+  // Mirror moz-layer-editor draw(). Y0 (front) at the bottom of the
+  // drawing; X grows right; W grows up. Bands drawn as green thick
+  // segments. Face holes = filled circles. Line-bore = dot row. Edge
+  // bores = amber ticks at the edge. Flipped = red dashed.
+  const PAD=28, SW=340, SH=220;
+  const scale = Math.min((SW-2*PAD)/p.L, (SH-2*PAD)/p.W);
+  const ox=PAD, oy=PAD, LW=p.L*scale, WW=p.W*scale;
+  const X=v=>ox+v*scale, Y=v=>oy+WW-v*scale;
+  const parts = [];
+  parts.push(`<rect x="${ox}" y="${oy}" width="${LW}" height="${WW}" fill="#0e1116" stroke="#5b6875" stroke-width="1.4"/>`);
+  const bands = p.bands||{};
+  const seg=(x1,y1,x2,y2,c='#39c46f',w=4)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${w}"/>`;
+  if(bands.F) parts.push(seg(X(0),Y(0),X(p.L),Y(0)));
+  if(bands.B) parts.push(seg(X(0),Y(p.W),X(p.L),Y(p.W)));
+  if(bands.S) parts.push(seg(X(0),Y(0),X(0),Y(p.W)));
+  if(bands.E) parts.push(seg(X(p.L),Y(0),X(p.L),Y(p.W)));
+  parts.push(`<text x="${ox}" y="${oy+WW+14}" font-size="10" fill="#8b98a8">Y0 (front)  L=${p.L}mm  W=${p.W}mm</text>`);
+  (p.ops||[]).forEach(o=>{
+    if(o.mode==='edge'){
+      const t=10;
+      let x1,y1,x2,y2;
+      if(o.edge==='X0'){x1=X(0);y1=Y(o.y);x2=X(0)+t;y2=y1;}
+      else if(o.edge==='XL'){x1=X(p.L);y1=Y(o.y);x2=X(p.L)-t;y2=y1;}
+      else if(o.edge==='Y0'){x1=X(o.x);y1=Y(0);x2=x1;y2=Y(0)-t;}
+      else if(o.edge==='YW'){x1=X(o.x);y1=Y(p.W);x2=x1;y2=Y(p.W)+t;}
+      if(x1!==undefined) parts.push(seg(x1,y1,x2,y2,'#e5b567',2.5));
+      return;
+    }
+    const r=Math.max(2.2, (o.dia||5)*scale/2);
+    const dots = o.kind==='lb' ? (o.quan||5) : 1;
+    for(let k=0;k<dots;k++){
+      const xx=X(o.x + (o.kind==='lb' ? 32*k : 0)), yy=Y(o.y);
+      if(o.flip){
+        parts.push(`<circle cx="${xx}" cy="${yy}" r="${o.kind==='lb'?2.4:r}" fill="none" stroke="#ff5a5a" stroke-width="1.4" stroke-dasharray="3 2"/>`);
+      } else {
+        parts.push(`<circle cx="${xx}" cy="${yy}" r="${o.kind==='lb'?2.4:r}" fill="${o.kind==='lb'?'#4aa3ff':'#dfe6ee'}"/>`);
+      }
+    }
+  });
+  return `<svg viewBox="0 0 ${SW} ${SH}" style="width:100%;max-width:${SW}px;background:#14171c;border:1px solid var(--line2);border-radius:6px">${parts.join('')}</svg>`;
+}
+function openPartDetail(m){
+  const body=$('partDetailBody');
+  const p=_lookupImportedPart_(m);
+  const dims=`${dimStr(m.Lmm)} × ${dimStr(m.Wmm)} × ${thkLabel(m.thickness)}`;
+  const identity=`<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;margin-bottom:12px">
+    <span class="muted">Part #</span><b>${esc(m.partNum||'')}</b>
+    <span class="muted">Name</span><b>${esc(m.name||'')}</b>
+    <span class="muted">Section</span><span>${esc(m.section||'')}</span>
+    <span class="muted">Dimensions</span><span class="mono">${dims}</span>
+    <span class="muted">Qty</span><span class="mono">${m.qty}</span>
+    ${p?`<span class="muted">Type</span><span>${esc(p.type||'')}</span>`:''}
+    ${p?`<span class="muted">Layer (source)</span><span>${esc(p.layer||'')}</span>`:''}
+  </div>`;
+  if(!p){
+    body.innerHTML = identity + `<div class="hint" style="padding:16px;background:var(--panel2);border-radius:8px;border:1px solid var(--line)">
+      <b>No .moz drill data for this part.</b><br>
+      This recipe was authored from pasted text (or imported before .moz round-trip landed).
+      To see drill patterns + band info, re-import the source <code>.moz</code> file(s) via
+      <b>Import .moz…</b> in the header.
+    </div>`;
+    openModal('partDetailModal');
+    return;
+  }
+  const bands = p.bands||{};
+  const bChip = (on,label,edge) => `<span class="pill" style="background:${on?'#173a26':'transparent'};color:${on?'#39c46f':'var(--ink3)'};border-color:${on?'#39c46f':'var(--line)'};padding:3px 10px;margin-right:4px">${on?'●':'○'} ${label} <small style="color:var(--ink3)">(${edge})</small></span>`;
+  const bandsBlock = `<h3 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Bands</h3>
+    <div style="margin-bottom:14px">${bChip(bands.F,'Front','Y0')}${bChip(bands.B,'Back','YW')}${bChip(bands.S,'Left','X0')}${bChip(bands.E,'Right','XL')}</div>`;
+  const ops = p.ops||[];
+  let opsBlock;
+  if(!ops.length){
+    opsBlock = `<h3 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Operations</h3>
+      <div class="hint">No drilling operations recorded on this part.</div>`;
+  } else {
+    const rows = ops.map((o,i)=>`<tr>
+      <td class="mono">${i+1}</td>
+      <td>${o.kind==='lb'?'Line bore':'Hole'}</td>
+      <td>${o.mode||''}</td>
+      <td>${o.edge||'—'}</td>
+      <td class="mono">${o.x!=null?o.x.toFixed(1):''}</td>
+      <td class="mono">${o.y!=null?o.y.toFixed(1):''}</td>
+      <td class="mono">${o.dia||''}</td>
+      <td class="mono">${o.depth||''}</td>
+      <td class="mono">${o.hdepth||''}</td>
+      <td>${o.flip?'<span style="color:var(--bad)">flip</span>':''}</td>
+      <td class="mono">${o.quan||1}</td>
+    </tr>`).join('');
+    opsBlock = `<h3 style="margin:12px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Operations (${ops.length})</h3>
+      <div style="overflow-x:auto"><table class="tbl" style="font-size:11px"><thead><tr>
+        <th>#</th><th>Kind</th><th>Mode</th><th>Edge</th><th>X</th><th>Y</th><th>Ø</th><th>Depth</th><th>Axis h.</th><th>Flip</th><th>Qty</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="hint" style="margin-top:6px">Positions are physical mm. Green = banded edge · solid = near-face · red dashed = flip-side · dots = line bore · amber tick = edge bore.</div>`;
+  }
+  const preview = `<h3 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Preview</h3>${_drillPreviewSVG_(p)}`;
+  body.innerHTML = identity + bandsBlock + opsBlock + preview;
+  openModal('partDetailModal');
+}
+
+/* modal plumbing */
 
 /* modal plumbing */
 function openModal(id){$(id).classList.add('show');}
