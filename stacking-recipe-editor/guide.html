@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Stacker Guide</title>
+<!-- v3.6 (2026-07-29) — Phase 1 scaffold of Zac's ask (Slack 21:19 EDT):
+     full-screen stacking guide for the shop iPad + TV. Loads a recipe by
+     ?sku=X from cloud (Supabase RPC) or localStorage, renders one layer
+     at a time with giant tap-targets. Tap toggles "in place" (local
+     state only in Phase 1); "Layer complete → Next" advances. Phase 2
+     will persist tap-marks server-side + wire the "assign recipe to
+     production order" from the Bedrock Orders tab. -->
+<script src="./config.js"></script>
+<style>
+  :root{
+    --bg:#101317; --panel:#1a1e24; --panel2:#242932;
+    --ink:#f5f4f0; --ink2:#c8c5bd; --ink3:#8a867c;
+    --line:#333842; --line2:#454b57;
+    --accent:#4d9fff; --accent-strong:#1f5fff;
+    --good:#2fd67d; --good-strong:#1fb063; --good-soft:#173a26;
+    --warn:#f5a623;
+    --bad:#e04d4d;
+    --pallet:#3a3f4a; --pallet-fill:#191c22;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --mono:"SF Mono",Menlo,Consolas,monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden}
+  body{font-family:var(--sans);background:var(--bg);color:var(--ink);
+    -webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
+  #app{display:flex;flex-direction:column;height:100vh}
+
+  /* Top bar — SKU + layer position + progress */
+  header{flex:0 0 auto;display:flex;align-items:center;gap:16px;
+    padding:14px 24px;background:var(--panel);border-bottom:2px solid var(--line2)}
+  header .brand{font-size:18px;font-weight:700;letter-spacing:.5px;
+    color:var(--ink2);text-transform:uppercase}
+  header .sku{font-size:28px;font-weight:700;font-family:var(--mono);
+    color:var(--ink);letter-spacing:1px}
+  header .spacer{flex:1}
+  header .badge{font-size:16px;font-weight:600;padding:8px 16px;
+    background:var(--panel2);border:1px solid var(--line2);border-radius:8px;
+    color:var(--ink2)}
+  header .badge.on{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff}
+  header a.back{color:var(--ink3);text-decoration:none;font-size:20px;padding:6px 10px}
+  header a.back:hover{color:var(--ink)}
+
+  /* Progress bar under header */
+  .progressbar{height:6px;background:var(--panel2);flex:0 0 auto;position:relative}
+  .progressbar .fill{position:absolute;top:0;left:0;bottom:0;background:var(--good);
+    transition:width .3s ease}
+
+  /* Main render surface */
+  main{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+  .stage{flex:1;display:flex;align-items:center;justify-content:center;
+    padding:24px;min-height:0}
+  .stage svg{max-width:100%;max-height:100%;background:transparent}
+
+  /* Empty / error states */
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;text-align:center;padding:40px;color:var(--ink2);font-size:22px}
+  .empty .big{font-size:32px;font-weight:700;color:var(--ink)}
+  .empty .hint{font-size:16px;color:var(--ink3);max-width:520px;line-height:1.5}
+  .empty a{color:var(--accent)}
+
+  /* Bottom controls */
+  footer{flex:0 0 auto;display:flex;align-items:center;gap:12px;
+    padding:16px 24px;background:var(--panel);border-top:2px solid var(--line2)}
+  footer .stat{display:flex;flex-direction:column;gap:2px}
+  footer .stat .num{font-size:34px;font-weight:800;line-height:1;
+    font-family:var(--mono);color:var(--ink)}
+  footer .stat .lbl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink3)}
+  footer .spacer{flex:1}
+  footer button{font-size:20px;font-weight:700;padding:16px 24px;border-radius:12px;
+    border:2px solid var(--line2);background:var(--panel2);color:var(--ink);cursor:pointer;
+    letter-spacing:.5px;transition:all .1s;min-height:56px;min-width:140px;
+    font-family:inherit}
+  footer button:hover{border-color:var(--accent);color:var(--accent)}
+  footer button.primary{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff}
+  footer button.primary:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+  footer button.success{background:var(--good-strong);border-color:var(--good-strong);color:#fff}
+  footer button.success:hover{background:var(--good);border-color:var(--good);color:#fff}
+  footer button:disabled{opacity:.3;cursor:not-allowed}
+
+  /* Placed part rendering — big and tappable */
+  .part-shape{stroke:var(--line2);stroke-width:2;cursor:pointer;
+    fill:var(--panel2);transition:fill .12s,stroke .12s}
+  .part-shape.inplace{fill:var(--good-soft);stroke:var(--good)}
+  .part-shape:hover{stroke-width:3}
+  .part-label{fill:var(--ink);font-family:var(--mono);font-weight:700;
+    text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+  .part-check{fill:var(--good);font-size:36px;font-weight:800;text-anchor:middle;
+    dominant-baseline:middle;pointer-events:none;opacity:0;transition:opacity .12s}
+  .part-shape.inplace + .part-check{opacity:1}
+
+  .pallet-outline{fill:var(--pallet-fill);stroke:var(--pallet);stroke-width:3;
+    stroke-dasharray:8 6}
+
+  /* Toast */
+  #toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%) translateY(30px);
+    background:var(--panel2);color:var(--ink);padding:14px 22px;border-radius:10px;
+    border:1px solid var(--line2);font-size:16px;opacity:0;pointer-events:none;
+    transition:opacity .18s,transform .18s;z-index:100}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <a href="./" class="back" title="Back to Stacking Recipe Editor">‹</a>
+    <span class="brand">Stacker Guide</span>
+    <span class="sku" id="skuLabel">—</span>
+    <span class="spacer"></span>
+    <span class="badge" id="layerBadge">Layer — / —</span>
+    <span class="badge" id="progressBadge">0 / 0 in place</span>
+  </header>
+  <div class="progressbar"><div class="fill" id="progressFill" style="width:0%"></div></div>
+  <main>
+    <div class="stage" id="stage">
+      <div class="empty" id="emptyState">
+        <div class="big">No recipe loaded</div>
+        <div class="hint">Add <code>?sku=YOUR-SKU</code> to the URL to load a recipe.<br><br>
+          Example: <code>guide.html?sku=QBZ-WHITE</code></div>
+        <div class="hint">Or return to the <a href="./">Recipe Editor</a>.</div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="stat"><span class="num" id="layerNum">—</span><span class="lbl">Layer</span></div>
+    <div class="stat"><span class="num" id="layerParts">—</span><span class="lbl">Parts</span></div>
+    <div class="stat"><span class="num" id="layerHeight">—</span><span class="lbl">Height (mm)</span></div>
+    <span class="spacer"></span>
+    <button id="btnPrev" disabled>← Prev Layer</button>
+    <button id="btnComplete" class="success" disabled>Layer Complete →</button>
+    <button id="btnNext" class="primary" disabled>Next Layer →</button>
+  </footer>
+</div>
+<div id="toast"></div>
+
+<script>
+const SVGNS='http://www.w3.org/2000/svg';
+const SECTION_COLORS=[
+  '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
+  '#6cb0a8','#c0954a','#a36c6c','#5f8aa6','#9a8e6f','#7a7f8c'
+];
+const $=id=>document.getElementById(id);
+const svgel=(tag,attrs)=>{const e=document.createElementNS(SVGNS,tag);
+  if(attrs)for(const k in attrs)e.setAttribute(k,attrs[k]);return e;};
+
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
+
+/* ---------- STATE ---------- */
+const S={
+  sku:null,
+  snapshot:null,          // the loaded recipe snapshot
+  activeLayerIdx:0,
+  inPlace:new Set(),      // "layerIdx:partIdx" keys of parts marked in-place
+};
+
+/* ---------- STORAGE ---------- */
+const LS_LIB='mbd_stacking_library';
+const DEV_KEY='mbd_stacking_device';
+function loadLib(){try{return JSON.parse(localStorage.getItem(LS_LIB)||'{}');}catch(_){return {};}}
+function getDeviceSecret(){try{return localStorage.getItem(DEV_KEY)||'';}catch(_){return '';}}
+function hasBackend(){return !!(window.STACKING_CONFIG && window.STACKING_CONFIG.supabase_url && window.STACKING_CONFIG.anon_key);}
+function isProvisioned(){return hasBackend() && !!getDeviceSecret();}
+
+async function _rpc(fn, args){
+  if(!hasBackend()) throw new Error('Bedrock backend not configured.');
+  const cfg=window.STACKING_CONFIG;
+  const resp=await fetch(cfg.supabase_url.replace(/\/+$/,'')+'/rest/v1/rpc/'+fn,{
+    method:'POST',
+    headers:{'apikey':cfg.anon_key,'Authorization':'Bearer '+cfg.anon_key,'Content-Type':'application/json'},
+    body:JSON.stringify(args),
+  });
+  const text=await resp.text();
+  let json=null; try{json=JSON.parse(text);}catch(_){json=text;}
+  if(!resp.ok) throw new Error((json && json.message) ? json.message : ('HTTP '+resp.status));
+  return json;
+}
+async function remoteLoadRecipe(sku){
+  const s=getDeviceSecret();
+  if(!s) return null;
+  const rows=await _rpc('load_stacking_recipe',{p_device_secret:s, p_sku:sku});
+  return (rows && rows[0]) ? rows[0] : null;
+}
+
+/* ---------- LOAD ---------- */
+async function loadRecipe(sku){
+  S.sku=sku;
+  $('skuLabel').textContent=sku;
+  // Try cloud first if provisioned; else fall back to localStorage.
+  let snap=null; let source='';
+  if(isProvisioned()){
+    try{
+      const remoteFull=await remoteLoadRecipe(sku);
+      if(remoteFull && remoteFull.snapshot){snap=remoteFull.snapshot; source='cloud rev '+remoteFull.revision;}
+    }catch(err){ /* silent — fall back */ }
+  }
+  if(!snap){
+    const lib=loadLib();
+    if(lib[sku]){snap=lib[sku]; source='local';}
+  }
+  if(!snap){
+    $('emptyState').innerHTML='<div class="big">Recipe not found: '+sku+'</div>'+
+      '<div class="hint">No recipe with SKU <code>'+sku+'</code> in cloud or local library.<br>'+
+      'Open the <a href="./">Recipe Editor</a> to build one first.</div>';
+    return;
+  }
+  S.snapshot=snap;
+  S.activeLayerIdx=0;
+  S.inPlace.clear();
+  $('emptyState')?.remove();
+  toast('Loaded '+sku+' — '+source);
+  renderAll();
+}
+
+/* ---------- RENDER ---------- */
+function renderAll(){
+  const snap=S.snapshot;
+  if(!snap){return;}
+  const layers=snap.layers||[];
+  const totalLayers=Math.max(1, layers.length);
+  const li=S.activeLayerIdx;
+  const layer=layers[li]||[];
+  const inPlaceThisLayer=[...S.inPlace].filter(k=>k.startsWith(li+':')).length;
+  const total=layer.length;
+
+  $('layerBadge').textContent='Layer '+(li+1)+' / '+totalLayers;
+  $('progressBadge').textContent=inPlaceThisLayer+' / '+total+' in place';
+  $('layerNum').textContent=(li+1);
+  $('layerParts').textContent=total;
+  const layerHeight=layer.reduce((mx,p)=>Math.max(mx,p.thickness||19),0);
+  $('layerHeight').textContent=Math.round(layerHeight);
+
+  const globalPlaced=S.inPlace.size;
+  const globalTotal=layers.reduce((s,l)=>s+l.length,0)||1;
+  $('progressFill').style.width=(globalPlaced*100/globalTotal)+'%';
+
+  $('btnPrev').disabled = li<=0;
+  $('btnNext').disabled = li>=totalLayers-1;
+  $('btnComplete').disabled = !(inPlaceThisLayer===total && total>0);
+
+  renderStage(layer);
+}
+
+function renderStage(layer){
+  const stage=$('stage');
+  stage.innerHTML='';
+  const snap=S.snapshot;
+  const foot=snap.foot||{L:1994,W:991};
+  const pal=snap.pal||{L:2032,W:1092};
+
+  // Bounding box = pallet outer. Scale to fit stage.
+  const stageW=stage.clientWidth-48, stageH=stage.clientHeight-48;
+  const pxPerMm=Math.min(stageW/pal.L, stageH/pal.W)*0.92;
+  const svgW=pal.L*pxPerMm, svgH=pal.W*pxPerMm;
+  const svg=svgel('svg',{width:svgW,height:svgH,viewBox:'0 0 '+pal.L+' '+pal.W});
+
+  // Pallet outline
+  svg.appendChild(svgel('rect',{x:0,y:0,width:pal.L,height:pal.W,class:'pallet-outline',rx:6}));
+
+  // Footprint (subtle inner outline where parts go)
+  const footOffX=(pal.L-foot.L)/2, footOffY=(pal.W-foot.W)/2;
+  svg.appendChild(svgel('rect',{x:footOffX,y:footOffY,width:foot.L,height:foot.W,
+    fill:'none',stroke:'#333842','stroke-width':1,'stroke-dasharray':'4 4'}));
+
+  // Placed parts
+  const li=S.activeLayerIdx;
+  layer.forEach((p,pi)=>{
+    const key=li+':'+pi;
+    const inplace=S.inPlace.has(key);
+    // p.cx/p.cy are center in pallet frame; p.L/p.W are dims; p.angle is rotation.
+    const w = p.angle===90||p.angle===270 ? p.W : p.L;
+    const h = p.angle===90||p.angle===270 ? p.L : p.W;
+    const x = p.cx - w/2, y = p.cy - h/2;
+    const rect=svgel('rect',{x,y,width:w,height:h,rx:4,
+      class:'part-shape'+(inplace?' inplace':''),
+      'data-key':key});
+    rect.style.fill = inplace ? 'var(--good-soft)' : (SECTION_COLORS[p.secIdx%SECTION_COLORS.length]+'55');
+    rect.style.stroke = inplace ? 'var(--good)' : SECTION_COLORS[p.secIdx%SECTION_COLORS.length];
+    rect.addEventListener('click', ()=>togglePart(key));
+    svg.appendChild(rect);
+    // Label — SKU/part# centered, big
+    const labelSize=Math.max(14, Math.min(w,h)/6);
+    const lbl=svgel('text',{x:p.cx,y:p.cy,class:'part-label','font-size':labelSize});
+    lbl.textContent=p.partNum||p.name||'?';
+    svg.appendChild(lbl);
+    // Checkmark badge in corner when inplace
+    if(inplace){
+      const chk=svgel('text',{x:p.cx,y:p.cy - Math.min(w,h)/3,
+        'font-size':Math.max(28,Math.min(w,h)/4),class:'part-check'});
+      chk.textContent='✓';
+      chk.style.opacity='1';
+      svg.appendChild(chk);
+    }
+  });
+  stage.appendChild(svg);
+}
+
+function togglePart(key){
+  if(S.inPlace.has(key)) S.inPlace.delete(key); else S.inPlace.add(key);
+  renderAll();
+}
+
+/* ---------- NAV ---------- */
+$('btnPrev').onclick=()=>{
+  if(S.activeLayerIdx>0){S.activeLayerIdx--; renderAll();}
+};
+$('btnNext').onclick=()=>{
+  const layers=S.snapshot?.layers||[];
+  if(S.activeLayerIdx<layers.length-1){S.activeLayerIdx++; renderAll();}
+};
+$('btnComplete').onclick=()=>{
+  const layers=S.snapshot?.layers||[];
+  const li=S.activeLayerIdx;
+  toast('Layer '+(li+1)+' complete!');
+  if(li<layers.length-1){setTimeout(()=>{S.activeLayerIdx++; renderAll();}, 800);}
+  else{setTimeout(()=>toast('Stack complete!'), 900);}
+};
+
+/* ---------- BOOT ---------- */
+window.addEventListener('resize', ()=>{if(S.snapshot)renderAll();});
+(function boot(){
+  const qs=new URLSearchParams(location.search);
+  const sku=qs.get('sku');
+  if(sku){loadRecipe(sku);}
+})();
+</script>
+</body>
+</html>

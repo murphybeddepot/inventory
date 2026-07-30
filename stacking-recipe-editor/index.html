@@ -700,7 +700,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.6';
+const APP_VERSION = '3.7';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3006,6 +3006,10 @@ async function renderLibList(){
     const card=el('div',{class:'reccard'});
     card.innerHTML=`<div class="info"><div class="nm">${esc(k)} ${badgeHtml}</div>
       <div class="sub">${L?np+' parts · '+layers.length+' layers · ':'(cloud snapshot — click Load to fetch) · '}sig ${sigStr}${dateStr?' · '+dateStr:''}</div></div>`;
+    // v3.7: 🎯 Guide — opens the full-screen Stacker Guide (guide.html)
+    // for this SKU, which the shop iPad/TV uses at the stacking station.
+    const bGuide=el('button',{title:'Open Stacker Guide (full-screen view for iPad/TV)',text:'🎯 Guide'});
+    bGuide.onclick=()=>{ window.open('./guide.html?sku='+encodeURIComponent(k), '_blank'); };
     const bLoad=el('button',{class:'primary',text:'Load'});
     bLoad.onclick=async()=>{
       let snap=L;
@@ -3050,7 +3054,7 @@ async function renderLibList(){
         }
       }
     };
-    card.appendChild(bLoad);card.appendChild(bDel);
+    card.appendChild(bGuide);card.appendChild(bLoad);card.appendChild(bDel);
     list.appendChild(card);
   }
 }
