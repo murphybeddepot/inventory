@@ -304,6 +304,11 @@ function renderStage(layer){
   svg.appendChild(svgel('rect',{x:footOffX,y:footOffY,width:foot.L,height:foot.W,
     fill:'none',stroke:'#333842','stroke-width':1,'stroke-dasharray':'4 4'}));
 
+  // v3.11: uniform label font sized to the SVG viewBox (not per-part) so
+  // every part reads at the same weight. Zac's ask: bolder blocks + same
+  // font size + always the short 2A-style code.
+  const LABEL_SIZE = Math.round(Math.min(pal.L, pal.W) * 0.055); // ~55px @ 991mm short side
+
   // Placed parts
   const li=S.activeLayerIdx;
   layer.forEach((p,pi)=>{
@@ -316,19 +321,27 @@ function renderStage(layer){
     const rect=svgel('rect',{x,y,width:w,height:h,rx:4,
       class:'part-shape'+(inplace?' inplace':''),
       'data-key':key});
-    rect.style.fill = inplace ? 'var(--good-soft)' : (SECTION_COLORS[p.secIdx%SECTION_COLORS.length]+'55');
-    rect.style.stroke = inplace ? 'var(--good)' : SECTION_COLORS[p.secIdx%SECTION_COLORS.length];
+    // Bolder fills — solid color at 88% (E0) instead of 33% (55).
+    // In-place stays flat green so it POPS against the section colors.
+    const secColor = SECTION_COLORS[p.secIdx%SECTION_COLORS.length];
+    rect.style.fill = inplace ? '#1fb063' : (secColor + 'E0');
+    rect.style.stroke = inplace ? '#39c46f' : secColor;
+    rect.style.strokeWidth = inplace ? 4 : 3;
     rect.addEventListener('click', ()=>togglePart(key));
     svg.appendChild(rect);
-    // Label — SKU/part# centered, big
-    const labelSize=Math.max(14, Math.min(w,h)/6);
-    const lbl=svgel('text',{x:p.cx,y:p.cy,class:'part-label','font-size':labelSize});
-    lbl.textContent=p.partNum||p.name||'?';
+    // Uniform-size label — short 2A-style code preferred. If a part has
+    // no partNum (should be rare — usually text-imported recipes), fall
+    // back to the first token of the name UPPERCASED so it still looks
+    // like a code rather than a sentence.
+    const short = (p.partNum && String(p.partNum).trim())
+      || (p.name ? String(p.name).split(/\s+/)[0].slice(0,4).toUpperCase() : '?');
+    const lbl=svgel('text',{x:p.cx,y:p.cy,class:'part-label','font-size':LABEL_SIZE});
+    lbl.textContent = short;
     svg.appendChild(lbl);
-    // Checkmark badge in corner when inplace
+    // Checkmark badge above the label when inplace
     if(inplace){
-      const chk=svgel('text',{x:p.cx,y:p.cy - Math.min(w,h)/3,
-        'font-size':Math.max(28,Math.min(w,h)/4),class:'part-check'});
+      const chk=svgel('text',{x:p.cx,y:p.cy - LABEL_SIZE*0.85,
+        'font-size':LABEL_SIZE*1.1,class:'part-check'});
       chk.textContent='✓';
       chk.style.opacity='1';
       svg.appendChild(chk);
