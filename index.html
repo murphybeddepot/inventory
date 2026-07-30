@@ -3241,6 +3241,16 @@ window.addEventListener('error', function(e) {
 window.addEventListener('unhandledrejection', function(e) {
   logBedrockIssue('unhandled_promise', String((e.reason && e.reason.message) || e.reason || 'unhandled rejection'), '', e.reason);
 });
+
+// Stacker Guide launcher (v3.13 Phase 3 integration). Opens the guide
+// in a new tab with ?order=N — the guide resolves order → assigned
+// recipe SKU via Supabase, or shows a picker if unassigned. Progress
+// keys per order_number so two orders sharing a recipe don't collide.
+window.openStackerGuideForOrder = function (orderNumber) {
+  if (!orderNumber) return;
+  const url = './stacking-recipe-editor/guide.html?order=' + encodeURIComponent(orderNumber);
+  window.open(url, '_blank');
+};
 </script>
 
 <script>
@@ -17577,6 +17587,7 @@ async function openInspectOrderModal(preFillOrder) {
             <div style="font-size:12px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);margin-top:4px">${addr || '(no shipping address)'}</div>
             <div style="font-size:11px;color:rgba(255,255,255,.6) !important;-webkit-text-fill-color:rgba(255,255,255,.6);margin-top:2px">${fdate ? 'Ordered ' + fdate + ' · ' : ''}${s.customer_email || ''}${s.customer_phone ? ' · ' + s.customer_phone : ''}${s.total_price ? ' · $' + s.total_price : ''}</div>
           </div>
+          <button onclick="window.openStackerGuideForOrder('${ord}')" style="background:#1fb063 !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.4px;text-transform:uppercase;flex-shrink:0" title="Full-screen Stacker Guide for this order (loads recipe or picker)">🎯 Stacker Guide</button>
         </div>
       </div>`;
     }
