@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.23';
+const APP_VERSION = '3.24';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2347,12 +2347,100 @@ function _shapeStackEnds_(layers){
     }
   }
 }
+// v3.24 — stacked-gap penalty. Rasters each layer at 50mm cells, then for
+// every (x,y) column sums (run-1)^2 over maximal runs of consecutive empty
+// cells. A 4-layer-tall empty column at one cell = 9; four separate 1-cell
+// gaps at that column = 0. Directly encodes Zac's "crazy gaps stacked
+// layer after layer" complaint so the optimizer can rank against it.
+function _stackedGapPenalty_(plan, Lf, Wf){
+  const CELL = 50;
+  const nx = Math.max(1, Math.ceil(Lf / CELL));
+  const ny = Math.max(1, Math.ceil(Wf / CELL));
+  const L = plan.layers.length;
+  if(L < 2) return 0;
+  const stride = nx * ny;
+  const occ = new Uint8Array(L * stride);
+  const mark = (li, minX, maxX, minY, maxY) => {
+    const ix0 = Math.max(0, Math.floor(minX / CELL));
+    const ix1 = Math.min(nx-1, Math.floor((maxX - 1e-6) / CELL));
+    const iy0 = Math.max(0, Math.floor(minY / CELL));
+    const iy1 = Math.min(ny-1, Math.floor((maxY - 1e-6) / CELL));
+    for(let iy=iy0; iy<=iy1; iy++){
+      const row = li*stride + iy*nx;
+      for(let ix=ix0; ix<=ix1; ix++) occ[row + ix] = 1;
+    }
+  };
+  for(let li=0; li<L; li++){
+    for(const p of plan.layers[li]) mark(li, p.cx-p.vw/2, p.cx+p.vw/2, p.cy-p.vh/2, p.cy+p.vh/2);
+    for(const c of (plan.cartons||[])){
+      if(li >= c.startLayer && li < c.startLayer + c.span) mark(li, c.cx-c.vw/2, c.cx+c.vw/2, c.cy-c.vh/2, c.cy+c.vh/2);
+    }
+  }
+  let pen = 0;
+  for(let iy=0; iy<ny; iy++) for(let ix=0; ix<nx; ix++){
+    let run = 0;
+    for(let li=0; li<L; li++){
+      if(occ[li*stride + iy*nx + ix]){
+        if(run > 1) pen += (run - 1) * (run - 1);
+        run = 0;
+      } else run++;
+    }
+    if(run > 1) pen += (run - 1) * (run - 1);
+  }
+  return pen;
+}
+// v3.24 — brick-interlock reward. For every ABOVE part edge (x/y edge that
+// isn't the pallet boundary), penalize if any BELOW part has an edge within
+// SEAM_TOL. Proportional so exact alignment = 1.0, at-tolerance = 0. Sums
+// across every layer pair. Encourages staggered seams (a part on layer N+1
+// straddles two parts on layer N, edges resting mid-part not on-seam).
+function _seamAlignPenalty_(plan, Lf, Wf){
+  const TOL = 20, EDGE_MARGIN = 5;
+  let pen = 0;
+  for(let li=1; li<plan.layers.length; li++){
+    const above = plan.layers[li], below = plan.layers[li-1];
+    if(!above.length || !below.length) continue;
+    const bxs = [], bys = [];
+    for(const p of below){
+      const x0 = p.cx - p.vw/2, x1 = p.cx + p.vw/2, y0 = p.cy - p.vh/2, y1 = p.cy + p.vh/2;
+      if(x0 > EDGE_MARGIN) bxs.push(x0);
+      if(x1 < Lf - EDGE_MARGIN) bxs.push(x1);
+      if(y0 > EDGE_MARGIN) bys.push(y0);
+      if(y1 < Wf - EDGE_MARGIN) bys.push(y1);
+    }
+    // Cartons on the layer below are also solids — their edges count as seams too.
+    for(const c of (plan.cartons||[])) if(li-1 >= c.startLayer && li-1 < c.startLayer + c.span){
+      const x0 = c.cx - c.vw/2, x1 = c.cx + c.vw/2, y0 = c.cy - c.vh/2, y1 = c.cy + c.vh/2;
+      if(x0 > EDGE_MARGIN) bxs.push(x0);
+      if(x1 < Lf - EDGE_MARGIN) bxs.push(x1);
+      if(y0 > EDGE_MARGIN) bys.push(y0);
+      if(y1 < Wf - EDGE_MARGIN) bys.push(y1);
+    }
+    for(const p of above){
+      const xEdges = [p.cx - p.vw/2, p.cx + p.vw/2];
+      for(const e of xEdges){
+        if(e < EDGE_MARGIN || e > Lf - EDGE_MARGIN) continue;
+        let best = TOL;
+        for(const b of bxs){ const d = Math.abs(e-b); if(d < best) best = d; }
+        if(best < TOL) pen += (TOL - best) / TOL;
+      }
+      const yEdges = [p.cy - p.vh/2, p.cy + p.vh/2];
+      for(const e of yEdges){
+        if(e < EDGE_MARGIN || e > Wf - EDGE_MARGIN) continue;
+        let best = TOL;
+        for(const b of bys){ const d = Math.abs(e-b); if(d < best) best = d; }
+        if(best < TOL) pen += (TOL - best) / TOL;
+      }
+    }
+  }
+  return pen;
+}
 function costOfPlan(plan,Lf,Wf){
   const L=plan.layers.length; let topHeavy=0,total=0;
   for(let li=0;li<plan.layers.length;li++) for(const it of plan.layers[li]){const ar=it.vw*it.vh;topHeavy+=ar*li;total+=ar;}
   const th = total? topHeavy/total/Math.max(1,L-1||1) : 0;     // mean normalized height of mass (lower = big parts low)
   const top=plan.layers[plan.layers.length-1]||[]; let tu=0; for(const it of top)tu+=it.vw*it.vh;
-  const topFill=tu/(Lf*Wf);                                    // prefer an emptier top layer (more consolidated)
+  const topFill=tu/(Lf*Wf);
   // support: penalize every part below SUP_TARGET by the severity of its deficit, with a steep extra hit when it is
   // badly unsupported (<70%). Ranked below layer count so the optimizer picks the best-supported layout of a given
   // height rather than padding the stack.
@@ -2365,7 +2453,16 @@ function costOfPlan(plan,Lf,Wf){
       if(sup<SUP_TARGET){ supPenalty += (SUP_TARGET-sup); if(sup<0.7) supPenalty += (0.7-sup)*5; }
     }
   }
-  return L*1e6 + supPenalty*150000 + th*4000 + topFill*1500 + (plan.unplaced||0)*1e9 + (plan.cartonDropped||0)*1e9;
+  // v3.24 — stacked gaps + brick interlock. When cartons rule the top, keep the
+  // classic "mass low + empty top" bias so panels don't compete with cartons.
+  // No cartons: reward BALANCED mass (top layer also carries big parts) and
+  // reward a FULLER top (Zac 2026-07-30). Gap+seam penalties always apply.
+  const noCartons = !(plan.cartons && plan.cartons.length);
+  const thTerm = noCartons ? Math.abs(th - 0.5) * 4000 : th * 4000;
+  const topFillTerm = noCartons ? -topFill * 25000 : topFill * 1500;
+  const gapPen = _stackedGapPenalty_(plan, Lf, Wf);
+  const seamPen = _seamAlignPenalty_(plan, Lf, Wf);
+  return L*1e6 + supPenalty*150000 + thTerm + topFillTerm + gapPen*60 + seamPen*2000 + (plan.unplaced||0)*1e9 + (plan.cartonDropped||0)*1e9;
 }
 function planHash(plan){return plan.layers.length+'|'+plan.layers.map(l=>{let u=0;for(const it of l)u+=it.vw*it.vh;return Math.round(u/2000);}).join(',');}
 
