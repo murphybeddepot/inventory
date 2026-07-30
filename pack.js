@@ -19125,6 +19125,7 @@ function openGroundGuide() {
     + tip('You can hold early. The plan is empty until orders arrive, but holding at 9am covers the whole day.')
     + gotcha('If Seth (or anyone) packs an order manually before 4pm, the automatic run leaves it alone — it never buys labels for an order that already has them. A quiet "nothing to print today" after a busy afternoon is normal, not a fault.')
     + gotcha('A label that buys but fails to print is reported as <b>bought — reprint, do NOT re-buy</b>. Use 🔄 Reprint Label. Buying again would charge a second time.')
+    + gotcha('There is a rarer version of that worth knowing: if the report says labels were bought but Bedrock could not <i>save</i> them, <b>Reprint will not find them either</b> — reprint works off the saved record, and that is exactly what failed. Those labels exist only in ShipStation. Tell Zac; they get recovered from ShipStation directly. Still never re-buy.')
     + gotcha('If labels for an order already exist somewhere Bedrock cannot see — bought directly in ShipStation, for instance — tell Zac so the order can be flagged. Otherwise the 4pm run treats it as unlabelled and buys a second set.');
 
   // FEDEX
@@ -19166,11 +19167,11 @@ function openGroundGuide() {
 
   ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#14181F;color:#fff;width:100%;max-width:820px;max-height:92vh;border-radius:16px 16px 0 0;padding:20px 20px 32px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -4px 32px rgba(0,0,0,.7);border-top:2px solid #2a3340">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;position:sticky;top:-20px;background:#14181F;padding:16px 0 8px;z-index:5;margin-top:-20px">'
-    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Ground Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every flow, every gotcha · v10.1416</div></div>'
+    +   '<div><div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:28px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;color:#fff">Ground Tab Guide</div><div style="font-size:11px;color:#7E8CA0;margin-top:2px">Every button, every flow, every gotcha · v10.1417</div></div>'
     +   '<button onclick="document.getElementById(\'groundGuideOverlay\').remove()" style="background:none;border:none;color:#9AAAC0;font-size:28px;cursor:pointer;padding:6px 10px;min-height:44px">✕</button>'
     + '</div>'
     + toc + secTop + secHeader + secFlow + secAuto + secManual + secPrinters + secFedex + secVoid + secFaq
-    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1416.</div>'
+    + '<div style="margin-top:24px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;text-align:center;font-size:11px;color:#7E8CA0">Missing something? Wrong framing? Ping Zac in <a href="slack://channel?team=T04J89DGD05&id=C0B4GKX0A2Y" style="color:#5BB3FF">#claude_bedrock</a>. Guide is v10.1417.</div>'
     + '</div>';
   document.body.appendChild(ov);
 }
