@@ -1146,6 +1146,33 @@ input::placeholder, textarea::placeholder {
 .bd-modal-shell .mg-item-row .mg-sku { flex: 2 1 0; min-width: 100px; }
 .bd-modal-shell .mg-item-row .mg-name { flex: 2 1 0; min-width: 100px; }
 .bd-modal-shell .mg-item-row .mg-qty { width: 70px; flex-shrink: 0; }
+/* v10.1431 (Zac 2026-07-30: "the top menu makes it too wide for the screen")
+   — the tab strip forced horizontal scroll on every phone.
+
+   Measured, not guessed: 4 tabs x min-width:120px = 480px, so a 375px iPhone
+   rendered a 480px-wide page and the ☰ MORE tab sat 105px off-screen. iPad was
+   never affected (1024px), which is why it went unnoticed.
+
+   The 120x84 sizing is deliberate — Seth asked for dusty-finger tap targets on
+   2026-07-22 and had them made ~50% bigger. So this does NOT shrink them
+   globally; it only lets the tabs share the available width on phone-sized
+   screens. min-height stays 84px, so the tap target keeps its full height —
+   the thing Seth actually cares about — and only the horizontal padding gives. */
+@media (max-width: 520px) {
+  .tabs { overflow-x: hidden; }
+  .tab-btn {
+    flex: 1 1 0 !important;      /* share the row evenly instead of 120px each */
+    min-width: 0 !important;     /* without this, flex-shrink is ignored */
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+    letter-spacing: .5px !important;
+  }
+  /* MORE is pinned right by margin-left:auto; once the tabs fill the row that
+     auto margin would re-introduce a gap and push it back off-screen. */
+  .tabs #tab-more-btn { margin-left: 0 !important; }
+  .tab-btn .tab-icon { font-size: 26px !important; }
+}
+
 @media (max-width: 520px) {
   .bd-modal-shell .mg-ship-grid {
     grid-template-columns: 1fr !important;
@@ -3241,16 +3268,6 @@ window.addEventListener('error', function(e) {
 window.addEventListener('unhandledrejection', function(e) {
   logBedrockIssue('unhandled_promise', String((e.reason && e.reason.message) || e.reason || 'unhandled rejection'), '', e.reason);
 });
-
-// Stacker Guide launcher (v3.13 Phase 3 integration). Opens the guide
-// in a new tab with ?order=N — the guide resolves order → assigned
-// recipe SKU via Supabase, or shows a picker if unassigned. Progress
-// keys per order_number so two orders sharing a recipe don't collide.
-window.openStackerGuideForOrder = function (orderNumber) {
-  if (!orderNumber) return;
-  const url = './stacking-recipe-editor/guide.html?order=' + encodeURIComponent(orderNumber);
-  window.open(url, '_blank');
-};
 </script>
 
 <script>
@@ -17587,7 +17604,6 @@ async function openInspectOrderModal(preFillOrder) {
             <div style="font-size:12px;color:rgba(255,255,255,.7) !important;-webkit-text-fill-color:rgba(255,255,255,.7);margin-top:4px">${addr || '(no shipping address)'}</div>
             <div style="font-size:11px;color:rgba(255,255,255,.6) !important;-webkit-text-fill-color:rgba(255,255,255,.6);margin-top:2px">${fdate ? 'Ordered ' + fdate + ' · ' : ''}${s.customer_email || ''}${s.customer_phone ? ' · ' + s.customer_phone : ''}${s.total_price ? ' · $' + s.total_price : ''}</div>
           </div>
-          <button onclick="window.openStackerGuideForOrder('${ord}')" style="background:#1fb063 !important;color:#fff !important;-webkit-text-fill-color:#fff;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.4px;text-transform:uppercase;flex-shrink:0" title="Full-screen Stacker Guide for this order (loads recipe or picker)">🎯 Stacker Guide</button>
         </div>
       </div>`;
     }
@@ -34878,7 +34894,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1428"></script>
+<script src="./pack.js?v=10.1431"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34889,7 +34905,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1428<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1431<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
