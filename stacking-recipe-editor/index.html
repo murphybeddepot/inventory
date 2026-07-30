@@ -932,7 +932,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.15';
+const APP_VERSION = '3.16';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3612,12 +3612,54 @@ function _updateBand_(edge, on){
   scheduleSave();
   openPartDetail(window._openedDetailManifest_);
 }
+// v3.16 — walk the tray in whatever order it's currently displayed.
+// Match renderTray()'s sort semantics: 'section' keeps group order
+// (secIdx asc, tray insertion order within), any other key uses the
+// comparator from _partSortComparator_. Ignores the search box —
+// prev/next should walk the WHOLE list even if a filter is on, so the
+// user isn't surprised by "next" skipping around the filtered set.
+function _orderedManifest_(){
+  const arr = (S.manifest||[]).slice();
+  const sort = S.traySort || 'section';
+  if(sort === 'section'){
+    return arr.sort((a,b)=> (a.secIdx - b.secIdx));
+  }
+  return arr.sort(_partSortComparator_(sort));
+}
+function _openPartDetailByOffset_(delta){
+  const cur = window._openedDetailManifest_;
+  if(!cur) return;
+  const list = _orderedManifest_();
+  const idx = list.findIndex(x => x.key === cur.key);
+  if(idx < 0) return;
+  const next = list[idx + delta];
+  if(!next) return;
+  openPartDetail(next);
+}
 function openPartDetail(m){
   const body=$('partDetailBody');
   const p=_lookupImportedPart_(m);
   window._openedDetailManifest_ = m;
   window._openedDetailPart_ = p;
   const dims=`${dimStr(m.Lmm)} × ${dimStr(m.Wmm)} × ${thkLabel(m.thickness)}`;
+
+  // v3.16 nav bar at the top: ← Prev · <select> · Next →. Position in
+  // the ordered list (matches tray sort).
+  const list = _orderedManifest_();
+  const idx = list.findIndex(x => x.key === m.key);
+  const total = list.length;
+  const prevDis = idx <= 0 ? 'disabled' : '';
+  const nextDis = idx < 0 || idx >= total - 1 ? 'disabled' : '';
+  const options = list.map((r,i) =>
+    `<option value="${esc(r.key||'')}"${r.key===m.key?' selected':''}>${(i+1).toString().padStart(2,'0')}. ${esc(r.partNum||'')} — ${esc(r.name||'')} · ${dimStr(r.Lmm)}×${dimStr(r.Wmm)}</option>`
+  ).join('');
+  const navBar = `<div style="display:flex;gap:6px;align-items:center;padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;margin-bottom:12px;flex-wrap:wrap">
+    <button class="ghost" onclick="_openPartDetailByOffset_(-1)" ${prevDis} title="Previous part in tray">← Prev</button>
+    <select onchange="(function(v){const list=_orderedManifest_();const t=list.find(x=>x.key===v);if(t)openPartDetail(t);})(this.value)" style="flex:1;min-width:180px;font-size:12px;padding:4px 6px">${options}</select>
+    <button class="ghost" onclick="_openPartDetailByOffset_(1)" ${nextDis} title="Next part in tray">Next →</button>
+    <span class="muted" style="font-size:11px;margin-left:auto">${idx+1} of ${total}</span>
+  </div>`;
+
   const identity=`<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;margin-bottom:12px">
     <span class="muted">Part #</span><b>${esc(m.partNum||'')}</b>
     <span class="muted">Name</span><b>${esc(m.name||'')}</b>
@@ -3628,7 +3670,7 @@ function openPartDetail(m){
     ${p?`<span class="muted">Layer (source)</span><span>${esc(p.layer||'')}</span>`:''}
   </div>`;
   if(!p){
-    body.innerHTML = identity + `<div class="hint" style="padding:16px;background:var(--panel2);border-radius:8px;border:1px solid var(--line)">
+    body.innerHTML = navBar + identity + `<div class="hint" style="padding:16px;background:var(--panel2);border-radius:8px;border:1px solid var(--line)">
       <b>No .moz drill data for this part.</b><br>
       This recipe was authored from pasted text (or imported before .moz round-trip landed).
       To see drill patterns + band info, re-import the source <code>.moz</code> file(s) via
@@ -3694,7 +3736,7 @@ function openPartDetail(m){
   const opsBlock = opsHeader + opsTable + addBtns;
   const preview = `<h3 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3)">Preview</h3>${_drillPreviewSVG_(p)}
     <div class="hint" style="margin-top:6px">Green = banded edge · solid = near-face · red dashed = flip-side · dots = line-bore · amber tick = edge bore.</div>`;
-  body.innerHTML = identity + bandsBlock + opsBlock + preview;
+  body.innerHTML = navBar + identity + bandsBlock + opsBlock + preview;
   openModal('partDetailModal');
 }
 
