@@ -6739,13 +6739,53 @@ async function openGroundPrintPlanModal() {
   window._gppSetHold_ = async function (hold) {
     const body = document.getElementById('gppBody');
     if (body) body.innerHTML = '<div style="color:#9AAAC0;-webkit-text-fill-color:#9AAAC0;text-align:center;padding:26px 0;font-size:13px">' + (hold ? 'Holding today\'s run…' : 'Releasing hold…') + '</div>';
-    try { await groundApi('setGroundAutoBuyHold', { hold: !!hold }); } catch (e) {}
-    openGroundPrintPlanModal();
+    // v10.1428 — never swallow this. It is the only brake on a job that spends
+    // money unattended, and a silently-failed hold looks IDENTICAL to a
+    // successful one once the modal re-renders: spinner, then a screen. The
+    // operator walks away believing 4pm is stopped when it isn't.
+    let err = '';
+    try {
+      const r = await groundApi('setGroundAutoBuyHold', { hold: !!hold });
+      if (!r || r.ok === false) err = String((r && r.error) || 'the server rejected the request');
+    } catch (e) { err = (e && e.message) || String(e); }
+    await openGroundPrintPlanModal();
+    // Believe the SERVER's state, not the reply we just got — the refresh
+    // re-reads it, so this catches a request that "succeeded" without
+    // actually changing anything.
+    const took = !!(window._gppLast_ && window._gppLast_.held_today) === !!hold;
+    if (!took || err) {
+      const el2 = document.getElementById('gppBody');
+      if (el2) {
+        const headline = !took
+          ? (hold
+            ? '⚠️ THE HOLD DID NOT TAKE — labels WILL still be bought at 4pm'
+            : '⚠️ THE RELEASE DID NOT TAKE — today\'s run is STILL on hold')
+          : 'The change went through, but the server also reported a problem';
+        const advice = !took
+          ? (hold
+            ? 'Tap HOLD again. If it keeps failing, tell Zac to switch auto-buy off — do not assume this screen stopped it.'
+            : 'Tap Resume again. Nothing will be bought at 4pm until it succeeds.')
+          : 'Worth mentioning to Zac, but the state above is correct.';
+        el2.insertAdjacentHTML('afterbegin',
+          '<div style="background:' + (took ? '#2a2f3a' : 'linear-gradient(135deg,#8E0000,#B71C1C)')
+          + ';border:1.5px solid ' + (took ? 'rgba(255,255,255,.25)' : '#ff5252')
+          + ';border-radius:10px;padding:12px 14px;margin-bottom:12px">'
+          + '<div style="font-size:13px;font-weight:900;color:#fff;-webkit-text-fill-color:#fff;line-height:1.4">'
+          + headline + '</div>'
+          + (err ? '<div style="font-size:11px;color:#FFCDD2;-webkit-text-fill-color:#FFCDD2;margin-top:5px;font-family:\'JetBrains Mono\',monospace;word-break:break-word">'
+            + escapeHtml(err) + '</div>' : '')
+          + '<div style="font-size:12px;color:#fff;-webkit-text-fill-color:#fff;margin-top:6px;line-height:1.5">'
+          + advice + '</div></div>');
+      }
+    }
   };
 
   let d = null;
   try { d = await groundApi('getGroundPrintPlanForUi', {}); }
   catch (e) { d = { ok: false, error: e.message }; }
+  // v10.1428 — stash the authoritative state so _gppSetHold_ can verify that a
+  // hold/release actually landed, rather than trusting the mutation's reply.
+  window._gppLast_ = d;
   const el = document.getElementById('gppBody');
   if (!el) return;
   if (!d || !d.ok) {
@@ -34814,7 +34854,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1419"></script>
+<script src="./pack.js?v=10.1428"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34825,7 +34865,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1419<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1428<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
