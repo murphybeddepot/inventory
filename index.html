@@ -31588,6 +31588,74 @@ async function _inlineDeleteHold_(orderNumber, holdKind, btn) {
   }
 }
 
+// v10.1442 — Ground queue cutover: the worker is now the PRIMARY path.
+//
+// Zac 2026-07-31, after waiting ~100s to start packing one order: "I DID THE
+// NEW 32445 IN SHIPSTATION BC I'M NOT WAITING ALL DAY FOR YOU." Measured the
+// same afternoon: Apps Script getQueue 12.4s (23.4s on a full queue), the
+// worker 5.2s — and that 5.2s was measured THROUGH the Apps Script proxy, so
+// the client-direct number is lower still.
+//
+// The worker path has been parity-checked against Apps Script since v10.1403
+// with a watcher that Slacks on drift (runGroundQueueParityCheck, every 2h);
+// it agreed exactly at cutover time (12 in ShipStation, 1 shown, 11 filtered).
+// v31.12 closed the last two payload gaps — samples metadata and inline_order.
+//
+// Apps Script is NOT retired: it is the fallback, and the queue-direct lifeboat
+// still sits behind that. So this changes which path is tried first, not how
+// many ways Ground can survive.
+
+// Synchronous config peek. _getPrintRelayConfig_ is async and, on a cold
+// device, fetches the config FROM Apps Script — using it here would put a GAS
+// round-trip in front of the fast path and make the first load slower, which
+// is the exact opposite of the point. So: only take the worker path when the
+// secret is already in hand, otherwise go to Apps Script this once (which
+// seeds the cache for next time).
+function _peekPrintRelayConfig_() {
+  try {
+    if (typeof _printRelayConfig_ !== 'undefined' && _printRelayConfig_ && _printRelayConfig_.stamp_secret) {
+      return _printRelayConfig_;
+    }
+  } catch (_e) { /* not loaded yet */ }
+  try {
+    const raw = localStorage.getItem('mbd_print_relay_config');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.stamp_secret) return parsed;
+    }
+  } catch (_e) {}
+  return null;
+}
+
+// Returns the queue payload, or null if the worker could not serve it for ANY
+// reason (network, non-200, the 503 empty-ignore-list guard, a malformed body).
+// Null always means "fall back to Apps Script" — this must never return a
+// partial or unfiltered list, because the caller treats a truthy result as the
+// normal, fully-filtered queue and shows no warning banner.
+async function _groundQueueViaWorker_(cfg) {
+  const base = (cfg && cfg.worker_url) || 'https://mbd-label-stamper.murphybeddepot.workers.dev';
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  // Bounded: a hanging worker must not out-wait the Apps Script call it
+  // replaced. 12s is above the observed 5.2s-through-a-proxy with headroom.
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 12000) : null;
+  try {
+    const r = await fetch(base.replace(/\/+$/, '') + '/ground/queue-v2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: cfg.stamp_secret }),
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j || j.ok !== true || !Array.isArray(j.queue)) return null;
+    return j;
+  } catch (_e) {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function refreshGroundQueue() {
   const list = document.getElementById('groundQueueList');
   const empty = document.getElementById('groundQueueEmpty');
@@ -31647,7 +31715,23 @@ async function refreshGroundQueue() {
   }
 
   try {
-    let data = await groundApi('getQueue', {});
+    // v10.1442 — worker first, Apps Script second. Both produce the same
+    // filtered list; only the speed differs.
+    let data = null;
+    let _queueSource_ = 'apps-script';
+    const _t0_ = Date.now();
+    const _relayCfg_ = _peekPrintRelayConfig_();
+    if (_relayCfg_) {
+      data = await _groundQueueViaWorker_(_relayCfg_);
+      if (data) _queueSource_ = 'worker';
+    }
+    if (!data) {
+      // No cached worker secret, or the worker declined. Apps Script it is —
+      // and _getPrintRelayConfig_ seeds the secret so the NEXT load is fast.
+      if (!_relayCfg_) { try { _getPrintRelayConfig_(); } catch (_e) {} }
+      data = await groundApi('getQueue', {});
+    }
+    window._groundQueueSource_ = { source: _queueSource_, ms: Date.now() - _t0_, at: new Date().toISOString() };
     // v10.816 — GAS quota fallback. If /exec returns a quota-shaped
     // error, fail over to worker-direct ground/queue-direct which
     // merges SS V1 + Supabase spine holds without touching GAS.
@@ -31742,6 +31826,16 @@ async function refreshGroundQueue() {
     }
     status.innerHTML = esc(String(_v1Total_) + ' in ShipStation · '
       + groundQueue.length + ' to pack' + holdsLabel) + _reconLabel_;
+    // v10.1442 — which path actually served this list, and how long it took.
+    // On-device proof, not a claim from my laptop: if the cutover silently
+    // stopped working and every load fell back to Apps Script, the queue would
+    // still be CORRECT and just slow again — indistinguishable from before
+    // without this line.
+    if (debugEl) {
+      const _src_ = window._groundQueueSource_ || {};
+      debugEl.textContent = '→ ' + (_src_.source === 'worker' ? 'worker' : 'orch')
+        + ' ' + (_src_.ms != null ? (_src_.ms / 1000).toFixed(1) + 's' : '');
+    }
     // v10.1401 — if we're on the emergency worker path, say so loudly.
     // This list has NOT been through any of the six queue filters.
     try {
@@ -34924,7 +35018,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1439"></script>
+<script src="./pack.js?v=10.1442"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34935,7 +35029,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1439<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1442<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
