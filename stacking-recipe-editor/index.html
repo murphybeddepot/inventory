@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.28';
+const APP_VERSION = '3.29';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2513,6 +2513,38 @@ function _brickMirrorPass_(layers, cartons, Lf, Wf){
     else if(bestOp === 3){ flipX(layer); flipY(layer); }
   }
 }
+// v3.29 — drop-fill (gravity) pass. For each part starting from the top
+// layer down, try to drop it into a gap on some lower layer if it fits
+// with full support. Unlike compact, doesn't require the whole source
+// layer to empty — partial gravity still reduces vertical gap columns.
+// Emptied layers get removed at the end. Runs BEFORE compact so compact
+// gets a chance to eliminate any layers this pass drained.
+function _dropFillPass_(plan, Lf, Wf, gap){
+  const layers = plan.layers, cartons = plan.cartons || [];
+  if(cartons.length) return;
+  let moved = true, guard = 0;
+  while(moved && guard++ < 400){
+    moved = false;
+    outer: for(let li = layers.length - 1; li >= 1; li--){
+      for(let pi = 0; pi < layers[li].length; pi++){
+        const p = layers[li][pi];
+        for(let tli = 0; tli < li; tli++){
+          const spot = _bestSpot(layers, cartons, tli, p, Lf, Wf, gap, false);
+          if(!spot || spot.sup < SUP_TARGET - 1e-9) continue;
+          layers[li].splice(pi, 1);
+          p.cx = spot.cx; p.cy = spot.cy; p.angle = spot.angle; p.vw = spot.vw; p.vh = spot.vh;
+          layers[tli].push(p);
+          moved = true;
+          break outer;
+        }
+      }
+    }
+  }
+  // Sweep empty layers.
+  for(let li = layers.length - 1; li >= 1; li--){
+    if(!layers[li].length) layers.splice(li, 1);
+  }
+}
 // v3.28 — post-repair compact pass. Walks each layer top-down and tries to
 // relocate every part in it onto some LOWER layer where it fits with full
 // support (>= SUP_TARGET). If every part in a layer finds a home, the
@@ -2773,8 +2805,9 @@ function centerPlan(plan){
 }
 
 function applyPlan(plan){
-  // v3.28 — compact FIRST (shrink layer count if possible), then mirror
-  // for gap staggering, then centerPlan.
+  // v3.29 — drop-fill FIRST (per-part gravity), then compact (whole-layer
+  // elimination on now-drained layers), then mirror, then centerPlan.
+  _dropFillPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   _compactPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   _brickMirrorPass_(plan.layers, plan.cartons, S.foot.L, S.foot.W);
   centerPlan(plan);
