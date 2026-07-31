@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.35';
+const APP_VERSION = '3.36';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2825,9 +2825,14 @@ function centerPlan(plan){
 function applyPlan(plan){
   // v3.29 — drop-fill FIRST (per-part gravity), then compact (whole-layer
   // elimination on now-drained layers), then mirror, then centerPlan.
+  // v3.36 — second drop+compact pass AFTER mirror: mirror shuffles parts to
+  // different X positions which sometimes exposes new drop opportunities
+  // that the first pass couldn't see. Cheap (idempotent when nothing new).
   _dropFillPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   _compactPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   _brickMirrorPass_(plan.layers, plan.cartons, S.foot.L, S.foot.W);
+  _dropFillPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
+  _compactPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   centerPlan(plan);
   S.layers=plan.layers.map(layer=>layer.map(it=>{const m=it.m;return {id:S.nextId++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,L:m.Lmm,W:m.Wmm,thickness:m.thickness,cx:it.cx,cy:it.cy,angle:it.angle};}));
   if(!S.layers.length) S.layers=[[]];
