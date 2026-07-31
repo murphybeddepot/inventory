@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.27';
+const APP_VERSION = '3.28';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2513,6 +2513,51 @@ function _brickMirrorPass_(layers, cartons, Lf, Wf){
     else if(bestOp === 3){ flipX(layer); flipY(layer); }
   }
 }
+// v3.28 — post-repair compact pass. Walks each layer top-down and tries to
+// relocate every part in it onto some LOWER layer where it fits with full
+// support (>= SUP_TARGET). If every part in a layer finds a home, the
+// layer is deleted, shrinking the stack by 19mm. Also naturally handles
+// the L10-style "wide part poorly supported" problem: the wide part drops
+// down into an available gap on the layer below when there's room.
+// Guarded on no cartons (deleting a layer under a top-anchored carton
+// would slide it out of position).
+function _compactPass_(plan, Lf, Wf, gap){
+  const layers = plan.layers, cartons = plan.cartons || [];
+  if(cartons.length) return;
+  for(let li = layers.length - 1; li >= 1; li--){
+    if(!layers[li].length) continue;
+    const parts = layers[li].slice();
+    const snap = parts.map(p => ({p, cx:p.cx, cy:p.cy, angle:p.angle, vw:p.vw, vh:p.vh}));
+    layers[li].length = 0;
+    const moves = [];
+    let failed = false;
+    for(const p of parts){
+      let placed = false;
+      for(let tli = 0; tli < li; tli++){
+        const spot = _bestSpot(layers, cartons, tli, p, Lf, Wf, gap, false);
+        if(!spot || spot.sup < SUP_TARGET - 1e-9) continue;
+        p.cx = spot.cx; p.cy = spot.cy; p.angle = spot.angle; p.vw = spot.vw; p.vh = spot.vh;
+        layers[tli].push(p);
+        moves.push({p, targetLi: tli});
+        placed = true;
+        break;
+      }
+      if(!placed){ failed = true; break; }
+    }
+    if(failed){
+      for(const m of moves){
+        const idx = layers[m.targetLi].indexOf(m.p);
+        if(idx >= 0) layers[m.targetLi].splice(idx, 1);
+      }
+      for(const s of snap){
+        s.p.cx = s.cx; s.p.cy = s.cy; s.p.angle = s.angle; s.p.vw = s.vw; s.p.vh = s.vh;
+        layers[li].push(s.p);
+      }
+    } else {
+      layers.splice(li, 1);
+    }
+  }
+}
 function planHash(plan){return plan.layers.length+'|'+plan.layers.map(l=>{let u=0;for(const it of l)u+=it.vw*it.vh;return Math.round(u/2000);}).join(',');}
 
 /* ---------------------------------------------------------------------------
@@ -2728,8 +2773,9 @@ function centerPlan(plan){
 }
 
 function applyPlan(plan){
-  // v3.27 — mirror pass runs AFTER repair (repair fixed support first;
-  // mirror is support-aware so it won't re-break what repair fixed).
+  // v3.28 — compact FIRST (shrink layer count if possible), then mirror
+  // for gap staggering, then centerPlan.
+  _compactPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   _brickMirrorPass_(plan.layers, plan.cartons, S.foot.L, S.foot.W);
   centerPlan(plan);
   S.layers=plan.layers.map(layer=>layer.map(it=>{const m=it.m;return {id:S.nextId++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,L:m.Lmm,W:m.Wmm,thickness:m.thickness,cx:it.cx,cy:it.cy,angle:it.angle};}));
