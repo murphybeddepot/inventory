@@ -51,6 +51,9 @@
   label{color:var(--ink2)}
   .mono{font-family:var(--mono)}
   .muted{color:var(--ink3)}
+  .uToggle{cursor:pointer;user-select:none;padding:2px 5px;border-radius:4px;border:1px solid transparent;font-size:11px}
+  .uToggle:hover{background:var(--panel);border-color:var(--line2);color:var(--ink)}
+  .uToggle[data-locked-unit="in"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 
   /* layout */
   #app{display:flex;flex-direction:column;height:100vh}
@@ -417,13 +420,13 @@
           <div class="pad">
             <div class="divlabel">Footprint (stack area)</div>
             <div class="twocol">
-              <div class="field"><label>L</label><div class="ctl"><input class="num" id="footL" value="1994"><span class="muted" id="u1">mm</span></div></div>
-              <div class="field"><label>W</label><div class="ctl"><input class="num" id="footW" value="991"><span class="muted" id="u2">mm</span></div></div>
+              <div class="field"><label>L</label><div class="ctl"><input class="num" id="footL" value="1994"><span class="muted uToggle" id="u1" title="Click to toggle mm/in for this field" data-for="footL">mm</span></div></div>
+              <div class="field"><label>W</label><div class="ctl"><input class="num" id="footW" value="991"><span class="muted uToggle" id="u2" title="Click to toggle mm/in for this field" data-for="footW">mm</span></div></div>
             </div>
             <div class="divlabel">Pallet (outer)</div>
             <div class="twocol">
-              <div class="field"><label>L</label><div class="ctl"><input class="num" id="palL" value="2032"><span class="muted" id="u3">mm</span></div></div>
-              <div class="field"><label>W</label><div class="ctl"><input class="num" id="palW" value="1092"><span class="muted" id="u4">mm</span></div></div>
+              <div class="field"><label>L</label><div class="ctl"><input class="num" id="palL" value="2032"><span class="muted uToggle" id="u3" title="Click to toggle mm/in for this field" data-for="palL">mm</span></div></div>
+              <div class="field"><label>W</label><div class="ctl"><input class="num" id="palW" value="1092"><span class="muted uToggle" id="u4" title="Click to toggle mm/in for this field" data-for="palW">mm</span></div></div>
             </div>
             <div class="field"><label>Footprint on pallet</label><div class="ctl">
               <select id="footPos"><option value="center" selected>Centered</option>
@@ -955,7 +958,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.38';
+const APP_VERSION = '3.39';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1080,6 +1083,17 @@ function unitLabel(){return S.unit==='in'?'″':'mm';}
 function parseLen(str,unit){ // returns mm from a display-unit string (supports fractions in inch); unit defaults to global S.unit
   unit=unit||S.unit;
   str=String(str).trim(); if(!str)return NaN;
+  // v3.39 — inline unit suffix. Type "78in", `78"`, or "78 in" to force inches
+  // regardless of current global unit. "78mm" forces mm. Strips the suffix
+  // before parsing. Useful when editing pallet/footprint in inches while the
+  // rest of the UI stays in mm.
+  const suffix = str.match(/(in|inch(?:es)?|″|"|'|mm|millimet(?:er|re)s?)\s*$/i);
+  if(suffix){
+    const raw = suffix[1].toLowerCase();
+    unit = (raw === 'mm' || raw.startsWith('millim')) ? 'mm' : 'in';
+    str = str.slice(0, str.length - suffix[0].length).trim();
+    if(!str) return NaN;
+  }
   let val;
   if(str.includes('/')){ const parts=str.split(/\s+/); val=0; for(const p of parts){ if(p.includes('/')){const[a,b]=p.split('/').map(Number);val+=a/b;}else val+=Number(p);} }
   else val=Number(str);
@@ -2022,7 +2036,12 @@ function packBin(freeInit, items, gap, heuristic, below, minSup){
     let best=null;
     for(const o of orients){
       for(const f of free){
-        if(o.w<=f.w+0.01 && o.h<=f.h+0.01){
+        // v3.39 — gap is between parts, NOT to pallet edge. Placement fits
+        // if part's ACTUAL size (vw/vh) fits in the free rect; carve then
+        // uses effective size (part + gap) so the NEXT part gets its gap
+        // spacing. Over-extending past the free rect boundary is harmless
+        // because carve() clips silently.
+        if(o.vw<=f.w+0.01 && o.vh<=f.h+0.01){
           const lh=f.w-o.w, lv=f.h-o.h;
           const s = heuristic==='baf' ? [f.w*f.h-o.w*o.h, Math.min(lh,lv)] : [Math.min(lh,lv), Math.max(lh,lv)];
           // support penalty (primary when a below-layer is supplied): prefer spots that rest on parts below.
@@ -2049,9 +2068,9 @@ function packBin(freeInit, items, gap, heuristic, below, minSup){
 function packStack(items,Lf,Wf,gap,heuristic,minSup){
   const layers=[]; let rem=items.slice(), guard=0, below=null;
   while(rem.length && guard++<400){
-    let {placed,leftover}=packBin([{x:0,y:0,w:Lf+gap,h:Wf+gap}], rem, gap, heuristic, below, minSup);
+    let {placed,leftover}=packBin([{x:0,y:0,w:Lf,h:Wf}], rem, gap, heuristic, below, minSup);
     if(!placed.length){                                      // support constraint deadlocked: place densely this layer
-      ({placed,leftover}=packBin([{x:0,y:0,w:Lf+gap,h:Wf+gap}], rem, gap, heuristic, below, 0));
+      ({placed,leftover}=packBin([{x:0,y:0,w:Lf,h:Wf}], rem, gap, heuristic, below, 0));
       if(!placed.length) return {layers,dropped:rem};
     }
     layers.push(placed); rem=leftover;
@@ -2079,7 +2098,8 @@ function _bestPos(it, free, below, gap, heuristic, minSup){
   if(it.Lmm!==it.Wmm) orients.push({vw:it.Wmm,vh:it.Lmm,angle:90,w:it.Wmm+gap,h:it.Lmm+gap});
   let best=null;
   for(const o of orients) for(const f of free){
-    if(o.w<=f.w+0.01 && o.h<=f.h+0.01){
+    // v3.39 — check ACTUAL size (vw/vh); gap between parts only, not to edges.
+    if(o.vw<=f.w+0.01 && o.vh<=f.h+0.01){
       const sup = (below&&below.length) ? _supportFrac({minX:f.x,maxX:f.x+o.vw,minY:f.y,maxY:f.y+o.vh}, below) : 1;
       if(minSup>0 && sup<minSup-1e-9) continue;            // hard support filter (layers above the first)
       const lh=f.w-o.w, lv=f.h-o.h;
@@ -2107,9 +2127,9 @@ function packSupported(items, Lf, Wf, gap, heuristic, minSup){
     }
     if(!done){
       const li=layers.length;
-      const layer={placed:[],free:[{x:0,y:0,w:Lf+gap,h:Wf+gap}],filled:[]};
+      const layer={placed:[],free:[{x:0,y:0,w:Lf,h:Wf}],filled:[]};
       const below = li===0?null:layers[li-1].filled;
-      const pos=_bestPos(it, layer.free, below, gap, heuristic, 0) || _bestPos(it,[{x:0,y:0,w:Lf+gap,h:Wf+gap}],null,gap,heuristic,0);
+      const pos=_bestPos(it, layer.free, below, gap, heuristic, 0) || _bestPos(it,[{x:0,y:0,w:Lf,h:Wf}],null,gap,heuristic,0);
       if(pos){ _commitPos(layer,pos,gap); layers.push(layer); }
       else return {layers:layers.map(L=>L.placed), dropped:items.slice(items.indexOf(it))};
     }
@@ -2211,7 +2231,7 @@ function packStackCartons(items, Lf, Wf, gap, heuristic, minSup, cz2, T){
   const cBelow=c=>({minX:c.cx-c.vw/2,maxX:c.cx+c.vw/2,minY:c.cy-c.vh/2,maxY:c.cy+c.vh/2});
   const layers=[]; let rem=items.slice(), guard=0, below=null, li=0;
   while(rem.length && guard++<600){
-    let free=[{x:0,y:0,w:Lf+gap,h:Wf+gap}];
+    let free=[{x:0,y:0,w:Lf,h:Wf}];
     for(const c of cz2){ if(li >= T - c.span) free=carve(free, cRect(c)); }
     let {placed,leftover}=packBin(free, rem, gap, heuristic, below, minSup);
     if(!placed.length && minSup>0){                              // primary support floor deadlocked this layer:
@@ -2688,7 +2708,7 @@ function _planE(layers,cartons){
   return e + layers.length*LAYER_W;
 }
 function _layerFree(layers,cartons,li,Lf,Wf,gap,exclude){
-  let free=[{x:0,y:0,w:Lf+gap,h:Wf+gap}];
+  let free=[{x:0,y:0,w:Lf,h:Wf}];
   for(const p of layers[li]){ if(p===exclude) continue; free=carve(free,{x:p.cx-p.vw/2,y:p.cy-p.vh/2,w:p.vw+gap,h:p.vh+gap}); }
   for(const c of (cartons||[])) if(li>=c.startLayer && li<c.startLayer+c.span) free=carve(free,{x:c.cx-c.vw/2,y:c.cy-c.vh/2,w:c.vw+gap,h:c.vh+gap});
   return free;
@@ -2712,9 +2732,10 @@ function _bestSpot(layers,cartons,li,W,Lf,Wf,gap,excludeSelf){
   const o=W.m, orients = (o.Lmm!==o.Wmm)?[[o.Lmm,o.Wmm,0],[o.Wmm,o.Lmm,90]]:[[o.Lmm,o.Wmm,0]];
   let best=null;
   for(const [vw,vh,ang] of orients) for(const f of free){
-    if(vw+gap<=f.w+0.01 && vh+gap<=f.h+0.01){
+    // v3.39 — check actual size vs free; gap between parts only, not to edges.
+    if(vw<=f.w+0.01 && vh<=f.h+0.01){
       const sup=_supBelow(layers,cartons,li,{minX:f.x,maxX:f.x+vw,minY:f.y,maxY:f.y+vh});
-      const fit=Math.min(f.w-(vw+gap), f.h-(vh+gap));
+      const fit=Math.min(f.w-vw, f.h-vh);
       const key=[-Math.round(sup*1000), fit];
       if(!best || key[0]<best.key[0] || (key[0]===best.key[0]&&key[1]<best.key[1]))
         best={key,cx:f.x+vw/2,cy:f.y+vh/2,angle:ang,vw,vh,sup};
@@ -3078,7 +3099,7 @@ function _suggestPack(items, li, crit, seed){
   else pool.sort((a,b)=>(b.Lmm*b.Wmm)-(a.Lmm*a.Wmm));                          // big-first for 'big' and 'tight'
   if(seed>0){ const rng=makeRng(seedStr('suggest|'+crit+'|'+li+'|'+seed)); const n=Math.max(1,Math.round(pool.length*0.25));
     for(let k=0;k<n;k++){const i=(rng()*pool.length)|0,j=(rng()*pool.length)|0;const t=pool[i];pool[i]=pool[j];pool[j]=t;} }
-  const baseFree=()=>{ let f=[{x:0,y:0,w:Lf+gap,h:Wf+gap}]; for(const c of cartonRectsOnLayer(li,Math.max(gap,10))) f=carve(f,{x:c.x,y:c.y,w:c.w,h:c.h}); return f; };
+  const baseFree=()=>{ let f=[{x:0,y:0,w:Lf,h:Wf}]; for(const c of cartonRectsOnLayer(li,Math.max(gap,10))) f=carve(f,{x:c.x,y:c.y,w:c.w,h:c.h}); return f; };
   const heurs = (effectiveCrit==='tight') ? ['bssf','baf'] : ['bssf'];
 
   // v3.18: when packing above ground floor, gather layer-below gap
@@ -4055,22 +4076,58 @@ function remapPartNumbers(rows){
    ============================================================ */
 function syncSettingControls(){
   $('skuInput').value=S.sku;
-  $('footL').value=fmtSetting(S.foot.L);$('footW').value=fmtSetting(S.foot.W);
-  $('palL').value=fmtSetting(S.pal.L);$('palW').value=fmtSetting(S.pal.W);
+  // v3.39 — per-field unit override for pallet/footprint. Each of the 4
+  // fields can independently be in mm or inches; click the unit chip to
+  // toggle. Falls back to global S.unit if no override set.
+  const fldUnit = (id) => {
+    const el = document.querySelector('.uToggle[data-for="'+id+'"]');
+    return (el && el.dataset.lockedUnit) || S.unit;
+  };
+  const fmtFor = (mm, id) => {
+    const u = fldUnit(id);
+    return u === 'in' ? mmToIn(mm).toFixed(2) : Math.round(mm);
+  };
+  $('footL').value=fmtFor(S.foot.L, 'footL');$('footW').value=fmtFor(S.foot.W, 'footW');
+  $('palL').value=fmtFor(S.pal.L, 'palL');$('palW').value=fmtFor(S.pal.W, 'palW');
   $('footPos').value=S.footPos;$('originSel').value=S.origin;$('datumSel').value=S.datum;$('refSel').value=S.ref;
   $('gridSel').value=S.gridIn?(S.grid+'in'):String(S.grid);
   $('gapInput').value=fmtSetting(S.gap);$('gapUnit').textContent=unitLabel();
   $('chkContain').checked=S.contain;$('chkSnap').checked=S.snap;$('chkGhost').checked=S.ghost;$('chkLabels').checked=S.labels;
   {const m=$('ckMaxSup'); if(m)m.checked=!!S.maxSupport;}
-  ['u1','u2','u3','u4'].forEach(id=>$(id).textContent=unitLabel());
+  ['u1','u2','u3','u4'].forEach(id => {
+    const el = $(id);
+    const u = (el.dataset.lockedUnit) || S.unit;
+    el.textContent = u === 'in' ? '″' : 'mm';
+  });
   $('unitMM').classList.toggle('on',S.unit==='mm');$('unitIN').classList.toggle('on',S.unit==='in');
   {const a=$('ckUnitMM'),b=$('ckUnitIN'),t=$('ckUnitTag'); if(a)a.classList.toggle('on',cartonUnit()==='mm'); if(b)b.classList.toggle('on',cartonUnit()==='in'); if(t)t.textContent=cUnitLabel();}
 }
+// v3.39 — click a pallet/footprint unit chip to toggle mm↔in JUST for that
+// field. Persists as data-attr on the chip, doesn't touch global S.unit.
+document.querySelectorAll('.uToggle').forEach(el => {
+  el.addEventListener('click', () => {
+    const cur = el.dataset.lockedUnit || S.unit;
+    const nxt = cur === 'in' ? 'mm' : 'in';
+    if(nxt === S.unit) delete el.dataset.lockedUnit;
+    else el.dataset.lockedUnit = nxt;
+    syncSettingControls();
+  });
+});
 function fmtSetting(mm){return S.unit==='in'?mmToIn(mm).toFixed(2):Math.round(mm);}
 function readDim(id){const v=parseLen($(id).value);return isNaN(v)?null:v;}
+// v3.39 — parse pallet/footprint inputs using their per-field unit override
+// if present, so typing "78" in an "in"-toggled field is treated as inches.
+// Inline "in"/"mm" suffix in the value still overrides both.
+function readPalletDim(id){
+  const el = document.querySelector('.uToggle[data-for="'+id+'"]');
+  const unit = (el && el.dataset.lockedUnit) || S.unit;
+  const v = parseLen($(id).value, unit);
+  return isNaN(v) ? null : v;
+}
 ['footL','footW','palL','palW'].forEach(id=>{$(id).onchange=()=>{
-  const v=readDim(id);if(v==null)return;
+  const v=readPalletDim(id);if(v==null)return;
   if(id==='footL')S.foot.L=v;if(id==='footW')S.foot.W=v;if(id==='palL')S.pal.L=v;if(id==='palW')S.pal.W=v;
+  syncSettingControls();   // reformat with current unit so display matches stored mm value
   render();scheduleSave();};});
 $('footPos').onchange=()=>{S.footPos=$('footPos').value;render();scheduleSave();};
 $('originSel').onchange=()=>{S.origin=$('originSel').value;render();renderInspector();scheduleSave();};
