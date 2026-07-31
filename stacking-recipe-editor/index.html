@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.29';
+const APP_VERSION = '3.30';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2513,33 +2513,38 @@ function _brickMirrorPass_(layers, cartons, Lf, Wf){
     else if(bestOp === 3){ flipX(layer); flipY(layer); }
   }
 }
-// v3.29 — drop-fill (gravity) pass. For each part starting from the top
-// layer down, try to drop it into a gap on some lower layer if it fits
-// with full support. Unlike compact, doesn't require the whole source
-// layer to empty — partial gravity still reduces vertical gap columns.
-// Emptied layers get removed at the end. Runs BEFORE compact so compact
-// gets a chance to eliminate any layers this pass drained.
+// v3.30 — drop-fill (gravity) pass with progressive support relaxation.
+// For each part starting from the top layer down, try to drop it into a
+// gap on some lower layer. Pass 1 requires full support (>= SUP_TARGET);
+// Pass 2 accepts mild support (>= 0.7). Trades a mild-support flag for
+// eliminating a layer — worth it given each layer = 19mm of stack height.
+// Emptied layers removed at the end. Runs BEFORE compact so compact gets
+// a chance to eliminate any layers this pass drained.
 function _dropFillPass_(plan, Lf, Wf, gap){
   const layers = plan.layers, cartons = plan.cartons || [];
   if(cartons.length) return;
-  let moved = true, guard = 0;
-  while(moved && guard++ < 400){
-    moved = false;
-    outer: for(let li = layers.length - 1; li >= 1; li--){
-      for(let pi = 0; pi < layers[li].length; pi++){
-        const p = layers[li][pi];
-        for(let tli = 0; tli < li; tli++){
-          const spot = _bestSpot(layers, cartons, tli, p, Lf, Wf, gap, false);
-          if(!spot || spot.sup < SUP_TARGET - 1e-9) continue;
-          layers[li].splice(pi, 1);
-          p.cx = spot.cx; p.cy = spot.cy; p.angle = spot.angle; p.vw = spot.vw; p.vh = spot.vh;
-          layers[tli].push(p);
-          moved = true;
-          break outer;
+  const runPass = (minSup) => {
+    let moved = true, guard = 0;
+    while(moved && guard++ < 400){
+      moved = false;
+      outer: for(let li = layers.length - 1; li >= 1; li--){
+        for(let pi = 0; pi < layers[li].length; pi++){
+          const p = layers[li][pi];
+          for(let tli = 0; tli < li; tli++){
+            const spot = _bestSpot(layers, cartons, tli, p, Lf, Wf, gap, false);
+            if(!spot || spot.sup < minSup - 1e-9) continue;
+            layers[li].splice(pi, 1);
+            p.cx = spot.cx; p.cy = spot.cy; p.angle = spot.angle; p.vw = spot.vw; p.vh = spot.vh;
+            layers[tli].push(p);
+            moved = true;
+            break outer;
+          }
         }
       }
     }
-  }
+  };
+  runPass(SUP_TARGET);   // strict: full support only
+  runPass(0.7);          // relaxed: mild support ok if it eliminates a layer
   // Sweep empty layers.
   for(let li = layers.length - 1; li >= 1; li--){
     if(!layers[li].length) layers.splice(li, 1);
@@ -2556,8 +2561,10 @@ function _dropFillPass_(plan, Lf, Wf, gap){
 function _compactPass_(plan, Lf, Wf, gap){
   const layers = plan.layers, cartons = plan.cartons || [];
   if(cartons.length) return;
-  for(let li = layers.length - 1; li >= 1; li--){
-    if(!layers[li].length) continue;
+  // v3.30 — try strict (0.9) first, then relaxed (0.7) if strict didn't eliminate.
+  // Same trade as drop-fill: mild support flag is cheap; layer height is expensive.
+  const tryElim = (li, minSup) => {
+    if(!layers[li] || !layers[li].length) return false;
     const parts = layers[li].slice();
     const snap = parts.map(p => ({p, cx:p.cx, cy:p.cy, angle:p.angle, vw:p.vw, vh:p.vh}));
     layers[li].length = 0;
@@ -2567,7 +2574,7 @@ function _compactPass_(plan, Lf, Wf, gap){
       let placed = false;
       for(let tli = 0; tli < li; tli++){
         const spot = _bestSpot(layers, cartons, tli, p, Lf, Wf, gap, false);
-        if(!spot || spot.sup < SUP_TARGET - 1e-9) continue;
+        if(!spot || spot.sup < minSup - 1e-9) continue;
         p.cx = spot.cx; p.cy = spot.cy; p.angle = spot.angle; p.vw = spot.vw; p.vh = spot.vh;
         layers[tli].push(p);
         moves.push({p, targetLi: tli});
@@ -2585,8 +2592,19 @@ function _compactPass_(plan, Lf, Wf, gap){
         s.p.cx = s.cx; s.p.cy = s.cy; s.p.angle = s.angle; s.p.vw = s.vw; s.p.vh = s.vh;
         layers[li].push(s.p);
       }
-    } else {
-      layers.splice(li, 1);
+      return false;
+    }
+    layers.splice(li, 1);
+    return true;
+  };
+  // Multiple passes at each threshold — layer indices shift after elimination.
+  for(const minSup of [SUP_TARGET, 0.7]){
+    let changed = true, guard = 0;
+    while(changed && guard++ < 40){
+      changed = false;
+      for(let li = layers.length - 1; li >= 1; li--){
+        if(tryElim(li, minSup)){ changed = true; break; }
+      }
     }
   }
 }
