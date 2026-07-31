@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.30';
+const APP_VERSION = '3.31';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2855,7 +2855,7 @@ function runOptimize(effort){
     const ex=top.find(t=>t.hash===h);
     if(ex){ if(c<ex.cost){ex.cost=c;ex.plan=plan;} }
     else top.push({cost:c,hash:h,plan});
-    top.sort((a,b)=>a.cost-b.cost); if(top.length>3) top.length=3;
+    top.sort((a,b)=>a.cost-b.cost); if(top.length>10) top.length=10;
   }
   let i=0; const t0=performance.now(); OPT_CANCEL=false; OPT_RUNNING=true;
   setOptStatus('Optimizing… 0 / '+budget,true);
@@ -2879,10 +2879,22 @@ function runOptimize(effort){
     if(!top.length){setOptStatus('No layout found — check sizes',false);return;}
     // repair the best few candidates (support hill-climb), then re-rank by post-repair cost
     top.sort((a,b)=>a.cost-b.cost);
-    const cand=top.slice(0,3);
-    for(let ci=0; ci<cand.length; ci++){
-      repairPlan(cand[ci].plan, Lf, Wf, gap, ci===0?cfg.repair:Math.min(cfg.repair,4000));
-      cand[ci].cost=costOfPlan(cand[ci].plan,Lf,Wf);
+    // v3.31 — pre-shrink each of the top-10 candidates with dropFill+compact
+    // to see who actually consolidates best. A plan that ranked 5th raw might
+    // rank 1st after compact eliminates 2 of its layers. Cheap enough (no
+    // repair overhead here) to run on all 10 candidates.
+    const cand=top.slice(0,10);
+    for(const c of cand){
+      _dropFillPass_(c.plan, Lf, Wf, gap);
+      _compactPass_(c.plan, Lf, Wf, gap);
+      c.cost = costOfPlan(c.plan, Lf, Wf);
+    }
+    top.sort((a,b)=>a.cost-b.cost);
+    // Run full repair only on top 3 post-compact winners.
+    const finalists = top.slice(0,3);
+    for(let ci=0; ci<finalists.length; ci++){
+      repairPlan(finalists[ci].plan, Lf, Wf, gap, ci===0?cfg.repair:Math.min(cfg.repair,4000));
+      finalists[ci].cost=costOfPlan(finalists[ci].plan,Lf,Wf);
     }
     top.sort((a,b)=>a.cost-b.cost);
     applyPlan(top[0].plan);
