@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.37';
+const APP_VERSION = '3.38';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2550,6 +2550,62 @@ function _dropFillPass_(plan, Lf, Wf, gap){
     if(!layers[li].length) layers.splice(li, 1);
   }
 }
+// v3.38 — coupled flip pass. Standard mirror rejects single-layer flips in
+// same-shape runs (L5-L7 pattern) because they break support to the layer
+// above. Coupled flip detects consecutive-identical-signature runs and
+// tries flipping the WHOLE RUN together: L6-L7 support stays intact
+// (both flipped equally), only the L5→L6 and L7→L8 boundary support
+// changes. Scored with same (gap + sup×8000) as mirror; keeps only if
+// total plan cost improves. Cartons short-circuit.
+function _coupledFlipPass_(layers, cartons, Lf, Wf){
+  if(cartons && cartons.length) return;
+  const n = layers.length;
+  if(n < 3) return;
+  const mockPlan = { layers, cartons: cartons || [] };
+  const sig = (li) => {
+    const s = [];
+    for(const p of layers[li]){ s.push(Math.round(p.vw) + 'x' + Math.round(p.vh)); }
+    return s.sort().join('|');
+  };
+  const _sup = () => {
+    let s = 0;
+    for(let li=1; li<n; li++){
+      const below = layers[li-1].map(_itemRect);
+      for(const c of (cartons||[])) if(li-1>=c.startLayer && li-1<c.startLayer+c.span) below.push(_cartonRect(c));
+      for(const it of layers[li]){
+        const f = _supportFrac(_itemRect(it), below);
+        if(f<SUP_TARGET){ s += (SUP_TARGET-f); if(f<0.7) s += (0.7-f)*5; }
+      }
+    }
+    return s;
+  };
+  const SUP_W = 8000;
+  const flipX = (layer) => { for(const p of layer) p.cx = Lf - p.cx; };
+  const score = () => _stackedGapPenalty_(mockPlan, Lf, Wf) + _sup() * SUP_W;
+  // Layer signatures.
+  const sigs = new Array(n);
+  for(let i=0; i<n; i++) sigs[i] = sig(i);
+  // Walk runs of consecutive identical signatures.
+  let i = 0;
+  while(i < n){
+    let j = i;
+    while(j+1 < n && sigs[j+1] === sigs[i]) j++;
+    const runLen = j - i + 1;
+    if(runLen >= 2){
+      // Try flipping the trailing half of the run as a group. For a run of
+      // length 2, that's layer j (single). For length 3, layers i+1..j.
+      // For length 4, layers i+2..j. General: layers [i + floor(len/2) .. j].
+      const flipStart = i + Math.floor(runLen / 2);
+      const before = score();
+      for(let k=flipStart; k<=j; k++) flipX(layers[k]);
+      const after = score();
+      if(after >= before){
+        for(let k=flipStart; k<=j; k++) flipX(layers[k]);   // revert
+      }
+    }
+    i = j + 1;
+  }
+}
 // v3.28 — post-repair compact pass. Walks each layer top-down and tries to
 // relocate every part in it onto some LOWER layer where it fits with full
 // support (>= SUP_TARGET). If every part in a layer finds a home, the
@@ -2823,14 +2879,15 @@ function centerPlan(plan){
 }
 
 function applyPlan(plan){
-  // v3.29 — drop-fill FIRST (per-part gravity), then compact (whole-layer
-  // elimination on now-drained layers), then mirror, then centerPlan.
-  // v3.36 experiment: second drop+compact after mirror regressed severe
-  // (3.4→4.0 on bench) — the second pass moved parts around again which
-  // sometimes broke support. Reverted.
   _dropFillPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   _compactPass_(plan, S.foot.L, S.foot.W, S.gap || 0);
   _brickMirrorPass_(plan.layers, plan.cartons, S.foot.L, S.foot.W);
+  // v3.38 — coupled pair-flip for same-shape layer runs (L5-L7 pattern).
+  // Standard mirror rejects flipping a single layer in a same-shape run
+  // because it breaks support to the layer above. Coupled flip tries the
+  // GROUP flip (both together) which preserves inter-run support, only
+  // breaking the run boundaries.
+  _coupledFlipPass_(plan.layers, plan.cartons, S.foot.L, S.foot.W);
   centerPlan(plan);
   S.layers=plan.layers.map(layer=>layer.map(it=>{const m=it.m;return {id:S.nextId++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,L:m.Lmm,W:m.Wmm,thickness:m.thickness,cx:it.cx,cy:it.cy,angle:it.angle};}));
   if(!S.layers.length) S.layers=[[]];
