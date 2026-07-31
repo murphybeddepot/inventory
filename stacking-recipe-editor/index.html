@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.32';
+const APP_VERSION = '3.33';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2855,7 +2855,7 @@ function runOptimize(effort){
     const ex=top.find(t=>t.hash===h);
     if(ex){ if(c<ex.cost){ex.cost=c;ex.plan=plan;} }
     else top.push({cost:c,hash:h,plan});
-    top.sort((a,b)=>a.cost-b.cost); if(top.length>20) top.length=20;
+    top.sort((a,b)=>a.cost-b.cost); if(top.length>10) top.length=10;
   }
   let i=0; const t0=performance.now(); OPT_CANCEL=false; OPT_RUNNING=true;
   setOptStatus('Optimizing… 0 / '+budget,true);
@@ -2879,11 +2879,11 @@ function runOptimize(effort){
     if(!top.length){setOptStatus('No layout found — check sizes',false);return;}
     // repair the best few candidates (support hill-climb), then re-rank by post-repair cost
     top.sort((a,b)=>a.cost-b.cost);
-    // v3.32 — top-20 candidates through dropFill+compact before rerank.
-    // Mirror deferred to applyPlan (support-aware) — v3.32 briefly added
-    // mirror here but bench showed slight mild-support regression, so
-    // removed. Top-20 tracking retained (more diverse candidate pool).
-    const cand=top.slice(0,20);
+    // v3.31 (kept) — top-10 through dropFill+compact before rerank. v3.32
+    // tried top-20 both with and without mirror-in-rerank; neither beat
+    // top-10 on bench (avg 3.0 sev vs 4.3 with top-20 + no-mirror, 3.0
+    // vs 3.0 sev but 9.3 vs 11.7 mild with top-20 + mirror). Reverted.
+    const cand=top.slice(0,10);
     for(const c of cand){
       _dropFillPass_(c.plan, Lf, Wf, gap);
       _compactPass_(c.plan, Lf, Wf, gap);
