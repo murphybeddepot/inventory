@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.25';
+const APP_VERSION = '3.26';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2016,7 +2016,21 @@ function carve(free,P){
 function packBin(freeInit, items, gap, heuristic, below, minSup){
   let free=freeInit.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h}));
   const placed=[], leftover=[];
-  for(const it of items){
+  // v3.26 — precompute "min dimension of remaining parts" so packBin can
+  // avoid leaving residual strips too narrow for any future part to fill.
+  // forwardMinDim[i] = min L/W of items[i..end]. Root cause of Zac's void
+  // pattern: 1276mm-wide parts pack tight to a 1994mm pallet edge and
+  // leave 718mm strips that no 768mm-wide part fits into. Punishing those
+  // spots on tie-break nudges the packer toward FILLABLE gaps.
+  const nItems = items.length;
+  const forwardMinDim = new Array(nItems + 1);
+  forwardMinDim[nItems] = Infinity;
+  for(let i=nItems-1; i>=0; i--){
+    forwardMinDim[i] = Math.min(forwardMinDim[i+1], items[i].Lmm, items[i].Wmm);
+  }
+  for(let idx=0; idx<nItems; idx++){
+    const it = items[idx];
+    const nextMin = forwardMinDim[idx+1];
     const orients=[{w:it.Lmm+gap,h:it.Wmm+gap,vw:it.Lmm,vh:it.Wmm,angle:0}];
     if(it.Lmm!==it.Wmm) orients.push({w:it.Wmm+gap,h:it.Lmm+gap,vw:it.Wmm,vh:it.Lmm,angle:90});
     let best=null;
@@ -2033,9 +2047,20 @@ function packBin(freeInit, items, gap, heuristic, below, minSup){
             if(minSup>0 && sup<minSup-1e-9) continue;          // hard constraint: refuse to place a part over a gap
             pen = sup>=SUP_TARGET?0:(SUP_TARGET-sup);
           }
+          // v3.26 — un-fillable residual counter (0, 1, or 2). A residual
+          // strip smaller than nextMin + gap can never fit any remaining
+          // part; treat it as wasted space. Ties on support break on this.
+          let unfilP = 0;
+          if(nextMin < Infinity){
+            const NEED = nextMin + gap, TOL = 5;
+            if(lh > TOL && lh < NEED) unfilP++;
+            if(lv > TOL && lv < NEED) unfilP++;
+          }
           if(!best || pen<best.pen-1e-9 ||
-             (Math.abs(pen-best.pen)<1e-9 && (s[0]<best.s[0]-0.01 || (Math.abs(s[0]-best.s[0])<0.01 && s[1]<best.s[1]-0.01))))
-            best={f,o,s,pen};
+             (Math.abs(pen-best.pen)<1e-9 && unfilP<best.unfilP) ||
+             (Math.abs(pen-best.pen)<1e-9 && unfilP===best.unfilP &&
+              (s[0]<best.s[0]-0.01 || (Math.abs(s[0]-best.s[0])<0.01 && s[1]<best.s[1]-0.01))))
+            best={f,o,s,pen,unfilP};
         }
       }
     }
@@ -2464,25 +2489,44 @@ function costOfPlan(plan,Lf,Wf){
   const seamPen = _seamAlignPenalty_(plan, Lf, Wf);
   return L*1e6 + supPenalty*150000 + thTerm + topFillTerm + gapPen*300 + seamPen*5000 + (plan.unplaced||0)*1e9 + (plan.cartonDropped||0)*1e9;
 }
-// v3.25 — brick-mirror pass. Walks each layer top-down and X-mirrors it if
-// doing so reduces the stacked-gap penalty. Fixes the "L5–L8 all pack the
-// same parts into the same slots → 4-layer-deep void" pattern that greedy
-// packStack creates: mirror moves each layer's void to the opposite side,
-// so consecutive layers' voids no longer stack vertically. Guard on no
-// cartons (cartons anchor top rigidly; can't be safely flipped).
+// v3.26 — brick-mirror pass, 4-orientation edition. For each layer, tries
+// all 4 orientations (identity, X-flip, Y-flip, XY-flip=180°) and keeps
+// the one that minimises the whole-plan stacked-gap penalty. Runs BEFORE
+// repairPlan so support fixes happen post-mirror instead of pre-mirror
+// (v3.25 called this in applyPlan → repair had no chance to fix mirror-
+// induced overhangs, which showed up as 5 severe vs v3.24's 4 severe).
+// Guarded on no cartons (cartons anchor the top rigidly).
 function _brickMirrorPass_(layers, cartons, Lf, Wf){
   if(cartons && cartons.length) return;
   const n = layers.length;
   if(n < 3) return;
   const mockPlan = { layers, cartons: [] };
+  const flipX = (layer) => { for(const p of layer) p.cx = Lf - p.cx; };
+  const flipY = (layer) => { for(const p of layer) p.cy = Wf - p.cy; };
   for(let li=1; li<n; li++){
-    if(!layers[li].length) continue;
-    const before = _stackedGapPenalty_(mockPlan, Lf, Wf);
-    for(const p of layers[li]) p.cx = Lf - p.cx;
-    const after = _stackedGapPenalty_(mockPlan, Lf, Wf);
-    if(after >= before){
-      for(const p of layers[li]) p.cx = Lf - p.cx;   // revert
-    }
+    const layer = layers[li];
+    if(!layer.length) continue;
+    // Snapshot original positions so we can restore then apply the winner.
+    const orig = layer.map(p => ({cx:p.cx, cy:p.cy}));
+    let bestPen = _stackedGapPenalty_(mockPlan, Lf, Wf);
+    let bestOp = 0;   // 0=id, 1=X, 2=Y, 3=XY
+    // Op 1: X-flip
+    flipX(layer);
+    let pen = _stackedGapPenalty_(mockPlan, Lf, Wf);
+    if(pen < bestPen){ bestPen = pen; bestOp = 1; }
+    // Op 3: X + Y = 180° rotation (add Y flip to current X-flipped state)
+    flipY(layer);
+    pen = _stackedGapPenalty_(mockPlan, Lf, Wf);
+    if(pen < bestPen){ bestPen = pen; bestOp = 3; }
+    // Op 2: Y-only (undo X, keep Y)
+    flipX(layer);
+    pen = _stackedGapPenalty_(mockPlan, Lf, Wf);
+    if(pen < bestPen){ bestPen = pen; bestOp = 2; }
+    // Restore original, then apply chosen op.
+    for(let k=0; k<layer.length; k++){ layer[k].cx = orig[k].cx; layer[k].cy = orig[k].cy; }
+    if(bestOp === 1) flipX(layer);
+    else if(bestOp === 2) flipY(layer);
+    else if(bestOp === 3){ flipX(layer); flipY(layer); }
   }
 }
 function planHash(plan){return plan.layers.length+'|'+plan.layers.map(l=>{let u=0;for(const it of l)u+=it.vw*it.vh;return Math.round(u/2000);}).join(',');}
@@ -2700,7 +2744,6 @@ function centerPlan(plan){
 }
 
 function applyPlan(plan){
-  _brickMirrorPass_(plan.layers, plan.cartons, S.foot.L, S.foot.W);
   centerPlan(plan);
   S.layers=plan.layers.map(layer=>layer.map(it=>{const m=it.m;return {id:S.nextId++,key:m.key,partNum:m.partNum,name:m.name,secIdx:m.secIdx,L:m.Lmm,W:m.Wmm,thickness:m.thickness,cx:it.cx,cy:it.cy,angle:it.angle};}));
   if(!S.layers.length) S.layers=[[]];
@@ -2754,6 +2797,10 @@ function runOptimize(effort){
     top.sort((a,b)=>a.cost-b.cost);
     const cand=top.slice(0,3);
     for(let ci=0; ci<cand.length; ci++){
+      // v3.26 — mirror BEFORE repair so support hill-climb fixes any
+      // overhangs the mirror introduced. v3.25 ran mirror in applyPlan
+      // (post-repair) which explained the 4→5 severe support regression.
+      _brickMirrorPass_(cand[ci].plan.layers, cand[ci].plan.cartons, Lf, Wf);
       repairPlan(cand[ci].plan, Lf, Wf, gap, ci===0?cfg.repair:Math.min(cfg.repair,4000));
       cand[ci].cost=costOfPlan(cand[ci].plan,Lf,Wf);
     }
