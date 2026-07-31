@@ -955,7 +955,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.33';
+const APP_VERSION = '3.34';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2835,7 +2835,7 @@ function applyPlan(plan){
   S.activeLayer=S.layers.length-1; S.sel=new Set();
   render();renderTray();renderLayers();renderInspector();updateSig();scheduleSave();
 }
-const EFFORT={fast:{iters:0,cap:1500,repair:300},balanced:{iters:400,cap:5000,repair:2500},thorough:{iters:2500,cap:15000,repair:12000}};
+const EFFORT={fast:{iters:0,cap:1500,repair:300},balanced:{iters:400,cap:5000,repair:2500},thorough:{iters:5000,cap:30000,repair:12000}};
 let OPT_CANCEL=false, OPT_RUNNING=false, OPT_RUN=0;
 function runOptimize(effort){
   if(OPT_RUNNING){OPT_CANCEL=true;return;}
