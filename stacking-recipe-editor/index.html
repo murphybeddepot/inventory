@@ -2879,14 +2879,14 @@ function runOptimize(effort){
     if(!top.length){setOptStatus('No layout found — check sizes',false);return;}
     // repair the best few candidates (support hill-climb), then re-rank by post-repair cost
     top.sort((a,b)=>a.cost-b.cost);
-    // v3.32 — top-20 candidates through dropFill+compact+mirror before rerank.
-    // Mirror also applied here so the ranker sees the truly final cost, not
-    // pre-mirror. Cheap (no repair) so all 20 candidates get evaluated.
+    // v3.32 — top-20 candidates through dropFill+compact before rerank.
+    // Mirror deferred to applyPlan (support-aware) — v3.32 briefly added
+    // mirror here but bench showed slight mild-support regression, so
+    // removed. Top-20 tracking retained (more diverse candidate pool).
     const cand=top.slice(0,20);
     for(const c of cand){
       _dropFillPass_(c.plan, Lf, Wf, gap);
       _compactPass_(c.plan, Lf, Wf, gap);
-      _brickMirrorPass_(c.plan.layers, c.plan.cartons, Lf, Wf);
       c.cost = costOfPlan(c.plan, Lf, Wf);
     }
     top.sort((a,b)=>a.cost-b.cost);
