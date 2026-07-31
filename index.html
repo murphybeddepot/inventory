@@ -18598,6 +18598,24 @@ async function _mgSubmit_() {
   if (r && r.ok) {
     _mgRecentPushAddr_(shipTo);
     items.forEach(it => _mgRecentPushItem_(it));
+    // v10.1439 (Zac 2026-07-31: "from +New when i click to pack it it should
+    // jump straight to the packing screen for that order, not back to the
+    // queue"). Stash everything the pack view needs so PACK NOW can open
+    // directly instead of polling the Ground queue for up to 10s and then
+    // stranding the operator on an empty queue when the order has not synced
+    // yet — which is exactly what happened to him this morning.
+    try {
+      window._mgLastCreated_ = {
+        order_number: String(r.orderNumber || ''),
+        order_id: Number(r.shipstation_order_id) || 0,
+        customer_name: (shipTo && (shipTo.name || shipTo.company)) || '',
+        state: (shipTo && shipTo.state) || '',
+        items: (items || []).map(function (it) {
+          return { sku: it.sku || '', name: it.name || it.sku || '', quantity: Number(it.quantity) || 1 };
+        }),
+        pack_status: '',
+      };
+    } catch (_e) {}
     // v10.944 — Zac 2026-07-02: 'no indication whether it worked'.
     // The green success callout was rendering at the BOTTOM of the
     // modal body, below the fold on both mobile + desktop. Three
@@ -32452,16 +32470,28 @@ async function startGroundPackForNewOrder(orderNumber, shipstationOrderId) {
     ));
   };
   let found = findOrder();
-  let waited = 0;
-  while (!found && waited < 10000) {
-    await new Promise(r => setTimeout(r, 1500));
-    waited += 1500;
-    try { await refreshGroundQueue(); } catch (_e) {}
-    found = findOrder();
+  // v10.1439 — do NOT sit here polling. The old loop refreshed the queue every
+  // 1.5s for 10s and, if the order had not synced into ShipStation's awaiting
+  // list yet, gave up and left the operator staring at a queue that looked
+  // empty and kept refreshing. We already know everything the pack view needs
+  // from the order we just created, so open it directly.
+  if (!found) {
+    const stash = window._mgLastCreated_;
+    if (stash && (String(stash.order_number) === orderNumStr
+      || (shipstationOrderId && Number(stash.order_id) === Number(shipstationOrderId)))) {
+      found = stash;
+    }
   }
   if (!found) {
-    showToast('Order ' + orderNumStr + ' created but not yet in queue — tap it manually when it appears');
-    return;
+    // Last resort: a minimal row. Better a pack screen with a thin header than
+    // a silent bounce back to the queue.
+    found = {
+      order_number: orderNumStr,
+      order_id: Number(shipstationOrderId) || 0,
+      customer_name: '',
+      items: [],
+      pack_status: '',
+    };
   }
   // Kick off the pack flow for the found order.
   try { startGroundPack(found); }
@@ -34894,7 +34924,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1431"></script>
+<script src="./pack.js?v=10.1439"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -34905,7 +34935,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1431<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1439<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
