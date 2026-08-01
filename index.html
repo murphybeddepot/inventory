@@ -36128,6 +36128,74 @@ startAutoSync();
   // Boot / activation
   // ------------------------------------------------------------------
 
+  // v10.1450 (Zac 2026-08-01 — recurring "tap Orders lands on Ground"
+  // bug, task #226). Some code path fires switchTab('ground') AFTER
+  // the user's tap on the Orders btn; last-write-wins put them on
+  // Ground. v10.491 added a diagnostic console.log but never caught
+  // the culprit because the bug is intermittent + Zac wasn't in
+  // DevTools when it fired.
+  //
+  // Guard: capture-phase click listener on the tab bar records what
+  // the user physically tapped. Wrap switchTab so any programmatic
+  // switch to a DIFFERENT tab within 800ms of the tap is blocked and
+  // console.warn'd (with caller stack). User intent always wins.
+  //
+  // Cases handled:
+  //   - user taps Orders → phantom code calls switchTab('ground')
+  //     within 800ms → BLOCKED, warning logged w/ caller
+  //   - user taps Orders, then within 800ms taps Ground → tap listener
+  //     updates intent, Ground call passes ✓
+  //   - deep link #/order/NNN → no tap intent recorded → passes ✓
+  //   - orig switchTab('prepack') internal redirect to 'pack' → this
+  //     is the SAME call chain (not a new user tap), and the intent
+  //     is either 'prepack' or unset — 'pack' !== 'prepack' would
+  //     block. GUARD: pass through if the caller is switchTab itself
+  //     (re-entrant), which we detect via a re-entry flag.
+  (function tabIntentGuard() {
+    if (typeof window.switchTab !== 'function') {
+      setTimeout(tabIntentGuard, 500);
+      return;
+    }
+    var _tapTab = null;
+    var _tapAt = 0;
+    var _reentry = false;
+    var TAP_WINDOW_MS = 800;
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      while (t && t !== document.body) {
+        if (t.id && /^tab-(.+)-btn$/.test(t.id)) {
+          var m = /^tab-(.+)-btn$/.exec(t.id);
+          _tapTab = m[1];
+          _tapAt = Date.now();
+          return;
+        }
+        t = t.parentNode;
+      }
+    }, true);  // capture: run before onclick attribute fires
+    var origSt = window.switchTab;
+    window.switchTab = function (name) {
+      if (_reentry) return origSt.apply(this, arguments);
+      var age = Date.now() - _tapAt;
+      if (_tapTab && age < TAP_WINDOW_MS && name !== _tapTab) {
+        // Special: the 'prepack' → 'pack' redirect inside switchTab
+        // itself. If we blocked it, prepack tap would fail. Detect by
+        // checking if the intended tap was 'prepack' and this call is
+        // 'pack' — that's the internal redirect, allow.
+        if (_tapTab === 'prepack' && name === 'pack') {
+          _reentry = true;
+          try { return origSt.apply(this, arguments); } finally { _reentry = false; }
+        }
+        try {
+          console.warn('[tab-intent-guard] BLOCKED programmatic switchTab("' + name + '") — user just tapped "' + _tapTab + '" ' + age + 'ms ago',
+            'caller=' + (new Error()).stack.split('\n').slice(1, 4).join(' | '));
+        } catch (e) {}
+        return;
+      }
+      _reentry = true;
+      try { return origSt.apply(this, arguments); } finally { _reentry = false; }
+    };
+  })();
+
   // Hook switchTab so activating Cabinets refreshes the Today's Jobs
   // panel. Wrap without replacing so no existing behavior breaks.
   (function hookSwitchTab() {
@@ -36165,7 +36233,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1449"></script>
+<script src="./pack.js?v=10.1450"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36176,7 +36244,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1449<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1450<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
