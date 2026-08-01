@@ -2327,7 +2327,10 @@ input::placeholder, textarea::placeholder {
     </button>
     <button id="ordersLensPack"      onclick="setOrdersLens('pack')"      data-lens="pack"
       style="position:relative;padding:11px 12px;background:rgba(255,255,255,.04);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.14);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
-      <span style="font-size:16px;line-height:1">📦</span><span style="flex:1">Pack Today</span>
+      <!-- v10.1447 — label swaps between "Pack Today" and "Pack Monday" / etc
+           based on _packDayLabel_(). Rolls at 5pm EST on the day just
+           finished so evening + weekend viewing shows next-workday target. -->
+      <span style="font-size:16px;line-height:1">📦</span><span id="ordersLensPackLabel" style="flex:1">Pack Today</span>
       <span class="ordersLensCount" data-count-lens="pack" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(255,255,255,.10);color:rgba(255,255,255,.45);-webkit-text-fill-color:rgba(255,255,255,.45);border-radius:999px;min-width:18px;text-align:center">·</span>
     </button>
     <button id="ordersLensAttention" onclick="setOrdersLens('attention')" data-lens="attention"
@@ -35313,6 +35316,71 @@ startAutoSync();
   var _todaysJobsCache = [];
 
   // ------------------------------------------------------------------
+  // v10.1447 — "Pack Today" → "Pack Monday" / "Pack Tuesday" / …
+  //
+  // Zac 2026-08-01: at 5pm each weekday, the pack label rolls to the
+  // NEXT workday. Fri 5pm → "Pack Monday". Sat/Sun → "Pack Monday". The
+  // Cabinets Today's Jobs panel header follows the same rule
+  // ("Monday's Jobs" etc). Same rollover regardless of viewer's device
+  // timezone — always America/New_York (Jax warehouse local time).
+  //
+  // The forward-looking label reflects the actual workflow: packers
+  // building Monday's shipments start showing up Friday evening / over
+  // the weekend, so "Pack Today" would be wrong until Monday morning.
+  // ------------------------------------------------------------------
+
+  window._packDayLabel_ = function _packDayLabel_(now) {
+    now = now || new Date();
+    var fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', hour12: false,
+    });
+    var parts = {};
+    fmt.formatToParts(now).forEach(function (p) { parts[p.type] = p.value; });
+    var hour = parseInt(parts.hour, 10);
+    // Intl in some locales returns '24' at midnight; normalize to 0.
+    if (hour === 24) hour = 0;
+    var wdMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    var dow = wdMap[parts.weekday];
+    var addDays = 0;
+    if (dow === 0) addDays = 1;                 // Sun → Mon
+    else if (dow === 6) addDays = 2;            // Sat → Mon
+    else if (hour >= 17) addDays = (dow === 5) ? 3 : 1; // Fri≥5pm→Mon, else next day
+    var y = parseInt(parts.year, 10);
+    var m = parseInt(parts.month, 10) - 1;
+    var d = parseInt(parts.day, 10) + addDays;
+    var targetUtc = new Date(Date.UTC(y, m, d));
+    var targetWeekday = targetUtc.toLocaleDateString('en-US', {
+      weekday: 'long', timeZone: 'UTC',
+    });
+    return {
+      label:    addDays === 0 ? 'Today' : targetWeekday, // "Today" or "Monday"
+      weekday:  targetWeekday,                           // always full weekday
+      isToday:  addDays === 0,
+      daysOffset: addDays,
+    };
+  };
+
+  window._applyPackDayLabels_ = function _applyPackDayLabels_() {
+    var info = _packDayLabel_();
+    // Orders tab Pack lens button label.
+    var packLbl = document.getElementById('ordersLensPackLabel');
+    if (packLbl) packLbl.textContent = 'Pack ' + info.label;
+    // Cabinets Today's Jobs header — re-render if visible so the header
+    // matches (the h2 is inside the panel body, easier to just re-run
+    // the whole panel).
+    var panel = document.getElementById('cabTodaysJobsPanel');
+    if (panel && panel.style.display !== 'none') {
+      // Only re-render if the cached rows exist; otherwise the
+      // refresh below fills them in fresh.
+      if (_todaysJobsCache && _todaysJobsCache.length) {
+        panel.innerHTML = _renderTodaysJobsPanel_(_todaysJobsCache);
+      }
+    }
+  };
+
+  // ------------------------------------------------------------------
   // Today's Jobs panel on the Cabinets tab
   // ------------------------------------------------------------------
 
@@ -35416,12 +35484,17 @@ startAutoSync();
     });
 
     var h = '';
+    // v10.1447 — panel header follows the same rollover as the Pack lens.
+    // Before 5pm on a weekday: "Today's Jobs". Fri 5pm+ / weekend /
+    // Mon-Thu 5pm+: "Monday's Jobs" / "Tuesday's Jobs" / etc.
+    var packInfo = (typeof _packDayLabel_ === 'function') ? _packDayLabel_() : { label: 'Today' };
+    var headerLbl = (packInfo.label === 'Today' ? 'Today' : packInfo.weekday) + '’s Jobs';
     // Header row.
     h += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;padding:10px 14px;background:rgba(21,101,192,.10);border:1px solid rgba(21,101,192,.35);border-radius:10px">'
       +   '<div style="display:flex;align-items:center;gap:10px">'
       +     '<span style="font-size:22px">📋</span>'
       +     '<div>'
-      +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:.8px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">Today\'s Jobs</div>'
+      +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:.8px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">' + esc(headerLbl) + '</div>'
       +       '<div style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:2px">' + rows.length + ' job' + (rows.length === 1 ? '' : 's') + ' on the list · set by Seth</div>'
       +     '</div>'
       +   '</div>'
@@ -35960,10 +36033,19 @@ startAutoSync();
       if (name === 'cabinets') {
         try { _refreshTodaysJobsPanel_(); } catch (e) {}
       }
+      // v10.1447 — every tab switch is a chance to catch the 5pm rollover
+      // for anyone who left the app open across the boundary.
+      try { _applyPackDayLabels_(); } catch (e) {}
       return r;
     };
     // Also fire once on boot in case Cabinets is the default tab.
-    setTimeout(function () { try { _refreshTodaysJobsPanel_(); } catch (e) {} }, 800);
+    setTimeout(function () {
+      try { _refreshTodaysJobsPanel_(); } catch (e) {}
+      try { _applyPackDayLabels_(); } catch (e) {}
+    }, 800);
+    // v10.1447 — recheck every 5 min so an app kept open across 5pm
+    // picks up the label rollover without a reload.
+    setInterval(function () { try { _applyPackDayLabels_(); } catch (e) {} }, 5 * 60 * 1000);
   })();
 
 })();
@@ -35974,7 +36056,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1446"></script>
+<script src="./pack.js?v=10.1447"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -35985,7 +36067,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1446<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1447<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
