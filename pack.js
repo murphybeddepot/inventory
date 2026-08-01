@@ -4371,11 +4371,12 @@ async function openFixPickListModal_(orderNumber) {
   body.innerHTML = seedNote
     + '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
     + '<label style="flex:1;min-width:180px"><div style="font-size:11px;color:rgba(255,255,255,.70);margin-bottom:4px">Color</div><input id="fpl_color" type="text" value="' + esc(state.color) + '" placeholder="e.g. MONACO" style="width:100%;padding:8px 10px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:13px"></label>'
-    + '<label style="flex:2;min-width:200px"><div style="font-size:11px;color:rgba(255,255,255,.70);margin-bottom:4px">Note (optional)</div><input id="fpl_note" type="text" value="' + esc(state.note) + '" placeholder="e.g. Zac fixed 2026-07-21" style="width:100%;padding:8px 10px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:13px"></label>'
+    + '<label style="flex:2;min-width:200px"><div style="font-size:11px;color:rgba(255,255,255,.70);margin-bottom:4px">Notes (prints on pick list)</div><input id="fpl_note" type="text" value="' + esc(state.note) + '" placeholder="e.g. CENTER FLUTE, LTB, RTB · custom order per Jurgen" style="width:100%;padding:8px 10px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:6px;font-size:13px"></label>'
     + '</div>'
     + '<div id="fpl_sections">' + _fplRenderSections_(state.sections) + '</div>';
 
-  foot.innerHTML = '<button onclick="_fplSave_(\'' + esc(ord) + '\')" style="padding:12px 22px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:8px;font-size:14px;font-weight:900;letter-spacing:.5px;cursor:pointer">💾 Save correction</button>'
+  foot.innerHTML = '<button onclick="_fplOpenCatalog_()" style="padding:12px 18px;background:rgba(66,165,245,.15);color:#42a5f5;-webkit-text-fill-color:#42a5f5;border:1.5px dashed rgba(66,165,245,.60);border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;margin-right:auto" title="Search the variant catalog and add pre-expanded BOM lines">🔎 Add from catalog</button>'
+    + '<button onclick="_fplSave_(\'' + esc(ord) + '\')" style="padding:12px 22px;background:#FF9100;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:8px;font-size:14px;font-weight:900;letter-spacing:.5px;cursor:pointer">💾 Save correction</button>'
     + '<button onclick="document.getElementById(\'fixPickListOv\').remove()" style="padding:12px 22px;background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;font-size:14px;font-weight:800;cursor:pointer">Cancel</button>';
 }
 
@@ -4480,6 +4481,154 @@ async function _fplSave_(orderNumber) {
   if (foot) {
     foot.innerHTML = '<button onclick="document.getElementById(\'fixPickListOv\').remove(); if (typeof refreshOrderPipeline===\'function\') refreshOrderPipeline({force:true}).then(()=>{ if (typeof renderOrdersTab===\'function\') renderOrdersTab(); });" style="padding:12px 22px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer">Done</button>';
   }
+}
+
+// v10.1395 — Custom-order pick list builder (task #114). Opens a sub-modal
+// atop the Fix Pick List editor with a type-ahead against variant_map. When
+// a variant is picked, previews its BOM expansion via bomPreviewExpansion,
+// scales by qty, and appends bucketed lines into the Fix Pick List sections.
+// Reuses existing endpoints (bomListVariantsByPrefix, bomGetVariant,
+// bomPreviewExpansion) so no server work needed. Bucket mapping:
+// cabinet→cabinet, frame→pack, hardware→hardware, packaging→pack,
+// instruction→instructions.
+function _fplOpenCatalog_() {
+  _fplCollectState_();   // snapshot current edits before opening sub-modal
+  var prior = document.getElementById('fplCatalogOv');
+  if (prior) prior.remove();
+  var ov = document.createElement('div');
+  ov.id = 'fplCatalogOv';
+  ov.className = 'keep-dark-text';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10040;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.addEventListener('click', function (e) { if (e.target === ov) ov.remove(); });
+  ov.innerHTML = '<div onclick="event.stopPropagation()" style="background:#0E1520;color:#fff;-webkit-text-fill-color:#fff;border:1.5px solid rgba(66,165,245,.55);border-radius:14px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '<div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;align-items:center;gap:10px">'
+    + '<div style="flex:1;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:18px;font-weight:900;letter-spacing:1px">🔎 Add from Variant Catalog</div>'
+    + '<button onclick="document.getElementById(\'fplCatalogOv\').remove()" style="background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;font-size:22px;cursor:pointer">✕</button>'
+    + '</div>'
+    + '<div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.06)">'
+    + '<input id="fplCatSearch" type="text" placeholder="Type a SKU prefix — e.g. PBFRAME-QUEEN, PBCAB-SHAKER, SOFABED-…" oninput="_fplCatSearch_(this.value)" style="width:100%;padding:10px 12px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(66,165,245,.35);border-radius:6px;font-family:\'JetBrains Mono\',monospace;font-size:13px" autofocus>'
+    + '<div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:6px">Type at least 2 characters to search. Tap a result to preview its BOM before adding.</div>'
+    + '</div>'
+    + '<div id="fplCatResults" style="flex:0 0 auto;max-height:30vh;overflow-y:auto;padding:8px 20px;-webkit-text-fill-color:#fff"></div>'
+    + '<div id="fplCatPreview" style="flex:1;overflow-y:auto;padding:14px 20px;border-top:1px solid rgba(255,255,255,.06);display:none;-webkit-text-fill-color:#fff"></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  setTimeout(function () { var i = document.getElementById('fplCatSearch'); if (i) i.focus(); }, 50);
+}
+var _fplCatSearchTimer = null;
+function _fplCatSearch_(q) {
+  clearTimeout(_fplCatSearchTimer);
+  _fplCatSearchTimer = setTimeout(async function () {
+    var box = document.getElementById('fplCatResults');
+    if (!box) return;
+    q = String(q || '').trim();
+    if (q.length < 2) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="padding:10px 4px;color:rgba(255,255,255,.65);font-size:12px">Searching…</div>';
+    var r;
+    try { r = await groundApi('bomListVariantsByPrefix', { prefix: q, limit: 40 }); }
+    catch (e) { r = { ok: false, error: e.message || e }; }
+    if (!r || !r.ok) { box.innerHTML = '<div style="padding:10px 4px;color:#ff8a80;-webkit-text-fill-color:#ff8a80;font-size:12px">Search failed: ' + esc((r && r.error) || 'unknown') + '</div>'; return; }
+    var rows = r.rows || [];
+    if (!rows.length) { box.innerHTML = '<div style="padding:10px 4px;color:rgba(255,255,255,.55);font-size:12px">No matches for "' + esc(q) + '".</div>'; return; }
+    box.innerHTML = rows.map(function (row) {
+      var sku = String(row.variant_sku || '');
+      var meta = [row.size, row.family].filter(Boolean).join(' · ');
+      var bundles = ['main_bundle','sub_bundle_1','sub_bundle_2','sub_bundle_3','sub_bundle_4']
+        .map(function (k) { return row[k]; }).filter(Boolean);
+      return '<div onclick="_fplCatSelectVariant_(\'' + sku.replace(/'/g,"\\'") + '\')" style="padding:8px 10px;border:1px solid rgba(255,255,255,.14);border-radius:6px;margin-bottom:5px;cursor:pointer;background:rgba(255,255,255,.03);font-size:12px;-webkit-text-fill-color:#fff" onmouseover="this.style.background=\'rgba(66,165,245,.10)\'" onmouseout="this.style.background=\'rgba(255,255,255,.03)\'">'
+        + '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#fff;-webkit-text-fill-color:#fff">' + esc(sku) + '</div>'
+        + (meta ? '<div style="font-size:10px;color:rgba(255,255,255,.55);margin-top:2px">' + esc(meta) + '</div>' : '')
+        + (bundles.length ? '<div style="font-size:10px;color:rgba(255,255,255,.45);margin-top:2px;font-family:\'JetBrains Mono\',monospace">' + esc(bundles.join(' + ')) + '</div>' : '')
+        + '</div>';
+    }).join('');
+  }, 220);
+}
+async function _fplCatSelectVariant_(sku) {
+  var pv = document.getElementById('fplCatPreview');
+  if (!pv) return;
+  pv.style.display = 'block';
+  pv.innerHTML = '<div style="color:rgba(255,255,255,.65);font-size:12px">Loading BOM for <code>' + esc(sku) + '</code>…</div>';
+  var vRes, exRes;
+  try { vRes = await groundApi('bomGetVariant', { variant_sku: sku }); }
+  catch (e) { vRes = { ok: false, error: e.message || e }; }
+  if (!vRes || !vRes.ok || !vRes.row) {
+    pv.innerHTML = '<div style="color:#ff8a80;-webkit-text-fill-color:#ff8a80;font-size:12px">Variant not found: ' + esc((vRes && vRes.error) || sku) + '</div>';
+    return;
+  }
+  var v = vRes.row;
+  try {
+    exRes = await groundApi('bomPreviewExpansion', {
+      frame: v.frame || '', main_bundle: v.main_bundle || '',
+      sub_bundle_1: v.sub_bundle_1 || '', sub_bundle_2: v.sub_bundle_2 || '',
+      sub_bundle_3: v.sub_bundle_3 || '', sub_bundle_4: v.sub_bundle_4 || '',
+    });
+  } catch (e) { exRes = { ok: false, error: e.message || e }; }
+  if (!exRes || !exRes.ok) {
+    pv.innerHTML = '<div style="color:#ff8a80;-webkit-text-fill-color:#ff8a80;font-size:12px">Expansion failed: ' + esc((exRes && exRes.error) || 'unknown') + '</div>';
+    return;
+  }
+  var buckets = exRes.buckets || {};
+  var h = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">'
+    + '<div style="flex:1;min-width:200px"><div style="font-size:11px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.5px">Selected</div><div style="font-family:\'JetBrains Mono\',monospace;font-weight:800;font-size:13px">' + esc(sku) + '</div></div>'
+    + '<label style="font-size:11px;color:rgba(255,255,255,.65)">Qty <input id="fplCatQty" type="number" min="1" step="1" value="1" style="width:60px;padding:5px 7px;background:#0a1018;color:#fff;-webkit-text-fill-color:#fff;border:1px solid rgba(255,255,255,.20);border-radius:5px;font-family:\'JetBrains Mono\',monospace;font-size:13px;text-align:center;margin-left:6px"></label>'
+    + '<button onclick="_fplCatAdd_(\'' + sku.replace(/'/g,"\\'") + '\')" style="padding:10px 16px;background:#00C853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;border:none;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer">+ Add to pick list</button>'
+    + '</div>';
+  h += '<div style="font-size:11px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Preview · ' + (exRes.total_lines || 0) + ' unique lines</div>';
+  if (exRes.unknown_bundles && exRes.unknown_bundles.length) {
+    h += '<div style="padding:6px 10px;background:rgba(255,82,82,.10);border:1px solid rgba(255,82,82,.45);border-radius:5px;color:#ff8a80;-webkit-text-fill-color:#ff8a80;font-size:11px;margin-bottom:8px">⚠ Bundles with no children: ' + esc(exRes.unknown_bundles.join(', ')) + '</div>';
+  }
+  ['cabinet','frame','hardware','packaging','instruction'].forEach(function (n) {
+    var rows = buckets[n] || [];
+    if (!rows.length) return;
+    h += '<div style="margin-bottom:10px"><div style="font-size:11px;color:#42a5f5;-webkit-text-fill-color:#42a5f5;font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">' + n + ' (' + rows.length + ')</div>';
+    rows.forEach(function (it) {
+      h += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:rgba(255,255,255,.85);padding:1px 0">' + esc(it.item_sku) + ' × ' + it.qty + '</div>';
+    });
+    h += '</div>';
+  });
+  window._fplCatLastExpansion_ = { sku: sku, buckets: buckets };
+  pv.innerHTML = h;
+}
+function _fplCatAdd_(sku) {
+  var last = window._fplCatLastExpansion_;
+  if (!last || last.sku !== sku) { alert('Preview expired — pick the variant again.'); return; }
+  var qtyEl = document.getElementById('fplCatQty');
+  var qty = Math.max(1, Number((qtyEl && qtyEl.value) || 1) || 1);
+  var state = _fplCollectState_(); if (!state) return;
+  // Map catalog buckets → Fix Pick List sections.
+  //   cabinet → cabinet, frame → pack, hardware → hardware,
+  //   packaging → pack, instruction → instructions.
+  var map = { cabinet: 'cabinet', frame: 'pack', hardware: 'hardware', packaging: 'pack', instruction: 'instructions' };
+  var addedBySection = { cabinet: 0, pack: 0, hardware: 0, instructions: 0, other: 0 };
+  Object.keys(map).forEach(function (b) {
+    var rows = (last.buckets && last.buckets[b]) || [];
+    rows.forEach(function (it) {
+      var tgt = map[b];
+      var sku2 = String(it.item_sku || '').trim();
+      if (!sku2) return;
+      var addQty = Number(it.qty || 0) * qty;
+      if (!(addQty > 0)) return;
+      // Merge into existing row if same SKU already there; else new row.
+      var existing = state.sections[tgt].find(function (r) { return String(r.sku).toUpperCase() === sku2.toUpperCase(); });
+      if (existing) existing.qty = Number(existing.qty || 0) + addQty;
+      else state.sections[tgt].push({ sku: sku2, qty: addQty, name: '' });
+      addedBySection[tgt]++;
+    });
+  });
+  // Re-render sections in the underlying editor.
+  var container = document.getElementById('fpl_sections');
+  if (container) container.innerHTML = _fplRenderSections_(state.sections);
+  // Close catalog + confirm.
+  var ov = document.getElementById('fplCatalogOv'); if (ov) ov.remove();
+  var totalAdded = Object.values(addedBySection).reduce(function (a, b) { return a + b; }, 0);
+  var byMsg = Object.keys(addedBySection).filter(function (k) { return addedBySection[k] > 0; })
+    .map(function (k) { return addedBySection[k] + ' ' + k; }).join(' · ');
+  // Simple toast at the top of the fixPickList modal.
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);background:#00c853;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:900;box-shadow:0 4px 12px rgba(0,200,83,.4);z-index:10036';
+  toast.textContent = '✓ Added ' + totalAdded + ' lines · ' + byMsg;
+  var pl = document.getElementById('fixPickListOv');
+  if (pl) { pl.firstChild.appendChild(toast); setTimeout(function () { toast.remove(); }, 2400); }
 }
 
 function _diffChip_(label, count, color) {
