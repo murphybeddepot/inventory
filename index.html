@@ -2445,6 +2445,17 @@ input::placeholder, textarea::placeholder {
          If zombies return: run the editor helper + refresh. -->
   </div>
 
+  <!-- v10.1446 (Zac 2026-08-01) — Jonah workday Phase 1.
+       Today's Jobs panel — set by Seth via +Add Orders / Update List on
+       the Orders tab Pack lens (writes on_active_list=TRUE in
+       PackingQueue). Auto-hidden when Seth hasn't set an active list.
+       Compact by default; tap a card to open the Job Detail modal with
+       the 4-button action grid (Hardware / Frame / Stack-or-Find /
+       Finish). Doesn't disturb the daily cabinet-lookup rhythm below —
+       the whole panel disappears when empty so Shane's search rig
+       stays exactly where he expects it. -->
+  <div id="cabTodaysJobsPanel" style="display:none;margin-bottom:14px"></div>
+
   <!-- BIG SEARCH BAR — weathered metal panel with mounted display + keypad -->
   <div class="search-rig" style="margin-bottom:16px">
     <div class="search-rig-label">
@@ -35266,12 +35277,704 @@ renderCabinets();
 startAutoSync();
 </script>
 
+<!-- v10.1446 Jonah workday: Job Detail modal shell.
+     Populated dynamically by openJobDetail(orderNumber). Full-screen
+     on iPad; content is 4-button action grid + progress row + header.
+     Tap overlay or close btn to dismiss. z-index above modal-standard
+     (10000) so it beats the More menu but below finish wizard (10002). -->
+<div id="jobDetailOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10001;overflow-y:auto;padding:24px 12px" onclick="closeJobDetail(event)">
+  <div id="jobDetailPanel" style="max-width:640px;margin:0 auto;background:var(--bg);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.20);border-radius:14px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.6)" onclick="event.stopPropagation()">
+    <div style="padding:40px;text-align:center;color:var(--text-dim)">Loading…</div>
+  </div>
+</div>
+
+<!-- v10.1446 Jonah workday: Finish wizard modal shell.
+     Populated dynamically by openFinishWizard(orderNumber). Photos +
+     per-pallet dims/weight + Load/Stow terminal action. Higher z than
+     Job Detail so it opens on top; closing returns to Job Detail. -->
+<div id="finishWizardOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10002;overflow-y:auto;padding:24px 12px" onclick="closeFinishWizard(event)">
+  <div id="finishWizardPanel" style="max-width:720px;margin:0 auto;background:var(--bg);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(21,101,192,.40);border-radius:14px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.7)" onclick="event.stopPropagation()">
+    <div style="padding:40px;text-align:center;color:var(--text-dim)">Loading…</div>
+  </div>
+</div>
+
+<!-- v10.1446 Jonah workday Phase 1 — Today's Jobs on Cabinets tab, Job
+     Detail modal, Finish wizard (photos + pallet dims + Load/Stow).
+     Kept in its own script block so it's easy to lift/replace without
+     touching main.  Depends on globals: groundApi, esc, showToast,
+     compressImageToJpeg_, getPackDeviceId_ (all defined earlier or in
+     pack.js — pack.js loads after this block so any pack.js-only helpers
+     are safely called from event handlers only). -->
+<script>
+(function () {
+  'use strict';
+
+  var _todaysJobsInflight = false;
+  var _todaysJobsCache = [];
+
+  // ------------------------------------------------------------------
+  // Today's Jobs panel on the Cabinets tab
+  // ------------------------------------------------------------------
+
+  window._refreshTodaysJobsPanel_ = async function _refreshTodaysJobsPanel_() {
+    var panel = document.getElementById('cabTodaysJobsPanel');
+    if (!panel) return;
+    if (_todaysJobsInflight) return;
+    _todaysJobsInflight = true;
+    try {
+      var res = await groundApi('listPackingQueue', {});
+      if (!res || !res.ok) {
+        panel.style.display = 'none';
+        return;
+      }
+      var rows = (res.rows || []).filter(function (r) {
+        // on_active_list comes back as TRUE (Sheets bool) or the string 'TRUE'.
+        var v = r && r.on_active_list;
+        return v === true || String(v || '').toUpperCase() === 'TRUE';
+      });
+      // Also fold in packed rows on the active list — they're the ones
+      // Jonah still needs to finish (dims, photos, load/stow).
+      _todaysJobsCache = rows;
+      if (!rows.length) {
+        panel.style.display = 'none';
+        panel.innerHTML = '';
+        return;
+      }
+      panel.style.display = 'block';
+      panel.innerHTML = _renderTodaysJobsPanel_(rows);
+    } catch (e) {
+      console.log('[todays-jobs] refresh failed', e && e.message);
+      panel.style.display = 'none';
+    } finally {
+      _todaysJobsInflight = false;
+    }
+  };
+
+  function _jobProductionType_(row) {
+    var t = String((row && row.production_type) || '').toLowerCase();
+    if (t === 'mfg' || t === 'in_house' || t === 'in-house') return 'mfg';
+    if (t === 'arch') return 'arch';
+    return 'other';
+  }
+
+  function _jobProductionLabel_(type) {
+    if (type === 'mfg')  return { icon: '🔨', label: 'IN-HOUSE MFG', accent: '#ff9800', bg: 'rgba(230,81,0,.10)', border: 'rgba(230,81,0,.40)' };
+    if (type === 'arch') return { icon: '🏗',  label: 'ARCH',         accent: '#42a5f5', bg: 'rgba(21,101,192,.10)', border: 'rgba(21,101,192,.40)' };
+    return                     { icon: '📦', label: 'STANDARD',      accent: '#9e9e9e', bg: 'rgba(158,158,158,.10)', border: 'rgba(158,158,158,.40)' };
+  }
+
+  function _jobProgress_(row) {
+    // Best-effort read of what's already done. Mini-check chips.
+    var hardware = row && row.hardware_packed_at ? true : false;
+    var frame = false; // gather-frame tracking is Phase 2
+    var stackOrFind = false;
+    // If MFG: 'stack' considered done when the order has a saved SRE
+    // recipe. Detectable via stacking_recipe_sku column if it lands, or
+    // via the recipe endpoint — Phase 1 leaves this as a hint.
+    // If ARCH: 'find cabinet' done when cabinets_packed_json is non-empty.
+    if (row) {
+      try {
+        var cabsRaw = row.cabinets_packed_json;
+        if (cabsRaw) {
+          var cabs = JSON.parse(cabsRaw);
+          if (Array.isArray(cabs) && cabs.length) stackOrFind = true;
+        }
+      } catch (e) {}
+    }
+    // Finish considered done if pallets_json AND (loaded_at OR stow_location).
+    var finishDone = false;
+    if (row) {
+      var hasPallets = false;
+      try { var p = row.pallets_json ? JSON.parse(row.pallets_json) : null; hasPallets = Array.isArray(p) && p.length > 0; } catch (e) {}
+      var hasTerm = !!(row.loaded_at || (row.stow_location && String(row.stow_location).trim()));
+      finishDone = hasPallets && hasTerm;
+    }
+    return { hardware: hardware, frame: frame, stackOrFind: stackOrFind, finish: finishDone };
+  }
+
+  function _miniCheck_(done, icon, label) {
+    var color = done ? '#00e676' : 'rgba(255,255,255,.35)';
+    var bg    = done ? 'rgba(0,230,118,.12)' : 'transparent';
+    var mark  = done ? '✓' : '';
+    return '<span title="' + esc(label) + (done ? ' — done' : ' — pending') + '" '
+      + 'style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;font-size:11px;font-weight:800;font-family:\'JetBrains Mono\',monospace;letter-spacing:.3px;border-radius:999px;color:' + color + ';-webkit-text-fill-color:' + color + ';background:' + bg + ';border:1px solid ' + color + '">'
+      + esc(icon) + (mark ? '<span style="font-size:10px">' + mark + '</span>' : '')
+      + '</span>';
+  }
+
+  function _renderTodaysJobsPanel_(rows) {
+    // Group by production type: mfg | arch | other.
+    var buckets = { mfg: [], arch: [], other: [] };
+    rows.forEach(function (r) { buckets[_jobProductionType_(r)].push(r); });
+    // Ship-date sort within each bucket.
+    ['mfg', 'arch', 'other'].forEach(function (k) {
+      buckets[k].sort(function (a, b) {
+        var sa = String(a.ship_date || '9999-12-31').slice(0, 10);
+        var sb = String(b.ship_date || '9999-12-31').slice(0, 10);
+        return sa.localeCompare(sb);
+      });
+    });
+
+    var h = '';
+    // Header row.
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;padding:10px 14px;background:rgba(21,101,192,.10);border:1px solid rgba(21,101,192,.35);border-radius:10px">'
+      +   '<div style="display:flex;align-items:center;gap:10px">'
+      +     '<span style="font-size:22px">📋</span>'
+      +     '<div>'
+      +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:.8px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">Today\'s Jobs</div>'
+      +       '<div style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:2px">' + rows.length + ' job' + (rows.length === 1 ? '' : 's') + ' on the list · set by Seth</div>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div style="display:flex;gap:6px">'
+      +     '<button onclick="_openGatherFramesPlaceholder_()" title="Gather frame boxes for multiple jobs — location-guided walk (coming soon)" style="padding:8px 14px;background:rgba(255,255,255,.14);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.30);border-radius:8px;font-size:12px;font-weight:800;letter-spacing:.5px;cursor:pointer">🛒 Gather Frames</button>'
+      +     '<button onclick="_refreshTodaysJobsPanel_()" style="padding:8px 12px;background:rgba(255,255,255,.14);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.30);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">↻</button>'
+      +   '</div>'
+      + '</div>';
+
+    // Buckets in order.
+    ['mfg', 'arch', 'other'].forEach(function (k) {
+      var rowsInBucket = buckets[k];
+      if (!rowsInBucket.length) return;
+      var meta = _jobProductionLabel_(k);
+      h += '<div style="display:flex;align-items:baseline;gap:8px;margin:14px 4px 6px">'
+        +    '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12.5px;font-weight:900;letter-spacing:1.4px;color:' + meta.accent + ';-webkit-text-fill-color:' + meta.accent + '">' + meta.icon + ' ' + meta.label + '</div>'
+        +    '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">' + rowsInBucket.length + '</div>'
+        +  '</div>';
+      rowsInBucket.forEach(function (r) {
+        h += _renderTodayJobCard_(r, meta);
+      });
+    });
+    return h;
+  }
+
+  function _renderTodayJobCard_(row, meta) {
+    var orderNum = esc(String(row.order_number || '?'));
+    var customer = esc(String(row.customer_name || row.task_line || '').trim());
+    var shipRaw = String(row.ship_date || '').slice(0, 10);
+    var ship = esc(shipRaw || '—');
+    var priority = row.priority === true || String(row.priority || '').toUpperCase() === 'TRUE';
+    var status = String(row.status || '').toLowerCase();
+    var prog = _jobProgress_(row);
+    var priorityBadge = priority
+      ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(198,40,40,.20);color:#ff5252;-webkit-text-fill-color:#ff5252;border-radius:999px;letter-spacing:.3px">🔥 PRIORITY</span>'
+      : '';
+    var statusBadge = '';
+    if (status === 'packed')       statusBadge = '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(0,230,118,.16);color:#00e676;-webkit-text-fill-color:#00e676;border-radius:999px;letter-spacing:.3px">PACKED</span>';
+    else if (status === 'loaded')  statusBadge = '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(21,101,192,.20);color:#64b5f6;-webkit-text-fill-color:#64b5f6;border-radius:999px;letter-spacing:.3px">🚚 LOADED</span>';
+    else if (status)                statusBadge = '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(255,255,255,.10);color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border-radius:999px;letter-spacing:.3px">' + esc(status.toUpperCase()) + '</span>';
+
+    var isArch = _jobProductionType_(row) === 'arch';
+    var stackOrFindLabel = isArch ? '🔍 Find' : '🎂 Stack';
+
+    return '<div onclick="openJobDetail(\'' + orderNum + '\')" '
+      + 'style="cursor:pointer;padding:12px 14px;background:' + meta.bg + ';border:1.5px solid ' + meta.border + ';border-radius:10px;margin-bottom:8px;transition:transform .06s ease" '
+      + 'onmousedown="this.style.transform=\'scale(.99)\'" onmouseup="this.style.transform=\'\'" onmouseleave="this.style.transform=\'\'">'
+      +   '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;color:var(--text);-webkit-text-fill-color:var(--text)">' + orderNum + '</div>'
+      +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">SHIP ' + ship + '</div>'
+      +   '</div>'
+      +   (customer ? '<div style="font-size:13px;color:var(--text);-webkit-text-fill-color:var(--text);margin-bottom:8px">' + customer + '</div>' : '')
+      +   '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">' + priorityBadge + statusBadge + '</div>'
+      +   '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+      +     _miniCheck_(prog.hardware,   '🔧', 'Pack Hardware')
+      +     _miniCheck_(prog.frame,      '📦', 'Gather Frame Boxes')
+      +     _miniCheck_(prog.stackOrFind, isArch ? '🔍' : '🎂', isArch ? 'Find Cabinet' : 'Stack')
+      +     _miniCheck_(prog.finish,     '✅', 'Finish')
+      +   '</div>'
+      + '</div>';
+  }
+
+  window._openGatherFramesPlaceholder_ = function _openGatherFramesPlaceholder_() {
+    alert('Frame-box gather wizard — coming in the next ship. It will walk you through your active jobs\' locations one by one to consolidate onto a staging cart.');
+  };
+
+  // ------------------------------------------------------------------
+  // Job Detail modal
+  // ------------------------------------------------------------------
+
+  window.openJobDetail = function openJobDetail(orderNumber) {
+    var overlay = document.getElementById('jobDetailOverlay');
+    var panel = document.getElementById('jobDetailPanel');
+    if (!overlay || !panel) return;
+    overlay.style.display = 'block';
+    panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim)">Loading order ' + esc(String(orderNumber)) + '…</div>';
+    // Use cached row if we have it; otherwise re-fetch listPackingQueue.
+    var cached = _todaysJobsCache.find(function (r) { return String(r.order_number) === String(orderNumber); });
+    if (cached) {
+      panel.innerHTML = _renderJobDetailPanel_(cached);
+      return;
+    }
+    groundApi('listPackingQueue', {}).then(function (res) {
+      var row = (res && res.ok && res.rows || []).find(function (r) { return String(r.order_number) === String(orderNumber); });
+      if (!row) {
+        panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Order ' + esc(String(orderNumber)) + ' not found in the packing queue.</div>'
+          + '<div style="text-align:center;margin-top:12px"><button onclick="closeJobDetail()" style="padding:10px 18px;background:rgba(255,255,255,.14);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.30);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">Close</button></div>';
+        return;
+      }
+      panel.innerHTML = _renderJobDetailPanel_(row);
+    }).catch(function (e) {
+      panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Load error: ' + esc(String(e && e.message || e)) + '</div>';
+    });
+  };
+
+  window.closeJobDetail = function closeJobDetail(evt) {
+    if (evt && evt.target && evt.target.id !== 'jobDetailOverlay' && !evt.target.classList.contains('js-close-jobdetail')) return;
+    var overlay = document.getElementById('jobDetailOverlay');
+    if (overlay) overlay.style.display = 'none';
+  };
+
+  function _renderJobDetailPanel_(row) {
+    var orderNum = esc(String(row.order_number || '?'));
+    var customer = esc(String(row.customer_name || row.task_line || '').trim());
+    var shipRaw = String(row.ship_date || '').slice(0, 10);
+    var ship = esc(shipRaw || '—');
+    var isArch = _jobProductionType_(row) === 'arch';
+    var meta = _jobProductionLabel_(_jobProductionType_(row));
+    var prog = _jobProgress_(row);
+    var priority = row.priority === true || String(row.priority || '').toUpperCase() === 'TRUE';
+
+    var priorityBadge = priority
+      ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;padding:3px 9px;background:rgba(198,40,40,.20);color:#ff5252;-webkit-text-fill-color:#ff5252;border-radius:999px;letter-spacing:.3px">🔥 PRIORITY</span>'
+      : '';
+    var typeBadge = '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;padding:3px 9px;background:' + meta.bg + ';color:' + meta.accent + ';-webkit-text-fill-color:' + meta.accent + ';border-radius:999px;letter-spacing:.3px;border:1px solid ' + meta.border + '">' + meta.icon + ' ' + meta.label + '</span>';
+
+    // 4-button grid — the meat of the modal.
+    var stackOrFindTile = isArch
+      ? _actionTile_('find',    '🔍', 'Find Cabinet', 'Search cabinets for this order', prog.stackOrFind, 'openJobDetailFindCabinet(\'' + orderNum + '\')')
+      : _actionTile_('stack',   '🎂', 'Stack',        'Open the Stacker Guide for this order', prog.stackOrFind, 'openJobDetailStack(\'' + orderNum + '\')');
+
+    var grid = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:14px 0">'
+      + _actionTile_('hardware', '🔧', 'Pack Hardware',       'Hardware kit pick + verify',    prog.hardware,    'openJobDetailHardware(\'' + orderNum + '\')')
+      + _actionTile_('frame',    '📦', 'Gather Frame Boxes',  'Walk to locations, gather boxes', prog.frame,     '_openGatherFramesPlaceholder_()')
+      + stackOrFindTile
+      + _actionTile_('finish',   '✅', 'Finish',              'Photos, dims, book, load or stow', prog.finish,   'openFinishWizard(\'' + orderNum + '\')')
+      + '</div>';
+
+    var pStatus = String(row.status || '').toLowerCase();
+    var stowInfo = row && row.stow_location
+      ? '<div style="margin-top:10px;padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;font-size:12.5px"><span style="color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">Stowed in </span><b style="font-family:\'JetBrains Mono\',monospace;letter-spacing:.5px">' + esc(row.stow_location) + '</b></div>'
+      : '';
+
+    return ''
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
+      +   '<div style="display:flex;flex-direction:column;gap:2px">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:34px;font-weight:900;letter-spacing:1.2px;line-height:1;color:var(--text);-webkit-text-fill-color:var(--text)">' + orderNum + '</div>'
+      +     (customer ? '<div style="font-size:13.5px;color:var(--text);-webkit-text-fill-color:var(--text)">' + customer + '</div>' : '')
+      +   '</div>'
+      +   '<button class="js-close-jobdetail" onclick="closeJobDetail()" title="Close" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.28);font-size:16px;font-weight:900;cursor:pointer">✕</button>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+      +   typeBadge + priorityBadge
+      +   '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;padding:3px 9px;background:rgba(255,255,255,.10);color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border-radius:999px">SHIP ' + ship + '</span>'
+      +   (pStatus ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;padding:3px 9px;background:rgba(255,255,255,.10);color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);border-radius:999px">' + esc(pStatus.toUpperCase()) + '</span>' : '')
+      + '</div>'
+      + grid
+      + stowInfo;
+  }
+
+  function _actionTile_(key, icon, label, hint, done, onclickJs) {
+    var checkMark = done
+      ? '<span style="position:absolute;top:8px;right:10px;font-size:18px;color:#00e676;-webkit-text-fill-color:#00e676;font-weight:900">✓</span>'
+      : '';
+    var borderColor = done ? 'rgba(0,230,118,.55)' : 'rgba(255,255,255,.25)';
+    var bg = done ? 'rgba(0,230,118,.06)' : 'rgba(255,255,255,.05)';
+    return '<button data-action-key="' + esc(key) + '" onclick="' + onclickJs + '" '
+      + 'style="position:relative;padding:22px 14px;background:' + bg + ';color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid ' + borderColor + ';border-radius:12px;text-align:left;cursor:pointer;min-height:110px;display:flex;flex-direction:column;gap:6px;transition:transform .06s ease" '
+      + 'onmousedown="this.style.transform=\'scale(.98)\'" onmouseup="this.style.transform=\'\'" onmouseleave="this.style.transform=\'\'">'
+      +   checkMark
+      +   '<div style="font-size:32px;line-height:1">' + esc(icon) + '</div>'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:16px;font-weight:900;letter-spacing:.8px;text-transform:uppercase">' + esc(label) + '</div>'
+      +   '<div style="font-size:11.5px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);line-height:1.35">' + esc(hint) + '</div>'
+      + '</button>';
+  }
+
+  // Placeholder routers for the non-Finish action tiles. Each links to
+  // the existing surface where the action lives, so no work is lost —
+  // the Job Detail modal is the discovery layer, not a replacement.
+  window.openJobDetailHardware = function (orderNumber) {
+    closeJobDetail();
+    // Route to existing Pre-Pack surface for now (hardware pick lives
+    // there per v10.246 Phase B merge). Deep-link: query param + tab.
+    try {
+      if (typeof switchTab === 'function') switchTab('pack');
+      if (typeof setPackTabMode === 'function') setPackTabMode('prepack');
+    } catch (e) {}
+    setTimeout(function () {
+      var input = document.getElementById('packOrderSearchInput') || document.querySelector('input[placeholder*=order]');
+      if (input) { input.value = orderNumber; if (input.onchange) input.onchange({ target: input }); }
+    }, 250);
+  };
+  window.openJobDetailStack = function (orderNumber) {
+    // Open Stacker Guide for this order. Guide URL pattern from Phase 3.
+    var url = './stacking-recipe-editor/guide.html?order=' + encodeURIComponent(orderNumber);
+    window.open(url, '_blank', 'noopener');
+  };
+  window.openJobDetailFindCabinet = function (orderNumber) {
+    closeJobDetail();
+    try { if (typeof switchTab === 'function') switchTab('cabinets'); } catch (e) {}
+    // Search rig — populate with order number, tap search.
+    setTimeout(function () {
+      var input = document.getElementById('cabSearchInput');
+      if (input) { input.value = String(orderNumber); input.dispatchEvent(new Event('input')); }
+    }, 200);
+  };
+
+  // ------------------------------------------------------------------
+  // Finish wizard — photos + per-pallet dims + Load/Stow
+  // ------------------------------------------------------------------
+
+  var _finishState_ = null;
+
+  window.openFinishWizard = function openFinishWizard(orderNumber) {
+    var overlay = document.getElementById('finishWizardOverlay');
+    var panel = document.getElementById('finishWizardPanel');
+    if (!overlay || !panel) return;
+    overlay.style.display = 'block';
+    panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim)">Loading finish wizard for ' + esc(String(orderNumber)) + '…</div>';
+    var cached = _todaysJobsCache.find(function (r) { return String(r.order_number) === String(orderNumber); });
+    if (cached) {
+      _initFinishState_(cached);
+      panel.innerHTML = _renderFinishWizard_();
+      return;
+    }
+    groundApi('listPackingQueue', {}).then(function (res) {
+      var row = (res && res.ok && res.rows || []).find(function (r) { return String(r.order_number) === String(orderNumber); });
+      if (!row) {
+        panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Order ' + esc(String(orderNumber)) + ' not found.</div>';
+        return;
+      }
+      _initFinishState_(row);
+      panel.innerHTML = _renderFinishWizard_();
+    });
+  };
+
+  window.closeFinishWizard = function closeFinishWizard(evt) {
+    if (evt && evt.target && evt.target.id !== 'finishWizardOverlay' && !evt.target.classList.contains('js-close-finish')) return;
+    var overlay = document.getElementById('finishWizardOverlay');
+    if (overlay) overlay.style.display = 'none';
+    _finishState_ = null;
+    // Refresh Today's Jobs so progress checks re-paint.
+    if (typeof _refreshTodaysJobsPanel_ === 'function') _refreshTodaysJobsPanel_();
+  };
+
+  function _initFinishState_(row) {
+    var pallets = [];
+    try {
+      var arr = row.pallets_json ? JSON.parse(row.pallets_json) : [];
+      if (Array.isArray(arr)) pallets = arr;
+    } catch (e) {}
+    if (!pallets.length) {
+      pallets = [{ pallet_id: String(row.order_number) + '-P1', length_in: '', width_in: '', height_in: '', weight_lb: '' }];
+    }
+    var photos = [];
+    try {
+      var parr = row.photo_urls_json ? JSON.parse(row.photo_urls_json) : [];
+      if (Array.isArray(parr)) photos = parr;
+    } catch (e) {}
+    _finishState_ = {
+      orderNumber: String(row.order_number),
+      customer: String(row.customer_name || '').trim(),
+      shipDate: String(row.ship_date || '').slice(0, 10),
+      pallets: pallets,
+      photos: photos,
+      status: String(row.status || '').toLowerCase(),
+      stowLocation: String(row.stow_location || '').trim(),
+      loadedAt: row.loaded_at || '',
+      loadedBy: row.loaded_by || '',
+      saveInflight: false,
+    };
+  }
+
+  function _renderFinishWizard_() {
+    var s = _finishState_;
+    if (!s) return '<div style="padding:24px;color:#ff6b6b">No finish state.</div>';
+    var photoInstruction = 'Take <b>4 side photos + 1 top-down</b> per pallet. Include a shot of the freight labels once applied. Photos land in the order\'s Drive folder automatically.';
+    var terminal = ''; // Load/Stow section only surfaces when dims are saved.
+    var dimsComplete = s.pallets.every(function (p) {
+      return Number(p.length_in) > 0 && Number(p.width_in) > 0 && Number(p.height_in) > 0 && Number(p.weight_lb) > 0;
+    });
+
+    var palletsHtml = s.pallets.map(function (p, idx) {
+      var pid = esc(p.pallet_id || (s.orderNumber + '-P' + (idx + 1)));
+      return '<div style="padding:12px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.14);border-radius:10px;margin-bottom:10px">'
+        +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+        +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--text);-webkit-text-fill-color:var(--text)">📦 Pallet ' + (idx + 1) + ' <span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:700;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-left:8px">' + pid + '</span></div>'
+        +     (s.pallets.length > 1
+            ? '<button onclick="_finishRemovePallet_(' + idx + ')" style="padding:4px 10px;background:rgba(198,40,40,.14);color:#ff8a80;-webkit-text-fill-color:#ff8a80;border:1px solid rgba(198,40,40,.45);border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">Remove</button>'
+            : '')
+        +   '</div>'
+        +   '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'
+        +     _dimInput_('L (in)',  'length_in', p.length_in, idx)
+        +     _dimInput_('W (in)',  'width_in',  p.width_in,  idx)
+        +     _dimInput_('H (in)',  'height_in', p.height_in, idx)
+        +     _dimInput_('Wt (lb)', 'weight_lb', p.weight_lb, idx)
+        +   '</div>'
+        + '</div>';
+    }).join('');
+
+    if (s.status === 'loaded') {
+      terminal = '<div style="padding:14px;background:rgba(21,101,192,.10);border:1.5px solid rgba(21,101,192,.40);border-radius:10px;margin-top:14px">'
+        + '<div style="font-weight:800;color:var(--text);-webkit-text-fill-color:var(--text)">🚚 Already loaded into the trailer</div>'
+        + (s.loadedBy ? '<div style="font-size:12px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:3px">by ' + esc(s.loadedBy) + '</div>' : '')
+        + '</div>';
+    } else if (s.stowLocation) {
+      terminal = '<div style="padding:14px;background:rgba(255,193,7,.10);border:1.5px solid rgba(255,193,7,.40);border-radius:10px;margin-top:14px">'
+        + '<div style="font-weight:800;color:var(--text);-webkit-text-fill-color:var(--text)">📍 Stowed in <b style="font-family:\'JetBrains Mono\',monospace;letter-spacing:.5px">' + esc(s.stowLocation) + '</b></div>'
+        + '<div style="font-size:12px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:6px">Move to trailer when ready:</div>'
+        + '<button onclick="_finishLoadNow_()" style="margin-top:8px;padding:12px 18px;background:linear-gradient(135deg,#1565c0,#003087);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer">🚚 Load into Trailer Now</button>'
+        + '</div>';
+    } else if (dimsComplete) {
+      terminal = '<div style="margin-top:16px">'
+        + '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--text);-webkit-text-fill-color:var(--text);margin-bottom:10px">📍 Load or Stow</div>'
+        + '<div style="font-size:12px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-bottom:10px">Freight booking + label print: for now use Kim\'s FedEx Freight modal (auto-book-on-Finish coming next ship).</div>'
+        + '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">'
+        +   '<button onclick="_finishLoadNow_()" style="padding:22px 14px;background:linear-gradient(135deg,#1565c0,#003087);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer;line-height:1.2">🚚 Load into<br>Trailer Now</button>'
+        +   '<button onclick="_finishStow_()" style="padding:22px 14px;background:rgba(255,193,7,.14);color:#ffc107;-webkit-text-fill-color:#ffc107;border:1.5px solid rgba(255,193,7,.55);border-radius:10px;font-size:14px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer;line-height:1.2">📍 Put in<br>Location…</button>'
+        + '</div></div>';
+    } else {
+      terminal = '<div style="padding:12px 14px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.18);border-radius:10px;margin-top:14px;font-size:12px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-style:italic">Enter every pallet\'s L / W / H / Weight above and tap <b>Save Dims</b>. Load/Stow buttons appear after that.</div>';
+    }
+
+    return ''
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
+      +   '<div>'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">✅ Finish · ' + esc(s.orderNumber) + '</div>'
+      +     (s.customer ? '<div style="font-size:13px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:2px">' + esc(s.customer) + '</div>' : '')
+      +   '</div>'
+      +   '<button class="js-close-finish" onclick="closeFinishWizard()" title="Close" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.28);font-size:16px;font-weight:900;cursor:pointer">✕</button>'
+      + '</div>'
+      // Photos
+      + '<div style="margin-top:14px;padding:14px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.14);border-radius:10px">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--text);-webkit-text-fill-color:var(--text)">📸 Photos <span style="color:var(--text-dim);font-size:12px;letter-spacing:0;margin-left:6px">(' + s.photos.length + ')</span></div>'
+      +     '<label for="finishPhotoCamera" style="padding:10px 16px;background:#1565c0;color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer">📷 Take Photo</label>'
+      +     '<input type="file" id="finishPhotoCamera" accept="image/*" capture="environment" style="display:none" onchange="_finishPhotoSelected_(event)">'
+      +   '</div>'
+      +   '<div style="font-size:12px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-bottom:10px;line-height:1.5">' + photoInstruction + '</div>'
+      +   '<div id="finishPhotoGallery" style="display:flex;flex-wrap:wrap;gap:6px">' + _finishPhotoGalleryHtml_(s.photos) + '</div>'
+      +   '<div id="finishPhotoStatus" style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:6px;min-height:14px"></div>'
+      + '</div>'
+      // Pallets
+      + '<div style="margin-top:14px">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--text);-webkit-text-fill-color:var(--text)">📏 Pallets · Dims & Weight</div>'
+      +     '<button onclick="_finishAddPallet_()" style="padding:6px 12px;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.28);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">+ Add pallet</button>'
+      +   '</div>'
+      +   palletsHtml
+      +   '<button onclick="_finishSaveDims_()" ' + (s.saveInflight ? 'disabled' : '') + ' style="width:100%;padding:14px;background:linear-gradient(135deg,#00c853,#00701a);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;cursor:pointer;margin-top:6px">' + (s.saveInflight ? 'Saving…' : '💾 Save Dims') + '</button>'
+      + '</div>'
+      + terminal;
+  }
+
+  function _dimInput_(label, key, value, idx) {
+    return '<div style="display:flex;flex-direction:column;gap:4px">'
+      + '<label style="font-size:10.5px;font-weight:800;letter-spacing:.5px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);text-transform:uppercase">' + esc(label) + '</label>'
+      + '<input type="number" inputmode="decimal" step="0.1" min="0" value="' + esc(String(value == null ? '' : value)) + '" '
+      + 'oninput="_finishUpdatePallet_(' + idx + ',\'' + key + '\',this.value)" '
+      + 'style="padding:10px 8px;background:rgba(0,0,0,.35);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.20);border-radius:6px;font-size:16px;font-weight:800;font-family:\'JetBrains Mono\',monospace;text-align:center;outline:none">'
+      + '</div>';
+  }
+
+  function _finishPhotoGalleryHtml_(photos) {
+    if (!photos || !photos.length) {
+      return '<div style="font-size:11.5px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-style:italic;padding:14px 4px">No photos yet.</div>';
+    }
+    return photos.map(function (p) {
+      var url = String((p && p.url) || '');
+      if (!url) return '';
+      return '<a href="' + esc(url) + '" target="_blank" rel="noopener" style="display:inline-block;width:66px;height:66px;background:#000 center/cover no-repeat;background-image:url(' + esc(url) + ');border:1px solid rgba(255,255,255,.20);border-radius:6px" title="' + esc(url) + '"></a>';
+    }).join('');
+  }
+
+  window._finishUpdatePallet_ = function (idx, key, value) {
+    if (!_finishState_ || !_finishState_.pallets[idx]) return;
+    _finishState_.pallets[idx][key] = value;
+    // No re-render — inputs already show the value; skip flicker. When
+    // user taps Save, we validate + push.
+    // Terminal section visibility depends on dimsComplete — cheap re-render.
+    var terminalEl = document.getElementById('finishWizardPanel');
+    if (terminalEl && terminalEl._suppressRerender) return;
+  };
+
+  window._finishAddPallet_ = function () {
+    if (!_finishState_) return;
+    var n = _finishState_.pallets.length + 1;
+    _finishState_.pallets.push({
+      pallet_id: _finishState_.orderNumber + '-P' + n,
+      length_in: '', width_in: '', height_in: '', weight_lb: '',
+    });
+    document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+  };
+
+  window._finishRemovePallet_ = function (idx) {
+    if (!_finishState_) return;
+    if (_finishState_.pallets.length <= 1) return;
+    _finishState_.pallets.splice(idx, 1);
+    // Renumber pallet_ids so gaps don't appear.
+    _finishState_.pallets.forEach(function (p, i) { p.pallet_id = _finishState_.orderNumber + '-P' + (i + 1); });
+    document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+  };
+
+  window._finishSaveDims_ = async function _finishSaveDims_() {
+    if (!_finishState_) return;
+    if (_finishState_.saveInflight) return;
+    // Validate every pallet.
+    for (var i = 0; i < _finishState_.pallets.length; i++) {
+      var p = _finishState_.pallets[i];
+      var L = Number(p.length_in), W = Number(p.width_in), H = Number(p.height_in), wt = Number(p.weight_lb);
+      if (!isFinite(L) || L <= 0 || !isFinite(W) || W <= 0 || !isFinite(H) || H <= 0 || !isFinite(wt) || wt <= 0) {
+        alert('Pallet ' + (i + 1) + ' needs positive L / W / H / Weight before saving.');
+        return;
+      }
+    }
+    _finishState_.saveInflight = true;
+    document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+    try {
+      var res = await groundApi('setOrderPallets', {
+        orderNumber: _finishState_.orderNumber,
+        pallets: _finishState_.pallets.map(function (p) {
+          return {
+            pallet_id: p.pallet_id,
+            length_in: Number(p.length_in),
+            width_in:  Number(p.width_in),
+            height_in: Number(p.height_in),
+            weight_lb: Number(p.weight_lb),
+          };
+        }),
+        deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : 'unknown',
+      });
+      if (!res || !res.ok) {
+        alert('Save failed: ' + (res && res.error || 'unknown'));
+        _finishState_.saveInflight = false;
+        document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+        return;
+      }
+      _finishState_.saveInflight = false;
+      // Server returns sanitized pallets — sync back so IDs / rounded
+      // numbers match server truth.
+      if (res.pallets) _finishState_.pallets = res.pallets;
+      document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+    } catch (e) {
+      alert('Save error: ' + (e && e.message || e));
+      _finishState_.saveInflight = false;
+      document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+    }
+  };
+
+  window._finishPhotoSelected_ = async function _finishPhotoSelected_(event) {
+    if (!_finishState_) return;
+    var files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    if (typeof compressImageToJpeg_ !== 'function') {
+      alert('Photo compression helper missing (pack.js not loaded?).');
+      return;
+    }
+    var statusEl = document.getElementById('finishPhotoStatus');
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (statusEl) statusEl.textContent = 'Uploading ' + (i + 1) + '/' + files.length + '…';
+      try {
+        var dataUrl = await compressImageToJpeg_(f, 1920, 0.85);
+        var base64 = dataUrl.split(',')[1];
+        var res = await groundApi('addPackPhoto', {
+          orderNumber: _finishState_.orderNumber,
+          base64Data: base64,
+          filename: _finishState_.orderNumber + '-finish-' + Date.now() + '-' + (i + 1) + '.jpg',
+          mimeType: 'image/jpeg',
+          deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : 'unknown',
+        });
+        if (!res || !res.ok) {
+          if (statusEl) statusEl.textContent = 'Upload failed: ' + (res && res.error || 'unknown');
+          return;
+        }
+        _finishState_.photos.push({ url: res.url, name: f.name, addedAt: new Date().toISOString() });
+        var gal = document.getElementById('finishPhotoGallery');
+        if (gal) gal.innerHTML = _finishPhotoGalleryHtml_(_finishState_.photos);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'Upload error: ' + (err && err.message || err);
+        return;
+      }
+    }
+    if (statusEl) statusEl.textContent = files.length + ' photo' + (files.length === 1 ? '' : 's') + ' uploaded · Drive folder auto-created';
+  };
+
+  window._finishLoadNow_ = async function _finishLoadNow_() {
+    if (!_finishState_) return;
+    try {
+      var res = await groundApi('markOrderLoaded', {
+        orderNumber: _finishState_.orderNumber,
+        deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : 'unknown',
+      });
+      if (!res || !res.ok) {
+        alert('Load failed: ' + (res && res.error || 'unknown'));
+        return;
+      }
+      _finishState_.status = 'loaded';
+      _finishState_.loadedAt = res.loaded_at || new Date().toISOString();
+      _finishState_.loadedBy = res.loaded_by || '';
+      document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+    } catch (e) {
+      alert('Load error: ' + (e && e.message || e));
+    }
+  };
+
+  window._finishStow_ = async function _finishStow_() {
+    if (!_finishState_) return;
+    var loc = prompt('Stow location code (e.g. AA.01)?', _finishState_.stowLocation || '');
+    if (loc == null) return; // cancelled
+    loc = String(loc).trim();
+    if (!loc) return;
+    try {
+      var res = await groundApi('setOrderStowLocation', {
+        orderNumber: _finishState_.orderNumber,
+        location: loc,
+        deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : 'unknown',
+      });
+      if (!res || !res.ok) {
+        alert('Stow failed: ' + (res && res.error || 'unknown'));
+        return;
+      }
+      _finishState_.stowLocation = res.stow_location || loc;
+      document.getElementById('finishWizardPanel').innerHTML = _renderFinishWizard_();
+    } catch (e) {
+      alert('Stow error: ' + (e && e.message || e));
+    }
+  };
+
+  // ------------------------------------------------------------------
+  // Boot / activation
+  // ------------------------------------------------------------------
+
+  // Hook switchTab so activating Cabinets refreshes the Today's Jobs
+  // panel. Wrap without replacing so no existing behavior breaks.
+  (function hookSwitchTab() {
+    if (typeof window.switchTab !== 'function') {
+      // main hasn't defined switchTab yet — retry after boot.
+      setTimeout(hookSwitchTab, 500);
+      return;
+    }
+    var orig = window.switchTab;
+    window.switchTab = function (name) {
+      var r = orig.apply(this, arguments);
+      if (name === 'cabinets') {
+        try { _refreshTodaysJobsPanel_(); } catch (e) {}
+      }
+      return r;
+    };
+    // Also fire once on boot in case Cabinets is the default tab.
+    setTimeout(function () { try { _refreshTodaysJobsPanel_(); } catch (e) {} }, 800);
+  })();
+
+})();
+</script>
+
 <!-- Pack tab JS lives in pack.js as of v9.13 (modularization slice 1).
      Loaded AFTER the main script so globals it depends on (groundApi,
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1445"></script>
+<script src="./pack.js?v=10.1446"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -35282,7 +35985,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1445<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1446<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
