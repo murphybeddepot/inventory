@@ -1,0 +1,97 @@
+name: validate-pwa
+
+# Bedrock's PWA is served from THIS repo (GitHub Pages, legacy build from
+# main/root). It is what the warehouse actually loads.
+#
+# Until 2026-08-01 nothing checked it. Files arrive here by hand — copied from
+# mbd-warehouse and pushed — and a single parse error in an inline <script>
+# white-screens the whole app on the floor. That has happened repeatedly.
+#
+# IMPORTANT — this is DETECTION, NOT A GATE.
+# Pages uses the legacy build type, which publishes on push regardless of what
+# Actions says. A red X here means "the PWA you just published is broken",
+# arriving in ~30 seconds — not "the broken PWA was stopped". Making it a real
+# gate means either switching Pages to an Actions-based deploy, or making the
+# mbd-warehouse -> inventory sync a gated workflow. Both change how production
+# deploys, so both are Zac's call rather than a side effect of adding CI.
+#
+# Deliberately dependency-free: Node builtins only, so nothing here can be
+# broken by a lockfile or a missing install.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: PWA will not white-screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Parse every inline <script> in the HTML surfaces
+        run: |
+          node -e '
+          const fs=require("fs"),os=require("os"),cp=require("child_process");
+          let total=0, bad=0;
+          for (const file of ["index.html","board.html"]) {
+            if (!fs.existsSync(file)) { console.log("  (skip, absent) "+file); continue; }
+            const html=fs.readFileSync(file,"utf8");
+            const re=/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
+            let m,i=0;
+            while((m=re.exec(html))){
+              i++; total++;
+              const f=os.tmpdir()+"/inline_"+file.replace(/\W/g,"")+"_"+i+".js";
+              fs.writeFileSync(f,m[1]);
+              try{ cp.execSync("node --check "+f,{stdio:"pipe"}); }
+              catch(e){ bad++; console.error("::error file="+file+"::inline <script> block "+i+" does not parse — this white-screens the PWA\n"+e.stderr.toString()); }
+            }
+            console.log("  "+file+": "+i+" inline blocks");
+          }
+          console.log("  "+total+" blocks checked, "+bad+" broken");
+          if(bad) process.exit(1);
+          '
+
+      - name: Parse pack.js
+        run: node --check pack.js
+
+      - name: Version pill matches the pack.js cache-bust
+        run: |
+          node -e '
+          const fs=require("fs");
+          const html=fs.readFileSync("index.html","utf8");
+          const pill=(html.match(/title="Tap for system status">v([0-9.]+)/)||[])[1];
+          const bust=(html.match(/pack\.js\?v=([0-9.]+)/)||[])[1];
+          if(!pill||!bust){ console.error("::error::could not find the version pill or the pack.js cache-bust in index.html"); process.exit(1); }
+          console.log("  pill v"+pill+"  ·  pack.js?v="+bust);
+          if(pill!==bust){
+            console.error("::error::Version pill (v"+pill+") does not match pack.js?v="+bust+". The service worker caches pack.js BY URL, so devices keep serving the old pack.js against the new index.html.");
+            process.exit(1);
+          }
+          '
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## PWA validation"
+            echo ""
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "✅ Inline scripts parse, \`pack.js\` parses, version pill matches the cache-bust."
+            else
+              echo "❌ **The PWA published from this push is broken.**"
+              echo ""
+              echo "Pages publishes on push regardless of this check, so the broken build is already live."
+              echo "Fix forward in mbd-warehouse, re-copy, and push again."
+            fi
+            echo ""
+            echo "Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
