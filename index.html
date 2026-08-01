@@ -35565,6 +35565,12 @@ startAutoSync();
   // Job Detail modal
   // ------------------------------------------------------------------
 
+  // v10.1451 — resolved pick list cache. Populated by openJobDetail
+  // after the row loads (fire-forget; render doesn't wait). Pack Hardware
+  // tile reads the count from here for an instant chip. The full pick
+  // list opens via openResolvedPickList (fast read via getResolvedPickList).
+  var _resolvedPickListCache = {};  // { orderNumber: {resolved, resolved_at, source} }
+
   window.openJobDetail = function openJobDetail(orderNumber) {
     var overlay = document.getElementById('jobDetailOverlay');
     var panel = document.getElementById('jobDetailPanel');
@@ -35575,6 +35581,7 @@ startAutoSync();
     var cached = _todaysJobsCache.find(function (r) { return String(r.order_number) === String(orderNumber); });
     if (cached) {
       panel.innerHTML = _renderJobDetailPanel_(cached);
+      _prefetchResolvedPickList_(orderNumber);
       return;
     }
     groundApi('listPackingQueue', {}).then(function (res) {
@@ -35585,10 +35592,45 @@ startAutoSync();
         return;
       }
       panel.innerHTML = _renderJobDetailPanel_(row);
+      _prefetchResolvedPickList_(orderNumber);
     }).catch(function (e) {
       panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Load error: ' + esc(String(e && e.message || e)) + '</div>';
     });
   };
+
+  function _prefetchResolvedPickList_(orderNumber) {
+    // Skip if already in memory this session.
+    if (_resolvedPickListCache[orderNumber]) {
+      _updatePackHardwareTile_(orderNumber);
+      return;
+    }
+    groundApi('getResolvedPickList', { orderNumber: orderNumber }).then(function (res) {
+      if (!res || !res.ok) return;
+      _resolvedPickListCache[orderNumber] = res;
+      _updatePackHardwareTile_(orderNumber);
+    }).catch(function () {});
+  }
+
+  function _updatePackHardwareTile_(orderNumber) {
+    // Find the Pack Hardware tile in the currently-open Job Detail
+    // modal and inject the hardware count chip.
+    var panel = document.getElementById('jobDetailPanel');
+    if (!panel) return;
+    var tile = panel.querySelector('button[data-action-key="hardware"]');
+    if (!tile) return;
+    var cached = _resolvedPickListCache[orderNumber];
+    if (!cached || !cached.resolved) return;
+    var buckets = cached.resolved.buckets || {};
+    var hardwareCount = (buckets.hardware || []).length;
+    var chip = tile.querySelector('.pack-hw-count');
+    if (!chip) {
+      chip = document.createElement('div');
+      chip.className = 'pack-hw-count';
+      chip.style.cssText = 'position:absolute;bottom:8px;right:10px;font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(0,230,118,.18);color:#00e676;-webkit-text-fill-color:#00e676;border-radius:999px;letter-spacing:.3px';
+      tile.appendChild(chip);
+    }
+    chip.textContent = hardwareCount + ' item' + (hardwareCount === 1 ? '' : 's') + ' ready';
+  }
 
   window.closeJobDetail = function closeJobDetail(evt) {
     if (evt && evt.target && evt.target.id !== 'jobDetailOverlay' && !evt.target.classList.contains('js-close-jobdetail')) return;
@@ -35772,17 +35814,112 @@ startAutoSync();
   // the existing surface where the action lives, so no work is lost —
   // the Job Detail modal is the discovery layer, not a replacement.
   window.openJobDetailHardware = function (orderNumber) {
-    closeJobDetail();
-    // Route to existing Pre-Pack surface for now (hardware pick lives
-    // there per v10.246 Phase B merge). Deep-link: query param + tab.
+    // v10.1451 — instant pick list. getResolvedPickList reads the cached
+    // resolved_pick_list_json off the row (populated at Shopify webhook
+    // time), so this modal opens with data already in hand. Fallback:
+    // server lazily resolves + caches on first read.
+    var overlay = document.getElementById('finishWizardOverlay');
+    var panel = document.getElementById('finishWizardPanel');
+    if (!overlay || !panel) return;
+    // Reuse the finish wizard overlay so this modal stacks above Job Detail.
+    overlay.style.display = 'block';
+    var cached = _resolvedPickListCache[orderNumber];
+    if (cached && cached.resolved) {
+      panel.innerHTML = _renderPickListModal_(orderNumber, cached);
+      return;
+    }
+    panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim)">Loading pick list for ' + esc(String(orderNumber)) + '…</div>';
+    groundApi('getResolvedPickList', { orderNumber: orderNumber }).then(function (res) {
+      if (!res || !res.ok) {
+        panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Pick list error: ' + esc(String((res && res.error) || 'unknown')) + '</div>'
+          + '<div style="text-align:center;margin-top:12px"><button class="js-close-finish" onclick="closeFinishWizard()" style="padding:10px 18px;background:rgba(255,255,255,.14);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.30);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">Close</button></div>';
+        return;
+      }
+      _resolvedPickListCache[orderNumber] = res;
+      panel.innerHTML = _renderPickListModal_(orderNumber, res);
+    }).catch(function (e) {
+      panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Load error: ' + esc(String(e && e.message || e)) + '</div>';
+    });
+  };
+
+  function _renderPickListModal_(orderNumber, res) {
+    var buckets = (res.resolved && res.resolved.buckets) || {};
+    var order = 'orderNumber' in res.resolved ? res.resolved.orderNumber : orderNumber;
+    var ago = '';
     try {
-      if (typeof switchTab === 'function') switchTab('pack');
-      if (typeof setPackTabMode === 'function') setPackTabMode('prepack');
+      if (res.resolved_at) {
+        var mins = Math.floor((Date.now() - new Date(res.resolved_at).getTime()) / 60000);
+        ago = mins < 1 ? 'just now' : mins < 60 ? mins + ' min ago' : Math.floor(mins / 60) + 'h ago';
+      }
     } catch (e) {}
-    setTimeout(function () {
-      var input = document.getElementById('packOrderSearchInput') || document.querySelector('input[placeholder*=order]');
-      if (input) { input.value = orderNumber; if (input.onchange) input.onchange({ target: input }); }
-    }, 250);
+    var sourceLabel = res.source === 'cache'
+      ? '⚡ cached'
+      : (res.source === 'fresh_cached' ? '🔄 freshly resolved' : '⏱ live resolve');
+
+    var buckSections = '';
+    var bucketOrder = ['hardware', 'frame', 'packaging', 'instruction', 'side_cabinet', 'cabinet'];
+    var bucketMeta = {
+      hardware:     { icon: '🔧', label: 'Hardware',      accent: '#00e676' },
+      frame:        { icon: '📦', label: 'Frame Boxes',   accent: '#42a5f5' },
+      packaging:    { icon: '📮', label: 'Packaging',     accent: '#ffb300' },
+      instruction:  { icon: '📄', label: 'Instructions',  accent: '#ba68c8' },
+      side_cabinet: { icon: '🚪', label: 'Side Cabinets', accent: '#ff8a65' },
+      cabinet:      { icon: '🗄',  label: 'Cabinet Ref',   accent: '#9e9e9e' },
+    };
+    bucketOrder.forEach(function (key) {
+      var lines = buckets[key] || [];
+      if (!lines.length) return;
+      var m = bucketMeta[key];
+      buckSections += '<div style="margin-bottom:12px">'
+        + '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">'
+        +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:' + m.accent + ';-webkit-text-fill-color:' + m.accent + '">' + m.icon + ' ' + m.label + '</div>'
+        +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">' + lines.length + '</div>'
+        + '</div>';
+      buckSections += '<div style="display:flex;flex-direction:column;gap:3px">';
+      lines.forEach(function (li) {
+        var qty = Number(li.qty) || 0;
+        buckSections += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:6px">'
+          + '<div style="min-width:36px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:900;color:' + m.accent + ';-webkit-text-fill-color:' + m.accent + '">' + qty + '×</div>'
+          + '<div style="flex:1;font-size:12.5px;color:var(--text);-webkit-text-fill-color:var(--text)">' + esc(li.item_sku || li.sku || '?') + (li.label ? ' <span style="color:var(--text-dim);font-size:11px">— ' + esc(li.label) + '</span>' : '') + '</div>'
+          + '</div>';
+      });
+      buckSections += '</div></div>';
+    });
+
+    if (!buckSections) {
+      buckSections = '<div style="padding:24px;text-align:center;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-style:italic">Pick list resolved but returned no items. Check the order in Shopify.</div>';
+    }
+
+    return ''
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
+      +   '<div>'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">🔧 Pack Hardware · ' + esc(String(order)) + '</div>'
+      +     '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
+      +       '<span style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">' + sourceLabel + (ago ? ' · ' + ago : '') + '</span>'
+      +       '<button onclick="_forceResolvePickList_(\'' + esc(String(orderNumber)) + '\')" title="Re-run the resolver against fresh Shopify + BOM data (use when you edited variant_map or bundle_bom)" style="padding:4px 10px;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1px solid rgba(255,255,255,.25);border-radius:5px;font-size:10.5px;font-weight:800;cursor:pointer">🔁 Refresh</button>'
+      +     '</div>'
+      +   '</div>'
+      +   '<button class="js-close-finish" onclick="closeFinishWizard()" title="Close" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.28);font-size:16px;font-weight:900;cursor:pointer">✕</button>'
+      + '</div>'
+      + buckSections
+      + '<div style="margin-top:14px;font-size:11.5px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-style:italic">To scan / verify hardware, use the Pre-Pack surface (More menu). This modal is the fast read-only view for reference.</div>';
+  }
+
+  window._forceResolvePickList_ = async function (orderNumber) {
+    var panel = document.getElementById('finishWizardPanel');
+    if (panel) panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim)">Re-resolving pick list…</div>';
+    delete _resolvedPickListCache[orderNumber];
+    try {
+      var res = await groundApi('getResolvedPickList', { orderNumber: orderNumber, force: true });
+      if (!res || !res.ok) {
+        if (panel) panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Refresh failed: ' + esc(String((res && res.error) || 'unknown')) + '</div>';
+        return;
+      }
+      _resolvedPickListCache[orderNumber] = res;
+      if (panel) panel.innerHTML = _renderPickListModal_(orderNumber, res);
+    } catch (e) {
+      if (panel) panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Refresh error: ' + esc(String(e && e.message || e)) + '</div>';
+    }
   };
   window.openJobDetailStack = function (orderNumber) {
     // Open Stacker Guide for this order. Guide URL pattern from Phase 3.
@@ -36233,7 +36370,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1450"></script>
+<script src="./pack.js?v=10.1451"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36244,7 +36381,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1450<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1451<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
