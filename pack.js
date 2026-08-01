@@ -2241,15 +2241,47 @@ async function addUpcomingToToday_(orderNumber) {
   if (!orderNumber) return;
   const pin = promptManagerPin_('add to today');
   if (!pin) return;
+  // v10.1449 (Zac 2026-08-01) — "nothing happens" fix. The Orders-tab
+  // Pack lens was the actual origin of the tap (screenshot showed the
+  // ship-soon warning + Today buttons on tab-orders), but this fn only
+  // refreshed the LEGACY Pack tab via refreshPackQueue + showPackBanner_
+  // (both write into #packQueueList / #packActionBanner which don't
+  // exist on the Orders tab). Server accepted the write but the visible
+  // surface never repainted, so Zac had to reload to see the order move.
+  // Fix: (a) optimistically remove the row from the ship-soon panel
+  // immediately for instant feedback, (b) fire refreshes for BOTH
+  // surfaces in parallel, (c) always toast (works globally, not
+  // panel-specific like showPackBanner_).
   try {
+    // Optimistic UI — pull the row out of the ship-soon panel now so
+    // the click "feels" instant even before the API round-trip.
+    document.querySelectorAll('#packModeWarningHost [onclick*="addUpcomingToToday_(\'' + orderNumber + '\')"]').forEach(function (btn) {
+      var row = btn.closest('div[style*="background:rgba(255,82,82"]');
+      if (row) row.style.display = 'none';
+    });
+    if (typeof showToast === 'function') showToast('Adding ' + orderNumber + ' to today\'s list…');
     const res = await groundApi('addOrderByNumber', { orderNumber: orderNumber, manager_pin: pin });
     if (!res || !res.ok) {
       if (res && /pin/i.test(res.error || '')) clearManagerPin_();
+      // Restore the row we optimistically hid.
+      document.querySelectorAll('#packModeWarningHost [onclick*="addUpcomingToToday_(\'' + orderNumber + '\')"]').forEach(function (btn) {
+        var row = btn.closest('div[style*="display:none"]');
+        if (row) row.style.display = '';
+      });
       showToast((res && res.error) || 'Add failed');
       return;
     }
-    await refreshPackQueue();
-    showPackBanner_('Order ' + orderNumber + ' on today’s list ✓', '#00e676');
+    // Refresh BOTH surfaces in parallel; either may be visible.
+    const tasks = [];
+    if (typeof refreshPackQueue === 'function') tasks.push(refreshPackQueue().catch(function () {}));
+    if (typeof refreshOrderPipeline === 'function') {
+      tasks.push(refreshOrderPipeline({ force: true }).then(function () {
+        if (typeof renderOrdersTab === 'function') renderOrdersTab();
+      }).catch(function () {}));
+    }
+    await Promise.all(tasks);
+    if (typeof showToast === 'function') showToast('✓ ' + orderNumber + ' on today\'s list');
+    if (typeof showPackBanner_ === 'function') showPackBanner_('Order ' + orderNumber + ' on today’s list ✓', '#00e676');
   } catch (err) {
     showToast('Add error: ' + err.message);
   }
