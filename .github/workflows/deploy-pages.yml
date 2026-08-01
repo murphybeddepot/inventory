@@ -1,0 +1,86 @@
+name: deploy-pages
+
+# Publishes the Bedrock PWA to GitHub Pages — but only after validation passes.
+#
+# BEFORE (until 2026-08-01): Pages used the legacy branch publisher, which
+# builds on every push to main independently of Actions. Validation could only
+# report that a broken PWA had already gone live to the warehouse floor. The
+# two ran side by side; you could watch `pages-build-deployment` publish while
+# the checks were still running.
+#
+# AFTER: Pages build_type is "workflow", so this file is the only path to
+# production. `deploy` declares `needs: validate`, which makes the dependency
+# real — a parse error in an inline <script> now stops publication instead of
+# white-screening the app and telling us afterwards.
+#
+# Failure mode if this workflow itself breaks: nothing new publishes and the
+# LAST GOOD deploy keeps serving. Stale, never blank. Reverting to the legacy
+# publisher is one API call:
+#   gh api -X PUT repos/murphybeddepot/inventory/pages -f build_type=legacy \
+#     -f 'source[branch]=main' -f 'source[path]=/'
+#
+# Audited before switching (2026-08-01): no custom domain (cname null, so no
+# CNAME file to preserve), https_enforced true, no custom 404, no service
+# worker and no web manifest in the repo, and the only relative asset path is
+# ./pack.js. `path: .` uploads the whole repo root, which is what the legacy
+# publisher served, so every URL — including stacking-recipe-editor/ — keeps
+# resolving.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Serialize. cancel-in-progress is FALSE: cancelling a half-finished Pages
+# deployment is worse than queueing behind it, and the newest push wins anyway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/_validate.yml
+
+  deploy:
+    name: publish to Pages
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the whole site root
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Same tree the legacy publisher served. Do NOT narrow this to
+          # index.html — board.html, pack.js, the icons and the
+          # stacking-recipe-editor/ subtree are all live URLs.
+          path: .
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## PWA deployment"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Validation | ✅ passed — this job only runs if it did |"
+            echo "| Published | ${{ steps.deployment.outcome }} |"
+            echo "| URL | ${{ steps.deployment.outputs.page_url }} |"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

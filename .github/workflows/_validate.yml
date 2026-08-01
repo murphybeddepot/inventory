@@ -1,4 +1,4 @@
-name: validate-pwa
+name: _validate
 
 # Bedrock's PWA is served from THIS repo (GitHub Pages, legacy build from
 # main/root). It is what the warehouse actually loads.
@@ -7,21 +7,17 @@ name: validate-pwa
 # mbd-warehouse and pushed — and a single parse error in an inline <script>
 # white-screens the whole app on the floor. That has happened repeatedly.
 #
-# IMPORTANT — this is DETECTION, NOT A GATE.
-# Pages uses the legacy build type, which publishes on push regardless of what
-# Actions says. A red X here means "the PWA you just published is broken",
-# arriving in ~30 seconds — not "the broken PWA was stopped". Making it a real
-# gate means either switching Pages to an Actions-based deploy, or making the
-# mbd-warehouse -> inventory sync a gated workflow. Both change how production
-# deploys, so both are Zac's call rather than a side effect of adding CI.
+# This is now a REAL GATE. Pages was switched from the legacy branch publisher
+# to an Actions-based deployment on 2026-08-01, so deploy-pages.yml calls this
+# as a `needs:` dependency: if any check here fails, nothing is published and
+# the previously deployed PWA stays live. Before that it could only detect a
+# breakage that had already shipped.
 #
 # Deliberately dependency-free: Node builtins only, so nothing here can be
 # broken by a lockfile or a missing install.
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
