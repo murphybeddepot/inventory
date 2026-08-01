@@ -2344,6 +2344,15 @@ input::placeholder, textarea::placeholder {
       <span style="font-size:16px;line-height:1">🔨</span><span style="flex:1">Manufacturing</span>
       <span class="ordersLensCount" data-count-lens="manufacturing" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(230,81,0,.20);color:#ff9800;-webkit-text-fill-color:#ff9800;border-radius:999px;min-width:18px;text-align:center">·</span>
     </button>
+    <!-- v10.1445 Trailer lens. Blue accent (matches the "shipping" family).
+         Auto-hidden until listTrailerQueue reports ≥1 row so the primary
+         lenses stay uncluttered when the trailer is empty. Count refreshes
+         on tab activation via _refreshTrailerCount_. -->
+    <button id="ordersLensTrailer" onclick="setOrdersLens('trailer')" data-lens="trailer"
+      style="position:relative;padding:11px 12px;background:rgba(21,101,192,.08);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(21,101,192,.40);border-radius:8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:none;align-items:center;gap:8px;text-align:left;min-height:44px;transition:background .12s,border-color .12s">
+      <span style="font-size:16px;line-height:1">🚚</span><span style="flex:1">Trailer</span>
+      <span class="ordersLensCount" data-count-lens="trailer" style="position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0;padding:1px 6px;background:rgba(21,101,192,.22);color:#64b5f6;-webkit-text-fill-color:#64b5f6;border-radius:999px;min-width:18px;text-align:center">·</span>
+    </button>
   </div>
   <!-- v10.538 Orders search — overrides the current lens. Searches
        order#, customer name, cal_label, task_line. Camera button
@@ -4077,7 +4086,11 @@ function switchTab(name) {
 // v10.327 — Orders tab lens dispatch + URL routing (PACK_REDESIGN A2c + A4a)
 // ══════════════════════════════════════════════════════════════════
 
-const _ORDERS_VALID_LENSES = ['schedule','prepack','pack','attention','manufacturing'];
+// v10.1445 — 'trailer' lens: warehouse-hand-facing surface for the
+// step-8 load-into-trailer workflow (Jonah). Fetches listTrailerQueue
+// on activation and renders its own two-column layout — NOT driven by
+// the order pipeline cache.
+const _ORDERS_VALID_LENSES = ['schedule','prepack','pack','attention','manufacturing','trailer'];
 
 // v10.345 — dismiss handler for the H/B/P/L legend strip.
 function _dismissOrdersLetterLegend_() {
@@ -4128,6 +4141,13 @@ function setOrdersLens(lens) {
 function renderOrdersTab() {
   const lens = _getOrdersActiveLens_();
   const orders = Array.isArray(_orderPipelineCache) ? _orderPipelineCache : [];
+  // v10.1445 — kick a trailer count refresh in the background whenever
+  // the Orders tab renders. Cheap server call (single Sheet read filtered
+  // to packed+loaded); result flows through _trailerCount_ and updates
+  // the chip badge / hide-when-empty logic without blocking the current
+  // render. Not awaited — the current tick still uses the stale count,
+  // next tick has the fresh one.
+  if (typeof _refreshTrailerCount_ === 'function') { _refreshTrailerCount_(); }
   // v10.345 — populate per-lens count badges + active-state. Pre-compute
   // each lens's filtered length (cheap; same orders array).
   // v10.455 — Zac: Schedule chip showing total-over-all-time is noise
@@ -4157,6 +4177,10 @@ function renderOrdersTab() {
     pack:     _filterOrdersForLens_(orders, 'pack').length,
     attention:_filterOrdersForLens_(orders, 'attention').length,
     manufacturing: _mfgCount,
+    // v10.1445 — trailer count comes from a separate server fetch
+    // (listTrailerQueue). Cached in _trailerCount_; refreshed by
+    // _refreshTrailerCount_ on lens tap + on Orders-tab activation.
+    trailer:  (typeof _trailerCount_ === 'number') ? _trailerCount_ : 0,
   };
   _ORDERS_VALID_LENSES.forEach(L => {
     const btn = document.getElementById('ordersLens' + L.charAt(0).toUpperCase() + L.slice(1));
@@ -4169,6 +4193,12 @@ function renderOrdersTab() {
     if (L === 'manufacturing') {
       const _mfgN = lensCounts.manufacturing || 0;
       btn.style.display = (_mfgN > 0 || active) ? 'flex' : 'none';
+    }
+    // v10.1445 — Trailer lens auto-hides when nothing is packed or loaded.
+    // Reveals as soon as the first pack lands or as soon as the lens is active.
+    if (L === 'trailer') {
+      const _trN = lensCounts.trailer || 0;
+      btn.style.display = (_trN > 0 || active) ? 'flex' : 'none';
     }
     // v10.455 — Zac round 2: .09 surface was still too dim; chips read
     // as dark text on dark gray. Bump to .16 surface + .50 border +
@@ -4284,6 +4314,16 @@ function renderOrdersTab() {
     const toggleEl = document.getElementById('ordersScheduleViewToggle');
     if (toggleEl) toggleEl.remove();
     list.innerHTML = _renderOrdersManufacturingHtml_(filtered);
+  } else if (lens === 'trailer') {
+    // v10.1445 — Trailer lens is PackingQueue-native (fetches its own
+    // data from listTrailerQueue), so the filtered / order-pipeline
+    // path above is irrelevant. Render a "loading" placeholder and
+    // kick the fetch; renderTrailerLensBody_ swaps in the result.
+    const toggleEl = document.getElementById('ordersScheduleViewToggle');
+    if (toggleEl) toggleEl.remove();
+    list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim);font-size:13px">Loading trailer queue…</div>';
+    _fetchTrailerQueueAndRender_();
+    return;
   } else {
     // Other lenses — clean up the schedule-toggle if it's stale
     const toggleEl = document.getElementById('ordersScheduleViewToggle');
@@ -5603,6 +5643,219 @@ async function _openSetCabPrompt_(orderNumber) {
 // Stages appear as section headers (icon + label + count); cards
 // under each header reuse the standard order-card render. Empty
 // buckets are skipped to keep the view compact.
+// v10.1445 — Trailer lens implementation. Fetches listTrailerQueue
+// (packed + loaded orders), renders two-column Ready to Load / In
+// Trailer layout, provides one-tap load action per Ready card.
+//
+// Module-level count cache — surfaces on the lens chip badge without
+// forcing a re-fetch every time renderOrdersTab runs. Refreshed via
+// _refreshTrailerCount_ on tab activation.
+let _trailerCount_ = 0;
+let _trailerFetchInflight_ = false;
+
+async function _refreshTrailerCount_() {
+  try {
+    const res = await groundApi('listTrailerQueue', {});
+    if (res && res.ok && res.counts) {
+      _trailerCount_ = (res.counts.ready_to_load || 0) + (res.counts.in_trailer || 0);
+      // Update the chip badge in place if it exists — avoid a full
+      // renderOrdersTab (which would clobber whatever the user is
+      // looking at right now).
+      const btn = document.getElementById('ordersLensTrailer');
+      if (btn) {
+        const badge = btn.querySelector('.ordersLensCount');
+        if (badge) badge.textContent = String(_trailerCount_);
+        const active = btn.getAttribute('data-lens') === (_getOrdersActiveLens_ && _getOrdersActiveLens_());
+        btn.style.display = (_trailerCount_ > 0 || active) ? 'flex' : 'none';
+      }
+    }
+  } catch (e) {
+    console.log('[trailer] count refresh failed', e && e.message);
+  }
+}
+
+async function _fetchTrailerQueueAndRender_() {
+  const list = document.getElementById('ordersList');
+  if (!list) return;
+  if (_trailerFetchInflight_) return; // debounce
+  _trailerFetchInflight_ = true;
+  try {
+    const res = await groundApi('listTrailerQueue', {});
+    if (!res || !res.ok) {
+      list.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b;font-size:13px">Failed to load trailer queue: ' + esc(String((res && res.error) || 'unknown')) + '</div>';
+      return;
+    }
+    _trailerCount_ = (res.counts && (res.counts.ready_to_load + res.counts.in_trailer)) || 0;
+    list.innerHTML = _renderTrailerLensHtml_(res);
+    // Refresh chip badge to match.
+    const btn = document.getElementById('ordersLensTrailer');
+    if (btn) {
+      const badge = btn.querySelector('.ordersLensCount');
+      if (badge) badge.textContent = String(_trailerCount_);
+    }
+  } catch (e) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b;font-size:13px">Trailer queue error: ' + esc(String(e && e.message || e)) + '</div>';
+  } finally {
+    _trailerFetchInflight_ = false;
+  }
+}
+
+function _renderTrailerLensHtml_(data) {
+  const ready = (data && data.ready_to_load) || [];
+  const trailer = (data && data.in_trailer) || [];
+  const genAt = data && data.generated_at ? new Date(data.generated_at) : new Date();
+  const genLabel = genAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  // Header: brief summary + refresh button.
+  let h = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;padding:10px 14px;background:rgba(21,101,192,.08);border:1px solid rgba(21,101,192,.30);border-radius:10px">'
+    + '<div style="display:flex;align-items:center;gap:10px">'
+    +   '<span style="font-size:22px">🚚</span>'
+    +   '<div>'
+    +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:.8px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">Load Trailer</div>'
+    +     '<div style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:2px">' + ready.length + ' ready · ' + trailer.length + ' in trailer · refreshed ' + esc(genLabel) + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<button onclick="_fetchTrailerQueueAndRender_()" style="padding:8px 14px;background:rgba(255,255,255,.14);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.30);border-radius:8px;font-size:12px;font-weight:800;letter-spacing:.5px;cursor:pointer">↻ Refresh</button>'
+    + '</div>';
+
+  // Two columns: Ready to Load (left) + In Trailer (right).
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">';
+
+  // Ready to Load column.
+  h += '<div>'
+    + '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;padding:0 4px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">📦 Ready to Load</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">' + ready.length + '</div>'
+    + '</div>';
+  if (ready.length === 0) {
+    h += '<div style="padding:24px;text-align:center;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-size:12.5px;font-style:italic;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.16);border-radius:10px">No packed orders waiting to load.</div>';
+  } else {
+    h += ready.map(r => _renderTrailerCardHtml_(r, true)).join('');
+  }
+  h += '</div>';
+
+  // In Trailer column.
+  h += '<div>'
+    + '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;padding:0 4px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">🚛 In Trailer</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">' + trailer.length + '</div>'
+    + '</div>';
+  if (trailer.length === 0) {
+    h += '<div style="padding:24px;text-align:center;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-size:12.5px;font-style:italic;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.16);border-radius:10px">Trailer is empty.</div>';
+  } else {
+    h += trailer.map(r => _renderTrailerCardHtml_(r, false)).join('');
+  }
+  h += '</div>';
+
+  h += '</div>'; // grid
+  return h;
+}
+
+function _renderTrailerCardHtml_(row, isReady) {
+  const orderNum = esc(String(row.order_number || '?'));
+  const customer = esc(String(row.customer_name || row.task_line || '').trim());
+  const ship = esc(String(row.ship_date || '').slice(0, 10) || '—');
+  const carrier = esc(String(row.carrier || row.booker || '').trim());
+  const bookingRef = esc(String(row.booking_ref || '').trim());
+  const freightLabel = String(row.freight_label_url || '').trim();
+  const priority = row.priority === true || String(row.priority || '').toUpperCase() === 'TRUE';
+
+  // Pallets summary — count comes from pallets_json if populated.
+  let palletCount = 0;
+  let dimsSummary = '';
+  try {
+    const pallets = row.pallets_json ? JSON.parse(row.pallets_json) : [];
+    if (Array.isArray(pallets) && pallets.length) {
+      palletCount = pallets.length;
+      // Show total weight + max dims when >1 pallet.
+      const totalWt = pallets.reduce((s, p) => s + (Number(p.weight_lb) || 0), 0);
+      if (totalWt > 0) dimsSummary = Math.round(totalWt) + ' lb total';
+    }
+  } catch (e) {}
+
+  const palletBadge = palletCount > 0
+    ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(21,101,192,.20);color:#64b5f6;-webkit-text-fill-color:#64b5f6;border-radius:999px;letter-spacing:.3px">' + palletCount + ' PALLET' + (palletCount === 1 ? '' : 'S') + '</span>'
+    : '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(255,193,7,.18);color:#ffc107;-webkit-text-fill-color:#ffc107;border-radius:999px;letter-spacing:.3px" title="No dims/weight captured yet">DIMS PENDING</span>';
+
+  const priorityBadge = priority
+    ? '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;font-weight:800;padding:2px 7px;background:rgba(198,40,40,.20);color:#ff5252;-webkit-text-fill-color:#ff5252;border-radius:999px;letter-spacing:.3px">🔥 PRIORITY</span>'
+    : '';
+
+  // Action button varies by column.
+  let actionHtml;
+  if (isReady) {
+    actionHtml = '<button onclick="_confirmLoadIntoTrailer_(\'' + orderNum + '\', this)" style="width:100%;padding:14px;background:linear-gradient(135deg,#1565c0,#003087);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:900;letter-spacing:1px;text-transform:uppercase;cursor:pointer;box-shadow:0 2px 6px rgba(0,48,135,.35);margin-top:10px">🚚 Load into Trailer</button>';
+  } else {
+    const loadedBy = esc(String(row.loaded_by || '').trim());
+    let loadedAgo = '';
+    try {
+      if (row.loaded_at) {
+        const then = new Date(row.loaded_at).getTime();
+        const mins = Math.floor((Date.now() - then) / 60000);
+        loadedAgo = mins < 1 ? 'just now'
+          : mins < 60 ? mins + ' min ago'
+          : Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm ago';
+      }
+    } catch (e) {}
+    actionHtml = '<div style="margin-top:10px;padding:10px 12px;background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.30);border-radius:8px;font-size:12px;color:var(--text);-webkit-text-fill-color:var(--text)">'
+      + '<div style="font-weight:700">✓ In trailer' + (loadedAgo ? ' · ' + esc(loadedAgo) : '') + '</div>'
+      + (loadedBy ? '<div style="font-size:11px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);margin-top:2px">by ' + loadedBy + '</div>' : '')
+      + '</div>';
+  }
+
+  return '<div data-trailer-card="' + orderNum + '" style="padding:14px;background:rgba(255,255,255,.05);border:1.5px solid rgba(255,255,255,.14);border-radius:10px;margin-bottom:10px">'
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px">'
+    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;color:var(--text);-webkit-text-fill-color:var(--text)">' + orderNum + '</div>'
+    +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">SHIP ' + ship + '</div>'
+    + '</div>'
+    + (customer ? '<div style="font-size:13px;color:var(--text);-webkit-text-fill-color:var(--text);margin-bottom:8px">' + customer + '</div>' : '')
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">' + priorityBadge + palletBadge + '</div>'
+    + (carrier || bookingRef || dimsSummary
+        ? '<div style="font-size:11.5px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);line-height:1.5">'
+            + (carrier ? '<div>Carrier: <b style="color:var(--text);-webkit-text-fill-color:var(--text)">' + carrier + '</b></div>' : '')
+            + (bookingRef ? '<div>Booking: <span style="font-family:\'JetBrains Mono\',monospace">' + bookingRef + '</span></div>' : '')
+            + (dimsSummary ? '<div>' + esc(dimsSummary) + '</div>' : '')
+            + '</div>'
+        : '')
+    + (freightLabel ? '<a href="' + esc(freightLabel) + '" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:11.5px;color:#64b5f6;-webkit-text-fill-color:#64b5f6;text-decoration:none;font-weight:700">↗ Freight label PDF</a>' : '')
+    + actionHtml
+    + '</div>';
+}
+
+async function _confirmLoadIntoTrailer_(orderNumber, buttonEl) {
+  if (!orderNumber) return;
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = '⏳ Loading…';
+  }
+  // Determine deviceId — reuse the same identity Bedrock uses everywhere
+  // (localStorage 'mbd_device_id' seeded on first boot; fallback to
+  // 'ipad' for pre-seeded installs).
+  let deviceId = 'unknown';
+  try {
+    deviceId = localStorage.getItem('mbd_device_id')
+      || localStorage.getItem('deviceId')
+      || (typeof DEVICE_ID !== 'undefined' && DEVICE_ID)
+      || 'ipad';
+  } catch (e) {}
+  try {
+    const res = await groundApi('markOrderLoaded', {
+      orderNumber: orderNumber,
+      deviceId: deviceId,
+    });
+    if (!res || !res.ok) {
+      alert('Load failed: ' + (res && res.error || 'unknown'));
+      if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = '🚚 Load into Trailer'; }
+      return;
+    }
+    // Re-fetch to move the card from Ready → In Trailer visually.
+    _fetchTrailerQueueAndRender_();
+  } catch (e) {
+    alert('Load failed: ' + (e && e.message || e));
+    if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = '🚚 Load into Trailer'; }
+  }
+}
+
 function _renderOrdersManufacturingHtml_(rows) {
   rows = rows || [];
   if (!rows.length) {
@@ -35018,7 +35271,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1443"></script>
+<script src="./pack.js?v=10.1445"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -35029,7 +35282,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1443<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1445<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
