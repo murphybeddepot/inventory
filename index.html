@@ -35596,6 +35596,103 @@ startAutoSync();
     if (overlay) overlay.style.display = 'none';
   };
 
+  // ------------------------------------------------------------------
+  // v10.1448 — Test Mode (per-order snapshot + revert)
+  //
+  // Zac's ask (2026-08-01): "test mode you could wire up so the order i
+  // test with won't actually be marked as packed etc when i turn test
+  // mode off". Implementation: startTestSession snapshots every column
+  // on the row; all subsequent writes hit real columns as usual so the
+  // UI shows the exact same transitions; endTestSession restores the
+  // snapshot on revert.
+  // ------------------------------------------------------------------
+
+  function _isInTestSession_(row) {
+    if (!row) return false;
+    var v = row._test_snapshot_json;
+    if (v == null) return false;
+    return String(v).trim().length > 0;
+  }
+
+  function _testModeBannerHtml_(isActive) {
+    if (!isActive) return '';
+    return '<div style="padding:8px 12px;margin-bottom:10px;background:linear-gradient(135deg,rgba(255,193,7,.16),rgba(255,152,0,.16));border:1.5px solid rgba(255,152,0,.60);border-radius:8px;display:flex;align-items:center;gap:10px;font-size:12px">'
+      + '<span style="font-size:18px">🧪</span>'
+      + '<span style="color:var(--text);-webkit-text-fill-color:var(--text);font-weight:700">TEST MODE — every change on this order reverts when you Exit + Revert.</span>'
+      + '</div>';
+  }
+
+  function _refreshCachedRow_(orderNumber, patch) {
+    var idx = _todaysJobsCache.findIndex(function (r) { return String(r.order_number) === String(orderNumber); });
+    if (idx < 0) return null;
+    if (patch) Object.assign(_todaysJobsCache[idx], patch);
+    return _todaysJobsCache[idx];
+  }
+
+  window._startTestSession_ = async function _startTestSession_(orderNumber) {
+    if (!orderNumber) return;
+    try {
+      var res = await groundApi('startTestSession', {
+        orderNumber: orderNumber,
+        deviceId: (typeof getPackDeviceId_ === 'function') ? getPackDeviceId_() : 'unknown',
+      });
+      if (!res || !res.ok) {
+        alert('Test mode failed: ' + (res && res.error || 'unknown'));
+        return;
+      }
+      // Mark the cached row as in-session so subsequent renders show
+      // the banner + Exit button without needing a full re-fetch.
+      _refreshCachedRow_(orderNumber, { _test_snapshot_json: JSON.stringify({ _snapshot_at: res.snapshot_at, _snapshot_by: res.snapshot_by }) });
+      // Re-render whichever surface is currently open.
+      var jobOverlay = document.getElementById('jobDetailOverlay');
+      if (jobOverlay && jobOverlay.style.display !== 'none') {
+        openJobDetail(orderNumber);
+      }
+      var finishOverlay = document.getElementById('finishWizardOverlay');
+      if (finishOverlay && finishOverlay.style.display !== 'none') {
+        openFinishWizard(orderNumber);
+      }
+    } catch (e) {
+      alert('Test mode error: ' + (e && e.message || e));
+    }
+  };
+
+  window._endTestSession_ = async function _endTestSession_(orderNumber) {
+    if (!orderNumber) return;
+    if (!confirm('Exit test mode and revert order ' + orderNumber + ' to its state before you started?\n\n' +
+                 '• Every column reverts (status, pallets, load/stow, photo URLs)\n' +
+                 '• Photos physically uploaded to Drive during the session stay in the folder (harmless)')) {
+      return;
+    }
+    try {
+      var res = await groundApi('endTestSession', {
+        orderNumber: orderNumber,
+        revert: true,
+      });
+      if (!res || !res.ok) {
+        alert('Exit + Revert failed: ' + (res && res.error || 'unknown'));
+        return;
+      }
+      // Wipe cached row so re-fetch pulls the reverted state.
+      _todaysJobsCache = _todaysJobsCache.filter(function (r) { return String(r.order_number) !== String(orderNumber); });
+      // Close the wizard if it's open (state is now stale).
+      var finishOverlay = document.getElementById('finishWizardOverlay');
+      if (finishOverlay && finishOverlay.style.display !== 'none') {
+        finishOverlay.style.display = 'none';
+      }
+      // Re-fetch Today's Jobs so the panel shows reverted state.
+      if (typeof _refreshTodaysJobsPanel_ === 'function') _refreshTodaysJobsPanel_();
+      // Refresh Job Detail modal if open.
+      var jobOverlay = document.getElementById('jobDetailOverlay');
+      if (jobOverlay && jobOverlay.style.display !== 'none') {
+        openJobDetail(orderNumber);
+      }
+      if (typeof showToast === 'function') showToast('✓ Test mode ended · ' + res.fields_restored + ' fields reverted');
+    } catch (e) {
+      alert('Exit + Revert error: ' + (e && e.message || e));
+    }
+  };
+
   function _renderJobDetailPanel_(row) {
     var orderNum = esc(String(row.order_number || '?'));
     var customer = esc(String(row.customer_name || row.task_line || '').trim());
@@ -35628,13 +35725,23 @@ startAutoSync();
       ? '<div style="margin-top:10px;padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;font-size:12.5px"><span style="color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">Stowed in </span><b style="font-family:\'JetBrains Mono\',monospace;letter-spacing:.5px">' + esc(row.stow_location) + '</b></div>'
       : '';
 
+    // v10.1448 — test mode: banner + header button.
+    var inTest = _isInTestSession_(row);
+    var testBtn = inTest
+      ? '<button onclick="_endTestSession_(\'' + orderNum + '\')" title="Revert all changes made during this test session" style="padding:8px 14px;background:linear-gradient(135deg,#8B0000,#c62828);color:#fff;-webkit-text-fill-color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">🔄 Exit + Revert</button>'
+      : '<button onclick="_startTestSession_(\'' + orderNum + '\')" title="Snapshot this order — all changes below revert when you Exit" style="padding:8px 14px;background:rgba(255,193,7,.14);color:#ffc107;-webkit-text-fill-color:#ffc107;border:1.5px solid rgba(255,193,7,.55);border-radius:8px;font-size:12px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;cursor:pointer">🧪 Test Mode</button>';
+
     return ''
+      + _testModeBannerHtml_(inTest)
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
-      +   '<div style="display:flex;flex-direction:column;gap:2px">'
+      +   '<div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">'
       +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:34px;font-weight:900;letter-spacing:1.2px;line-height:1;color:var(--text);-webkit-text-fill-color:var(--text)">' + orderNum + '</div>'
       +     (customer ? '<div style="font-size:13.5px;color:var(--text);-webkit-text-fill-color:var(--text)">' + customer + '</div>' : '')
       +   '</div>'
-      +   '<button class="js-close-jobdetail" onclick="closeJobDetail()" title="Close" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.28);font-size:16px;font-weight:900;cursor:pointer">✕</button>'
+      +   '<div style="display:flex;gap:6px;align-items:center">'
+      +     testBtn
+      +     '<button class="js-close-jobdetail" onclick="closeJobDetail()" title="Close" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.28);font-size:16px;font-weight:900;cursor:pointer">✕</button>'
+      +   '</div>'
       + '</div>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
       +   typeBadge + priorityBadge
@@ -35754,6 +35861,7 @@ startAutoSync();
       stowLocation: String(row.stow_location || '').trim(),
       loadedAt: row.loaded_at || '',
       loadedBy: row.loaded_by || '',
+      inTest: _isInTestSession_(row),   // v10.1448
       saveInflight: false,
     };
   }
@@ -35809,6 +35917,7 @@ startAutoSync();
     }
 
     return ''
+      + _testModeBannerHtml_(s.inTest)
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
       +   '<div>'
       +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;color:var(--text);-webkit-text-fill-color:var(--text);text-transform:uppercase">✅ Finish · ' + esc(s.orderNumber) + '</div>'
@@ -36056,7 +36165,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1447"></script>
+<script src="./pack.js?v=10.1448"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36067,7 +36176,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1447<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1448<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
