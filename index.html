@@ -12845,6 +12845,9 @@ function _poEdit_(poId) {
         if (typeof showToast === 'function') showToast('✓ PO updated · ' + newLines.length + ' lines');
         const phOv = document.getElementById('poHistoryOverlay');
         if (phOv) { phOv.remove(); _frameRunwayOpenPoHistory_(); }
+        // v10.1462 — updatePO re-projects inventory_on_order server-side;
+        // Runway needs a client reload to show the new numbers.
+        if (typeof _frameRunwayLoad_ === 'function') _frameRunwayLoad_(true);
       } catch (e) {
         console.log('[poEditSave] threw', e);
         alert('Save failed: ' + e.message);
@@ -12873,6 +12876,8 @@ async function _poReceiveLine_(poId, sku, remaining, poName) {
     }
     const phOv = document.getElementById('poHistoryOverlay');
     if (phOv) { phOv.remove(); _frameRunwayOpenPoHistory_(); }
+    // v10.1462 — refresh Runway so on_order + on_hand deltas surface immediately.
+    if (typeof _frameRunwayLoad_ === 'function') _frameRunwayLoad_(true);
   } catch (e) { alert('Receive failed: ' + e.message); }
 }
 
@@ -12885,6 +12890,15 @@ async function _poMarkReceived_(poId, poName) {
     if (typeof showToast === 'function') showToast('✓ ' + (r.lines_received || 0) + ' lines received, ' + (r.on_hand_bumped || 0) + ' on_hand updated');
     const phOv = document.getElementById('poHistoryOverlay');
     if (phOv) { phOv.remove(); _frameRunwayOpenPoHistory_(); }
+    // v10.1462 (Zac 2026-08-03) — force a Runway reload after receipt.
+    // markPOReceived bumps items.on_hand + wipes inventory_on_order
+    // server-side, but the client's _frameRunwayItemsCache is stale
+    // until something forces a reload. Zac observed on_order still
+    // showing on the Runway after Mark Received; had to click Compute
+    // Velocity to refresh. Now: fire-forget reload with force=true.
+    if (typeof _frameRunwayLoad_ === 'function') {
+      _frameRunwayLoad_(true);
+    }
   } catch (e) {
     alert('Receive failed: ' + e.message);
   }
@@ -36614,7 +36628,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1460"></script>
+<script src="./pack.js?v=10.1462"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36625,7 +36639,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1460<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1462<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
