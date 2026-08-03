@@ -30994,6 +30994,13 @@ async function groundApi(action, payload) {
     'printPickListPdfForOrder', 'pickListSessionForOrder',
     'compareCarrierRates', 'getRateCompareRates', 'fedexParcelRate',
     'fedexParcelRateForOrder', 'freightRateCompareAll', 'markPackJobBooked',
+    // v10.1460 (Zac 2026-08-03) — Pack Hardware first-tap on cold cache
+    // triggered "signal is aborted without reason" at 45s. The resolver
+    // does Shopify GET + multiple Postgres queries + items master fetch;
+    // realistic worst case ~30-60s. Bump to 180s so Jonah never sees
+    // the abort (it forces a page reload = another 20s of Today's Jobs
+    // load = wasted time).
+    'getResolvedPickList', 'resolvePickListForOrder',
   ];
   const _isMoneyAction_ = _MONEY_ACTIONS_.indexOf(_actStr) !== -1;
   const _needsMore = /sample/i.test(_actStr)
@@ -35440,6 +35447,14 @@ startAutoSync();
       }
       panel.style.display = 'block';
       panel.innerHTML = _renderTodaysJobsPanel_(rows);
+      // v10.1460 (Zac 2026-08-03) — eager pick-list prefetch. Jonah
+      // taps into an order → Pack Hardware ONCE per job. First-tap
+      // speed is what matters. As soon as Today's Jobs is on-screen,
+      // fire getResolvedPickList in the background for every job
+      // (parallel, no waiting). By the time he taps in, cache is warm
+      // and Pack Hardware opens instantly. Server rate-limits itself
+      // via Apps Script's own concurrency ceiling; we don't gate here.
+      _prefetchAllTodaysPickLists_(rows);
     } catch (e) {
       console.log('[todays-jobs] refresh failed', e && e.message);
       panel.style.display = 'none';
@@ -35627,6 +35642,34 @@ startAutoSync();
       panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Load error: ' + esc(String(e && e.message || e)) + '</div>';
     });
   };
+
+  // v10.1460 — eager prefetch every job in Today's Jobs, capped at 3
+  // concurrent so we don't hammer Apps Script's per-account throttle.
+  // Skips orders already in the session cache. Fire-forget; failures
+  // silent (client falls back to the on-tap fetch path).
+  function _prefetchAllTodaysPickLists_(rows) {
+    if (!Array.isArray(rows) || !rows.length) return;
+    var queue = rows.map(function (r) { return String(r.order_number || '').trim(); })
+      .filter(function (on) { return on && !_resolvedPickListCache[on]; });
+    var MAX_INFLIGHT = 3;
+    var inflight = 0;
+    function next() {
+      if (!queue.length) return;
+      if (inflight >= MAX_INFLIGHT) return;
+      var on = queue.shift();
+      inflight++;
+      groundApi('getResolvedPickList', { orderNumber: on }).then(function (res) {
+        if (res && res.ok) _resolvedPickListCache[on] = res;
+      }).catch(function () {}).finally(function () {
+        inflight--;
+        next();
+      });
+      // Fill up to the concurrency cap right away.
+      next();
+    }
+    // Kick off up to MAX_INFLIGHT in parallel.
+    for (var i = 0; i < MAX_INFLIGHT; i++) next();
+  }
 
   function _prefetchResolvedPickList_(orderNumber) {
     // Skip if already in memory this session.
@@ -36571,7 +36614,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1459"></script>
+<script src="./pack.js?v=10.1460"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36582,7 +36625,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1459<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1460<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
