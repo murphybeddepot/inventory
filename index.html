@@ -35839,18 +35839,22 @@ startAutoSync();
   // Placeholder routers for the non-Finish action tiles. Each links to
   // the existing surface where the action lives, so no work is lost —
   // the Job Detail modal is the discovery layer, not a replacement.
+  // v10.1455 — check-off local state for the currently-open Pick List modal.
+  // Speed-first: tap flips DOM immediately + updates this object; a 300ms
+  // debounced batch writes the whole map to setHardwarePicked. Jonah never
+  // waits on a server round-trip.
+  var _hwPickState = { orderNumber: null, picked: {}, dirty: false, saveTimer: null, deviceId: null };
+
   window.openJobDetailHardware = function (orderNumber) {
-    // v10.1451 — instant pick list. getResolvedPickList reads the cached
-    // resolved_pick_list_json off the row (populated at Shopify webhook
-    // time), so this modal opens with data already in hand. Fallback:
-    // server lazily resolves + caches on first read.
+    // v10.1451/1455 — instant pick list w/ check-off. getResolvedPickList
+    // returns both resolved+picked; client caches so re-open is 0-latency.
     var overlay = document.getElementById('finishWizardOverlay');
     var panel = document.getElementById('finishWizardPanel');
     if (!overlay || !panel) return;
-    // Reuse the finish wizard overlay so this modal stacks above Job Detail.
     overlay.style.display = 'block';
     var cached = _resolvedPickListCache[orderNumber];
     if (cached && cached.resolved) {
+      _initHwPickState_(orderNumber, cached);
       panel.innerHTML = _renderPickListModal_(orderNumber, cached);
       return;
     }
@@ -35862,11 +35866,94 @@ startAutoSync();
         return;
       }
       _resolvedPickListCache[orderNumber] = res;
+      _initHwPickState_(orderNumber, res);
       panel.innerHTML = _renderPickListModal_(orderNumber, res);
     }).catch(function (e) {
       panel.innerHTML = '<div style="padding:24px;text-align:center;color:#ff6b6b">Load error: ' + esc(String(e && e.message || e)) + '</div>';
     });
   };
+
+  function _initHwPickState_(orderNumber, res) {
+    // Seed local state from server's picked map (persisted across reloads
+    // and devices — Jonah picks 12 items, closes the modal, comes back:
+    // those 12 are still checked).
+    _hwPickState.orderNumber = String(orderNumber);
+    _hwPickState.picked = (res && res.picked && typeof res.picked === 'object') ? Object.assign({}, res.picked) : {};
+    _hwPickState.dirty = false;
+    if (_hwPickState.saveTimer) { clearTimeout(_hwPickState.saveTimer); _hwPickState.saveTimer = null; }
+    try {
+      _hwPickState.deviceId = localStorage.getItem('mbd_device_id')
+        || localStorage.getItem('deviceId')
+        || (typeof DEVICE_ID !== 'undefined' && DEVICE_ID)
+        || 'ipad';
+    } catch (e) { _hwPickState.deviceId = 'unknown'; }
+  }
+
+  // Sync any pending picks BEFORE the modal is torn down (close, unload,
+  // navigating away, etc.) so a fast Jonah + fast tap doesn't lose state.
+  function _flushHwPickState_() {
+    if (!_hwPickState.dirty || !_hwPickState.orderNumber) return;
+    if (_hwPickState.saveTimer) { clearTimeout(_hwPickState.saveTimer); _hwPickState.saveTimer = null; }
+    var body = {
+      orderNumber: _hwPickState.orderNumber,
+      picked: _hwPickState.picked,
+      deviceId: _hwPickState.deviceId,
+    };
+    // Fire-and-forget — no toast, no re-render.
+    groundApi('setHardwarePicked', body).catch(function () {});
+    _hwPickState.dirty = false;
+  }
+
+  // Scheduled save — 300ms after the last tap. Coalesces rapid-fire taps
+  // into a single server call.
+  function _scheduleHwPickSave_() {
+    if (_hwPickState.saveTimer) clearTimeout(_hwPickState.saveTimer);
+    _hwPickState.saveTimer = setTimeout(_flushHwPickState_, 300);
+  }
+
+  // Tap handler — INSTANT DOM update, defer server sync.
+  // Zero server round-trip in the tap path. Called from the inline
+  // onclick attribute on every pick-list row.
+  window._hwPickToggle_ = function (sku) {
+    if (!sku || !_hwPickState.orderNumber) return;
+    var wasChecked = !!_hwPickState.picked[sku];
+    if (wasChecked) {
+      delete _hwPickState.picked[sku];
+    } else {
+      _hwPickState.picked[sku] = { picked_at: new Date().toISOString(), picked_by: _hwPickState.deviceId };
+    }
+    _hwPickState.dirty = true;
+    var row = document.querySelector('[data-hw-sku="' + CSS.escape(sku) + '"]');
+    if (row) _paintHwRowState_(row, !wasChecked);
+    _paintHwProgress_();
+    _scheduleHwPickSave_();
+  };
+
+  function _paintHwRowState_(row, checked) {
+    if (!row) return;
+    row.setAttribute('data-hw-picked', checked ? '1' : '0');
+    row.style.background = checked ? 'rgba(0,230,118,.14)' : 'rgba(255,255,255,.03)';
+    row.style.borderColor = checked ? 'rgba(0,230,118,.55)' : 'rgba(255,255,255,.10)';
+    row.style.opacity = checked ? '.72' : '1';
+    var box = row.querySelector('.hw-checkbox');
+    if (box) {
+      box.textContent = checked ? '✓' : '';
+      box.style.background = checked ? '#00c853' : 'rgba(0,0,0,.35)';
+      box.style.borderColor = checked ? '#00c853' : 'rgba(255,255,255,.35)';
+      box.style.color = checked ? '#000' : 'transparent';
+    }
+  }
+
+  function _paintHwProgress_() {
+    var el = document.getElementById('hwProgressLine');
+    if (!el || !_hwPickState.orderNumber) return;
+    var totalLines = Number(el.getAttribute('data-hw-total') || 0);
+    var pickedCount = Object.keys(_hwPickState.picked).length;
+    var pct = totalLines ? Math.round(pickedCount / totalLines * 100) : 0;
+    el.textContent = pickedCount + ' / ' + totalLines + ' picked · ' + pct + '%';
+    var bar = document.getElementById('hwProgressBar');
+    if (bar) bar.style.width = pct + '%';
+  }
 
   function _renderPickListModal_(orderNumber, res) {
     var buckets = (res.resolved && res.resolved.buckets) || {};
@@ -35882,6 +35969,13 @@ startAutoSync();
       ? '⚡ cached'
       : (res.source === 'fresh_cached' ? '🔄 freshly resolved' : '⏱ live resolve');
 
+    // v10.1455 — pre-count total lines for the progress bar. Every
+    // renderable bucket line counts as one tap target regardless of
+    // its qty. The `cabinet` bucket is EXCLUDED from the tap total —
+    // it's a reference row (order#), not a physical pick.
+    var pickable = _hwPickState.picked || {};
+    var totalLines = 0;
+
     var buckSections = '';
     var bucketOrder = ['hardware', 'frame', 'packaging', 'instruction', 'side_cabinet', 'cabinet'];
     var bucketMeta = {
@@ -35896,17 +35990,37 @@ startAutoSync();
       var lines = buckets[key] || [];
       if (!lines.length) return;
       var m = bucketMeta[key];
+      var isReference = (key === 'cabinet');
       buckSections += '<div style="margin-bottom:12px">'
         + '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">'
         +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:' + m.accent + ';-webkit-text-fill-color:' + m.accent + '">' + m.icon + ' ' + m.label + '</div>'
         +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">' + lines.length + '</div>'
         + '</div>';
-      buckSections += '<div style="display:flex;flex-direction:column;gap:3px">';
+      buckSections += '<div style="display:flex;flex-direction:column;gap:4px">';
       lines.forEach(function (li) {
         var qty = Number(li.qty) || 0;
-        buckSections += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:6px">'
-          + '<div style="min-width:36px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:900;color:' + m.accent + ';-webkit-text-fill-color:' + m.accent + '">' + qty + '×</div>'
-          + '<div style="flex:1;font-size:12.5px;color:var(--text);-webkit-text-fill-color:var(--text)">' + esc(li.item_sku || li.sku || '?') + (li.label ? ' <span style="color:var(--text-dim);font-size:11px">— ' + esc(li.label) + '</span>' : '') + '</div>'
+        var sku = String(li.item_sku || li.sku || '?');
+        var checked = !!pickable[sku];
+        if (!isReference) totalLines++;
+        // Tap target: whole row is clickable when non-reference.
+        // Inline styles set to CHECKED-state initial values when the
+        // seed data says so, so a reload paints correctly without JS.
+        var rowStyle = 'display:flex;align-items:center;gap:10px;padding:10px 12px;background:'
+          + (checked ? 'rgba(0,230,118,.14)' : 'rgba(255,255,255,.03)')
+          + ';border:1.5px solid '
+          + (checked ? 'rgba(0,230,118,.55)' : 'rgba(255,255,255,.10)')
+          + ';border-radius:8px;transition:background .08s ease,border-color .08s ease,opacity .08s ease;'
+          + (isReference ? 'cursor:default;opacity:.8' : 'cursor:pointer;opacity:' + (checked ? '.72' : '1'));
+        var boxStyle = 'flex-shrink:0;width:28px;height:28px;border-radius:6px;border:2px solid '
+          + (checked ? '#00c853' : 'rgba(255,255,255,.35)')
+          + ';background:' + (checked ? '#00c853' : 'rgba(0,0,0,.35)')
+          + ';color:' + (checked ? '#000' : 'transparent')
+          + ';display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;line-height:1';
+        var onclick = isReference ? '' : 'onclick="_hwPickToggle_(\'' + sku.replace(/'/g, "\\'") + '\')"';
+        buckSections += '<div data-hw-sku="' + esc(sku) + '" data-hw-picked="' + (checked ? '1' : '0') + '" ' + onclick + ' style="' + rowStyle + '">'
+          + (isReference ? '' : '<div class="hw-checkbox" style="' + boxStyle + '">' + (checked ? '✓' : '') + '</div>')
+          + '<div style="min-width:42px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:15px;font-weight:900;color:' + m.accent + ';-webkit-text-fill-color:' + m.accent + '">' + qty + '×</div>'
+          + '<div style="flex:1;font-size:13.5px;color:var(--text);-webkit-text-fill-color:var(--text);line-height:1.3">' + esc(sku) + (li.label ? ' <span style="color:var(--text-dim);font-size:11.5px">— ' + esc(li.label) + '</span>' : '') + '</div>'
           + '</div>';
       });
       buckSections += '</div></div>';
@@ -35915,6 +36029,19 @@ startAutoSync();
     if (!buckSections) {
       buckSections = '<div style="padding:24px;text-align:center;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-style:italic">Pick list resolved but returned no items. Check the order in Shopify.</div>';
     }
+
+    // Progress bar — reads _hwPickState directly for initial state.
+    var pickedCount = Object.keys(pickable).length;
+    var pct = totalLines ? Math.round(pickedCount / totalLines * 100) : 0;
+    var progressRow = '<div style="margin:10px 0 14px;padding:10px 14px;background:rgba(0,230,118,.06);border:1.5px solid rgba(0,230,118,.30);border-radius:10px">'
+      + '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--text);-webkit-text-fill-color:var(--text)">Progress</div>'
+      +   '<div id="hwProgressLine" data-hw-total="' + totalLines + '" style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:800;color:#00e676;-webkit-text-fill-color:#00e676">' + pickedCount + ' / ' + totalLines + ' picked · ' + pct + '%</div>'
+      + '</div>'
+      + '<div style="height:8px;background:rgba(0,0,0,.30);border-radius:999px;overflow:hidden">'
+      +   '<div id="hwProgressBar" style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,#00c853,#00e676);transition:width .12s ease;border-radius:999px"></div>'
+      + '</div>'
+      + '</div>';
 
     return ''
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
@@ -35927,8 +36054,9 @@ startAutoSync();
       +   '</div>'
       +   '<button class="js-close-finish" onclick="closeFinishWizard()" title="Close" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.10);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.28);font-size:16px;font-weight:900;cursor:pointer">✕</button>'
       + '</div>'
+      + progressRow
       + buckSections
-      + '<div style="margin-top:14px;font-size:11.5px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-style:italic">To scan / verify hardware, use the Pre-Pack surface (More menu). This modal is the fast read-only view for reference.</div>';
+      + '<div style="margin-top:14px;font-size:11.5px;color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-style:italic">Tap a row to mark it picked. State survives reload + syncs across devices in the background.</div>';
   }
 
   window._forceResolvePickList_ = async function (orderNumber) {
@@ -35993,6 +36121,11 @@ startAutoSync();
 
   window.closeFinishWizard = function closeFinishWizard(evt) {
     if (evt && evt.target && evt.target.id !== 'finishWizardOverlay' && !evt.target.classList.contains('js-close-finish')) return;
+    // v10.1455 — flush any pending Pack Hardware picks before tearing
+    // the modal down. Jonah's last tap fires the DOM update immediately
+    // but the 300ms debounced server write may not have gone yet; if
+    // the modal closes first, the timer would fire against stale state.
+    try { _flushHwPickState_(); } catch (e) {}
     var overlay = document.getElementById('finishWizardOverlay');
     if (overlay) overlay.style.display = 'none';
     _finishState_ = null;
@@ -36396,7 +36529,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1454"></script>
+<script src="./pack.js?v=10.1455"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36407,7 +36540,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1454<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1455<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
