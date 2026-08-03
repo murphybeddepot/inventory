@@ -35959,28 +35959,33 @@ startAutoSync();
     if (bar) bar.style.width = pct + '%';
   }
 
-  // v10.1458 — render every pick-list row with BOTH the item # AND
-  // the human-readable description whenever we know them, in one of
-  // three shapes depending on what the server attached:
-  //   1. Bare Hafele SKU + description  → "262.26.535 · CAM"
-  //   2. Descriptive SKU + hafele_part  → "CAB CAMS 21in · 262.26.535 · CAM"
-  //   3. Anything else (no # available) → "CAB "L" BRACKETS · <desc>"
-  // Description falls back to li.label (legacy field) if items master
-  // didn't have a name for this SKU.
+  // v10.1459 — CONSISTENT format on every row (Zac 2026-08-03): item#
+  // first (monospace, always in the same visual slot), then description
+  // after a dot separator. Prior render put whichever field happened to
+  // be item_sku first; Zac wanted uniform "155.99.016 · 128MM TT SILVER
+  // HANDLE" style throughout.
+  //
+  // Field resolution:
+  //   part# — bare Hafele from sku itself, else li.hafele_part, else null
+  //   description — server-attached li.description, else the sku itself
+  //                 when sku is a descriptive name, else li.label fallback
   function _renderPickListLineLabel_(sku, li) {
     var isBareHafele = /^\d{3}\.\d{2}\.\d{3}$/.test(sku);
     var partNo = isBareHafele ? sku : (li && li.hafele_part ? String(li.hafele_part) : '');
-    var desc = (li && (li.description || li.label)) ? String(li.description || li.label) : '';
-    var main = isBareHafele
-      ? '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(sku) + '</span>'
-      : '<span style="font-weight:700">' + esc(sku) + '</span>';
-    var partChip = (partNo && partNo !== sku)
-      ? ' <span style="color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-family:\'JetBrains Mono\',monospace;font-size:11.5px">· ' + esc(partNo) + '</span>'
+    var desc = '';
+    if (li && li.description) desc = String(li.description);
+    else if (!isBareHafele) desc = sku;
+    else if (li && li.label) desc = String(li.label);
+    var partHtml = partNo
+      ? '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:var(--text);-webkit-text-fill-color:var(--text)">' + esc(partNo) + '</span>'
       : '';
-    var descChip = desc
-      ? ' <span style="color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-size:11.5px">· ' + esc(desc) + '</span>'
+    var descHtml = desc
+      ? '<span style="font-weight:700;color:var(--text);-webkit-text-fill-color:var(--text)">' + esc(desc) + '</span>'
       : '';
-    return main + partChip + descChip;
+    if (partHtml && descHtml) {
+      return partHtml + ' <span style="color:var(--text-dim);-webkit-text-fill-color:var(--text-dim)">·</span> ' + descHtml;
+    }
+    return partHtml || descHtml || '<span>' + esc(sku) + '</span>';
   }
 
   function _renderPickListModal_(orderNumber, res) {
@@ -36005,20 +36010,27 @@ startAutoSync();
     var totalLines = 0;
 
     var buckSections = '';
-    var bucketOrder = ['hardware', 'frame', 'packaging', 'instruction', 'side_cabinet', 'cabinet'];
+    // v10.1459 — Zac's order: cabinet ref at top, then instructions,
+    // hardware, side-cab hardware, frame boxes, packaging (reference
+    // only — Jonah doesn't tick these off, just sees the list).
+    var bucketOrder = ['cabinet', 'instruction', 'hardware', 'side_cabinet', 'frame', 'packaging'];
     var bucketMeta = {
-      hardware:     { icon: '🔧', label: 'Hardware',      accent: '#00e676' },
-      frame:        { icon: '📦', label: 'Frame Boxes',   accent: '#42a5f5' },
-      packaging:    { icon: '📮', label: 'Packaging',     accent: '#ffb300' },
-      instruction:  { icon: '📄', label: 'Instructions',  accent: '#ba68c8' },
-      side_cabinet: { icon: '🚪', label: 'Side Cabinets', accent: '#ff8a65' },
-      cabinet:      { icon: '🗄',  label: 'Cabinet Ref',   accent: '#9e9e9e' },
+      cabinet:      { icon: '🗄',  label: 'Cabinet',        accent: '#9e9e9e' },
+      instruction:  { icon: '📄', label: 'Instructions',   accent: '#ba68c8' },
+      hardware:     { icon: '🔧', label: 'Hardware',       accent: '#00e676' },
+      side_cabinet: { icon: '🚪', label: 'Side Cabinets',  accent: '#ff8a65' },
+      frame:        { icon: '📦', label: 'Frame Boxes',    accent: '#42a5f5' },
+      packaging:    { icon: '📮', label: 'Packaging (ref)', accent: '#ffb300' },
     };
     bucketOrder.forEach(function (key) {
       var lines = buckets[key] || [];
       if (!lines.length) return;
       var m = bucketMeta[key];
-      var isReference = (key === 'cabinet');
+      // v10.1459 — reference buckets (cabinet + packaging) are display-
+      // only. No checkbox, no counted-toward-progress, no tap handler.
+      // Zac's ask: "the packaging items don't need to be checked off.
+      // they can be last and just a list."
+      var isReference = (key === 'cabinet' || key === 'packaging');
       buckSections += '<div style="margin-bottom:12px">'
         + '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">'
         +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:' + m.accent + ';-webkit-text-fill-color:' + m.accent + '">' + m.icon + ' ' + m.label + '</div>'
@@ -36559,7 +36571,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1458"></script>
+<script src="./pack.js?v=10.1459"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36570,7 +36582,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1458<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1459<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
