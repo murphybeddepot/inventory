@@ -30924,21 +30924,18 @@ async function groundApi(action, payload) {
   // returns the response with proper Access-Control-Allow-Origin
   // headers. Falls back to direct /exec if the worker is unreachable.
   //
-  // v10.1453 (Zac 2026-08-03) — the relay forwards to a HARDCODED
-  // STABLE URL (cloudflare-worker/src/index.js:2197: env.ORCH_EXEC_URL
-  // || <STABLE-deployment-URL>). That means ?dev=1 users were still
-  // getting STABLE responses through the relay's happy path; only when
-  // the relay failed did the fallback hit DEV via GROUND_ORCH_URL.
-  // Source of the "Unknown action: getResolvedPickList" report — the
-  // relay was cheerfully proxying to STABLE, which doesn't have the
-  // new endpoint yet.
-  //
-  // Fix: when DEV_MODE_ON, skip the relay entirely and hit the DEV
-  // deployment URL directly. If direct fetch trips CORS (older Safari
-  // or the odd redirect edge case), Zac's on dev anyway — he can see
-  // the error in DevTools and we haven't shipped it to Jonah.
+  // v10.1453 → v10.1458 — DEV traffic now GOES THROUGH the relay (fast
+  // server-side proxy, no 302/CORS pain) with body.__target='dev' so
+  // the worker routes to the DEV /exec instead of STABLE. Direct-hit
+  // fallback stays for the "relay unreachable" path. Restores the
+  // ~1-2s relay speed for dev-mode clients instead of the ~10s direct
+  // /exec path that v10.1453 forced. Worker change: cloudflare-worker
+  // v10.1458 (see mbd-warehouse commit).
   const ORCH_RELAY = 'https://mbd-label-stamper.murphybeddepot.workers.dev/orch-relay';
-  const _skipRelay = (typeof DEV_MODE_ON !== 'undefined' && DEV_MODE_ON);
+  const _skipRelay = false;
+  if (typeof DEV_MODE_ON !== 'undefined' && DEV_MODE_ON) {
+    body.__target = 'dev';
+  }
   // v10.1150 — hard timeout on both fetches. Prior code had no timeout;
   // Zac's PC hung indefinitely on Loading shipments… whenever the server
   // was slow / CORS-blocked / relay unreachable.
@@ -35962,6 +35959,30 @@ startAutoSync();
     if (bar) bar.style.width = pct + '%';
   }
 
+  // v10.1458 — render every pick-list row with BOTH the item # AND
+  // the human-readable description whenever we know them, in one of
+  // three shapes depending on what the server attached:
+  //   1. Bare Hafele SKU + description  → "262.26.535 · CAM"
+  //   2. Descriptive SKU + hafele_part  → "CAB CAMS 21in · 262.26.535 · CAM"
+  //   3. Anything else (no # available) → "CAB "L" BRACKETS · <desc>"
+  // Description falls back to li.label (legacy field) if items master
+  // didn't have a name for this SKU.
+  function _renderPickListLineLabel_(sku, li) {
+    var isBareHafele = /^\d{3}\.\d{2}\.\d{3}$/.test(sku);
+    var partNo = isBareHafele ? sku : (li && li.hafele_part ? String(li.hafele_part) : '');
+    var desc = (li && (li.description || li.label)) ? String(li.description || li.label) : '';
+    var main = isBareHafele
+      ? '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800">' + esc(sku) + '</span>'
+      : '<span style="font-weight:700">' + esc(sku) + '</span>';
+    var partChip = (partNo && partNo !== sku)
+      ? ' <span style="color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-family:\'JetBrains Mono\',monospace;font-size:11.5px">· ' + esc(partNo) + '</span>'
+      : '';
+    var descChip = desc
+      ? ' <span style="color:var(--text-dim);-webkit-text-fill-color:var(--text-dim);font-size:11.5px">· ' + esc(desc) + '</span>'
+      : '';
+    return main + partChip + descChip;
+  }
+
   function _renderPickListModal_(orderNumber, res) {
     var buckets = (res.resolved && res.resolved.buckets) || {};
     var order = 'orderNumber' in res.resolved ? res.resolved.orderNumber : orderNumber;
@@ -36027,7 +36048,9 @@ startAutoSync();
         buckSections += '<div data-hw-sku="' + esc(sku) + '" data-hw-picked="' + (checked ? '1' : '0') + '" ' + onclick + ' style="' + rowStyle + '">'
           + (isReference ? '' : '<div class="hw-checkbox" style="' + boxStyle + '">' + (checked ? '✓' : '') + '</div>')
           + '<div style="min-width:42px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:15px;font-weight:900;color:' + m.accent + ';-webkit-text-fill-color:' + m.accent + '">' + qty + '×</div>'
-          + '<div style="flex:1;font-size:13.5px;color:var(--text);-webkit-text-fill-color:var(--text);line-height:1.3">' + esc(sku) + (li.label ? ' <span style="color:var(--text-dim);font-size:11.5px">— ' + esc(li.label) + '</span>' : '') + '</div>'
+          + '<div style="flex:1;font-size:13.5px;color:var(--text);-webkit-text-fill-color:var(--text);line-height:1.3">'
+          +   _renderPickListLineLabel_(sku, li)
+          + '</div>'
           + '</div>';
       });
       buckSections += '</div></div>';
@@ -36536,7 +36559,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1457"></script>
+<script src="./pack.js?v=10.1458"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36547,7 +36570,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1457<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1458<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
