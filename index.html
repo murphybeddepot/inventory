@@ -36073,6 +36073,24 @@ startAutoSync();
     var totalLines = 0;
 
     var buckSections = '';
+    // v10.1469 — pack notes banner (server-side variant_map.pack_note).
+    // Renders above buckets so packers can't miss the note when they
+    // open Pack Hardware. Amber background keeps it visually distinct
+    // from the pick list itself.
+    var packNotes = (res.resolved && res.resolved.pack_notes) || [];
+    if (packNotes.length) {
+      buckSections += '<div style="margin-bottom:14px;padding:12px 14px;background:linear-gradient(135deg,rgba(255,193,7,.14),rgba(255,152,0,.14));border:1.5px solid rgba(255,152,0,.55);border-radius:8px">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:18px">📝</span>'
+        + '<span style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:14px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:#ff9800;-webkit-text-fill-color:#ff9800">Pack notes</span>'
+        + '</div>';
+      packNotes.forEach(function (pn) {
+        buckSections += '<div style="margin-bottom:6px;padding:8px 10px;background:rgba(0,0,0,.20);border-radius:6px;font-size:13px;line-height:1.4;color:var(--text);-webkit-text-fill-color:var(--text)">'
+          + '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;color:#ffb300;-webkit-text-fill-color:#ffb300;font-weight:800;letter-spacing:.3px">' + esc(String(pn.variant_sku || '')) + ' × ' + (Number(pn.qty) || 1) + '</span><br>'
+          + esc(String(pn.note || ''))
+          + '</div>';
+      });
+      buckSections += '</div>';
+    }
     // v10.1459 — Zac's order: cabinet ref at top, then instructions,
     // hardware, side-cab hardware, frame boxes, packaging (reference
     // only — Jonah doesn't tick these off, just sees the list).
@@ -36634,7 +36652,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1466"></script>
+<script src="./pack.js?v=10.1469"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -36645,7 +36663,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1466<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1469<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
