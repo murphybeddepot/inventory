@@ -13,7 +13,8 @@ Static web app deployed straight from this repo. iPads on the shop floor load it
 - **Anthropic API** called directly from the page — three `anthropic-version: 2023-06-01` callsites in `index.html`.
 
 ## Commits
-- **Version chip bump on every user-facing change.** Pattern: `v9.X short description`. Bump the chip in `index.html` (`>v9.38</div>` near the bottom). If `pack.js` changed, **also** bump the `?v=X.XX` cache-bust on its `<script src>` — v9.29 existed only because the service worker was serving stale `pack.js` at the old version.
+- **Version chip bump on every user-facing change.** Pattern: `v10.X short description`. Bump the pill in `index.html` (`title="Tap for system status">v10.1472` near the bottom).
+- **Pill and `pack.js?v=X.X` cache-bust MUST always match, even if `pack.js` didn't change.** The `.github/workflows` PWA-safety validation fails the deploy otherwise. Devices' service workers cache `pack.js` by URL — if the pill moves but the cache-bust doesn't, they keep serving the old JS against the new HTML (v10.1472 hotfix existed for exactly this: I bumped the pill and forgot the cache-bust on v10.1470 + v10.1471). Update BOTH strings in the same commit.
 - **Project-metadata commits** (this file, `.gitignore`, README, etc. — nothing iPads serve) skip the version bump.
 - Match the existing terse commit style. **No "Generated with Claude Code" footer, no claude.ai session URL** in commit messages.
 - Single author: `office@murphybeddepot.com`. No co-author tags.
