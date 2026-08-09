@@ -16055,7 +16055,7 @@ async function renderStockV2Dashboard_() {
         label.style.webkitTextFillColor = borderColor;
       }
     }
-    // v10.1473 — cache the rendered items so _stockV2OpenItem_ can look
+    // v10.1474 — cache the rendered items so _stockV2OpenItem_ can look
     // one up by SKU when a card is tapped (previously stubbed as an alert).
     window._stockV2ItemsCache_ = items;
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
@@ -16171,7 +16171,7 @@ function _stockV2RowHtml_(it) {
     + '</div>';
 }
 function _stockV2OpenItem_(sku) {
-  // v10.1473 — real drilldown, replacing the Phase 0 alert stub. Looks
+  // v10.1474 — real drilldown, replacing the Phase 0 alert stub. Looks
   // the item up from the cache renderStockV2Dashboard_ stashes, then
   // shows on-hand + reorder chips, every bin with a per-bin ✎ Edit
   // button that hands off to _frameRunwayOpenBinEdit_, and the last-
@@ -35722,7 +35722,7 @@ startAutoSync();
       + '</div>';
   }
 
-  // v10.1473 — Gather Frames wizard, replacing the alert stub. Walks
+  // v10.1474 — Gather Frames wizard, replacing the alert stub. Walks
   // the operator through picking every frame box for today's active
   // jobs. Data flow: _todaysJobsCache → _resolvedPickListCache[on]
   // .resolved.buckets.frame (eagerly prefetched by
@@ -35991,7 +35991,7 @@ startAutoSync();
       return;
     }
     var scanned = String(inp.value || '').trim().toUpperCase();
-    // v10.1473 — empty-input hotfix: previously we silently returned,
+    // v10.1474 — empty-input hotfix: previously we silently returned,
     // which looked exactly like "CHECK does nothing" to the operator.
     // Now: focus the input and tell them what to do.
     if (!scanned) {
@@ -36513,7 +36513,7 @@ startAutoSync();
     var totalLines = 0;
 
     var buckSections = '';
-    // v10.1473 — pack notes banner (server-side variant_map.pack_note).
+    // v10.1474 — pack notes banner (server-side variant_map.pack_note).
     // Renders above buckets so packers can't miss the note when they
     // open Pack Hardware. Amber background keeps it visually distinct
     // from the pick list itself.
@@ -37092,7 +37092,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1472"></script>
+<script src="./pack.js?v=10.1474"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37103,7 +37103,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1473<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1474<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
