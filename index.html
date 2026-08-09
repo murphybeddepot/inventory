@@ -16055,7 +16055,7 @@ async function renderStockV2Dashboard_() {
         label.style.webkitTextFillColor = borderColor;
       }
     }
-    // v10.1470 — cache the rendered items so _stockV2OpenItem_ can look
+    // v10.1471 — cache the rendered items so _stockV2OpenItem_ can look
     // one up by SKU when a card is tapped (previously stubbed as an alert).
     window._stockV2ItemsCache_ = items;
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
@@ -16171,7 +16171,7 @@ function _stockV2RowHtml_(it) {
     + '</div>';
 }
 function _stockV2OpenItem_(sku) {
-  // v10.1470 — real drilldown, replacing the Phase 0 alert stub. Looks
+  // v10.1471 — real drilldown, replacing the Phase 0 alert stub. Looks
   // the item up from the cache renderStockV2Dashboard_ stashes, then
   // shows on-hand + reorder chips, every bin with a per-bin ✎ Edit
   // button that hands off to _frameRunwayOpenBinEdit_, and the last-
@@ -35722,8 +35722,332 @@ startAutoSync();
       + '</div>';
   }
 
+  // v10.1471 — Gather Frames wizard, replacing the alert stub. Walks
+  // the operator through picking every frame box for today's active
+  // jobs. Data flow: _todaysJobsCache → _resolvedPickListCache[on]
+  // .resolved.buckets.frame (eagerly prefetched by
+  // _prefetchAllTodaysPickLists_) → groundApi('listItemBins',{sku})
+  // for the bin location per frame SKU → sorted walk list. Confirm
+  // per row is a two-scan flow: scan the frame's SKU/barcode, then
+  // (once per session unless changed) scan the destination cart.
+  // State persists in localStorage per-day so closing the overlay
+  // doesn't lose progress. Server persist attempted via
+  // groundApi('markFrameGathered',{...}); if the endpoint isn't
+  // deployed yet, we degrade to local-only and surface an amber
+  // banner. The 📦 mini-check on Today's Jobs cards flips to green
+  // once mbd-warehouse ships markFrameGathered AND _jobProgress_
+  // above reads the new frame_gathered_at column.
+
+  var _gatherFramesState = {
+    items: [],           // [{orderNumber, customer, ship_date, sku, name, qty, bin, gathered, cart_id}]
+    gatheredKey: {},     // { 'orderNum|sku': {cart_id, gathered_at, gathered_by} }
+    lastCart: '',
+    serverAvail: null,   // null=untested, true=working, false=degraded
+  };
+
+  var _GATHER_FRAMES_LS_KEY = 'mbd_gather_frames_v1';
+
+  function _gatherFramesTodayKey_() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1); if (m.length === 1) m = '0' + m;
+    var day = String(d.getDate());     if (day.length === 1) day = '0' + day;
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+
+  function _gatherFramesLoadLocal_() {
+    try {
+      var raw = localStorage.getItem(_GATHER_FRAMES_LS_KEY);
+      if (!raw) return;
+      var obj = JSON.parse(raw);
+      if (!obj || obj.day !== _gatherFramesTodayKey_()) return;
+      _gatherFramesState.gatheredKey = obj.gathered || {};
+      _gatherFramesState.lastCart = String(obj.lastCart || '');
+    } catch (e) {}
+  }
+
+  function _gatherFramesSaveLocal_() {
+    try {
+      localStorage.setItem(_GATHER_FRAMES_LS_KEY, JSON.stringify({
+        day: _gatherFramesTodayKey_(),
+        gathered: _gatherFramesState.gatheredKey,
+        lastCart: _gatherFramesState.lastCart,
+      }));
+    } catch (e) {}
+  }
+
+  window._openGatherFrames_ = function _openGatherFrames_() {
+    var prior = document.getElementById('gatherFramesOverlay');
+    if (prior) prior.remove();
+    _gatherFramesLoadLocal_();
+    var ov = document.createElement('div');
+    ov.id = 'gatherFramesOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,18,.96);z-index:9500;overflow:auto;-webkit-overflow-scrolling:touch';
+    ov.innerHTML = '<div style="padding:60px 20px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px">Loading frame boxes for today\'s jobs…</div>';
+    ov.onclick = function (e) { if (e.target === ov) window._closeGatherFrames_(); };
+    document.body.appendChild(ov);
+    _gatherFramesLoad_();
+  };
+
+  // Compat shim — existing callers still use the old name (header
+  // button in Today's Jobs, action tile in the pack banner).
   window._openGatherFramesPlaceholder_ = function _openGatherFramesPlaceholder_() {
-    alert('Frame-box gather wizard — coming in the next ship. It will walk you through your active jobs\' locations one by one to consolidate onto a staging cart.');
+    window._openGatherFrames_();
+  };
+
+  window._closeGatherFrames_ = function _closeGatherFrames_() {
+    var ov = document.getElementById('gatherFramesOverlay');
+    if (ov) ov.remove();
+  };
+
+  async function _gatherFramesLoad_() {
+    var rows = Array.isArray(_todaysJobsCache) ? _todaysJobsCache : [];
+    if (!rows.length) { _gatherFramesRenderMessage_('No active jobs today — nothing to gather.'); return; }
+
+    // Collect frame lines from cached resolved pick lists. Missing
+    // caches get a live fetch (rare; eager prefetch usually covers it).
+    var jobFrames = [];
+    var missingCache = [];
+    rows.forEach(function (r) {
+      var on = String(r.order_number || '').trim();
+      if (!on) return;
+      var cached = _resolvedPickListCache[on];
+      if (!cached || !cached.resolved || !cached.resolved.buckets) { missingCache.push({on: on, row: r}); return; }
+      ((cached.resolved.buckets.frame) || []).forEach(function (l) {
+        jobFrames.push({
+          orderNumber: on,
+          customer: String(r.customer_name || '').trim(),
+          ship_date: String(r.ship_date || '').slice(0, 10),
+          sku: String(l.item_sku || l.sku || '').trim(),
+          name: String(l.name || '').trim(),
+          qty: Number(l.qty) || 1,
+        });
+      });
+    });
+    if (missingCache.length) {
+      await Promise.all(missingCache.slice(0, 20).map(function (mc) {
+        return groundApi('getResolvedPickList', {orderNumber: mc.on})
+          .then(function (res) {
+            if (!res || !res.ok) return;
+            _resolvedPickListCache[mc.on] = res;
+            ((res.resolved && res.resolved.buckets && res.resolved.buckets.frame) || []).forEach(function (l) {
+              jobFrames.push({
+                orderNumber: mc.on,
+                customer: String(mc.row.customer_name || '').trim(),
+                ship_date: String(mc.row.ship_date || '').slice(0, 10),
+                sku: String(l.item_sku || l.sku || '').trim(),
+                name: String(l.name || '').trim(),
+                qty: Number(l.qty) || 1,
+              });
+            });
+          })
+          .catch(function () {});
+      }));
+    }
+    if (!jobFrames.length) { _gatherFramesRenderMessage_('No frame boxes on today\'s active jobs.'); return; }
+
+    // Bin lookup per unique frame SKU.
+    var uniqueSkus = Array.from(new Set(jobFrames.map(function (f) { return f.sku; }).filter(Boolean)));
+    var binsBySku = {};
+    await Promise.all(uniqueSkus.slice(0, 60).map(function (sku) {
+      return groundApi('listItemBins', {sku: sku})
+        .then(function (res) {
+          if (res && res.ok && Array.isArray(res.bins)) binsBySku[sku] = res.bins;
+        })
+        .catch(function () {});
+    }));
+
+    // Annotate with primary bin + gathered state.
+    jobFrames.forEach(function (f) {
+      var bins = binsBySku[f.sku] || [];
+      var primary = null;
+      bins.forEach(function (b) {
+        if (b && !b.is_dnu && (Number(b.qty) || 0) > 0) {
+          if (!primary || Number(b.qty) > Number(primary.qty)) primary = b;
+        }
+      });
+      if (!primary && bins.length) primary = bins[0];
+      f.bin = primary ? String(primary.location || '') : '';
+      var key = f.orderNumber + '|' + f.sku;
+      var stamped = _gatherFramesState.gatheredKey[key];
+      f.gathered = !!stamped;
+      if (stamped) f.cart_id = stamped.cart_id || '';
+    });
+
+    // Sort — ungathered first, then by bin (aisle order), then order#.
+    jobFrames.sort(function (a, b) {
+      if (a.gathered !== b.gathered) return a.gathered ? 1 : -1;
+      var ba = (a.bin || 'ZZZ').toUpperCase();
+      var bb = (b.bin || 'ZZZ').toUpperCase();
+      if (ba !== bb) return ba < bb ? -1 : 1;
+      return String(a.orderNumber).localeCompare(String(b.orderNumber));
+    });
+
+    _gatherFramesState.items = jobFrames;
+    _gatherFramesRender_();
+  }
+
+  function _gatherFramesRenderMessage_(msg) {
+    var ov = document.getElementById('gatherFramesOverlay');
+    if (!ov) return;
+    ov.innerHTML = ''
+      + '<div style="max-width:560px;margin:60px auto;padding:20px;background:#12161c;border:1.5px solid var(--border);border-radius:14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">'
+      +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+      +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;text-transform:uppercase">🛒 Gather Frames</div>'
+      +     '<button onclick="window._closeGatherFrames_()" style="padding:6px 10px;background:rgba(255,255,255,.10);color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+      +   '</div>'
+      +   '<div style="padding:20px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:13px">' + esc(String(msg)) + '</div>'
+      + '</div>';
+  }
+
+  function _gatherFramesRender_() {
+    var ov = document.getElementById('gatherFramesOverlay');
+    if (!ov) return;
+    var items = _gatherFramesState.items;
+    var totalCount = items.length;
+    var gatheredCount = items.filter(function (f) { return f.gathered; }).length;
+    var remaining = totalCount - gatheredCount;
+    var pct = totalCount === 0 ? 0 : Math.round((gatheredCount / totalCount) * 100);
+
+    var lastBin = null;
+    var rowsHtml = items.map(function (f, idx) {
+      var skuEscJs = esc(String(f.sku)).replace(/'/g, "\\'");
+      var onEscJs = esc(String(f.orderNumber)).replace(/'/g, "\\'");
+      var binShown = f.bin || '—';
+      var showBinHeader = binShown !== lastBin;
+      lastBin = binShown;
+      var binHeader = showBinHeader
+        ? '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:12px;font-weight:900;letter-spacing:1.2px;text-transform:uppercase;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;margin:12px 4px 4px">📍 ' + esc(binShown) + '</div>'
+        : '';
+      var status, actionHtml, rowStyle;
+      if (f.gathered) {
+        rowStyle = 'background:rgba(0,230,118,.10);border:1.5px solid rgba(0,230,118,.55);opacity:.85';
+        status = '<div style="font-size:11px;color:#00e676 !important;-webkit-text-fill-color:#00e676 !important;font-weight:800;letter-spacing:.5px">✓ CART ' + esc(String(f.cart_id || '?')) + '</div>';
+        actionHtml = '<button onclick="window._gatherFramesUncheck_(\'' + onEscJs + '\',\'' + skuEscJs + '\')" style="padding:5px 10px;background:rgba(255,255,255,.06);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border:1px solid rgba(255,255,255,.20);border-radius:5px;font-size:10.5px;font-weight:800;cursor:pointer;letter-spacing:.4px">↺ UNDO</button>';
+      } else {
+        rowStyle = 'background:rgba(0,0,0,.22);border:1.5px solid var(--border)';
+        status = '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:600">Not gathered</div>';
+        actionHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+          + '<input type="text" id="gf-scan-' + idx + '" placeholder="scan frame" onkeydown="if(event.key===\'Enter\'){window._gatherFramesScanFrame_(' + idx + ')}" autocomplete="off" autocorrect="off" spellcheck="false" style="width:150px;padding:7px 10px;font-family:\'JetBrains Mono\',monospace;font-size:12px;background:#000 !important;color:var(--green-bright) !important;-webkit-text-fill-color:var(--green-bright) !important;border:1.5px solid var(--border);border-radius:5px">'
+          + '<button onclick="window._gatherFramesScanFrame_(' + idx + ')" style="padding:6px 12px;background:#5B21B6 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.4px">CHECK</button>'
+          + '</div>';
+      }
+      return binHeader
+        + '<div style="padding:10px 12px;border-radius:9px;margin-bottom:6px;' + rowStyle + '">'
+        +   '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;flex-wrap:wrap">'
+        +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:900;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(f.sku) + '</div>'
+        +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:800;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important">×' + f.qty + '</div>'
+        +     '<div style="flex:1"></div>'
+        +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:700;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">#' + esc(f.orderNumber) + (f.customer ? ' · ' + esc(f.customer) : '') + '</div>'
+        +   '</div>'
+        +   '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">' + status + actionHtml + '</div>'
+        + '</div>';
+    }).join('');
+
+    var pctBar = ''
+      + '<div style="height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;margin:8px 0 4px">'
+      +   '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#00c853,#00e676);transition:width .25s ease"></div>'
+      + '</div>';
+
+    var cartHint = _gatherFramesState.lastCart
+      ? '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:4px">Cart: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(_gatherFramesState.lastCart) + '</strong> <button onclick="window._gatherFramesClearCart_()" style="margin-left:6px;padding:2px 7px;background:rgba(255,255,255,.06);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border:1px solid rgba(255,255,255,.15);border-radius:4px;font-size:10px;font-weight:700;cursor:pointer">change</button></div>'
+      : '<div style="font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;margin-top:4px">No cart set — first CHECK will prompt for one</div>';
+
+    var degradedBanner = (_gatherFramesState.serverAvail === false)
+      ? '<div style="margin-top:12px;padding:9px 12px;background:rgba(255,179,0,.12);border:1px solid rgba(255,179,0,.45);border-radius:8px;font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">⚠ Server persist unavailable (markFrameGathered endpoint not yet deployed on the orchestrator). Progress is saved locally for today.</div>'
+      : '';
+
+    ov.innerHTML = ''
+      + '<div style="max-width:720px;margin:20px auto;padding:18px;background:#12161c;border:1.5px solid var(--border);border-radius:14px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">'
+      +   '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px">'
+      +     '<div>'
+      +       '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;text-transform:uppercase">🛒 Gather Frames</div>'
+      +       '<div style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">' + gatheredCount + ' of ' + totalCount + ' gathered · ' + remaining + ' to go</div>'
+      +     '</div>'
+      +     '<button onclick="window._closeGatherFrames_()" style="padding:6px 10px;background:rgba(255,255,255,.10);color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+      +   '</div>'
+      +   pctBar
+      +   cartHint
+      +   '<div style="margin-top:14px">' + (rowsHtml || '<div style="padding:20px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">Nothing to gather.</div>') + '</div>'
+      +   degradedBanner
+      + '</div>';
+
+    // Autofocus the first ungathered scan input for wrist-scanner flow.
+    setTimeout(function () {
+      var first = ov.querySelector('input[id^="gf-scan-"]');
+      if (first) first.focus();
+    }, 60);
+  }
+
+  window._gatherFramesScanFrame_ = async function _gatherFramesScanFrame_(idx) {
+    var inp = document.getElementById('gf-scan-' + idx);
+    if (!inp) return;
+    var scanned = String(inp.value || '').trim().toUpperCase();
+    var item = _gatherFramesState.items[idx];
+    if (!scanned || !item) return;
+    var expected = String(item.sku || '').toUpperCase();
+    // Exact match OR either side contained in the other (some frame
+    // labels prefix the raw SKU with an order#, size, etc.).
+    if (scanned !== expected && expected.indexOf(scanned) < 0 && scanned.indexOf(expected) < 0) {
+      if (typeof showToast === 'function') showToast('❌ Scanned ' + scanned + ' — expected ' + expected);
+      inp.value = '';
+      return;
+    }
+    var cartId = _gatherFramesState.lastCart;
+    if (!cartId) {
+      cartId = prompt('Scan or type the destination pallet/cart ID (e.g. AA.01):');
+      if (!cartId) { inp.value = ''; return; }
+      cartId = String(cartId).trim().toUpperCase();
+      _gatherFramesState.lastCart = cartId;
+    }
+    await _gatherFramesConfirm_(idx, cartId);
+  };
+
+  async function _gatherFramesConfirm_(idx, cartId) {
+    var item = _gatherFramesState.items[idx];
+    if (!item) return;
+    var by = '';
+    try { by = String(localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+    var key = item.orderNumber + '|' + item.sku;
+    var stamp = {
+      cart_id: cartId,
+      gathered_at: new Date().toISOString(),
+      gathered_by: by || 'operator',
+    };
+    _gatherFramesState.gatheredKey[key] = stamp;
+    item.gathered = true;
+    item.cart_id = cartId;
+    _gatherFramesSaveLocal_();
+    if (_gatherFramesState.serverAvail !== false) {
+      try {
+        var res = await groundApi('markFrameGathered', {
+          order_number: item.orderNumber,
+          sku: item.sku,
+          qty: item.qty,
+          cart_id: cartId,
+          gathered_by: stamp.gathered_by,
+          gathered_at: stamp.gathered_at,
+        });
+        _gatherFramesState.serverAvail = !!(res && res.ok);
+      } catch (e) {
+        _gatherFramesState.serverAvail = false;
+      }
+    }
+    _gatherFramesRender_();
+  }
+
+  window._gatherFramesUncheck_ = function _gatherFramesUncheck_(orderNumber, sku) {
+    var key = orderNumber + '|' + sku;
+    delete _gatherFramesState.gatheredKey[key];
+    var item = _gatherFramesState.items.find(function (f) { return f.orderNumber === orderNumber && f.sku === sku; });
+    if (item) { item.gathered = false; delete item.cart_id; }
+    _gatherFramesSaveLocal_();
+    _gatherFramesRender_();
+  };
+
+  window._gatherFramesClearCart_ = function _gatherFramesClearCart_() {
+    _gatherFramesState.lastCart = '';
+    _gatherFramesSaveLocal_();
+    _gatherFramesRender_();
   };
 
   // ------------------------------------------------------------------
@@ -36173,7 +36497,7 @@ startAutoSync();
     var totalLines = 0;
 
     var buckSections = '';
-    // v10.1470 — pack notes banner (server-side variant_map.pack_note).
+    // v10.1471 — pack notes banner (server-side variant_map.pack_note).
     // Renders above buckets so packers can't miss the note when they
     // open Pack Hardware. Amber background keeps it visually distinct
     // from the pick list itself.
@@ -36763,7 +37087,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1470<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1471<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
