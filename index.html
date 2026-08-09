@@ -16055,7 +16055,7 @@ async function renderStockV2Dashboard_() {
         label.style.webkitTextFillColor = borderColor;
       }
     }
-    // v10.1474 — cache the rendered items so _stockV2OpenItem_ can look
+    // v10.1475 — cache the rendered items so _stockV2OpenItem_ can look
     // one up by SKU when a card is tapped (previously stubbed as an alert).
     window._stockV2ItemsCache_ = items;
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
@@ -16171,7 +16171,7 @@ function _stockV2RowHtml_(it) {
     + '</div>';
 }
 function _stockV2OpenItem_(sku) {
-  // v10.1474 — real drilldown, replacing the Phase 0 alert stub. Looks
+  // v10.1475 — real drilldown, replacing the Phase 0 alert stub. Looks
   // the item up from the cache renderStockV2Dashboard_ stashes, then
   // shows on-hand + reorder chips, every bin with a per-bin ✎ Edit
   // button that hands off to _frameRunwayOpenBinEdit_, and the last-
@@ -35465,6 +35465,45 @@ startAutoSync();
   var _todaysJobsInflight = false;
   var _todaysJobsCache = [];
 
+  // v10.1475 — cache-first paint. The perceived "10-15 sec to load"
+  // was actually the round-trip time to Apps Script through the
+  // Cloudflare relay. Paint the last-seen list from localStorage
+  // immediately, then refresh in the background and re-paint if the
+  // data changed. Same pattern the Pack tab uses. Day-scoped so it
+  // auto-invalidates overnight; a manual ↻ tap always force-refreshes.
+  var _TODAYS_JOBS_LS_KEY = 'mbd_todays_jobs_cache_v1';
+  var _RESOLVED_PICKLIST_LS_KEY = 'mbd_resolved_picklist_cache_v1';
+  function _dayKey_() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1); if (m.length === 1) m = '0' + m;
+    var day = String(d.getDate()); if (day.length === 1) day = '0' + day;
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+  function _todaysJobsLoadCache_() {
+    try {
+      var raw = localStorage.getItem(_TODAYS_JOBS_LS_KEY);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (!obj || obj.day !== _dayKey_() || !Array.isArray(obj.rows)) return null;
+      return obj.rows;
+    } catch (e) { return null; }
+  }
+  function _todaysJobsSaveCache_(rows) {
+    try { localStorage.setItem(_TODAYS_JOBS_LS_KEY, JSON.stringify({day: _dayKey_(), rows: rows})); } catch (e) {}
+  }
+  function _resolvedPickListLoadAllCache_() {
+    try {
+      var raw = localStorage.getItem(_RESOLVED_PICKLIST_LS_KEY);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (!obj || obj.day !== _dayKey_() || !obj.byOrder) return null;
+      return obj.byOrder;
+    } catch (e) { return null; }
+  }
+  function _resolvedPickListSaveAllCache_(cacheObj) {
+    try { localStorage.setItem(_RESOLVED_PICKLIST_LS_KEY, JSON.stringify({day: _dayKey_(), byOrder: cacheObj})); } catch (e) {}
+  }
+
   // ------------------------------------------------------------------
   // v10.1447 — "Pack Today" → "Pack Monday" / "Pack Tuesday" / …
   //
@@ -35537,6 +35576,26 @@ startAutoSync();
   window._refreshTodaysJobsPanel_ = async function _refreshTodaysJobsPanel_() {
     var panel = document.getElementById('cabTodaysJobsPanel');
     if (!panel) return;
+
+    // v10.1475 — cache-first paint. If we have a same-day cached row
+    // set, paint it right now so the panel is on-screen in <100ms even
+    // on a cold Apps Script wake-up. The fetch below still runs and
+    // re-paints if the data has moved. Also seeds _resolvedPickListCache
+    // from localStorage so Gather Frames doesn't re-fetch pick lists
+    // that were already resolved earlier today.
+    var seededRows = _todaysJobsLoadCache_();
+    if (seededRows && seededRows.length && !_todaysJobsCache.length) {
+      _todaysJobsCache = seededRows;
+      panel.style.display = 'block';
+      panel.innerHTML = _renderTodaysJobsPanel_(seededRows);
+    }
+    var seededPl = _resolvedPickListLoadAllCache_();
+    if (seededPl) {
+      Object.keys(seededPl).forEach(function (on) {
+        if (!_resolvedPickListCache[on]) _resolvedPickListCache[on] = seededPl[on];
+      });
+    }
+
     if (_todaysJobsInflight) return;
     _todaysJobsInflight = true;
     try {
@@ -35549,7 +35608,9 @@ startAutoSync();
       // still fetches the full row when the user taps in.
       var res = await groundApi('listPackingQueue', { slim: true });
       if (!res || !res.ok) {
-        panel.style.display = 'none';
+        // If we already painted from cache, keep showing it — server
+        // hiccups shouldn't blank the panel out from under the operator.
+        if (!seededRows || !seededRows.length) panel.style.display = 'none';
         return;
       }
       var rows = (res.rows || []).filter(function (r) {
@@ -35560,6 +35621,7 @@ startAutoSync();
       // Also fold in packed rows on the active list — they're the ones
       // Jonah still needs to finish (dims, photos, load/stow).
       _todaysJobsCache = rows;
+      _todaysJobsSaveCache_(rows);          // v10.1475 — persist for next open
       if (!rows.length) {
         panel.style.display = 'none';
         panel.innerHTML = '';
@@ -35577,7 +35639,7 @@ startAutoSync();
       _prefetchAllTodaysPickLists_(rows);
     } catch (e) {
       console.log('[todays-jobs] refresh failed', e && e.message);
-      panel.style.display = 'none';
+      if (!seededRows || !seededRows.length) panel.style.display = 'none';
     } finally {
       _todaysJobsInflight = false;
     }
@@ -35722,7 +35784,7 @@ startAutoSync();
       + '</div>';
   }
 
-  // v10.1474 — Gather Frames wizard, replacing the alert stub. Walks
+  // v10.1475 — Gather Frames wizard, replacing the alert stub. Walks
   // the operator through picking every frame box for today's active
   // jobs. Data flow: _todaysJobsCache → _resolvedPickListCache[on]
   // .resolved.buckets.frame (eagerly prefetched by
@@ -35775,6 +35837,30 @@ startAutoSync();
     } catch (e) {}
   }
 
+  // v10.1475 — cache the fully-computed items array (with bins) so a
+  // re-open of the wizard paints instantly. The bin lookups per SKU
+  // are the expensive part; keeping them on the day-scoped LS shelf
+  // means the operator can pop the wizard open, check progress, and
+  // close 20 times without a single new listItemBins call.
+  var _GATHER_FRAMES_ITEMS_LS_KEY = 'mbd_gather_frames_items_v1';
+  function _gatherFramesLoadItemsCache_() {
+    try {
+      var raw = localStorage.getItem(_GATHER_FRAMES_ITEMS_LS_KEY);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (!obj || obj.day !== _gatherFramesTodayKey_() || !Array.isArray(obj.items)) return null;
+      return obj.items;
+    } catch (e) { return null; }
+  }
+  function _gatherFramesSaveItemsCache_(items) {
+    try {
+      localStorage.setItem(_GATHER_FRAMES_ITEMS_LS_KEY, JSON.stringify({
+        day: _gatherFramesTodayKey_(),
+        items: items,
+      }));
+    } catch (e) {}
+  }
+
   window._openGatherFrames_ = function _openGatherFrames_() {
     var prior = document.getElementById('gatherFramesOverlay');
     if (prior) prior.remove();
@@ -35800,8 +35886,31 @@ startAutoSync();
   };
 
   async function _gatherFramesLoad_() {
+    // v10.1475 — cache-first paint. Show the last-seen items array
+    // immediately from localStorage so the wizard is on-screen in <100ms
+    // even after a page reload. Then re-compute in the background and
+    // re-paint if the shape changed. Gathered/undone state from
+    // _gatherFramesState.gatheredKey is re-applied over the cached items.
+    var cachedItems = _gatherFramesLoadItemsCache_();
+    if (cachedItems && cachedItems.length) {
+      cachedItems.forEach(function (f) {
+        var key = f.orderNumber + '|' + f.sku;
+        var stamped = _gatherFramesState.gatheredKey[key];
+        f.gathered = !!stamped;
+        f.cart_id = stamped ? (stamped.cart_id || '') : (f.cart_id || '');
+      });
+      _gatherFramesState.items = cachedItems;
+      _gatherFramesRender_();
+    }
+
     var rows = Array.isArray(_todaysJobsCache) ? _todaysJobsCache : [];
-    if (!rows.length) { _gatherFramesRenderMessage_('No active jobs today — nothing to gather.'); return; }
+    if (!rows.length) {
+      // Only show the "nothing to gather" message if we don't have a
+      // cached view up; otherwise the cached rows are the useful thing
+      // to leave on-screen while the operator sorts out the queue.
+      if (!cachedItems || !cachedItems.length) _gatherFramesRenderMessage_('No active jobs today — nothing to gather.');
+      return;
+    }
 
     // Collect frame lines from cached resolved pick lists. Missing
     // caches get a live fetch (rare; eager prefetch usually covers it).
@@ -35883,6 +35992,7 @@ startAutoSync();
     });
 
     _gatherFramesState.items = jobFrames;
+    _gatherFramesSaveItemsCache_(jobFrames);   // v10.1475 — persist for instant re-open
     _gatherFramesRender_();
   }
 
@@ -35991,7 +36101,7 @@ startAutoSync();
       return;
     }
     var scanned = String(inp.value || '').trim().toUpperCase();
-    // v10.1474 — empty-input hotfix: previously we silently returned,
+    // v10.1475 — empty-input hotfix: previously we silently returned,
     // which looked exactly like "CHECK does nothing" to the operator.
     // Now: focus the input and tell them what to do.
     if (!scanned) {
@@ -36119,7 +36229,17 @@ startAutoSync();
       var on = queue.shift();
       inflight++;
       groundApi('getResolvedPickList', { orderNumber: on }).then(function (res) {
-        if (res && res.ok) _resolvedPickListCache[on] = res;
+        if (res && res.ok) {
+          _resolvedPickListCache[on] = res;
+          // v10.1475 — persist to localStorage so tomorrow's cold open
+          // is instant (same-day only; the day-scoped LS key auto-
+          // invalidates overnight).
+          try {
+            var seed = _resolvedPickListLoadAllCache_() || {};
+            seed[on] = res;
+            _resolvedPickListSaveAllCache_(seed);
+          } catch (_e) {}
+        }
       }).catch(function () {}).finally(function () {
         inflight--;
         next();
@@ -36513,7 +36633,7 @@ startAutoSync();
     var totalLines = 0;
 
     var buckSections = '';
-    // v10.1474 — pack notes banner (server-side variant_map.pack_note).
+    // v10.1475 — pack notes banner (server-side variant_map.pack_note).
     // Renders above buckets so packers can't miss the note when they
     // open Pack Hardware. Amber background keeps it visually distinct
     // from the pick list itself.
@@ -37092,7 +37212,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1474"></script>
+<script src="./pack.js?v=10.1475"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37103,7 +37223,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1474<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1475<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
