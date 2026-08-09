@@ -3043,8 +3043,8 @@ input::placeholder, textarea::placeholder {
   </div>
   <!-- v10.707 — Frame Runway view (Boaz inventory rollout). Opens an
        overlay panel listing all SKUs with on_hand + on_order (C24) +
-       runway days. Phase 0 has placeholder velocity; Phase 1 will wire
-       Shopify bundle decomposition. -->
+       runway days. Velocity now sourced from the worker (see
+       _velocity_status: 'phase1_worker_direct' below). -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
     <button onclick="_frameRunwayOpen_()" style="padding:11px 10px;background:linear-gradient(180deg,#3a2d00,#7a5a00) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #FFB300;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">📊 Inventory Runway</button>
     <!-- v10.742 — '+ Add new item' for off-BOM stock (consumables, samples, packaging).
@@ -9807,9 +9807,10 @@ document.addEventListener('visibilitychange', () => {
 // v10.707 (2026-06-19) — Frame Runway overlay. Opens a full-screen
 // panel listing each SKU with on_hand (Boaz's count), on_order (C24
 // + future containers), and days_of_runway based on Shopify-driven
-// velocity. Phase 0 ships with velocity placeholders ("pending");
-// Phase 1 wires the real Shopify bundle decomposition. Initial source
-// of inventory truth is Boaz's 2026-06-18 paper count.
+// velocity. Velocity now resolved live from the worker
+// (_velocity_status: 'phase1_worker_direct'); items without a BOM
+// match render as "—" via _velocity_status: 'no_bom_match'. Initial
+// source of inventory truth is Boaz's 2026-06-18 paper count.
 function _frameRunwayOpen_() {
   // v10.776 — persist open state so refresh re-opens the overlay.
   try { localStorage.setItem('mbd_frame_runway_open', '1'); } catch (e) {}
@@ -16054,6 +16055,9 @@ async function renderStockV2Dashboard_() {
         label.style.webkitTextFillColor = borderColor;
       }
     }
+    // v10.1470 — cache the rendered items so _stockV2OpenItem_ can look
+    // one up by SKU when a card is tapped (previously stubbed as an alert).
+    window._stockV2ItemsCache_ = items;
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
     // v10.698 — sync pending-badge after dashboard paints.
     if (typeof _stockV2UpdatePendingBadges_ === 'function') _stockV2UpdatePendingBadges_();
@@ -16167,8 +16171,104 @@ function _stockV2RowHtml_(it) {
     + '</div>';
 }
 function _stockV2OpenItem_(sku) {
-  // Phase 0 placeholder — session flow ships in Phase 1.
-  alert('Stock 2.0 item drilldown ships in Phase 1.\n\nSKU: ' + sku);
+  // v10.1470 — real drilldown, replacing the Phase 0 alert stub. Looks
+  // the item up from the cache renderStockV2Dashboard_ stashes, then
+  // shows on-hand + reorder chips, every bin with a per-bin ✎ Edit
+  // button that hands off to _frameRunwayOpenBinEdit_, and the last-
+  // counted attribution line. Purely additive — no new endpoints.
+  const cache = (window._stockV2ItemsCache_ && Array.isArray(window._stockV2ItemsCache_)) ? window._stockV2ItemsCache_ : [];
+  const it = cache.find(i => String(i.item_sku || '') === String(sku));
+  if (!it) {
+    alert('Item not in the current dashboard cache — refresh Stock 2 and try again.\n\nSKU: ' + sku);
+    return;
+  }
+  const prior = document.getElementById('stockV2ItemDetailOverlay');
+  if (prior) prior.remove();
+
+  const name = it.name || '';
+  const oh = (it.on_hand == null) ? null : Number(it.on_hand);
+  const ohStr = oh == null ? '—' : String(oh);
+  const flags = it.flags || {};
+  const vendor = flags.vendor || it.vendor || '';
+  const threshold = Number(flags.threshold || it.reorder_point || 0);
+  const reorderQty = Number(it.reorder_qty || 0);
+  const days = (typeof it.staleness_days === 'number') ? it.staleness_days : -1;
+  const belowThreshold = threshold > 0 && oh != null && oh < threshold;
+
+  let freshDot = '#9AAAC0', freshTag = '?';
+  if (days === -1) { freshDot = '#7C3AED'; freshTag = 'NEVER COUNTED'; }
+  else if (days >= 14) { freshDot = '#FF5252'; freshTag = days + ' DAYS STALE'; }
+  else if (days >= 7)  { freshDot = '#FFB300'; freshTag = days + ' DAYS STALE'; }
+  else                 { freshDot = '#00C853'; freshTag = days + ' DAYS AGO'; }
+
+  // Bins: server returns bins array with {location, qty, is_dnu?}. Fall
+  // back to the flat location + on_hand if bins wasn't populated (older
+  // dashboards / worker responses that only carried the primary bin).
+  let bins = Array.isArray(it.bins) ? it.bins.slice() : [];
+  if (!bins.length && it.location) {
+    bins = [{ location: it.location, qty: (oh == null ? 0 : oh), is_dnu: false }];
+  }
+  const skuEscJs = esc(String(sku)).replace(/'/g, "\\'");
+  const binsHtml = bins.length
+    ? bins.map(function(b) {
+        const loc = String(b.location || '—');
+        const bq = (b.qty == null) ? 0 : Number(b.qty) || 0;
+        const isDnu = !!b.is_dnu;
+        const locEscJs = esc(loc).replace(/'/g, "\\'");
+        return ''
+          + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:rgba(0,0,0,.22);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'
+          +   '<div style="flex:1;min-width:0">'
+          +     '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">📍 ' + esc(loc) + (isDnu ? ' <span style="color:#FF7070 !important;-webkit-text-fill-color:#FF7070 !important;font-size:10px;letter-spacing:.5px">⊘ DNU</span>' : '') + '</div>'
+          +     '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">on hand: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + bq + '</strong></div>'
+          +   '</div>'
+          +   '<button onclick="document.getElementById(\'stockV2ItemDetailOverlay\').remove();_frameRunwayOpenBinEdit_(\'' + skuEscJs + '\',\'' + locEscJs + '\',' + bq + ',' + (isDnu ? 'true' : 'false') + ')" style="padding:8px 14px;background:#5B21B6 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.5px">✎ EDIT</button>'
+          + '</div>';
+      }).join('')
+    : '<div style="padding:12px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-size:12px;background:rgba(0,0,0,.20);border:1px dashed var(--border);border-radius:8px">No bins recorded yet.</div>';
+
+  const lastAt = it.last_counted_at || '';
+  const lastBy = it.last_counted_by || '';
+  const lastCounted = lastAt
+    ? '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:10px">Last counted: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(String(lastAt).slice(0,16).replace('T',' ')) + '</strong>' + (lastBy ? ' by <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(String(lastBy)) + '</strong>' : '') + '</div>'
+    : '<div style="font-size:11px;color:#B692FF !important;-webkit-text-fill-color:#B692FF !important;margin-top:10px;font-weight:700">⚠ Never counted</div>';
+
+  const belowChip = belowThreshold
+    ? '<div style="margin-bottom:12px;padding:8px 12px;background:rgba(255,82,82,.12);border:1px solid #FF5252;border-radius:8px;color:#FF7070 !important;-webkit-text-fill-color:#FF7070 !important;font-size:12px;font-weight:800;letter-spacing:.4px">⚠ ON-HAND ' + oh + ' &lt; REORDER ' + threshold + '</div>'
+    : '';
+
+  const ov = document.createElement('div');
+  ov.id = 'stockV2ItemDetailOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10005;display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow-y:auto';
+  ov.innerHTML = ''
+    + '<div onclick="event.stopPropagation()" style="background:#12161c;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border-radius:14px;padding:20px;max-width:520px;width:100%;margin-top:4vh;border:1.5px solid var(--border);max-height:90vh;overflow-y:auto">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px">'
+    +     '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">'
+    +       '<div style="width:12px;height:12px;border-radius:50%;background:' + freshDot + ';flex-shrink:0;box-shadow:0 0 8px ' + freshDot + '"></div>'
+    +       '<div style="min-width:0">'
+    +         '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:900;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;word-break:break-all">' + esc(String(sku)) + '</div>'
+    +         (name && name !== sku ? '<div style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">' + esc(name) + '</div>' : '')
+    +       '</div>'
+    +     '</div>'
+    +     '<button onclick="document.getElementById(\'stockV2ItemDetailOverlay\').remove()" style="padding:6px 10px;background:rgba(255,255,255,.10) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">✕</button>'
+    +   '</div>'
+    +   '<div style="font-size:11px;color:' + freshDot + ' !important;-webkit-text-fill-color:' + freshDot + ' !important;font-weight:800;letter-spacing:.5px;margin:0 0 14px 22px">' + freshTag + (vendor ? ' · ' + esc(vendor) : '') + '</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+    +     '<div style="padding:10px 12px;background:rgba(0,0,0,.22);border:1px solid var(--border);border-radius:8px">'
+    +       '<div style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:2px">On hand</div>'
+    +       '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:' + (belowThreshold ? '#FF7070' : 'var(--text)') + ' !important;-webkit-text-fill-color:' + (belowThreshold ? '#FF7070' : 'var(--text)') + ' !important">' + esc(ohStr) + '</div>'
+    +     '</div>'
+    +     '<div style="padding:10px 12px;background:rgba(0,0,0,.22);border:1px solid var(--border);border-radius:8px">'
+    +       '<div style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:2px">Reorder pt / qty</div>'
+    +       '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:900;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + (threshold || '—') + '<span style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important"> / ' + (reorderQty || '—') + '</span></div>'
+    +     '</div>'
+    +   '</div>'
+    +   belowChip
+    +   '<div style="font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:6px">Bins</div>'
+    +   binsHtml
+    +   lastCounted
+    + '</div>';
+  ov.onclick = function(e) { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
 }
 
 // Normalize a search term: uppercase, strip non-alphanumeric except hyphen
@@ -36073,7 +36173,7 @@ startAutoSync();
     var totalLines = 0;
 
     var buckSections = '';
-    // v10.1469 — pack notes banner (server-side variant_map.pack_note).
+    // v10.1470 — pack notes banner (server-side variant_map.pack_note).
     // Renders above buckets so packers can't miss the note when they
     // open Pack Hardware. Amber background keeps it visually distinct
     // from the pick list itself.
@@ -36663,7 +36763,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1469<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1470<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
