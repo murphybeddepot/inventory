@@ -20234,6 +20234,15 @@ async function openSchedulerBoardModal() {
     </div>`;
   document.body.appendChild(backdrop);
   window._schedBoardStop_ = () => { if (window._schedBoardTimer_) { clearInterval(window._schedBoardTimer_); window._schedBoardTimer_ = null; } };
+  // v10.1479 — pure paint helper so both the cached snapshot and the
+  // fresh fetch render through the same code. `meta` carries the
+  // freshness stamp shown at the top of the board.
+  const SCHED_BOARD_CACHE_KEY = 'mbd_sched_board_cache_v1';
+  window._schedBoardPaint_ = function (wcs, wos, load, meta) {
+    const body = document.getElementById('schedBoardBody');
+    if (!body) return;
+    body.innerHTML = _schedBoardHtml_(wcs, wos, load, meta);
+  };
   window._schedBoardRender_ = async function () {
     const body = document.getElementById('schedBoardBody');
     if (!body) return;
@@ -20261,7 +20270,39 @@ async function openSchedulerBoardModal() {
       const wcs = wcResp.work_centers || [];
       const wos = woResp.work_orders || [];
       const load = (loadResp && loadResp.ok && loadResp.rows) || [];
-      const loadByWc = {}; load.forEach(l => { loadByWc[l.work_center_id] = l; });
+      // v10.1479 — cache the payload so the next board open paints in
+      // <100ms instead of blocking on three Apps Script calls.
+      try {
+        localStorage.setItem(SCHED_BOARD_CACHE_KEY, JSON.stringify({
+          cached_at_ms: Date.now(), wcs: wcs, wos: wos, load: load,
+        }));
+      } catch (_e) {}
+      window._schedBoardPaint_(wcs, wos, load, { live: true, at: Date.now() });
+    } catch (e) {
+      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Board load failed: ' + esc(e.message || String(e)) + '</div>';
+    }
+  };
+  // v10.1479 — cache-first open: paint the last snapshot immediately
+  // (with an age stamp), then let the fresh render replace it.
+  try {
+    const cRaw = localStorage.getItem(SCHED_BOARD_CACHE_KEY);
+    if (cRaw) {
+      const c = JSON.parse(cRaw);
+      if (c && Array.isArray(c.wcs) && Array.isArray(c.wos)) {
+        window._schedBoardPaint_(c.wcs, c.wos, c.load || [], { live: false, at: c.cached_at_ms });
+      }
+    }
+  } catch (_e) {}
+  await window._schedBoardRender_();
+  // Auto-refresh every 30s
+  window._schedBoardTimer_ = setInterval(window._schedBoardRender_, 30000);
+}
+
+// v10.1479 — Scheduler Board HTML builder, extracted from the inline
+// render so cached and live paints share it. `meta.live` false renders
+// the amber "cached · refreshing" stamp instead of the green live one.
+function _schedBoardHtml_(wcs, wos, load, meta) {
+  const loadByWc = {}; (load || []).forEach(l => { loadByWc[l.work_center_id] = l; });
       const wosByWc = {};
       wcs.forEach(wc => { wosByWc[wc.work_center_id] = { ready: [], in_progress: [], pending: [], on_hold: [] }; });
       // Unassigned bucket
@@ -20279,6 +20320,15 @@ async function openSchedulerBoardModal() {
       };
       // Grid: one row per work_center, one card per WO grouped by state.
       let html = '';
+      // v10.1479 — freshness stamp answers "is anything happening?":
+      // green LIVE with clock time, or amber CACHED age + refreshing.
+      if (meta && meta.live) {
+        const t = new Date(meta.at);
+        html += '<div style="font-size:10px;font-weight:800;letter-spacing:.5px;color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f !important;margin-bottom:8px">● LIVE · updated ' + t.toLocaleTimeString() + ' · auto-refreshes every 30s</div>';
+      } else if (meta) {
+        const ageMin = Math.max(0, Math.round((Date.now() - (meta.at || 0)) / 60000));
+        html += '<div style="font-size:10px;font-weight:800;letter-spacing:.5px;color:#B54708 !important;-webkit-text-fill-color:#B54708 !important;margin-bottom:8px">⟳ CACHED ' + ageMin + 'm ago · refreshing…</div>';
+      }
       // Top KPI strip
       const totalOpen = wos.length;
       const totalReady = wos.filter(w => w.state === 'ready').length;
@@ -20329,14 +20379,7 @@ async function openSchedulerBoardModal() {
         html += '<div style="font-size:11px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500 !important">These WOs have no work_center_id set. Add a routing for the SKU or update the WO directly.</div>';
         html += '</div>';
       }
-      body.innerHTML = html;
-    } catch (e) {
-      body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Board load failed: ' + esc(e.message || String(e)) + '</div>';
-    }
-  };
-  await window._schedBoardRender_();
-  // Auto-refresh every 30s
-  window._schedBoardTimer_ = setInterval(window._schedBoardRender_, 30000);
+      return html;
 }
 
 // v10.962 — Production Floor tablet mode. Katana Shop Floor + Odoo
@@ -20368,24 +20411,53 @@ async function openProductionFloorModal() {
     </div>`;
   document.body.appendChild(backdrop);
   window._prodFloorState_ = { work_center_id: null, operator: '' };
-  // Load stations first
-  try {
-    const wcs = await groundApi('listWorkCenters', {});
+  // v10.1479 — station chips paint instantly from cache (they change
+  // ~never), then a background fetch refreshes the cache. Previously
+  // the operator stared at an empty strip for a full Apps Script
+  // round-trip before they could even pick their station.
+  const WC_CACHE_KEY = 'mbd_work_centers_cache_v1';
+  const _paintStationChips_ = (workCenters) => {
     const chipsEl = document.getElementById('prodFloorStationChips');
-    if (wcs && wcs.ok && Array.isArray(wcs.work_centers) && wcs.work_centers.length) {
-      chipsEl.innerHTML = wcs.work_centers.map(wc =>
+    if (!chipsEl) return;
+    if (Array.isArray(workCenters) && workCenters.length) {
+      chipsEl.innerHTML = workCenters.map(wc =>
         '<button onclick="_prodFloorPickStation_(' + wc.work_center_id + ',&quot;' + esc(wc.code) + '&quot;,&quot;' + esc(wc.name) + '&quot;)" '
         + 'id="pfStation-' + wc.work_center_id + '" '
         + 'style="padding:10px 14px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;'
         + 'border:2px solid #ccc !important;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;min-height:44px">'
         + esc(wc.code) + ' · ' + esc(wc.name) + '</button>'
       ).join('');
+      // Keep the picked chip highlighted across repaints.
+      const picked = window._prodFloorState_.work_center_id;
+      if (picked) {
+        const active = document.getElementById('pfStation-' + picked);
+        if (active) { active.style.border = '2px solid #00b04f'; active.style.background = '#e8f5e9'; }
+      }
     } else {
       chipsEl.innerHTML = '<div style="font-size:12px;color:#666 !important;-webkit-text-fill-color:#666 !important">No work centers configured. Run supabase/work_orders.sql (v10.958) to seed the canonical set.</div>';
     }
-  } catch (e) {
-    document.getElementById('prodFloorStationChips').innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">Failed to load stations: ' + esc(e.message) + '</div>';
-  }
+  };
+  try {
+    const cRaw = localStorage.getItem(WC_CACHE_KEY);
+    if (cRaw) {
+      const c = JSON.parse(cRaw);
+      if (c && Array.isArray(c.work_centers) && c.work_centers.length) _paintStationChips_(c.work_centers);
+    }
+  } catch (_e) {}
+  (async () => {
+    try {
+      const wcs = await groundApi('listWorkCenters', {});
+      if (wcs && wcs.ok && Array.isArray(wcs.work_centers)) {
+        try { localStorage.setItem(WC_CACHE_KEY, JSON.stringify({ cached_at_ms: Date.now(), work_centers: wcs.work_centers })); } catch (_e) {}
+        _paintStationChips_(wcs.work_centers);
+      }
+    } catch (e) {
+      const chipsEl = document.getElementById('prodFloorStationChips');
+      if (chipsEl && !chipsEl.innerHTML.trim()) {
+        chipsEl.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important">Failed to load stations: ' + esc(e.message) + '</div>';
+      }
+    }
+  })();
   window._prodFloorPickStation_ = async function (wcId, code, name) {
     window._prodFloorState_.work_center_id = wcId;
     // Highlight the picked chip
@@ -20397,11 +20469,16 @@ async function openProductionFloorModal() {
     if (active) { active.style.border = '2px solid #00b04f'; active.style.background = '#e8f5e9'; }
     await _prodFloorRefresh_();
   };
-  window._prodFloorRefresh_ = async function () {
+  window._prodFloorRefresh_ = async function (silent) {
     const wcId = window._prodFloorState_.work_center_id;
     const body = document.getElementById('prodFloorBody');
     if (!wcId) { body.innerHTML = '<div style="text-align:center;padding:30px;color:#666 !important;-webkit-text-fill-color:#666 !important">Pick a station.</div>'; return; }
-    body.innerHTML = '<div style="text-align:center;padding:20px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading work orders…</div>';
+    // v10.1479 — silent refresh (post-action) keeps the current list
+    // on screen while the fresh one loads, instead of blanking to
+    // "Loading…" which read as breakage after every button tap.
+    if (!silent) {
+      body.innerHTML = '<div style="text-align:center;padding:20px;color:#666 !important;-webkit-text-fill-color:#666 !important">Loading work orders…</div>';
+    }
     try {
       const r = await groundApi('listWorkOrders', { work_center_id: wcId, openOnly: true });
       if (!r || !r.ok) { body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Failed: ' + esc((r && r.error) || 'unknown') + '</div>'; return; }
@@ -20431,11 +20508,11 @@ async function openProductionFloorModal() {
         html += '</div>';
         html += '<div style="display:flex;gap:8px">';
         if (wo.state === 'ready' || wo.state === 'on_hold') {
-          html += '<button onclick="_prodFloorStart_(' + wo.work_order_id + ')" style="padding:14px 22px;background:#00b04f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">▶ START</button>';
+          html += '<button onclick="_prodFloorStart_(' + wo.work_order_id + ', this)" style="padding:14px 22px;background:#00b04f !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">▶ START</button>';
         } else if (wo.state === 'in_progress') {
-          html += '<button onclick="_prodFloorDone_(' + wo.work_order_id + ')" style="padding:14px 22px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">✓ DONE</button>';
+          html += '<button onclick="_prodFloorDone_(' + wo.work_order_id + ', this)" style="padding:14px 22px;background:#1565c0 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px">✓ DONE</button>';
           // v10.987 — QC FAIL button. Only surfaced at QC stations (or if user is currently at any station — QC-flag any WO). Prompt for reason.
-          html += '<button onclick="_prodFloorQcFail_(' + wo.work_order_id + ')" style="padding:14px 18px;background:#c33 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px" title="Mark this WO as QC failed">✗ QC FAIL</button>';
+          html += '<button onclick="_prodFloorQcFail_(' + wo.work_order_id + ', this)" style="padding:14px 18px;background:#c33 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;min-height:56px;letter-spacing:.5px" title="Mark this WO as QC failed">✗ QC FAIL</button>';
         } else {
           html += '<span style="padding:14px 22px;font-size:13px;color:#999 !important;-webkit-text-fill-color:#999 !important">waiting</span>';
         }
@@ -20448,18 +20525,36 @@ async function openProductionFloorModal() {
       body.innerHTML = '<div style="color:#c33 !important;-webkit-text-fill-color:#c33 !important;padding:20px">Error: ' + esc(e.message) + '</div>';
     }
   };
-  window._prodFloorStart_ = async function (woId) {
+  // v10.1479 — instant button feedback. Every action button flips to a
+  // busy label + disables the whole button row for that WO the moment
+  // it's tapped, so the operator knows the tap registered during the
+  // 5-10s Apps Script round-trip (and can't double-fire it). On
+  // failure the row is restored.
+  const _woBtnsBusy_ = (btn, busyLabel) => {
+    if (!btn) return () => {};
+    const row = btn.parentElement;
+    const btns = row ? Array.from(row.querySelectorAll('button')) : [btn];
+    const saved = btns.map(b => ({ b: b, text: b.textContent, opacity: b.style.opacity }));
+    btns.forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
+    btn.textContent = busyLabel;
+    return () => saved.forEach(s => { s.b.disabled = false; s.b.style.opacity = s.opacity || ''; s.b.textContent = s.text; });
+  };
+  window._prodFloorStart_ = async function (woId, btn) {
+    if (btn && btn.disabled) return;
+    const restore = _woBtnsBusy_(btn, '⏳ Starting…');
     try {
       const r = await groundApi('startWorkOrder', { work_order_id: woId, operator: (localStorage.getItem('mbd_ground_packer') || '') });
-      if (r && r.ok) { if (typeof showToast === 'function') showToast('▶ Started'); await _prodFloorRefresh_(); }
-      else alert('Start failed: ' + ((r && r.error) || 'unknown'));
-    } catch (e) { alert('Start error: ' + e.message); }
+      if (r && r.ok) { if (typeof showToast === 'function') showToast('▶ Started'); await _prodFloorRefresh_(true); }
+      else { restore(); alert('Start failed: ' + ((r && r.error) || 'unknown')); }
+    } catch (e) { restore(); alert('Start error: ' + e.message); }
   };
   // v10.987 — QC FAIL prompt + call server. On success flip UI to
   // show WO as on_hold + Slack fires from server side.
-  window._prodFloorQcFail_ = async function (woId) {
+  window._prodFloorQcFail_ = async function (woId, btn) {
+    if (btn && btn.disabled) return;
     const reason = window.prompt('QC fail reason (visible on Scheduler Board + Slacked to Zac + Seth):');
     if (!reason || !reason.trim()) return;
+    const restore = _woBtnsBusy_(btn, '⏳ Logging…');
     try {
       const r = await groundApi('qcFailWorkOrder', {
         work_order_id: woId,
@@ -20468,18 +20563,20 @@ async function openProductionFloorModal() {
       });
       if (r && r.ok) {
         if (typeof showToast === 'function') showToast('✗ QC fail logged · Seth + Zac notified');
-        await _prodFloorRefresh_();
-      } else alert('QC fail submit failed: ' + ((r && r.error) || 'unknown'));
-    } catch (e) { alert('QC fail error: ' + e.message); }
+        await _prodFloorRefresh_(true);
+      } else { restore(); alert('QC fail submit failed: ' + ((r && r.error) || 'unknown')); }
+    } catch (e) { restore(); alert('QC fail error: ' + e.message); }
   };
-  window._prodFloorDone_ = async function (woId) {
+  window._prodFloorDone_ = async function (woId, btn) {
+    if (btn && btn.disabled) return;
+    const restore = _woBtnsBusy_(btn, '⏳ Saving…');
     try {
       const r = await groundApi('completeWorkOrder', { work_order_id: woId, operator: (localStorage.getItem('mbd_ground_packer') || '') });
       if (r && r.ok) {
         if (typeof showToast === 'function') showToast('✓ Done' + (r.auto_promoted ? ' · next step ready' : ''));
-        await _prodFloorRefresh_();
-      } else alert('Done failed: ' + ((r && r.error) || 'unknown'));
-    } catch (e) { alert('Done error: ' + e.message); }
+        await _prodFloorRefresh_(true);
+      } else { restore(); alert('Done failed: ' + ((r && r.error) || 'unknown')); }
+    } catch (e) { restore(); alert('Done error: ' + e.message); }
   };
 }
 
@@ -37447,7 +37544,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1478"></script>
+<script src="./pack.js?v=10.1479"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37458,7 +37555,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1478<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1479<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
