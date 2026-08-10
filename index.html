@@ -11225,13 +11225,14 @@ function _frameRunwayComputePoLines_() {
   // window. Pull units-per-day from the per_window stash so the PO
   // reflects whichever rolling window the operator picked.
   const windowDays = Math.max(1, Number(document.getElementById('poVelocityWindow').value) || 90);
-  const ITEM_TO_BOM_ALIAS = {
-    // v10.763 — SBF-* aliases removed. items table renamed to short
-    // form (SBF-K/Q/D/S/SXL) matching the box label + BOM-leaf SKU.
-    'STU-B':'STUDIO-BLACK','STU-W':'STUDIO-WHITE','MB-WMB-L':'MB-WMB',
-    'UNIVERSAL':'MB-UNIVERSAL',
-    'S-ANGLES':'MB-ANGLES-SINGLE','S-YW-HDWE':'MB-HDWE-SINGLE',
-  };
+  // v10.1482 — use the single module-scope alias map. This local copy
+  // had the SBF entries pruned (v10.763) while the display path's copy
+  // kept them, AND looked up alias-first while the display looked up
+  // sku-first — so the Runway row could show a velocity while the PO
+  // this button generates silently dropped the same SKU (proven live
+  // in the Aug-10 diagnostic). One map, one precedence, everywhere.
+  const ITEM_TO_BOM_ALIAS = _ITEM_TO_BOM_ALIAS;
+  const skipped = [];   // v10.1482 — SKUs excluded from the PO + why
   let velByLeaf = null;
   try {
     const stashRaw = localStorage.getItem('mbd_frame_runway_velocity');
@@ -11252,8 +11253,9 @@ function _frameRunwayComputePoLines_() {
       // v10.809 — stash entries are OBJECTS {sku, total_units,
       // units_per_day, window_days}, not bare numbers. Previously
       // Number({object}) → NaN → vpd=0 → every item fell into THR ONLY.
-      const leafKey = ITEM_TO_BOM_ALIAS[it.sku] || it.sku;
-      const entry = velByLeaf[leafKey] || velByLeaf[it.sku];
+      // v10.1482 — sku-first, alias-fallback: same precedence as the
+      // display path so both resolve to the SAME stash entry.
+      const entry = velByLeaf[it.sku] || velByLeaf[ITEM_TO_BOM_ALIAS[it.sku]];
       if (entry && typeof entry === 'object') {
         vpd = Number(entry.units_per_day) || (Number(entry.total_units) / windowDays) || 0;
       } else {
@@ -11285,7 +11287,17 @@ function _frameRunwayComputePoLines_() {
       suggest = Math.ceil((threshold * multiplier - oh - oo) / roundTo) * roundTo;
       if (suggest <= 0) suggest = Math.ceil(threshold / roundTo) * roundTo;
     } else {
-      continue; // no velocity + no threshold trigger = skip
+      // v10.1482 — no longer a SILENT skip. An item with stock activity
+      // (on hand, on order, or below its reorder point) that has no
+      // velocity data gets surfaced to the operator instead of
+      // vanishing from the PO — the diagnostic proved a SKU can show a
+      // runway on screen yet drop out of the PO here.
+      const rp = Number(it.reorder_point) || 0;
+      if (oh > 0 || oo > 0 || (rp > 0 && oh < rp)) {
+        skipped.push({ sku: it.sku, name: it.name || '', vendor: itemVendor, on_hand: oh, on_order: oo,
+          reason: (rp > 0 && oh < rp) ? 'BELOW REORDER — no velocity data' : 'no velocity data' });
+      }
+      continue;
     }
     const unitCost = _KRY_C24_PRICES[it.sku] != null ? _KRY_C24_PRICES[it.sku] : 0;
     const lineTotal = Math.round(unitCost * suggest * 100) / 100;
@@ -11300,7 +11312,11 @@ function _frameRunwayComputePoLines_() {
     });
   }
   lines.sort((a, b) => b.gap_units - a.gap_units);
-  return { lines, targetMonths, roundTo, windowDays, vendorFilter };
+  // v10.1482 — velocityFallback true when the stash lacked the selected
+  // window and per-item velocity fell back to whatever window Runway
+  // last applied (the dropdown label used to silently lie).
+  return { lines, skipped, targetMonths, roundTo, windowDays, vendorFilter,
+    velocityFallback: !velByLeaf };
 }
 
 // v10.876 — Daily Pulse modal. The iPad/desktop counterpart to the
@@ -11609,7 +11625,11 @@ function _frameRunwayRecomputePo_() {
   const badge = document.getElementById('poTotalsBadge');
   if (badge) {
     const venTag = r.vendorFilter ? ' · ' + r.vendorFilter : '';
-    badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString() + ' · velocity ' + r.windowDays + 'd' + venTag;
+    // v10.1482 — honest velocity label: when the stash lacks the
+    // selected window, per-line velocity fell back to the last-applied
+    // window; say so instead of letting the dropdown label lie.
+    const velTag = r.velocityFallback ? 'velocity FALLBACK (window ' + r.windowDays + 'd unavailable — ⚡ Compute first)' : 'velocity ' + r.windowDays + 'd';
+    badge.textContent = r.lines.length + ' lines · ' + totalUnits.toLocaleString() + ' units · $' + Math.round(totalUsd).toLocaleString() + ' · ' + velTag + venTag;
   }
   // v10.755 — vendor subtitle: shows contact info when a vendor is picked.
   // v10.873 — added inline 📋 copy button for the vendor email so Zac can
@@ -11687,6 +11707,16 @@ function _frameRunwayRecomputePo_() {
   html += '</tbody></table>';
   if (noPriceCount > 0) {
     html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.40);border-radius:6px;font-size:11px;color:#7A4E00 !important;-webkit-text-fill-color:#7A4E00 !important">⚠ ' + noPriceCount + ' line' + (noPriceCount === 1 ? '' : 's') + ' missing KRY C24 prices — Lily will need to quote these. Email still includes them for the quote request.</div>';
+  }
+  // v10.1482 — surface SKUs the PO math EXCLUDED. These used to vanish
+  // silently; the diagnostic proved a SKU can show a runway on the
+  // Runway screen yet be absent from the PO it generates.
+  if (r.skipped && r.skipped.length) {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(255,82,82,.10);border:1px solid rgba(255,82,82,.45);border-radius:6px;font-size:11px;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important">'
+      + '⚠ <strong>' + r.skipped.length + ' SKU' + (r.skipped.length === 1 ? '' : 's') + ' NOT on this PO</strong> (no velocity data to size an order):<br>'
+      + r.skipped.slice(0, 12).map(s => '<span style="font-family:\'JetBrains Mono\',monospace">' + esc(s.sku) + '</span> (' + esc(s.reason) + ' · on hand ' + s.on_hand + (s.on_order ? ' · ' + s.on_order + ' on order' : '') + ')').join('<br>')
+      + (r.skipped.length > 12 ? '<br>+ ' + (r.skipped.length - 12) + ' more' : '')
+      + '<br>Run ⚡ Compute Velocity, or add them to the PO by hand.</div>';
   }
   body.innerHTML = html;
 }
@@ -12570,7 +12600,8 @@ async function _binMoveOpen_(sku) {
       if (!r.ok) { alert('Move failed: ' + r.error); return; }
       ov.remove();
       if (typeof showToast === 'function') showToast('✓ Moved ' + qty + ' from ' + fromLoc + ' to ' + toLoc);
-      if (typeof _frameRunwayLoad_ === 'function') _frameRunwayLoad_();
+      // v10.1482 — force: the non-force reload repainted the stale snapshot first.
+      if (typeof _frameRunwayLoad_ === 'function') _frameRunwayLoad_(true);
     } catch (e) { alert('Move failed: ' + e.message); }
   };
 }
@@ -14359,20 +14390,9 @@ function _frameRunwayApplyVelocity_(items, windowDays) {
   } catch (e) { return items; }
   if (!stash || !stash.per_window || !stash.per_window[windowDays]) return items;
   const velMap = stash.per_window[windowDays];
-  const ITEM_TO_BOM_ALIAS = {
-    'SBF-KING':'SBF-K','SBF-QUEEN':'SBF-Q','SBF-DOUBLE':'SBF-D',
-    'SBF-SINGLE':'SBF-S','SBF-SINGLEXL':'SBF-SXL',
-    'STU-B':'STUDIO-BLACK','STU-W':'STUDIO-WHITE','MB-WMB-L':'MB-WMB',
-    'UNIVERSAL':'MB-UNIVERSAL',
-    // v10.729 — Zac confirmed: S-ANGLES (Boaz mis-wrote as 6-ANGLES)
-    // + S-YW-HDWE (Boaz mis-wrote as B-YW-HDWE) are both components
-    // in MB-Single bundle, 2× each in MB-King BOMs.
-    // v10.739 — Boaz misreads corrected. Items renamed in Supabase:
-    //   6-ANGLES   → S-ANGLES   (= MB-ANGLES-SINGLE in BOM)
-    //   B-YW-HDWE  → S-YW-HDWE  (= MB-HDWE-SINGLE in BOM)
-    'S-ANGLES':'MB-ANGLES-SINGLE',
-    'S-YW-HDWE':'MB-HDWE-SINGLE'
-  };
+  // v10.1482 — single module-scope alias map (was a third diverged
+  // local copy; see _ITEM_TO_BOM_ALIAS for the v10.729/739 history).
+  const ITEM_TO_BOM_ALIAS = _ITEM_TO_BOM_ALIAS;
   return items.map(it => {
     const v = velMap[it.sku] || velMap[ITEM_TO_BOM_ALIAS[it.sku]];
     if (!v) {
@@ -14452,7 +14472,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
 // Supabase (0 UrlFetchApp charges). The fn was referenced in the two error
 // branches of the Runway loader but never defined — undefined-fn crash on
 // quota-exhaust days. Now both defined AND used as the PRIMARY path.
-async function _frameRunwayLoadViaWorker_(windowDays) {
+async function _frameRunwayLoadViaWorker_(windowDays, forceRefresh) {
   const cfg = await _getPrintRelayConfig_();
   if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
     return { ok: false, error: 'Worker relay config not in localStorage — tap More → Set Print Relay first.' };
@@ -14464,6 +14484,12 @@ async function _frameRunwayLoadViaWorker_(windowDays) {
       body: JSON.stringify({
         secret: cfg.stamp_secret,
         velocity_days: windowDays || 30,
+        // v10.1482 — the GAS path always forwarded force_refresh to
+        // skip the 60s server cache; the worker-primary path silently
+        // dropped it, so 'Mark Received' could still repaint stale
+        // numbers. Worker may ignore it today — harmless — and honors
+        // it once the migration lands.
+        force_refresh: !!forceRefresh,
       }),
     });
     const text = await resp.text();
@@ -14523,15 +14549,25 @@ async function _frameRunwayLoad_(forceRefresh) {
       const cacheRaw = localStorage.getItem('mbd_frame_runway_items_cache');
       if (cacheRaw) {
         const cache = JSON.parse(cacheRaw);
-        if (cache && Array.isArray(cache.items) && cache.items.length) {
+        // v10.1482 — TTL on the instant-paint snapshot. It used to
+        // paint at ANY age with only a small amber note; a snapshot
+        // >24h old is dropped entirely (fresh fetch runs anyway), and
+        // >15 min gets a LOUD stale banner instead of a whisper.
+        const cacheAgeMs = cache && cache.cached_at ? (Date.now() - cache.cached_at) : Infinity;
+        if (cacheAgeMs > 24 * 3600 * 1000) {
+          try { localStorage.removeItem('mbd_frame_runway_items_cache'); } catch (_e) {}
+        } else if (cache && Array.isArray(cache.items) && cache.items.length) {
           let items = _frameRunwayApplyVelocity_(cache.items, windowDays);
           items = _frameRunwaySortItems_(items);
           window._frameRunwayItemsCache = items;
           window._frameRunwayUncountedLeaves = cache.uncounted_leaves || [];
           window._frameRunwayContainerBanner = cache.container_banner || '';
           if (typeof _frameRunwayPaintSortChips_ === 'function') _frameRunwayPaintSortChips_();
-          if (body) body.innerHTML = _frameRunwayRender_(items, cache.container_banner || '');
-          const ageMin = cache.cached_at ? Math.round((Date.now() - cache.cached_at) / 60000) : null;
+          const ageMin = cache.cached_at ? Math.round(cacheAgeMs / 60000) : null;
+          const staleBanner = (ageMin != null && ageMin > 15)
+            ? '<div style="margin-bottom:10px;padding:10px 14px;background:rgba(255,179,0,.14);border:1.5px solid rgba(255,179,0,.6);border-radius:8px;font-size:13px;font-weight:800;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">⚠ SHOWING NUMBERS FROM ' + (ageMin >= 60 ? Math.round(ageMin / 60) + 'h' : ageMin + 'm') + ' AGO — refreshing… Do not order from this screen until it updates.</div>'
+            : '';
+          if (body) body.innerHTML = staleBanner + _frameRunwayRender_(items, cache.container_banner || '');
           if (sub) sub.innerHTML = items.length + ' SKUs · <span style="color:#FFC107 !important;-webkit-text-fill-color:#FFC107 !important">cached ' + (ageMin != null ? ageMin + 'm ago' : '') + ' · ↻ refreshing…</span>' + (cache.container_banner ? ' · ' + cache.container_banner : '');
           if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();
         }
@@ -14551,7 +14587,7 @@ async function _frameRunwayLoad_(forceRefresh) {
     let res = null;
     if (preferWorker) {
       try {
-        const workerRes = await _frameRunwayLoadViaWorker_(windowDays);
+        const workerRes = await _frameRunwayLoadViaWorker_(windowDays, forceRefresh);
         if (workerRes && workerRes.ok) res = workerRes;
         else console.log('DIAG-V10.1260 worker returned no-ok, falling back to Apps Script:', workerRes && workerRes.error);
       } catch (e) {
@@ -14602,7 +14638,19 @@ async function _frameRunwayLoad_(forceRefresh) {
     // values (those get re-applied via _frameRunwayApplyVelocity_ from
     // the velocity stash on next load).
     try {
-      const itemsForCache = (res.items || []).slice();   // pre-sort/velocity raw
+      // v10.1482 — actually strip velocity fields (the comment above
+      // claimed this since v10.809 but .slice() strips nothing). When
+      // the GAS path baked server velocity into the cache, the next
+      // open with a different window select hit ApplyVelocity's
+      // "already populated" early-out and rendered old-window numbers
+      // under the new window's label.
+      const itemsForCache = (res.items || []).map(it => {
+        const c = Object.assign({}, it);
+        delete c.velocity_per_day; delete c.days_of_runway;
+        delete c.days_of_runway_with_on_order; delete c.velocity_window_days;
+        delete c._velocity_status;
+        return c;
+      });
       const containerBannerForCache = (function(){
         const eta = {};
         itemsForCache.forEach(it => {
@@ -14757,7 +14805,7 @@ function _frameRunwayRender_(items, containerBanner) {
     if (thr > 0 && oh < thr) belowCount++;
     if (fl.needs_recount) recountCount++;
     if (!it.last_counted_at && oh === 0) neverCount++;
-    if (typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14) urgentCount++;
+    if ((typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14) || (Number(it.reorder_point) > 0 && it.on_hand != null && Number(it.on_hand) < Number(it.reorder_point))) urgentCount++;
   }
   if (belowCount || recountCount || neverCount || urgentCount) {
     const chip = (label, count, color, query) =>
@@ -14863,7 +14911,7 @@ function _frameRunwayRender_(items, containerBanner) {
       // filter row works on mobile (was desktop-only).
       const _binsForSearch_ = (it.bins || []).map(b => String(b.location || '')).join(' ');
       const _catForSearch_ = (fl.category || fl.category_tag || '').toLowerCase();
-      const _isUrgentM_ = typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14;
+      const _isUrgentM_ = (typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14) || (Number(it.reorder_point) > 0 && it.on_hand != null && Number(it.on_hand) < Number(it.reorder_point));
       const _isNeverM_ = !it.last_counted_at && Number(it.on_hand || 0) === 0;
       const _needsRecountM_ = !!(it.flags && it.flags.needs_recount);
       const _belowThrM_ = (Number(fl.threshold || 0) > 0) && Number(it.on_hand || 0) < Number(fl.threshold || 0);
@@ -15046,7 +15094,7 @@ function _frameRunwayRender_(items, containerBanner) {
     // v10.757 — haystack also tags 'never' (no last_counted_at) and
     // 'urgent' (runway < 14d) so the needs-attention chips can filter.
     const isNeverCounted = !it.last_counted_at && Number(it.on_hand || 0) === 0;
-    const isUrgent = typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14;
+    const isUrgent = (typeof it.days_of_runway === 'number' && it.days_of_runway >= 0 && it.days_of_runway < 14) || (Number(it.reorder_point) > 0 && it.on_hand != null && Number(it.on_hand) < Number(it.reorder_point));
     const haystack = [
       it.sku || '',
       it.name || '',
@@ -16042,19 +16090,24 @@ async function renderStockV2Dashboard_() {
       // Mattresses dropship from MFRM — no on-shelf presence. Filter by
       // SKU prefix AND product-name substring so items missing the flag
       // still get caught.
+      // v10.1482 — pruned to FINISHED-GOODS prefixes only. The v10.1370
+      // list also hid MB-, SBF-, SBLM, HLR, NEXTBED, WMB and LB- — but
+      // those are Runway's core TRACKED PARTS (SBF-K/Q frames, SBLM
+      // lift mechanisms, HLR-77/82, MB-ANGLES/HDWE hardware, LB-4/8
+      // hinge packs). Hiding them meant nobody was ever prompted to
+      // recount exactly the SKUs the Runway orders from — their counts
+      // silently went stale. Finished goods are still caught by the
+      // remaining prefixes + the name-substring rules below (MURPHY /
+      // CABINET BED / WALL BED / MATTRESS). If a finished good leaks
+      // back into the list, the 🙈 hidden-items modal shows which rule
+      // let it through — tell me the SKU and I'll add a surgical rule.
       const BED_FAMILY_PREFIXES = [
-        'MB-',    // Murphy bed family
-        'PB-',    // piston bed family
         'PBFRAME-',
         'PBCAB-',
-        'BOAZ-',  // Boaz bed family
+        'BOAZ-',  // finished Boaz beds (BOAZ-V2-MONACO-QUEEN etc.)
         'BOAZ ',
-        'LB-',    // library bed
-        'SBLM',   // Sofa bed lift mechanism / sofa-lift family
-        'SBF-',
-        'HLR',    // horizontal library / recline family
-        'NEXTBED',
-        'WMB',    // wall-mount bed variants
+        'LIBRARY-',  // finished library beds (LIBRARY-V2-8DOORS-…)
+        'HORIZONTAL-',
       ];
       for (const p of BED_FAMILY_PREFIXES) {
         if (sku.startsWith(p)) return 'sku-prefix:' + p + ' (bed family)';
@@ -37832,7 +37885,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1481"></script>
+<script src="./pack.js?v=10.1482"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37843,7 +37896,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1481<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1482<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

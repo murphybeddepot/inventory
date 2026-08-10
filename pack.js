@@ -18307,11 +18307,12 @@ async function _refreshPrintRelayConfig_() {
   return null;
 }
 
-// v10.720 — Frame Runway via worker direct. Called when orchestrator
-// is quota-dead. Hits worker /inventory/dashboard with the cached
-// stamp_secret from localStorage; returns the dashboard payload in
-// the same shape as listFrameRunwayDashboard.
-async function _frameRunwayLoadViaWorker_(velocityWindow) {
+// v10.1482 — the duplicate _frameRunwayLoadViaWorker_ that lived here
+// was deleted. pack.js loads AFTER index.html, so this copy silently
+// SHADOWED the maintained one (index.html ~14474) — any fix applied
+// there (like the v10.1482 force_refresh passthrough) never ran.
+// index.html's declaration is now the only one.
+async function _frameRunwayLoadViaWorker_DELETED_(velocityWindow) {
   const cfg = await _getPrintRelayConfig_();
   if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
     return { ok: false, error: 'Worker config not in localStorage — orchestrator quota dead + no cached relay config. Open Bedrock once after the next quota reset (~3am EDT) to seed the cache.' };
