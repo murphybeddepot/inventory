@@ -3452,10 +3452,11 @@ function onBarcodeFound(code) {
   foot.className = 'cam-foot found';
   FB.scan();
   setTimeout(() => {
+    // v10.1481 — capture the callback BEFORE stopCamera, which now
+    // disarms camCallback unconditionally (cancel-hijack fix).
+    const cb = camCallback;
     stopCamera();
-    if (camCallback) {
-      const cb = camCallback;
-      camCallback = null;
+    if (cb) {
       cb(code);
     } else {
       handleBarcode(code);
@@ -3464,6 +3465,10 @@ function onBarcodeFound(code) {
 }
 function stopCamera() {
   camActive = false;
+  // v10.1481 — always disarm the pending scan callback. A cancelled
+  // Stock 2 bin scan used to leave camCallback armed, so the NEXT
+  // barcode scanned from any tab got hijacked into _stockV2BinPick_.
+  camCallback = null;
   if (camAnimFrame) { clearTimeout(camAnimFrame); camAnimFrame = null; }
   if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
   const video = document.getElementById('camVideo');
@@ -9773,6 +9778,11 @@ async function _stockV2DrainPending_() {
           q.shift();
           _stockV2SetPendingQueue_(q);
           _stockV2UpdatePendingBadges_();
+          // v10.1481 — if the pending-list modal is open, refresh it so
+          // its rows/indices track the mutating queue.
+          if (document.getElementById('stockV2PendingList') && typeof _stockV2OpenPendingList_ === 'function') {
+            _stockV2OpenPendingList_();
+          }
           // v10.699 punch-list S (Indigo) — if this SKU exists in the
           // current session AND has a _server_error flag, clear it +
           // re-render so the red inline banner goes away.
@@ -15164,7 +15174,7 @@ function _stockV2OpenPendingList_() {
         +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;word-break:break-all">' + esc(e.sku) + '</div>'
         +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">📍 ' + esc(e.location || '—') + ' · qty: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(String(e.qty)) + '</strong> · queued ' + rel(e.queued_at) + (e.by ? ' · by ' + esc(e.by) : '') + '</div>'
         + '</div>'
-        + '<button onclick="_stockV2DropPending_(' + idx + ')" title="Drop this entry without syncing" style="background:transparent;border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border-radius:6px;padding:6px 9px;font-size:11px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1">Drop</button>'
+        + '<button onclick="_stockV2DropPending_(' + idx + ',\'' + esc(String(e.sku || '')).replace(/'/g, "\\'") + '\')" title="Drop this entry without syncing" style="background:transparent;border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1">Drop</button>'
         + '</div>'
       ).join('');
   const ov = document.createElement('div');
@@ -15189,9 +15199,17 @@ function _stockV2OpenPendingList_() {
     + '</div>';
   document.body.appendChild(ov);
 }
-function _stockV2DropPending_(idx) {
+function _stockV2DropPending_(idx, sku) {
+  // v10.1481 — identity check. The background drain mutates the queue
+  // under an open list, so a bare index could drop a DIFFERENT entry
+  // than the row tapped. The row now passes its SKU; if the index no
+  // longer matches, re-render instead of dropping blind.
   const q = _stockV2GetPendingQueue_();
-  if (idx < 0 || idx >= q.length) return;
+  if (idx < 0 || idx >= q.length || (sku && q[idx].sku !== sku)) {
+    if (typeof showToast === 'function') showToast('List was out of date — refreshed. Tap Drop again.');
+    _stockV2OpenPendingList_();
+    return;
+  }
   if (!confirm('Drop pending sync for ' + q[idx].sku + '? This loses the count permanently.')) return;
   q.splice(idx, 1);
   _stockV2SetPendingQueue_(q);
@@ -15358,6 +15376,7 @@ function _stockV2OpenSessionView_(worklist, verb) {
     location: worklist.location,
     verb: verb,
     started_at: new Date().toISOString(),
+    _opened_at_ms: Date.now(),   // v10.1481 — stale-confirm guard
     operator: (function () {
       try { return localStorage.getItem('mbd_ground_packer') || ''; } catch (e) { return ''; }
     })(),
@@ -15454,6 +15473,41 @@ async function _stockV2ConfirmItem_(sku) {
   if (!_stockV2SessionState_) return;
   const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
   if (!it) return;
+  // v10.1481 — three data-integrity guards:
+  // (a) Double-tap: the list reflows on the first tap, so the second
+  //     tap of a double-tap used to land on the NEXT item's Confirm
+  //     and post a count the operator never saw.
+  if (it._status && it._status !== 'open') return;
+  // (b) "Confirm —" on a never-counted item silently wrote an
+  //     authoritative on_hand=0 with a fresh count stamp. Physical
+  //     count required instead.
+  if (it.on_hand == null) {
+    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' has never been counted — enter a count with the keypad instead');
+    if (typeof _stockV2OpenInlineCount_ === 'function') _stockV2OpenInlineCount_(sku);
+    return;
+  }
+  // (c) Stale rubber-stamp: Confirm-as-is saves the number captured
+  //     when the session OPENED. If that was >15 min ago, every ship
+  //     decrement and other-device count since then gets silently
+  //     reverted. Force a session-data refresh first.
+  const _openedAt = _stockV2SessionState_._opened_at_ms || 0;
+  if (_openedAt && (Date.now() - _openedAt) > 15 * 60 * 1000) {
+    if (typeof showToast === 'function') showToast('⚠ These numbers are ' + Math.round((Date.now() - _openedAt) / 60000) + ' min old — refreshing before confirm. Re-tap after refresh.');
+    try {
+      const loc = _stockV2SessionState_.location;
+      const verb = _stockV2SessionState_.verb || 'count';
+      const fresh = await groundApi('listStockSessionWorklist', { location: loc, verb: verb });
+      if (fresh && fresh.ok && Array.isArray(fresh.items)) {
+        fresh.items.forEach(fi => {
+          const local = _stockV2SessionState_.items.find(x => x.item_sku === fi.item_sku);
+          if (local && (!local._status || local._status === 'open')) local.on_hand = fi.on_hand;
+        });
+        _stockV2SessionState_._opened_at_ms = Date.now();
+        _stockV2RenderSessionView_();
+      }
+    } catch (e) { /* keep old numbers; operator can retry */ }
+    return;
+  }
   // v10.693 (Seth's punch-list item B) — optimistic UI flip first,
   // then fire the server save in the background. Reuses the existing
   // recordInventoryCount endpoint which writes BOTH items.on_hand +
@@ -15666,7 +15720,11 @@ async function _stockV2KeypadSave_(newQty) {
   const it = _stockV2SessionState_.items.find(x => x.item_sku === sku);
   if (!it) { _stockV2CloseKeypad_(); return; }
   _stockV2CloseKeypad_();
-  // Optimistic flip.
+  // Optimistic flip. v10.1481 — keep the prior system value so a
+  // server reject can restore it: the old revert restored only
+  // _status, leaving the REJECTED qty displayed as "System says",
+  // where a confirm-as-is retry would write the bad number.
+  const _priorOnHand = it.on_hand;
   it._status = 'adjusted';
   it._confirmed_at = new Date().toISOString();
   it.on_hand = qty;
@@ -15695,7 +15753,9 @@ async function _stockV2KeypadSave_(newQty) {
       _stockV2DrainPending_();
     } else {
       // Server-side reject — revert UI for manual retry.
+      // v10.1481 — restore the pre-edit system value too.
       it._status = 'open';
+      it.on_hand = _priorOnHand;
       it._server_error = (res && res.error) || 'save failed';
       _stockV2RenderSessionView_();
       if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed — re-tap to retry');
@@ -21706,7 +21766,17 @@ function _shelfEntryPreview_() {
     const m = _shelfMatchToElement_(p.name);
     if (m) {
       const el = m.element;
-      return `<tr data-idx="${i}" data-mode="match" data-sku="${(el.name || '').replace(/"/g,'&quot;')}" style="border-top:1px solid #eee"><td style="padding:8px 6px;font-family:'JetBrains Mono',monospace;font-weight:700">${p.qty}</td><td style="padding:8px 6px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">${p.name.replace(/</g,'&lt;')}</td><td style="padding:8px 6px;font-size:12px;color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f !important">✓ ${el.name.replace(/</g,'&lt;')} <span style="opacity:.7">(was ${el.lastCount ?? '—'})</span></td><td style="padding:8px 6px"><button onclick="_shelfSkipRow_(${i})" style="background:#eee !important;color:#666 !important;-webkit-text-fill-color:#666 !important;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer">Skip</button></td></tr>`;
+      // v10.1481 — write counts under the REAL part number, not the
+      // display name. The old data-sku carried the full ELEMENTS name
+      // ("FLIPUP NUT (267.10.616)") while the items table keys on the
+      // bare part number ("267.10.616"); the endpoint auto-creates
+      // unknown SKUs, so every save landed on a phantom row and the
+      // real row never moved — with a green success toast. Also
+      // dropped the "(was N)" hint: it read from the frozen ELEMENTS
+      // array baked into this file, not live data.
+      const partMatch = String(el.name || '').match(/\((\d{3}\.\d{2}\.\d{3})/);
+      const writeSku = partMatch ? partMatch[1] : (el.name || '');
+      return `<tr data-idx="${i}" data-mode="match" data-sku="${writeSku.replace(/"/g,'&quot;')}" style="border-top:1px solid #eee"><td style="padding:8px 6px;font-family:'JetBrains Mono',monospace;font-weight:700">${p.qty}</td><td style="padding:8px 6px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">${p.name.replace(/</g,'&lt;')}</td><td style="padding:8px 6px;font-size:12px;color:#0a7a3f !important;-webkit-text-fill-color:#0a7a3f !important">✓ ${el.name.replace(/</g,'&lt;')} <span style="opacity:.7;font-family:'JetBrains Mono',monospace">→ ${writeSku.replace(/</g,'&lt;')}</span></td><td style="padding:8px 6px"><button onclick="_shelfSkipRow_(${i})" style="background:#eee !important;color:#666 !important;-webkit-text-fill-color:#666 !important;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer">Skip</button></td></tr>`;
     } else {
       return `<tr data-idx="${i}" data-mode="new" data-sku="" style="border-top:1px solid #eee"><td style="padding:8px 6px;font-family:'JetBrains Mono',monospace;font-weight:700">${p.qty}</td><td style="padding:8px 6px">${p.name.replace(/</g,'&lt;')}</td><td style="padding:8px 6px"><input type="text" placeholder="New SKU (e.g. BUTT-HINGE)" data-newsku="${i}" style="width:100%;padding:5px 8px;font-size:12px;border:1.5px solid #7a5500;border-radius:4px;background:#fffbea !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;font-family:'JetBrains Mono',monospace"></td><td style="padding:8px 6px;font-size:11px;color:#7a5500 !important;-webkit-text-fill-color:#7a5500 !important">🆕 new</td></tr>`;
     }
@@ -37762,7 +37832,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1480"></script>
+<script src="./pack.js?v=10.1481"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37773,7 +37843,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1480<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1481<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
