@@ -2441,7 +2441,7 @@ input::placeholder, textarea::placeholder {
          Cabinets tab help icon. Opens the openCabinetsGuide walkthrough
          (search rig · receive flow · upcoming · pull · damage · sync). -->
     <button onclick="if(typeof openCabinetsGuide==='function')openCabinetsGuide()" title="Cabinets tab guide — every button, every flow" aria-label="Cabinets tab help" style="width:32px;height:32px;border-radius:50%;background:rgba(255,179,0,.10);border:1.5px solid rgba(255,179,0,.55);color:#FFB300;-webkit-text-fill-color:#FFB300;font-size:16px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0">?</button>
-    <button onclick="(async () => { const b = document.getElementById('cabSyncTopBtn'); if (b) { b.disabled = true; b.textContent = '⟳ Syncing…'; } try { const tasks = []; if (typeof syncCabinetsNow === 'function') tasks.push(syncCabinetsNow(true).catch(()=>{})); if (typeof _prefetchReceiveSessions_ === 'function') tasks.push(_prefetchReceiveSessions_(true).catch(()=>{})); await Promise.all(tasks); showToast('✓ Synced (cabinets + shipments)'); if (typeof renderCabinets === 'function') renderCabinets(); } catch (e) { showToast('Sync failed: ' + e.message); } finally { if (b) { b.disabled = false; b.textContent = '⟳ Sync'; } } })()" id="cabSyncTopBtn" style="background:#003087;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">⟳ Sync</button>
+    <button onclick="(async () => { const b = document.getElementById('cabSyncTopBtn'); if (b) { b.disabled = true; b.textContent = '⟳ Syncing…'; } try { const cabP = (typeof syncCabinetsNow === 'function') ? syncCabinetsNow(true).catch(()=>false) : Promise.resolve(false); const sesP = (typeof _prefetchReceiveSessions_ === 'function') ? _prefetchReceiveSessions_(true).catch(()=>false) : Promise.resolve(false); const [cabOk, sesOk] = await Promise.all([cabP, sesP]); if (cabOk && sesOk) { showToast('✓ Synced (cabinets + shipments)'); } else if (sesOk) { showToast('⚠ Shipments synced · cabinet sync failed'); } else if (cabOk) { showToast('⚠ Cabinets synced · shipments refresh FAILED — list may be stale'); } else { showToast('⚠ Sync failed — showing cached data'); } if (typeof renderCabinets === 'function') renderCabinets(); } catch (e) { showToast('Sync failed: ' + e.message); } finally { if (b) { b.disabled = false; b.textContent = '⟳ Sync'; } } })()" id="cabSyncTopBtn" style="background:#003087;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">⟳ Sync</button>
     <!-- v10.1207: ✕ Nuke Stale button (v10.1205) removed. Server-side
          archive (runArchiveAllPastReceiveSessions) + client-side prune
          (v10.1204) both correct now — the escape hatch was clutter.
@@ -16055,7 +16055,7 @@ async function renderStockV2Dashboard_() {
         label.style.webkitTextFillColor = borderColor;
       }
     }
-    // v10.1475 — cache the rendered items so _stockV2OpenItem_ can look
+    // v10.1476 — cache the rendered items so _stockV2OpenItem_ can look
     // one up by SKU when a card is tapped (previously stubbed as an alert).
     window._stockV2ItemsCache_ = items;
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
@@ -16171,7 +16171,7 @@ function _stockV2RowHtml_(it) {
     + '</div>';
 }
 function _stockV2OpenItem_(sku) {
-  // v10.1475 — real drilldown, replacing the Phase 0 alert stub. Looks
+  // v10.1476 — real drilldown, replacing the Phase 0 alert stub. Looks
   // the item up from the cache renderStockV2Dashboard_ stashes, then
   // shows on-hand + reorder chips, every bin with a per-bin ✎ Edit
   // button that hands off to _frameRunwayOpenBinEdit_, and the last-
@@ -26120,11 +26120,54 @@ function startAutoSync() {
     const itemPanel = document.getElementById('tab-items');
     if (cabPanel && cabPanel.classList.contains('active')) {
       syncCabinetsNow(true);
+      // v10.1476 — receive sessions were excluded from the 60s tick, so
+      // a device parked on the Cabinets tab never refreshed the shipment
+      // list between manual Syncs. Unforced call → its own 5-min
+      // throttle applies, so this costs one orchestrator hit per 5 min.
+      try { _prefetchReceiveSessions_(); } catch (e) {}
     } else if (itemPanel && itemPanel.classList.contains('active')) {
       syncItemsNow(true);
     }
   }, 60 * 1000); // every 60 seconds
 }
+
+// ── FOREGROUND LIVENESS (v10.1476) ──────────────────────────────────
+// The dominant iPad pattern is: wake device → PWA foregrounds → operator
+// looks at a list that silently went stale while the screen was off.
+// Before this, visibilitychange handlers only repainted a localStorage
+// badge and drained queued writes — nothing refetched server data.
+// Now: whenever the app becomes visible (or is restored from the bfcache
+// via pageshow), silently refresh whichever tab the operator is on.
+// Throttled to once per 30s so rapid app-switching doesn't hammer the
+// orchestrator; each callee's own throttle still applies on top.
+let _fgRefreshAt = 0;
+function _foregroundRefresh_() {
+  const now = Date.now();
+  if (now - _fgRefreshAt < 30000) return;
+  _fgRefreshAt = now;
+  const activeId = (document.querySelector('.panel.active') || {}).id || '';
+  try {
+    if (activeId === 'tab-cabinets') {
+      if (typeof syncCabinetsNow === 'function') syncCabinetsNow(true);
+      if (typeof _prefetchReceiveSessions_ === 'function') _prefetchReceiveSessions_(true);
+      if (typeof _refreshTodaysJobsPanel_ === 'function') _refreshTodaysJobsPanel_();
+    } else if (activeId === 'tab-pack') {
+      if (typeof refreshPackQueue === 'function') refreshPackQueue();
+    } else if (activeId === 'tab-ground') {
+      if (typeof refreshGroundQueue === 'function') refreshGroundQueue();
+    } else if (activeId === 'tab-items') {
+      if (typeof syncItemsNow === 'function') syncItemsNow(true);
+    } else if (activeId === 'tab-items-v2') {
+      if (typeof renderStockV2Dashboard_ === 'function') renderStockV2Dashboard_();
+    }
+  } catch (e) { /* silent — a failed refresh just leaves cached data up */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') _foregroundRefresh_();
+});
+window.addEventListener('pageshow', (e) => {
+  if (e && e.persisted) _foregroundRefresh_();
+});
 
 // ── ITEMS CLOUD SYNC ─────────────────────────────────────────────────────────
 // Mirrors the cabinet sync — same Google Sheet, separate "Items Inventory"
@@ -27111,6 +27154,49 @@ function isReceiveSessionMuted(s) {
   return false;
 }
 
+// v10.1476 — normalize a deliveryDate to ISO YYYY-MM-DD for comparisons.
+// Legacy local rows carry '5/21/2026'-style dates; a plain string compare
+// against '2026-08-10' classifies those as FUTURE ('5' > '2'), which let
+// slash-dated sessions dodge both the stale-prune and the UNFINISHED tag
+// forever. Reuses the same two patterns _canonicalReceiveSessionKey_
+// matches. Returns '' when no date is recognizable.
+function _recvNormDate_(raw) {
+  const s = String(raw || '');
+  let m = s.match(/(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return m[3] + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+  return '';
+}
+
+// v10.1476 — shared harvest: copy a session's checked cabinets into the
+// main cabinets[] array before the session is dropped, so no location
+// data is lost. Extracted from the boot prune so the runtime prune can
+// use the identical logic.
+function _harvestSessionCabinets_(s) {
+  let harvested = 0;
+  const ts = (typeof nowStamp === 'function') ? nowStamp() : new Date().toISOString();
+  ((s && s.cabinets) || []).forEach(rc => {
+    if (!rc || !(rc.received || rc.committedAt) || !rc.num) return;
+    const norm = (typeof normCab === 'function') ? normCab(rc.num) : String(rc.num).toUpperCase();
+    const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === norm);
+    if (existing) return;
+    cabinets.push({
+      uuid: (typeof makeUuid === 'function' ? makeUuid() : ('prune-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8))),
+      cabinet: rc.num,
+      location: rc.location || s.defaultLoc || '',
+      addedAt: rc.committedAt || rc.receivedAt || ts,
+      addedBy: rc.receivedBy || s.person || '',
+      updatedAt: ts,
+    });
+    harvested++;
+  });
+  if (harvested > 0) {
+    try { localStorage.setItem('mbd_cabinets', JSON.stringify(cabinets)); } catch (e) {}
+  }
+  return harvested;
+}
+
 // v10.323 — boot-time dedup pass. Shane's phone had two May 21 entries
 // (35/38 + 35/35) because the merge dedup was keyed too narrowly. Run
 // the same canonical-key dedup on whatever's in localStorage at boot
@@ -27239,8 +27325,14 @@ function renderActiveSessionBadge() {
   if (!container) return;
   // Cleanup pass: drop local-only "Auto-loaded" sessions that have no
   // server backing — they're stale cache from before v10.287.
+  // v10.1476 — also drop muted sessions at render time. Muting used to
+  // work only by keeping sessions OUT of the array (merge skip + boot
+  // prune); a muted session that slipped back in via the stale cache
+  // still painted a bar.
   const before = receiveSessions.length;
-  receiveSessions = receiveSessions.filter(s => !(s && s.name === 'Auto-loaded' && !s.serverSessionId));
+  receiveSessions = receiveSessions.filter(s => s
+    && !(s.name === 'Auto-loaded' && !s.serverSessionId)
+    && !isReceiveSessionMuted(s));
   if (receiveSessions.length !== before) {
     if (activeSessionId && !receiveSessions.find(s => s.id === activeSessionId)) activeSessionId = null;
     saveReceiveSessions();
@@ -27263,9 +27355,11 @@ function renderActiveSessionBadge() {
     const iso = (x) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
     return { mon: iso(mon), sun: iso(sun) };
   })();
+  // v10.1476 — compare NORMALIZED dates so slash-format legacy rows
+  // sort and tag correctly (they used to read as "future" forever).
   const sortedSessions = receiveSessions.slice().sort((a, b) => {
-    const ad = String(a.deliveryDate || '');
-    const bd = String(b.deliveryDate || '');
+    const ad = _recvNormDate_(a.deliveryDate);
+    const bd = _recvNormDate_(b.deliveryDate);
     const aPast = ad && ad < todayIso, bPast = bd && bd < todayIso;
     if (aPast && !bPast) return -1;
     if (!aPast && bPast) return 1;
@@ -27275,10 +27369,11 @@ function renderActiveSessionBadge() {
   // v10.293 — see _safeRecvDisplayName_ above. Zac 11:11 EDT.
   const barHtml = sortedSessions.map(s => {
     const st = sessionStats(s);
-    const isPast = s.deliveryDate && s.deliveryDate < todayIso;
+    const ndS = _recvNormDate_(s.deliveryDate);
+    const isPast = ndS && ndS < todayIso;
     const isReady = st.total > 0 && st.done >= st.total;
     const isIncompletePast = isPast && !isReady;
-    const isThisWeek = s.deliveryDate && s.deliveryDate >= _weekBounds_.mon && s.deliveryDate <= _weekBounds_.sun;
+    const isThisWeek = ndS && ndS >= _weekBounds_.mon && ndS <= _weekBounds_.sun;
     // Color: green for ready-to-approve, amber for incomplete-past,
     // navy for current/upcoming, grey for the rare "future + no date".
     const accent = isReady ? '#1A5C1A' : (isIncompletePast ? '#FF6B00' : '#003087');
@@ -27345,13 +27440,16 @@ function _recvBadgeTap_(sessionId) {
 // 5min so we don't hammer the orchestrator on every nav.
 let _recvPrefetchAt = 0;
 async function _prefetchReceiveSessions_(forceRefresh) {
+  // v10.1476 — returns true when a fresh server response was merged +
+  // pruned, false otherwise, so the Sync button can report honestly
+  // instead of toasting "✓ Synced" over a silent failure.
   const now = Date.now();
-  if (!forceRefresh && now - _recvPrefetchAt < 300000) return;
+  if (!forceRefresh && now - _recvPrefetchAt < 300000) return true;
   _recvPrefetchAt = now;
-  if (!GROUND_ORCH_URL) return;
+  if (!GROUND_ORCH_URL) return false;
   try {
     const resp = await groundApi('listOpenReceiveSessions', { window_days: 21 });
-    if (!resp || !resp.ok || !Array.isArray(resp.sessions)) return;
+    if (!resp || !resp.ok || !Array.isArray(resp.sessions)) return false;
     _mergeServerReceiveSessionsWithPrune_(resp.sessions);   // v10.1156
     saveReceiveSessions();
     // v10.1157 (Zac 2026-07-07): also refresh the receive-modal cache
@@ -27363,7 +27461,8 @@ async function _prefetchReceiveSessions_(forceRefresh) {
       }));
     } catch (_e) {}
     renderActiveSessionBadge();
-  } catch (e) { /* silent — badge will appear next time */ }
+    return true;
+  } catch (e) { return false; /* badge will appear next time */ }
 }
 
 // v10.290 — shared dedupe + merge for open server sessions. Zac
@@ -27383,40 +27482,70 @@ async function _prefetchReceiveSessions_(forceRefresh) {
 // Only called from the fresh-server-response path (not from cached).
 function _mergeServerReceiveSessionsWithPrune_(sessions) {
   _mergeServerReceiveSessions_(sessions);
-  // Build a presence set from the server's response.
+  // Build a presence set from the server's response. v10.1476 — dates
+  // normalized to ISO on both sides so slash-format legacy dates
+  // compare correctly.
   const serverSids = new Set();
   const serverDds = new Set();
   (sessions || []).forEach(ss => {
     if (ss.session_id) serverSids.add(String(ss.session_id));
-    if (ss.delivery_date) serverDds.add(String(ss.delivery_date));
+    const nd = _recvNormDate_(ss.delivery_date);
+    if (nd) serverDds.add(nd);
   });
-  // Drop any local session that:
-  // * Has a serverSessionId (was known to the server previously)
-  // * Isn't in the current server response
-  // * Isn't the actively-edited session on this device
   // v10.1204 (Zac 2026-07-08): threshold tightened from 7d → strictly-
-  // past. v10.1203's 7-day threshold kept Jul 2 (only 6 days old)
-  // even though server had archived it. New rule: any local-only
-  // session with delivery_date STRICTLY BEFORE today is dropped. Only
-  // today-or-future local-only sessions kept (i.e. in-progress drafts
-  // that haven't been server-synced yet).
+  // past. v10.1476 rewrite closes four survival paths found in the
+  // stale-shipments audit:
+  //   A. activeSessionId was exempt unconditionally — a session
+  //      archived on another device lived forever on the device that
+  //      held it active. Now the exemption only applies while the
+  //      server still lists it (or it's a local-only draft).
+  //   B. Local-only sessions with NO deliveryDate were kept forever.
+  //      Now harvested + dropped.
+  //   C. Slash-format dates ('5/21/2026') compared as strings beat
+  //      '2026-…' and read as future. Now normalized before compare.
+  //   D. Dropped server-anchored sessions weren't muted, so the
+  //      mbd_receive_open_sessions_v1 stale cache re-added them on the
+  //      next modal open. Now every server-anchored drop also mutes.
   const _todayIsoP = (function () {
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   })();
   const before = receiveSessions.length;
+  const _dropWithCare_ = (l) => {
+    _harvestSessionCabinets_(l);
+    if (l.serverSessionId || l.deliveryDate) {
+      try {
+        if (l.serverSessionId) mutedReceiveSessions['sid:' + l.serverSessionId] = Date.now();
+        if (l.deliveryDate)    mutedReceiveSessions['dd:'  + l.deliveryDate]    = Date.now();
+        localStorage.setItem('mbd_muted_receive_sessions', JSON.stringify(mutedReceiveSessions));
+      } catch (_e) {}
+    }
+    return false;
+  };
   receiveSessions = receiveSessions.filter(l => {
     if (!l) return false;
-    if (l.id === activeSessionId) return true;   // don't nuke what's open
+    const nd = _recvNormDate_(l.deliveryDate);
     if (!l.serverSessionId) {
-      // Never had server presence. If delivery_date is in the past, drop.
-      if (l.deliveryDate && l.deliveryDate < _todayIsoP) return false;
-      return true;   // today-or-future local-only draft, keep
+      // Local-only draft. Keep only if actively edited or dated
+      // today-or-future; dateless or past-dated relics harvest + drop.
+      if (l.id === activeSessionId && (!nd || nd >= _todayIsoP)) return true;
+      if (!nd) return _dropWithCare_(l);
+      if (nd < _todayIsoP) return _dropWithCare_(l);
+      return true;
     }
     if (serverSids.has(String(l.serverSessionId))) return true;
-    if (l.deliveryDate && serverDds.has(String(l.deliveryDate))) return true;
-    return false;   // finalized on another device → drop
+    if (nd && serverDds.has(nd)) return true;
+    // Server-anchored but absent from a successful server response →
+    // finalized on another device. Harvest, mute, drop — even if this
+    // device holds it active.
+    return _dropWithCare_(l);
   });
+  // If the active session got dropped, clear the pointer so the
+  // exemption can't resurrect a dangling id and the next modal open
+  // picks a real session.
+  if (activeSessionId && !receiveSessions.some(s => s && s.id === activeSessionId)) {
+    activeSessionId = null;
+  }
   const pruned = before - receiveSessions.length;
   if (pruned > 0) {
     try { saveReceiveSessions(); } catch (_e) {}
@@ -27603,6 +27732,13 @@ async function openReceiveShipment() {
       if (parsed && Array.isArray(parsed.sessions)) {
         cachedSessions = parsed.sessions;
         cachedAt = Number(parsed.cached_at_ms || 0);
+        // v10.1476 — hard 24h TTL. A device that stays offline used to
+        // re-merge this snapshot forever (it was only cleared by a
+        // successful fetch), resurrecting sessions archived elsewhere.
+        if (Date.now() - cachedAt > 24 * 3600 * 1000) {
+          cachedSessions = null;
+          try { localStorage.removeItem(RECEIVE_CACHE_KEY); } catch (_e) {}
+        }
       }
     }
   } catch (e) { /* silent */ }
@@ -27658,6 +27794,14 @@ async function openReceiveShipment() {
         if (!cacheFresh) showToast('No open shipments — manual setup');
         // Empty response is authoritative — clear stale cache.
         try { localStorage.removeItem(RECEIVE_CACHE_KEY); } catch (e) {}
+        // v10.1476 — an authoritative empty response must ALSO prune.
+        // Previously this path skipped the prune entirely (it only ran
+        // inside `serverSessions.length > 0`), so when the server said
+        // "nothing open" every stale local session survived and
+        // rendered via the "No server session — showing local" branch.
+        _mergeServerReceiveSessionsWithPrune_([]);
+        saveReceiveSessions();
+        renderActiveSessionBadge();
       }
     } catch (e) {
       console.warn('listOpenReceiveSessions failed:', e);
@@ -28429,7 +28573,7 @@ function renderReceiveSession() {
   })();
   const sessionCard_ = (s, isActive) => {
     const st = sessionStats(s);
-    const isPast = s.deliveryDate && s.deliveryDate < todayIso;
+    const isPast = _recvNormDate_(s.deliveryDate) && _recvNormDate_(s.deliveryDate) < todayIso;
     const isReady = st.total > 0 && st.done >= st.total;
     const isIncompletePast = isPast && !isReady;
     const isThisWeek = s.deliveryDate && s.deliveryDate >= _weekBoundsMod_.mon && s.deliveryDate <= _weekBoundsMod_.sun;
@@ -28520,14 +28664,18 @@ function renderReceiveSession() {
   // bottom." Keep chronological order (by delivery date); the active
   // card's distinctive yellow + border + VIEWING chip make it obvious
   // where it is without moving it.
-  const _sortedRecv = receiveSessions.slice().sort((a, b) => {
-    const ad = a.deliveryDate || '';
-    const bd = b.deliveryDate || '';
-    return ad < bd ? -1 : ad > bd ? 1 : 0;
-  });
-  const chooserStrip = receiveSessions.length > 0
+  // v10.1476 — muted sessions never paint a chooser card, and sort by
+  // normalized date so slash-format legacy rows land in the right spot.
+  const _sortedRecv = receiveSessions.slice()
+    .filter(s => s && !isReceiveSessionMuted(s))
+    .sort((a, b) => {
+      const ad = _recvNormDate_(a.deliveryDate) || String(a.deliveryDate || '');
+      const bd = _recvNormDate_(b.deliveryDate) || String(b.deliveryDate || '');
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    });
+  const chooserStrip = _sortedRecv.length > 0
     ? '<div style="margin-bottom:12px">'
-      + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:8px">📥 Open Shipments (' + receiveSessions.length + ')</div>'
+      + '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666 !important;-webkit-text-fill-color:#666 !important;margin-bottom:8px">📥 Open Shipments (' + _sortedRecv.length + ')</div>'
       + _sortedRecv.map(s => sessionCard_(s, s.id === session.id)).join('')
       + '</div>'
     : '';
@@ -35465,7 +35613,7 @@ startAutoSync();
   var _todaysJobsInflight = false;
   var _todaysJobsCache = [];
 
-  // v10.1475 — cache-first paint. The perceived "10-15 sec to load"
+  // v10.1476 — cache-first paint. The perceived "10-15 sec to load"
   // was actually the round-trip time to Apps Script through the
   // Cloudflare relay. Paint the last-seen list from localStorage
   // immediately, then refresh in the background and re-paint if the
@@ -35577,7 +35725,7 @@ startAutoSync();
     var panel = document.getElementById('cabTodaysJobsPanel');
     if (!panel) return;
 
-    // v10.1475 — cache-first paint. If we have a same-day cached row
+    // v10.1476 — cache-first paint. If we have a same-day cached row
     // set, paint it right now so the panel is on-screen in <100ms even
     // on a cold Apps Script wake-up. The fetch below still runs and
     // re-paints if the data has moved. Also seeds _resolvedPickListCache
@@ -35621,7 +35769,7 @@ startAutoSync();
       // Also fold in packed rows on the active list — they're the ones
       // Jonah still needs to finish (dims, photos, load/stow).
       _todaysJobsCache = rows;
-      _todaysJobsSaveCache_(rows);          // v10.1475 — persist for next open
+      _todaysJobsSaveCache_(rows);          // v10.1476 — persist for next open
       if (!rows.length) {
         panel.style.display = 'none';
         panel.innerHTML = '';
@@ -35784,7 +35932,7 @@ startAutoSync();
       + '</div>';
   }
 
-  // v10.1475 — Gather Frames wizard, replacing the alert stub. Walks
+  // v10.1476 — Gather Frames wizard, replacing the alert stub. Walks
   // the operator through picking every frame box for today's active
   // jobs. Data flow: _todaysJobsCache → _resolvedPickListCache[on]
   // .resolved.buckets.frame (eagerly prefetched by
@@ -35837,7 +35985,7 @@ startAutoSync();
     } catch (e) {}
   }
 
-  // v10.1475 — cache the fully-computed items array (with bins) so a
+  // v10.1476 — cache the fully-computed items array (with bins) so a
   // re-open of the wizard paints instantly. The bin lookups per SKU
   // are the expensive part; keeping them on the day-scoped LS shelf
   // means the operator can pop the wizard open, check progress, and
@@ -35886,7 +36034,7 @@ startAutoSync();
   };
 
   async function _gatherFramesLoad_() {
-    // v10.1475 — cache-first paint. Show the last-seen items array
+    // v10.1476 — cache-first paint. Show the last-seen items array
     // immediately from localStorage so the wizard is on-screen in <100ms
     // even after a page reload. Then re-compute in the background and
     // re-paint if the shape changed. Gathered/undone state from
@@ -35992,7 +36140,7 @@ startAutoSync();
     });
 
     _gatherFramesState.items = jobFrames;
-    _gatherFramesSaveItemsCache_(jobFrames);   // v10.1475 — persist for instant re-open
+    _gatherFramesSaveItemsCache_(jobFrames);   // v10.1476 — persist for instant re-open
     _gatherFramesRender_();
   }
 
@@ -36101,7 +36249,7 @@ startAutoSync();
       return;
     }
     var scanned = String(inp.value || '').trim().toUpperCase();
-    // v10.1475 — empty-input hotfix: previously we silently returned,
+    // v10.1476 — empty-input hotfix: previously we silently returned,
     // which looked exactly like "CHECK does nothing" to the operator.
     // Now: focus the input and tell them what to do.
     if (!scanned) {
@@ -36231,7 +36379,7 @@ startAutoSync();
       groundApi('getResolvedPickList', { orderNumber: on }).then(function (res) {
         if (res && res.ok) {
           _resolvedPickListCache[on] = res;
-          // v10.1475 — persist to localStorage so tomorrow's cold open
+          // v10.1476 — persist to localStorage so tomorrow's cold open
           // is instant (same-day only; the day-scoped LS key auto-
           // invalidates overnight).
           try {
@@ -36633,7 +36781,7 @@ startAutoSync();
     var totalLines = 0;
 
     var buckSections = '';
-    // v10.1475 — pack notes banner (server-side variant_map.pack_note).
+    // v10.1476 — pack notes banner (server-side variant_map.pack_note).
     // Renders above buckets so packers can't miss the note when they
     // open Pack Hardware. Amber background keeps it visually distinct
     // from the pick list itself.
@@ -37212,7 +37360,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1475"></script>
+<script src="./pack.js?v=10.1476"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37223,7 +37371,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1475<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1476<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
