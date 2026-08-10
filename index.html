@@ -27328,10 +27328,32 @@ function renderActiveSessionBadge() {
   // work only by keeping sessions OUT of the array (merge skip + boot
   // prune); a muted session that slipped back in via the stale cache
   // still painted a bar.
+  // v10.1478 — hard 45-day age-out. Even when the server keeps
+  // returning an ancient session as "open" (dateless rows never age out
+  // of its 21-day window; some old rows survive it entirely), a
+  // shipment >45 days past is unquestionably dead. Harvest its checked
+  // cabinets, mute it so no merge re-adds it, and drop.
+  const _ageCutoff_ = (function () {
+    const d = new Date(); d.setDate(d.getDate() - 45);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  })();
   const before = receiveSessions.length;
-  receiveSessions = receiveSessions.filter(s => s
-    && !(s.name === 'Auto-loaded' && !s.serverSessionId)
-    && !isReceiveSessionMuted(s));
+  receiveSessions = receiveSessions.filter(s => {
+    if (!s) return false;
+    if (s.name === 'Auto-loaded' && !s.serverSessionId) return false;
+    if (isReceiveSessionMuted(s)) return false;
+    const nd = _recvNormDate_(s.deliveryDate);
+    if (nd && nd < _ageCutoff_) {
+      _harvestSessionCabinets_(s);
+      try {
+        if (s.serverSessionId) mutedReceiveSessions['sid:' + s.serverSessionId] = Date.now();
+        if (s.deliveryDate)    mutedReceiveSessions['dd:'  + s.deliveryDate]    = Date.now();
+        localStorage.setItem('mbd_muted_receive_sessions', JSON.stringify(mutedReceiveSessions));
+      } catch (_e) {}
+      return false;
+    }
+    return true;
+  });
   if (receiveSessions.length !== before) {
     if (activeSessionId && !receiveSessions.find(s => s.id === activeSessionId)) activeSessionId = null;
     saveReceiveSessions();
@@ -27386,8 +27408,23 @@ function renderActiveSessionBadge() {
       }
     } else if (isIncompletePast) {
       tag = '<span style="font-size:9px;font-weight:900;letter-spacing:.4px;background:rgba(255,255,255,.28);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px">UNFINISHED</span>';
+      // v10.1478 — incomplete past sessions had NO close action on the
+      // bar, so they lingered forever (Jul 23 at 36/37, Jul 9 at 20/21).
+      // approveArchiveReceiveSession already handles the incomplete
+      // case — its confirm warns "N cabinets still un-received, left
+      // as missed." Offer it here too.
+      if (s.serverSessionId) {
+        action = '<button onclick="event.stopPropagation();approveArchiveReceiveSession(\'' + esc(s.id) + '\')" style="background:#fff;color:#B54708;border:none;border-radius:6px;padding:5px 9px;font-size:10px;font-weight:900;cursor:pointer;letter-spacing:.4px;text-transform:uppercase;white-space:nowrap;margin-left:6px" title="Manager PIN: archive — unreceived cabinets are left as missed">Close out</button>';
+      }
     } else if (isThisWeek) {
       tag = '<span style="font-size:9px;font-weight:900;letter-spacing:.4px;background:rgba(255,255,255,.28);color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px">THIS WEEK</span>';
+    }
+    // v10.1478 — ✕ dismiss on past and DATELESS bars (the "Shipment
+    // (no date · …)" zombies never age out of any window). Mutes on
+    // this device only — server state untouched. Wired to the existing
+    // _dismissReceiveShipment_ helper via data attributes.
+    if (isPast || !ndS) {
+      action += '<button data-sid="' + btoa(unescape(encodeURIComponent(String(s.id || '')))) + '" data-ssid="' + esc(String(s.serverSessionId || '')) + '" data-dd="' + esc(String(s.deliveryDate || '')) + '" onclick="event.stopPropagation();_dismissReceiveShipment_(this)" style="background:rgba(0,0,0,.25);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:5px 8px;font-size:10px;font-weight:900;cursor:pointer;margin-left:6px" title="Hide on this device only (server unchanged)">✕</button>';
     }
     // Single-row layout — 50px tall, big date + X/Y inline, progress fill behind.
     return '<div onclick="_recvBadgeTap_(\'' + esc(s.id) + '\')" '
@@ -27413,8 +27450,18 @@ function renderActiveSessionBadge() {
       + '</div>'
       + '</div>';
   }).join('');
+  // v10.1478 — bulk approve chip when ≥2 sessions are complete. One
+  // confirm + one PIN archives all of them (Jul 30 + Jul 16 pattern).
+  const _readyCount_ = receiveSessions.filter(s => {
+    if (!s || !s.serverSessionId) return false;
+    const st = sessionStats(s);
+    return st.total > 0 && st.done >= st.total;
+  }).length;
+  const bulkChip = _readyCount_ >= 2
+    ? '<button onclick="_approveAllReadyReceiveSessions_()" style="background:#1A5C1A;color:#fff;border:none;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:900;cursor:pointer;letter-spacing:.4px;margin-left:8px" title="One manager PIN archives every complete shipment">✓ Approve all ' + _readyCount_ + '</button>'
+    : '';
   const html = '<div id="activeSessionBadge" style="margin-bottom:8px">'
-    + '<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px;padding:0 2px">🚚 Open shipments — tap to resume</div>'
+    + '<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px;padding:0 2px;display:flex;align-items:center">🚚 Open shipments — tap to resume' + bulkChip + '</div>'
     + barHtml
     + '</div>';
   if (badge) {
@@ -27891,7 +27938,14 @@ function _dismissReceiveShipment_(btn) {
       receiveSessions = receiveSessions.filter(x => x && x.id !== sid);
     }
     if (typeof saveReceiveSessions === 'function') saveReceiveSessions();
-    if (typeof renderReceiveSession === 'function') renderReceiveSession();
+    // v10.1478 — the dismiss button now also lives on the tab-level
+    // badge bars. Re-render whichever surface is showing.
+    const _dismModalOpen_ = (function () {
+      const ov = document.getElementById('cabModalOverlay');
+      return ov && ov.style.display !== 'none' && ov.style.display !== '';
+    })();
+    if (_dismModalOpen_ && typeof renderReceiveSession === 'function') renderReceiveSession();
+    if (typeof renderActiveSessionBadge === 'function') renderActiveSessionBadge();
     if (typeof showToast === 'function') showToast('✓ Dismissed from this device');
   } catch (e) {
     if (typeof showToast === 'function') showToast('Dismiss failed: ' + e.message);
@@ -27907,6 +27961,87 @@ function switchActiveReceiveSession(sessionId) {
 }
 
 // v10.287 — manager-PIN gated "final approve" / archive for a session.
+// v10.1478 — server+local core extracted to _approveArchiveCore_ so the
+// bulk "Approve all ready" action can archive several sessions on ONE
+// PIN entry instead of confirm+PIN per session.
+async function _approveArchiveCore_(s, pin) {
+  const resp = await groundApi('completeReceiveSession', {
+    sessionId: s.serverSessionId,
+    manager_pin: pin,
+  });
+  if (!resp || !resp.ok) {
+    return { ok: false, error: (resp && resp.error) || 'unknown' };
+  }
+  // v10.318c — harvest checked cabinets BEFORE removing (see below).
+  const tsCore = nowStamp();
+  (s.cabinets || []).forEach(rc => {
+    if (!rc || !rc.num) return;
+    if (!rc.received && !rc.committedAt) return;
+    const norm = normCab(rc.num);
+    const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === norm);
+    if (existing) {
+      if (rc.location && normCab(existing.location) !== normCab(rc.location)) {
+        existing.prevLoc = existing.location || '';
+        existing.location = rc.location;
+        existing.movedAt = tsCore;
+      }
+      existing.updatedAt = tsCore;
+      return;
+    }
+    cabinets.push({
+      uuid: (typeof makeUuid === 'function' ? makeUuid() : ('local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8))),
+      cabinet: rc.num,
+      location: rc.location || s.defaultLoc || '',
+      addedAt: rc.committedAt || rc.receivedAt || tsCore,
+      addedBy: rc.receivedBy || s.person || '',
+      updatedAt: tsCore,
+    });
+  });
+  saveCabinets();
+  muteReceiveSession(s);
+  receiveSessions = receiveSessions.filter(r => {
+    if (!r) return false;
+    if (r.id === s.id) return false;
+    if (s.serverSessionId && r.serverSessionId === s.serverSessionId) return false;
+    if (s.deliveryDate    && r.deliveryDate    === s.deliveryDate)    return false;
+    return true;
+  });
+  if (activeSessionId === s.id) {
+    activeSessionId = receiveSessions[0] ? receiveSessions[0].id : null;
+  }
+  saveReceiveSessions();
+  return { ok: true };
+}
+
+// v10.1478 — bulk approve: one confirm, one PIN, archive every ✓ READY
+// server-anchored session. Fired from the badge header when ≥2 ready.
+async function _approveAllReadyReceiveSessions_() {
+  const ready = receiveSessions.filter(s => {
+    if (!s || !s.serverSessionId) return false;
+    const st = sessionStats(s);
+    return st.total > 0 && st.done >= st.total;
+  });
+  if (!ready.length) { showToast('Nothing ready to approve'); return; }
+  const names = ready.map(s => _safeRecvDisplayName_(s)).join(', ');
+  if (!confirm('Approve & archive ' + ready.length + ' complete shipment' + (ready.length === 1 ? '' : 's') + '?\n\n' + names + '\n\nOne manager PIN covers all of them.')) return;
+  const pin = (typeof promptManagerPin_ === 'function')
+    ? promptManagerPin_('approve + archive ' + ready.length + ' shipments')
+    : prompt('Manager PIN:');
+  if (!pin) return;
+  let okCount = 0, failCount = 0;
+  for (const s of ready) {
+    try {
+      const r = await _approveArchiveCore_(s, pin);
+      if (r.ok) okCount++; else { failCount++; console.log('bulk approve failed for', s.name, r.error); }
+    } catch (e) { failCount++; console.log('bulk approve threw for', s.name, e.message); }
+  }
+  showToast(failCount === 0
+    ? ('✓ ' + okCount + ' shipment' + (okCount === 1 ? '' : 's') + ' archived')
+    : ('⚠ ' + okCount + ' archived · ' + failCount + ' failed — check PIN / server'));
+  renderActiveSessionBadge();
+  renderCabinets();
+}
+
 async function approveArchiveReceiveSession(sessionId) {
   const s = receiveSessions.find(r => r.id === sessionId);
   if (!s || !s.serverSessionId) { showToast('Session not on server'); return; }
@@ -27921,72 +28056,25 @@ async function approveArchiveReceiveSession(sessionId) {
     : prompt('Manager PIN:');
   if (!pin) return;
   try {
-    const resp = await groundApi('completeReceiveSession', {
-      sessionId: s.serverSessionId,
-      manager_pin: pin,
-    });
-    if (!resp || !resp.ok) {
-      showToast('Archive failed: ' + ((resp && resp.error) || 'unknown'));
+    const r = await _approveArchiveCore_(s, pin);
+    if (!r.ok) {
+      showToast('Archive failed: ' + r.error);
       return;
     }
-    // v10.318c — BEFORE removing the session, harvest its checked
-    // cabinets into the main local cabinets[] array so they survive
-    // the mute+prune. Without this, a session approved while the
-    // inventory cabinetSync was drifted would silently dead-zone every
-    // cabinet on it (the v10.317 31510 case).
-    const tsApprove = nowStamp();
-    let harvested = 0;
-    (s.cabinets || []).forEach(rc => {
-      if (!rc || !rc.num) return;
-      if (!rc.received && !rc.committedAt) return;  // only the checked ones
-      const norm = normCab(rc.num);
-      const existing = cabinets.find(c => !c.deleted && normCab(c.cabinet) === norm);
-      if (existing) {
-        if (rc.location && normCab(existing.location) !== normCab(rc.location)) {
-          existing.prevLoc = existing.location || '';
-          existing.location = rc.location;
-          existing.movedAt = tsApprove;
-        }
-        existing.updatedAt = tsApprove;
-        return;
-      }
-      cabinets.push({
-        uuid: (typeof makeUuid === 'function' ? makeUuid() : ('local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8))),
-        cabinet: rc.num,
-        location: rc.location || s.defaultLoc || '',
-        addedAt: rc.committedAt || rc.receivedAt || tsApprove,
-        addedBy: rc.receivedBy || s.person || '',
-        updatedAt: tsApprove,
-      });
-      harvested++;
-    });
-    if (harvested > 0) saveCabinets();
-    // v10.318 — record the approval in the muted set so even if (a) the
-    // server-side completeReceiveSession write got the wrong session_id
-    // and didn't actually flip status, or (b) another iPad still has
-    // this session open and pushes it back via merge, THIS device's
-    // view stays clean post-approve.
-    muteReceiveSession(s);
-    // Drop ALL local rows matching this session — not just by .id.
-    // Duplicates can exist (the "Shipment ime)" / "Auto-loaded" cases)
-    // with different ids but the same deliveryDate or serverSessionId.
-    receiveSessions = receiveSessions.filter(r => {
-      if (!r) return false;
-      if (r.id === sessionId) return false;
-      if (s.serverSessionId && r.serverSessionId === s.serverSessionId) return false;
-      if (s.deliveryDate    && r.deliveryDate    === s.deliveryDate)    return false;
-      return true;
-    });
-    if (activeSessionId === sessionId) {
-      activeSessionId = receiveSessions[0] ? receiveSessions[0].id : null;
-    }
-    saveReceiveSessions();
     showToast('✓ ' + s.name + ' archived');
+    // Re-render whichever surface is showing: the modal if it's open,
+    // otherwise the tab-level shipment bars.
+    const modalOpen = (function () {
+      const ov = document.getElementById('cabModalOverlay');
+      return ov && ov.style.display !== 'none' && ov.style.display !== '';
+    })();
     if (receiveSessions.length === 0) {
       closeCabModal();
       renderCabinets();
-    } else {
+    } else if (modalOpen) {
       renderReceiveSession();
+    } else {
+      renderActiveSessionBadge();
     }
   } catch (e) {
     showToast('Archive error: ' + e.message);
@@ -37359,7 +37447,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1477"></script>
+<script src="./pack.js?v=10.1478"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37370,7 +37458,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1477<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1478<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
