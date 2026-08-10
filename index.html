@@ -9668,6 +9668,11 @@ let showDamaged = false;
 try { showDamaged = localStorage.getItem('mbd_show_damaged') === 'true'; } catch(e) {}
 
 function saveCabinets() {
+  // v10.1480 — mutation counter. syncCabinetsNow snapshots this before
+  // its POST and refuses to replace the local store if an edit landed
+  // while the request was in flight (the replace used to silently
+  // clobber any pull/move/damage recorded during the 5-10s round-trip).
+  window._cabMutationSeq_ = (window._cabMutationSeq_ || 0) + 1;
   try { localStorage.setItem('mbd_cabinets', JSON.stringify(cabinets)); } catch(e) {}
 }
 function saveCabTeam() {
@@ -11016,7 +11021,27 @@ async function _frameRunwayBinEditSave_(sku, location, pin) {
     if (typeof showToast === 'function') {
       showToast('✓ ' + sku + ' @ ' + location + ': ' + (j.after && j.after.bin_qty) + ' (on_hand ' + (j.after && j.after.on_hand) + ')');
     }
-    _frameRunwayLoad_(true);
+    // v10.1480 — refresh the surface the edit actually came from. The
+    // unconditional Runway reload no-op'd visually when the Runway
+    // overlay was closed (Stock 2 drilldown path) while still burning
+    // network, and the Stock 2 dashboard + its item cache stayed stale
+    // — the drilldown re-opened showing the OLD qty, inviting a
+    // duplicate correction.
+    if (document.getElementById('frameRunwayOverlay')) {
+      _frameRunwayLoad_(true);
+    }
+    try {
+      const cacheItem = (window._stockV2ItemsCache_ || []).find(i => String(i.item_sku || '') === String(sku));
+      if (cacheItem && j.after) {
+        if (j.after.on_hand != null) cacheItem.on_hand = j.after.on_hand;
+        const bin = (cacheItem.bins || []).find(b => String(b.location || '') === String(location));
+        if (bin && j.after.bin_qty != null) bin.qty = j.after.bin_qty;
+        const v2Panel = document.getElementById('tab-items-v2');
+        if (v2Panel && v2Panel.classList.contains('active') && typeof renderStockV2Dashboard_ === 'function') {
+          renderStockV2Dashboard_();
+        }
+      }
+    } catch (_e) {}
   } catch (e) {
     alert('Save error: ' + e.message);
   } finally {
@@ -16648,6 +16673,8 @@ try {
 let itemCategoryFilter = 'all';
 
 function saveItems() {
+  // v10.1480 — same in-flight edit guard as saveCabinets.
+  window._itemsMutationSeq_ = (window._itemsMutationSeq_ || 0) + 1;
   try {
     localStorage.setItem('mbd_items', JSON.stringify(items));
   } catch (e) {
@@ -26152,6 +26179,7 @@ async function syncCabinetsNow(silent) {
   try {
     // POST our cabinets — the script returns the merged set
     const url = cabSyncUrl;
+    const _seqAtPost = (window._cabMutationSeq_ || 0);   // v10.1480
     const resp = await fetch(url, {
       method: 'POST',
       // Apps Script web apps need text/plain to avoid CORS preflight
@@ -26181,9 +26209,17 @@ async function syncCabinetsNow(silent) {
     // Any record on another device that the server has marked deleted will
     // be removed from THIS device's local copy on next sync (because the
     // server won't include it in the live set).
+    // v10.1480 — UNLESS a local edit landed while this request was in
+    // flight: the response merged the PRE-edit snapshot, so replacing
+    // now would clobber the new edit. Skip the replace; the next sync
+    // (60s auto or manual) carries the edit up and pulls the merge.
     if (Array.isArray(data.cabinets)) {
-      cabinets = data.cabinets;
-      saveCabinets();
+      if (_seqAtPost === (window._cabMutationSeq_ || 0)) {
+        cabinets = data.cabinets;
+        saveCabinets();
+      } else {
+        console.log('[cabSync] local edit during sync flight — keeping local, next sync reconciles');
+      }
     }
 
     cabLastSyncAt = nowStamp();
@@ -26240,6 +26276,10 @@ let _fgRefreshAt = 0;
 function _foregroundRefresh_() {
   const now = Date.now();
   if (now - _fgRefreshAt < 30000) return;
+  // v10.1480 — waking OFFLINE must not blank a good cached view (the
+  // Stock 2 dashboard repaint starts with 'Loading…' then errors).
+  // Skip entirely; the 'online' event / next visible fires catch up.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   _fgRefreshAt = now;
   const activeId = (document.querySelector('.panel.active') || {}).id || '';
   try {
@@ -26287,6 +26327,7 @@ async function syncItemsNow(silent) {
   setItemSyncStatus('Syncing...', '#003087');
 
   try {
+    const _itemsSeqAtPost = (window._itemsMutationSeq_ || 0);   // v10.1480
     const resp = await fetch(cabSyncUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -26305,8 +26346,14 @@ async function syncItemsNow(silent) {
       throw new Error(data && data.error ? data.error : 'Server returned an error');
     }
     if (Array.isArray(data.items)) {
-      items = data.items;
-      saveItems();
+      // v10.1480 — skip the replace if a local edit landed mid-flight
+      // (same clobber guard as syncCabinetsNow).
+      if (_itemsSeqAtPost === (window._itemsMutationSeq_ || 0)) {
+        items = data.items;
+        saveItems();
+      } else {
+        console.log('[itemsSync] local edit during sync flight — keeping local, next sync reconciles');
+      }
     }
     itemLastSyncAt = nowStamp();
     try { localStorage.setItem('mbd_items_last_sync', itemLastSyncAt); } catch(e) {}
@@ -27073,9 +27120,25 @@ function _markPendingCommitFailed_(id, err) {
 async function retryPendingCommits() {
   if (!pendingCabinetCommits.length) return { tried: 0, ok: 0, failed: 0 };
   if (typeof groundApi !== 'function' || !GROUND_ORCH_URL) return { tried: 0, ok: 0, failed: 0 };
+  // v10.1480 — age-out. Permanently-failing commits (deleted server
+  // session, malformed payload) used to retry every 60s forever,
+  // burning GAS quota. After 50 attempts or 48h we stop retrying,
+  // surface a toast once, and keep the row visible in the pending
+  // list (Drop button still works) rather than deleting data.
+  const _nowMs = Date.now();
+  let retiredCount = 0;
+  pendingCabinetCommits.forEach(p => {
+    if (p._retired) return;
+    const ageMs = p.firstTriedAt ? (_nowMs - new Date(p.firstTriedAt).getTime()) : 0;
+    if ((p.attempts || 0) >= 50 || ageMs > 48 * 3600 * 1000) { p._retired = true; retiredCount++; }
+  });
+  if (retiredCount > 0) {
+    _savePendingCommits_();
+    if (typeof showToast === 'function') showToast('⚠ ' + retiredCount + ' receive-commit(s) stopped retrying (too many failures) — check the pending list');
+  }
   let ok = 0, failed = 0;
   // Snapshot the queue so dequeue during iteration is safe.
-  const toTry = pendingCabinetCommits.slice();
+  const toTry = pendingCabinetCommits.filter(p => !p._retired);
   for (const p of toTry) {
     try {
       const resp = await groundApi('commitReceiveProgress', {
@@ -27245,8 +27308,14 @@ function _scoreReceiveSession_(s) {
 
 function isReceiveSessionMuted(s) {
   if (!s) return false;
-  if (s.serverSessionId && mutedReceiveSessions['sid:' + s.serverSessionId]) return true;
-  if (s.deliveryDate    && mutedReceiveSessions['dd:'  + s.deliveryDate])    return true;
+  // v10.1480 — mutes expire after 30 days. They exist to bridge
+  // archive-propagation races and per-device dismissals, not to be a
+  // permanent blocklist: a dd:-keyed mute with no TTL could silently
+  // suppress a FUTURE legitimate session that lands on the same date.
+  const _MUTE_TTL_ = 30 * 24 * 3600 * 1000;
+  const _fresh_ = (ts) => typeof ts === 'number' && (Date.now() - ts) < _MUTE_TTL_;
+  if (s.serverSessionId && _fresh_(mutedReceiveSessions['sid:' + s.serverSessionId])) return true;
+  if (s.deliveryDate    && _fresh_(mutedReceiveSessions['dd:'  + s.deliveryDate]))    return true;
   return false;
 }
 
@@ -27654,12 +27723,15 @@ function _mergeServerReceiveSessionsWithPrune_(sessions) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   })();
   const before = receiveSessions.length;
-  const _dropWithCare_ = (l) => {
+  // v10.1480 — drop helper. `muteSid` true only for debounce-confirmed
+  // drops of progressed sessions (so the stale response cache can't
+  // resurrect them). Never dd-mutes: a date-keyed mute here could
+  // silently block a FUTURE legitimate session on the same date.
+  const _dropWithCare_ = (l, muteSid) => {
     _harvestSessionCabinets_(l);
-    if (l.serverSessionId || l.deliveryDate) {
+    if (muteSid && l.serverSessionId) {
       try {
-        if (l.serverSessionId) mutedReceiveSessions['sid:' + l.serverSessionId] = Date.now();
-        if (l.deliveryDate)    mutedReceiveSessions['dd:'  + l.deliveryDate]    = Date.now();
+        mutedReceiveSessions['sid:' + l.serverSessionId] = Date.now();
         localStorage.setItem('mbd_muted_receive_sessions', JSON.stringify(mutedReceiveSessions));
       } catch (_e) {}
     }
@@ -27672,16 +27744,35 @@ function _mergeServerReceiveSessionsWithPrune_(sessions) {
       // Local-only draft. Keep only if actively edited or dated
       // today-or-future; dateless or past-dated relics harvest + drop.
       if (l.id === activeSessionId && (!nd || nd >= _todayIsoP)) return true;
-      if (!nd) return _dropWithCare_(l);
-      if (nd < _todayIsoP) return _dropWithCare_(l);
+      if (!nd) return _dropWithCare_(l, false);
+      if (nd < _todayIsoP) return _dropWithCare_(l, false);
       return true;
     }
-    if (serverSids.has(String(l.serverSessionId))) return true;
+    if (serverSids.has(String(l.serverSessionId))) {
+      // Server re-listed it — reset any absence streak.
+      if (l._absentCount) { delete l._absentCount; delete l._absentSince; }
+      return true;
+    }
     if (nd && serverDds.has(nd)) return true;
-    // Server-anchored but absent from a successful server response →
-    // finalized on another device. Harvest, mute, drop — even if this
-    // device holds it active.
-    return _dropWithCare_(l);
+    // Server-anchored but absent from a successful server response.
+    // v10.1480 — one response is not proof: a transient server bug
+    // returning ok+[] (or a partial list) used to permanently kill a
+    // LIVE receive session mid-truck, with a no-TTL mute making it
+    // unrecoverable. Sessions with local progress (or held active) now
+    // need 3 consecutive absent responses spanning ≥10 minutes before
+    // they drop. Untouched sessions still drop immediately — but
+    // without a mute, so a server that re-lists them simply re-merges
+    // them on the next sync.
+    const _hasProgress_ = (l.cabinets || []).some(c => c && (c.received || c.committedAt || c.addedManually));
+    if (_hasProgress_ || l.id === activeSessionId) {
+      l._absentCount = (l._absentCount || 0) + 1;
+      if (!l._absentSince) l._absentSince = Date.now();
+      if (l._absentCount >= 3 && (Date.now() - l._absentSince) >= 600000) {
+        return _dropWithCare_(l, true);
+      }
+      return true;   // absence not yet confirmed — keep
+    }
+    return _dropWithCare_(l, false);
   });
   // If the active session got dropped, clear the pointer so the
   // exemption can't resurrect a dangling id and the next modal open
@@ -27696,7 +27787,12 @@ function _mergeServerReceiveSessionsWithPrune_(sessions) {
   }
 }
 
-function _mergeServerReceiveSessions_(sessions) {
+function _mergeServerReceiveSessions_(sessions, addOnly) {
+  // v10.1480 — `addOnly` true when merging from a STALE cached
+  // snapshot: new sessions still get added (instant paint), but
+  // existing local sessions are left untouched. The old behavior
+  // applied "server wins" per-cabinet semantics from a snapshot up to
+  // 24h old, wiping receive progress recorded since it was taken.
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const formatDateName = (iso) => {
     if (!iso) return '';
@@ -27722,7 +27818,10 @@ function _mergeServerReceiveSessions_(sessions) {
       }
     }
     if (localMatch) {
-      mergeServerSessionIntoLocal_(localMatch, ss);
+      if (!addOnly) {
+        mergeServerSessionIntoLocal_(localMatch, ss);
+        localMatch.status = ss.status || localMatch.status || 'pending';
+      }
       // Repair stale "Auto-loaded" name when server now has a date.
       const derived = formatDateName(ss.delivery_date || localMatch.deliveryDate);
       if (derived && (!localMatch.name || localMatch.name === 'Auto-loaded')) {
@@ -27730,7 +27829,6 @@ function _mergeServerReceiveSessions_(sessions) {
       }
       if (!localMatch.deliveryDate && ss.delivery_date) localMatch.deliveryDate = ss.delivery_date;
       if (!localMatch.truckCount && ss.truck_count) localMatch.truckCount = ss.truck_count;
-      localMatch.status = ss.status || localMatch.status || 'pending';
     } else {
       const enriched = (ss.cabinets || []).map(c => {
         if (typeof c === 'string') return { num: c, received: false, location: '', receivedAt: '', receivedBy: '' };
@@ -27893,7 +27991,10 @@ async function openReceiveShipment() {
   // on 'Loading shipments…' whenever the server was slow or CORS-
   // blocked. Now the UI is always instant.
   if (cachedSessions && cachedSessions.length > 0) {
-    _mergeServerReceiveSessions_(cachedSessions);
+    // v10.1480 — stale cache is add-only: paints missing sessions
+    // instantly but can no longer overwrite local per-cabinet progress
+    // with an hours-old snapshot.
+    _mergeServerReceiveSessions_(cachedSessions, !cacheFresh);
     renderReceiveSession();
     if (!cacheFresh) {
       // Signal to the user this is stale + refreshing
@@ -31487,11 +31588,31 @@ async function groundApi(action, payload) {
       // as "used" if it responded 2xx.
       if (resp.ok) {
         usedRelay = true;
+      } else if (_isMoneyAction_ && resp.status >= 500) {
+        // v10.1480 — a relay 5xx does NOT mean the request never ran.
+        // The worker may have forwarded to Apps Script and then hit its
+        // own origin-wait limit while GAS keeps executing (the v10.946
+        // 502 pattern). Auto-retrying a MONEY action via direct /exec
+        // here double-executes it: groundBulkPrint buys a second set of
+        // labels, createManualGroundOrder creates a duplicate order.
+        // Fail loudly instead — same contract as the v10.1398 abort.
+        try { clearTimeout(_api_timer); } catch (_e) {}
+        const _e_ = new Error(
+          'Relay returned HTTP ' + resp.status + ' — but this step may have COMPLETED on the server. '
+          + 'Do NOT tap again. Refresh and re-open the order first: if labels/tracking are already there, it worked. '
+          + '(action: ' + _actStr + ')');
+        _e_.mbdMoneyTimeout = true;
+        _e_.mbdAction = _actStr;
+        throw _e_;
       } else {
         console.log('[groundApi] relay returned HTTP ' + resp.status + ', falling back to direct /exec');
         resp = null;   // discard the error body; fallback will overwrite
       }
     } catch (relayErr) {
+      // v10.1480 — the money-5xx guard above throws from inside this
+      // try; let it propagate instead of swallowing it into the
+      // direct-/exec fallback it exists to prevent.
+      if (relayErr && relayErr.mbdMoneyTimeout) throw relayErr;
       // Worker unreachable — fall back to direct /exec (still works in
       // older browsers / Safari).
       console.log('[groundApi] relay unreachable, falling back to direct /exec:', relayErr.message);
@@ -31531,8 +31652,9 @@ async function groundApi(action, payload) {
     }
     throw netErr;
   }
-  // v10.1150 — cancel the timeout now that we have a response.
-  try { clearTimeout(_api_timer); } catch (_e) {}
+  // v10.1480 — keep the abort timer armed through the BODY read, not
+  // just headers. v10.1150 cleared it here, so a response whose body
+  // stalled mid-stream hung the caller forever with no timeout.
   let data;
   try { data = await resp.json(); }
   catch(e) {
@@ -31540,6 +31662,9 @@ async function groundApi(action, payload) {
       logBedrockIssue('fetch_error', 'Bad response: ' + action, 'HTTP ' + resp.status, e);
     }
     throw new Error('Bad response from orchestrator');
+  }
+  finally {
+    try { clearTimeout(_api_timer); } catch (_e) {}
   }
   // Log server-reported errors that aren't routine "not found" /
   // "unauthorized" noise — those are user-action errors, not bugs.
@@ -35924,7 +36049,14 @@ startAutoSync();
     var seededPl = _resolvedPickListLoadAllCache_();
     if (seededPl) {
       Object.keys(seededPl).forEach(function (on) {
-        if (!_resolvedPickListCache[on]) _resolvedPickListCache[on] = seededPl[on];
+        if (!_resolvedPickListCache[on]) {
+          // v10.1480 — mark LS-seeded entries so the eager prefetch
+          // refetches them (their `picked` map may be hours stale);
+          // they still paint instantly in the meantime.
+          var seeded = seededPl[on];
+          if (seeded && typeof seeded === 'object') seeded._fromLs = true;
+          _resolvedPickListCache[on] = seeded;
+        }
       });
     }
 
@@ -36264,12 +36396,19 @@ startAutoSync();
         });
       });
     });
+    // v10.1480 — count pick-list fetch failures explicitly. Silently
+    // dropping a failed job's frames made the wizard show a full green
+    // bar over an INCOMPLETE walk list, then persist the incomplete
+    // list to the day cache. Failed loads now surface a red banner and
+    // block the items-cache write so a later recompute retries.
+    _gatherFramesState.loadFailedJobs = 0;
+    if (missingCache.length > 20) _gatherFramesState.loadFailedJobs += missingCache.length - 20;
     if (missingCache.length) {
       await Promise.all(missingCache.slice(0, 20).map(function (mc) {
         return groundApi('getResolvedPickList', {orderNumber: mc.on})
           .then(function (res) {
-            if (!res || !res.ok) return;
-            _resolvedPickListCache[mc.on] = res;
+            if (!res || !res.ok) { _gatherFramesState.loadFailedJobs++; return; }
+            _setResolvedPickListCache_(mc.on, res);
             ((res.resolved && res.resolved.buckets && res.resolved.buckets.frame) || []).forEach(function (l) {
               jobFrames.push({
                 orderNumber: mc.on,
@@ -36281,10 +36420,17 @@ startAutoSync();
               });
             });
           })
-          .catch(function () {});
+          .catch(function () { _gatherFramesState.loadFailedJobs++; });
       }));
     }
-    if (!jobFrames.length) { _gatherFramesRenderMessage_('No frame boxes on today\'s active jobs.'); return; }
+    if (!jobFrames.length) {
+      if (_gatherFramesState.loadFailedJobs > 0) {
+        _gatherFramesRenderMessage_('⚠ Could not load pick lists for ' + _gatherFramesState.loadFailedJobs + ' job(s) — the frame list may be incomplete. Close and reopen to retry.');
+      } else {
+        _gatherFramesRenderMessage_('No frame boxes on today\'s active jobs.');
+      }
+      return;
+    }
 
     // Bin lookup per unique frame SKU.
     var uniqueSkus = Array.from(new Set(jobFrames.map(function (f) { return f.sku; }).filter(Boolean)));
@@ -36324,7 +36470,18 @@ startAutoSync();
     });
 
     _gatherFramesState.items = jobFrames;
-    _gatherFramesSaveItemsCache_(jobFrames);   // v10.1476 — persist for instant re-open
+    // v10.1480 — only persist a COMPLETE list. Persisting after a
+    // partial load kept painting the incomplete walk list all day
+    // even after the server recovered.
+    if (!_gatherFramesState.loadFailedJobs) {
+      _gatherFramesSaveItemsCache_(jobFrames);   // v10.1476 — persist for instant re-open
+    }
+    // v10.1480 — don't clobber an in-progress scan: if the operator has
+    // text sitting in a scan input when the background recompute lands,
+    // skip this repaint. State is already updated; the next action
+    // re-renders from it.
+    var busyInput = document.querySelector('#gatherFramesOverlay input[id^="gf-scan-"]');
+    if (busyInput && String(busyInput.value || '').trim()) return;
     _gatherFramesRender_();
   }
 
@@ -36394,6 +36551,11 @@ startAutoSync();
       ? '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:4px">Cart: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(_gatherFramesState.lastCart) + '</strong> <button onclick="window._gatherFramesClearCart_()" style="margin-left:6px;padding:2px 7px;background:rgba(255,255,255,.06);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border:1px solid rgba(255,255,255,.15);border-radius:4px;font-size:10px;font-weight:700;cursor:pointer">change</button></div>'
       : '<div style="font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;margin-top:4px">No cart set — first CHECK will prompt for one</div>';
 
+    // v10.1480 — incomplete-load warning (pick-list fetches failed for
+    // N jobs; their frames are missing from this list).
+    var failBanner = (_gatherFramesState.loadFailedJobs > 0)
+      ? '<div style="margin-top:12px;padding:9px 12px;background:rgba(255,82,82,.12);border:1px solid rgba(255,82,82,.5);border-radius:8px;font-size:11px;color:#FF7070 !important;-webkit-text-fill-color:#FF7070 !important">⚠ ' + _gatherFramesState.loadFailedJobs + ' job(s) failed to load — this list is INCOMPLETE. Close and reopen to retry before trusting the green bar.</div>'
+      : '';
     var degradedBanner = (_gatherFramesState.serverAvail === false)
       ? '<div style="margin-top:12px;padding:9px 12px;background:rgba(255,179,0,.12);border:1px solid rgba(255,179,0,.45);border-radius:8px;font-size:11px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">⚠ Server persist unavailable (markFrameGathered endpoint not yet deployed on the orchestrator). Progress is saved locally for today.</div>'
       : '';
@@ -36410,6 +36572,7 @@ startAutoSync();
       +   pctBar
       +   cartHint
       +   '<div style="margin-top:14px">' + (rowsHtml || '<div style="padding:20px;text-align:center;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">Nothing to gather.</div>') + '</div>'
+      +   failBanner
       +   degradedBanner
       + '</div>';
 
@@ -36441,10 +36604,32 @@ startAutoSync();
       alert('Scan or type the frame SKU into the input first, then tap CHECK (or press Enter).');
       return;
     }
-    var expected = String(item.sku || '').toUpperCase();
-    // Exact match OR either side contained in the other (some frame
-    // labels prefix the raw SKU with an order#, size, etc.).
-    if (scanned !== expected && expected.indexOf(scanned) < 0 && scanned.indexOf(expected) < 0) {
+    var expected = String(item.sku || '').trim().toUpperCase();
+    // v10.1480 — strict matching. The old "either side contains the
+    // other" rule let a 1-character partial scan pass against almost
+    // any SKU, validated prefix-sibling SKUs as each other
+    // (SBF-Q label vs SBF-QUEEN expectation), and accepted ANY scan
+    // when the pick-list line had an empty sku. Now: exact match, or
+    // the scan CONTAINS the full expected SKU bounded by
+    // non-alphanumerics (frame labels wrap the raw SKU with order# /
+    // size prefixes — that's the one containment direction that's
+    // legitimate). A short/partial read forces a rescan.
+    if (!expected) {
+      alert('This line has no SKU — cannot verify by scan. Use ↺ UNDO / skip and fix the pick list.');
+      return;
+    }
+    var matches = scanned === expected;
+    if (!matches && scanned.length > expected.length) {
+      var from = 0, i;
+      while ((i = scanned.indexOf(expected, from)) !== -1) {
+        var beforeOk = i === 0 || /[^A-Z0-9]/.test(scanned[i - 1]);
+        var afterIdx = i + expected.length;
+        var afterOk = afterIdx >= scanned.length || /[^A-Z0-9]/.test(scanned[afterIdx]);
+        if (beforeOk && afterOk) { matches = true; break; }
+        from = i + 1;
+      }
+    }
+    if (!matches) {
       alert('❌ Scanned "' + scanned + '"\nExpected "' + expected + '"\n\nCleared the input — try again.');
       inp.value = '';
       inp.focus();
@@ -36551,8 +36736,15 @@ startAutoSync();
   // silent (client falls back to the on-tap fetch path).
   function _prefetchAllTodaysPickLists_(rows) {
     if (!Array.isArray(rows) || !rows.length) return;
+    // v10.1480 — LS-seeded entries (_fromLs) DO get refetched: their
+    // picked-state may be hours old. Only same-session fresh fetches
+    // are skipped.
     var queue = rows.map(function (r) { return String(r.order_number || '').trim(); })
-      .filter(function (on) { return on && !_resolvedPickListCache[on]; });
+      .filter(function (on) {
+        if (!on) return false;
+        var c = _resolvedPickListCache[on];
+        return !c || c._fromLs;
+      });
     var MAX_INFLIGHT = 3;
     var inflight = 0;
     function next() {
@@ -36561,17 +36753,7 @@ startAutoSync();
       var on = queue.shift();
       inflight++;
       groundApi('getResolvedPickList', { orderNumber: on }).then(function (res) {
-        if (res && res.ok) {
-          _resolvedPickListCache[on] = res;
-          // v10.1476 — persist to localStorage so tomorrow's cold open
-          // is instant (same-day only; the day-scoped LS key auto-
-          // invalidates overnight).
-          try {
-            var seed = _resolvedPickListLoadAllCache_() || {};
-            seed[on] = res;
-            _resolvedPickListSaveAllCache_(seed);
-          } catch (_e) {}
-        }
+        if (res && res.ok) _setResolvedPickListCache_(on, res);
       }).catch(function () {}).finally(function () {
         inflight--;
         next();
@@ -36591,7 +36773,7 @@ startAutoSync();
     }
     groundApi('getResolvedPickList', { orderNumber: orderNumber }).then(function (res) {
       if (!res || !res.ok) return;
-      _resolvedPickListCache[orderNumber] = res;
+      _setResolvedPickListCache_(orderNumber, res);
       _updatePackHardwareTile_(orderNumber);
     }).catch(function () {});
   }
@@ -36804,6 +36986,24 @@ startAutoSync();
   // waits on a server round-trip.
   var _hwPickState = { orderNumber: null, picked: {}, dirty: false, saveTimer: null, deviceId: null };
 
+  // v10.1480 — single write path for the resolved-pick-list cache:
+  // updates memory AND the day-scoped localStorage map together (they
+  // used to drift — 4 sites wrote memory only, so the LS copy kept a
+  // stale `picked` map all day). Also caps the LS map at 30 orders to
+  // keep the single key clear of quota trouble.
+  function _setResolvedPickListCache_(orderNumber, res) {
+    _resolvedPickListCache[orderNumber] = res;
+    try {
+      var seed = _resolvedPickListLoadAllCache_() || {};
+      seed[String(orderNumber)] = res;
+      var keys = Object.keys(seed);
+      if (keys.length > 30) {
+        keys.slice(0, keys.length - 30).forEach(function (k) { delete seed[k]; });
+      }
+      _resolvedPickListSaveAllCache_(seed);
+    } catch (_e) {}
+  }
+
   window.openJobDetailHardware = function (orderNumber) {
     // v10.1451/1455 — instant pick list w/ check-off. getResolvedPickList
     // returns both resolved+picked; client caches so re-open is 0-latency.
@@ -36815,6 +37015,24 @@ startAutoSync();
     if (cached && cached.resolved) {
       _initHwPickState_(orderNumber, cached);
       panel.innerHTML = _renderPickListModal_(orderNumber, cached);
+      // v10.1480 — the cached `picked` map may be hours old (another
+      // iPad may have picked since). Render instantly, then refresh
+      // picked-state in the background. If the operator has already
+      // started tapping (dirty), local taps win over the fresh map so
+      // nothing they did gets visually undone.
+      groundApi('getResolvedPickList', { orderNumber: orderNumber }).then(function (res) {
+        if (!res || !res.ok) return;
+        _setResolvedPickListCache_(orderNumber, res);
+        if (String(_hwPickState.orderNumber) !== String(orderNumber)) return;
+        var p = document.getElementById('finishWizardPanel');
+        if (!p || document.getElementById('finishWizardOverlay').style.display === 'none') return;
+        if (_hwPickState.dirty) {
+          _hwPickState.picked = Object.assign({}, (res.picked || {}), _hwPickState.picked);
+        } else {
+          _initHwPickState_(orderNumber, res);
+        }
+        p.innerHTML = _renderPickListModal_(orderNumber, res);
+      }).catch(function () {});
       return;
     }
     panel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim)">Loading pick list for ' + esc(String(orderNumber)) + '…</div>';
@@ -36824,7 +37042,7 @@ startAutoSync();
           + '<div style="text-align:center;margin-top:12px"><button class="js-close-finish" onclick="closeFinishWizard()" style="padding:10px 18px;background:rgba(255,255,255,.14);color:var(--text);-webkit-text-fill-color:var(--text);border:1.5px solid rgba(255,255,255,.30);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">Close</button></div>';
         return;
       }
-      _resolvedPickListCache[orderNumber] = res;
+      _setResolvedPickListCache_(orderNumber, res);
       _initHwPickState_(orderNumber, res);
       panel.innerHTML = _renderPickListModal_(orderNumber, res);
     }).catch(function (e) {
@@ -37544,7 +37762,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1479"></script>
+<script src="./pack.js?v=10.1480"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37555,7 +37773,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1479<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1480<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

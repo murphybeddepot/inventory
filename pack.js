@@ -221,6 +221,12 @@ async function refreshOrderPipeline(opts) {
     }
   } catch (e) {
     console.warn('refreshOrderPipeline failed:', e);
+    // v10.1480 — a swallowed failure with an empty cache made the
+    // Orders tab render as "no orders" — indistinguishable from a
+    // legitimately clear day. Give the operator one loud signal.
+    if (!_orderPipelineCache.length && typeof showToast === 'function') {
+      showToast('⚠ Orders list failed to load (' + (e && e.message || 'network') + ') — showing empty. Retap the tab to retry.');
+    }
   }
   return _orderPipelineCache;
 }
@@ -2181,6 +2187,15 @@ function _packStatusError_(statusEl, message) {
   if (!statusEl) return;
   statusEl.innerHTML = '<span style="color:#ff5252">Error: ' + esc(String(message || '')) + '</span>'
     + ' <button onclick="refreshPackQueue()" style="margin-left:8px;padding:3px 10px;background:var(--green-bright);color:#000;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer">↻ Retry</button>';
+  // v10.1480 — when the cache is empty, the list is still showing the
+  // spinner card; leave it spinning forever and the tab reads as hung.
+  // Swap it for an error card with the same retry.
+  if (!_packQueueCache.length) {
+    const list = document.getElementById('packQueueList');
+    if (list) {
+      list.innerHTML = '<div style="padding:32px 24px;text-align:center;background:rgba(255,82,82,.06);border:1.5px dashed rgba(255,82,82,.4);border-radius:12px;color:#ff5252;font-size:15px;font-weight:800">Could not load the pack queue.<br><span style="font-size:12px;font-weight:600">' + esc(String(message || '')) + '</span><br><button onclick="refreshPackQueue()" style="margin-top:12px;padding:8px 16px;background:var(--green-bright);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer">↻ Retry</button></div>';
+    }
+  }
 }
 
 /**
@@ -4490,7 +4505,12 @@ async function _fplSave_(orderNumber) {
   const foot = document.getElementById('fixPickListFooter');
   const priorFoot = foot ? foot.innerHTML : '';
   if (foot) foot.innerHTML = '<div style="color:#ffb74d;-webkit-text-fill-color:#ffb74d;font-size:13px;padding:8px 0">💾 Saving…</div>';
-  const packer = (typeof getPackerName_ === 'function' && getPackerName_()) || (window.localStorage.getItem('mbd_packer_name') || '');
+  // v10.1480 — getPackerName_ doesn't exist and 'mbd_packer_name' is
+  // never written; every corrected-pick-list save recorded an empty
+  // packer. Use the same keys the rest of the app writes.
+  const packer = (typeof getPackDeviceName_ === 'function' && getPackDeviceName_())
+    || (window.localStorage.getItem('mbd_ground_packer') || '')
+    || (window.localStorage.getItem('mbd_device_name') || '');
   let res;
   try {
     res = await groundApi('setCorrectedPickList', {
@@ -7835,14 +7855,30 @@ function renderPrePackLoadingState_(message) {
 async function refreshPrePackQueue() {
   const statusEl = document.getElementById('prePackQueueStatus');
   statusEl.textContent = 'Loading…';
-  renderPrePackLoadingState_('Loading ' + _prePackHorizon + ' queue…');
+  // v10.1480 — keep the cached list on screen during a refresh instead
+  // of blanking to the spinner; the spinner also used to survive every
+  // failure path, leaving the tab spinning forever. Spinner only when
+  // there's nothing cached to show; failures repaint the cache (or an
+  // error card) instead of returning over the spinner.
+  if (!_prePackQueueCache.length) {
+    renderPrePackLoadingState_('Loading ' + _prePackHorizon + ' queue…');
+  }
   // v9.99: paint Day Plan strip in parallel (fire-and-forget — server
   // cache means it's usually a no-op after the first tab visit).
   paintDayPlanInto_('prePackDayPlan');
+  const _prePackFail_ = (msg) => {
+    statusEl.textContent = 'Error: ' + msg;
+    if (_prePackQueueCache.length) {
+      paintPrePackQueue_(_prePackQueueCache, true);
+    } else {
+      const list = document.getElementById('prePackQueueList');
+      if (list) list.innerHTML = '<div style="padding:32px 24px;text-align:center;background:rgba(255,82,82,.06);border:1.5px dashed rgba(255,82,82,.4);border-radius:12px;color:#ff5252;font-size:15px;font-weight:800">Could not load the pre-pack queue.<br><span style="font-size:12px;font-weight:600">' + esc(String(msg)) + '</span><br><button onclick="refreshPrePackQueue()" style="margin-top:12px;padding:8px 16px;background:var(--green-bright);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer">↻ Retry</button></div>';
+    }
+  };
   try {
     const res = await groundApi('listHardwarePackQueue', { horizon: _prePackHorizon });
     if (!res || !res.ok) {
-      statusEl.textContent = 'Error: ' + ((res && res.error) || 'unknown');
+      _prePackFail_((res && res.error) || 'unknown');
       return;
     }
     _prePackQueueCache = res.rows || [];
@@ -7877,7 +7913,7 @@ async function refreshPrePackQueue() {
         + ' · today=' + res.today + ' · tomorrow=' + res.tomorrow;
     }
   } catch (err) {
-    statusEl.textContent = 'Error: ' + err.message;
+    _prePackFail_(err.message);
   }
 }
 
