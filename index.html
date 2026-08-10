@@ -9833,10 +9833,15 @@ function _frameRunwayOpen_() {
   if (prior) prior.remove();
   const ov = document.createElement('div');
   ov.id = 'frameRunwayOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10004;display:flex;flex-direction:column';
+  // v10.1483 — OPAQUE ground. rgba(.82) let the Stock 2 tab and any
+  // open count sheet bleed through the table (screenshot-proven on
+  // both form factors) — genuinely hard to read on mobile.
+  ov.style.cssText = 'position:fixed;inset:0;background:#0B1015;z-index:10004;display:flex;flex-direction:column';
   ov.innerHTML = ''
-    + '<style>@media (max-width:700px){'
+    + '<style>#frameRunwayOverlay .runway-btn-slabel{display:none;font-size:10px;font-weight:900;letter-spacing:.5px;margin-left:2px}'
+    + '@media (max-width:700px){'
     +   '#frameRunwayOverlay .runway-btn-label{display:none}'
+    +   '#frameRunwayOverlay .runway-btn-slabel{display:inline}'
     +   '#frameRunwayOverlay .runway-btn{padding:6px 9px !important;font-size:15px !important;line-height:1}'
     +   '#frameRunwayOverlay .runway-header{padding:8px 10px !important;gap:5px !important}'
     +   '#frameRunwayOverlay .runway-title-text{display:none}'
@@ -9860,7 +9865,7 @@ function _frameRunwayOpen_() {
     +   '<button class="runway-btn" onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" title="Compute velocity" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡<span class="runway-btn-label"> Compute velocity</span></button>'
     +   '<button class="runway-btn" onclick="_frameRunwayReload_()" title="Reload" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
     +   '<button class="runway-btn" onclick="_frameRunwayOpenReceive_()" id="frameRunwayReceiveBtn" title="Receive container" style="background:rgba(0,230,118,.18) !important;border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:none">📥<span class="runway-btn-label"> Receive…</span></button>'
-    +   '<button class="runway-btn" onclick="_frameRunwayOpenPoGenerator_()" title="Generate PO" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦<span class="runway-btn-label"> Generate PO</span></button>'
+    +   '<button class="runway-btn" onclick="_frameRunwayOpenPoGenerator_()" title="Generate PO" style="background:rgba(123,44,191,.18) !important;border:1px solid #C77DFF;color:#C77DFF !important;-webkit-text-fill-color:#C77DFF !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">📦<span class="runway-btn-slabel">PO</span><span class="runway-btn-label"> Generate PO</span></button>'
     // v10.1218 (Zac 2026-07-08): 5 secondary buttons collapsed into a
     // ⋯ dropdown. Kept top 3 visible: Compute Velocity, Receive (when
     // container is landed), Generate PO. Rest into the menu.
@@ -9885,7 +9890,7 @@ function _frameRunwayOpen_() {
     +   '<button onclick="_frameRunwayToggleView_()" id="frameRunwayViewToggle" title="Toggle table vs card view" style="padding:5px 10px;background:rgba(120,140,170,.10);border:1px solid rgba(120,140,170,.6);color:#9EB0D0 !important;-webkit-text-fill-color:#9EB0D0 !important;border-radius:5px;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;text-transform:uppercase">⊞ View</button>'
     + '</div>'
     + '<div style="padding:4px 14px 0;position:relative">'
-    +   '<input type="search" id="frameRunwaySearchInput" placeholder="🔍 Search by SKU, bin, or tag (sbf-q, 3.7, spare…)" oninput="_frameRunwaySearchFilter_(this.value)" autocomplete="off" style="width:100%;padding:9px 36px 9px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box">'
+    +   '<input type="search" id="frameRunwaySearchInput" placeholder="🔍 Search by SKU, bin, or tag (sbf-q, 3.7, spare…)" oninput="_frameRunwaySearchFilter_(this.value)" autocomplete="off" style="width:100%;padding:9px 36px 9px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;box-sizing:border-box">'
     +   '<button type="button" id="frameRunwaySearchClearBtn" onclick="_frameRunwaySearchClear_()" style="display:none;position:absolute;right:22px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.10);border:none;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer" title="Clear search">✕</button>'
     + '</div>'
     // v10.824 — vendor filter dropdown. Populated after items load
@@ -9937,6 +9942,13 @@ function _frameRunwayInstallKbdShortcuts_() {
           searchInput.blur();
         }
       } else if (!isTyping) {
+        // v10.1483 — close the TOPMOST child first. Esc used to remove
+        // the Runway base underneath the PO Generator / bin-edit /
+        // item-detail modals, orphaning them over the wrong tab and
+        // breaking every post-receive refresh (null frameRunwayBody).
+        const childIds = ['poBillOverlay', 'poEditOverlay', 'poGeneratorOverlay', 'poHistoryOverlay', 'frameRunwayBinEditOverlay', 'frameRunwayOhEditOverlay', 'frameRunwayCountNewLeafOverlay', 'stockV2ItemDetailOverlay'];
+        const topChild = childIds.map(id => document.getElementById(id)).find(Boolean);
+        if (topChild) { topChild.remove(); return; }
         _frameRunwayClose_();
       }
     }
@@ -9965,10 +9977,17 @@ function _frameRunwaySearchFilter_(rawQuery) {
     if (show) visible += 1;
   });
   // Update sub-header count to reflect filter.
+  // v10.1483 — also restore the normal header when the query clears;
+  // it used to keep saying '12 of 180 matching "sbf"' after ✕.
   const sub = document.getElementById('frameRunwaySub');
-  if (sub && q) {
-    const total = rows.length;
-    sub.textContent = visible + ' of ' + total + ' SKUs matching "' + q + '"';
+  if (sub) {
+    if (q) {
+      const total = rows.length;
+      sub.textContent = visible + ' of ' + total + ' SKUs matching "' + q + '"';
+    } else {
+      const n = (window._frameRunwayItemsCache || []).length || rows.length;
+      sub.textContent = n + ' SKUs' + (window._frameRunwayContainerBanner ? ' · ' + window._frameRunwayContainerBanner : '');
+    }
   }
 }
 // v10.835 — toggle table ↔ cards on any screen. Cycles auto → table →
@@ -9982,6 +10001,7 @@ function _frameRunwayToggleView_() {
   if (window._frameRunwayItemsCache) {
     const body = document.getElementById('frameRunwayBody');
     if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
+    if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();   // v10.1483 — keep the active search filter across re-renders
   }
 }
 function _frameRunwaySearchClear_() {
@@ -10046,6 +10066,7 @@ function _runwaySetVendorFilter_(vendor) {
   if (window._frameRunwayItemsCache) {
     const body = document.getElementById('frameRunwayBody');
     if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
+    if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();   // v10.1483 — keep the active search filter across re-renders
     _runwayPopulateVendorBar_();
   }
 }
@@ -10058,6 +10079,7 @@ function _runwayToggleShowHidden_() {
   if (window._frameRunwayItemsCache) {
     const body = document.getElementById('frameRunwayBody');
     if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
+    if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();   // v10.1483 — keep the active search filter across re-renders
   }
 }
 // v10.824 — flip the server-side hidden_from_runway flag for one SKU.
@@ -10077,6 +10099,7 @@ async function _runwayHideItem_(sku, nextHidden) {
     }
     const body = document.getElementById('frameRunwayBody');
     if (body) body.innerHTML = _frameRunwayRender_(cache.slice(), window._frameRunwayContainerBanner || '');
+    if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();   // v10.1483 — keep the active search filter across re-renders
   }
   try {
     const r = await groundApi('setRunwayItemHidden', { item_sku: sku, hidden: !!nextHidden });
@@ -10094,6 +10117,7 @@ async function _runwayHideItem_(sku, nextHidden) {
         }
         const body = document.getElementById('frameRunwayBody');
         if (body) body.innerHTML = _frameRunwayRender_(cache.slice(), window._frameRunwayContainerBanner || '');
+        if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();   // v10.1483 — keep the active search filter across re-renders
       }
       return;
     }
@@ -10937,6 +10961,7 @@ async function _frameRunwayOpenOnHandEdit_(sku, currentQty, itemName) {
         }
         const body = document.getElementById('frameRunwayBody');
         if (body) body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache.slice(), window._frameRunwayContainerBanner || '');
+        if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();   // v10.1483 — keep the active search filter across re-renders
       }
     } else {
       btn.disabled = false;
@@ -11147,6 +11172,7 @@ function _frameRunwayOpenPoGenerator_() {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10006;display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
   ov.innerHTML = ''
     + '<style>@media (max-width:700px){'
+    +   '#poGeneratorOverlay table th:nth-child(6),#poGeneratorOverlay table td:nth-child(6),#poGeneratorOverlay table th:nth-child(9),#poGeneratorOverlay table td:nth-child(9),#poGeneratorOverlay table th:nth-child(10),#poGeneratorOverlay table td:nth-child(10){display:none}'
     +   '#poGeneratorOverlay .pogen-card{padding:14px !important;border-radius:10px !important}'
     +   '#poGeneratorOverlay .pogen-inputs-grid{grid-template-columns:1fr !important}'
     +   '#poGeneratorOverlay .pogen-action-row{flex-direction:column !important}'
@@ -14520,6 +14546,7 @@ if (typeof window !== 'undefined' && !window._frameRunwayResizeHooked_) {
         const body = document.getElementById('frameRunwayBody');
         if (body && typeof _frameRunwayRender_ === 'function') {
           body.innerHTML = _frameRunwayRender_(window._frameRunwayItemsCache, window._frameRunwayContainerBanner || '');
+          if (typeof _frameRunwaySearchReapply_ === 'function') _frameRunwaySearchReapply_();   // v10.1483 — keep the active search filter across re-renders
         }
       }
     }, 200);
@@ -14527,6 +14554,11 @@ if (typeof window !== 'undefined' && !window._frameRunwayResizeHooked_) {
 }
 
 async function _frameRunwayLoad_(forceRefresh) {
+  // v10.1483 — sequence token. Overlapping loads (bin-edit force +
+  // window-selector non-force, etc.) used to race: the LAST completion
+  // painted, even a stale snapshot over fresh post-edit data.
+  const _mySeq = (window._frameRunwayLoadSeq_ = (window._frameRunwayLoadSeq_ || 0) + 1);
+  const _isCurrent = () => _mySeq === window._frameRunwayLoadSeq_;
   const sub = document.getElementById('frameRunwaySub');
   const body = document.getElementById('frameRunwayBody');
   const sel = document.getElementById('frameRunwayWindowSel');
@@ -14556,7 +14588,7 @@ async function _frameRunwayLoad_(forceRefresh) {
         const cacheAgeMs = cache && cache.cached_at ? (Date.now() - cache.cached_at) : Infinity;
         if (cacheAgeMs > 24 * 3600 * 1000) {
           try { localStorage.removeItem('mbd_frame_runway_items_cache'); } catch (_e) {}
-        } else if (cache && Array.isArray(cache.items) && cache.items.length) {
+        } else if (_isCurrent() && cache && Array.isArray(cache.items) && cache.items.length) {
           let items = _frameRunwayApplyVelocity_(cache.items, windowDays);
           items = _frameRunwaySortItems_(items);
           window._frameRunwayItemsCache = items;
@@ -14616,9 +14648,14 @@ async function _frameRunwayLoad_(forceRefresh) {
         }
       }
     }
+    if (!_isCurrent()) return;   // v10.1483 — superseded by a newer load
     if (!res || !res.ok) {
       body.innerHTML = '<div style="padding:30px 12px;text-align:center;color:#FF5252;font-size:13px">' + esc((res && res.error) || 'load failed') + '</div>';
       if (sub) sub.textContent = 'Failed';
+      // v10.1483 — a hard load failure clears the boot re-open flag so
+      // a broken overlay can't resurrect on every app launch (the flag
+      // was set optimistically at open and only ← cleared it).
+      try { localStorage.removeItem('mbd_frame_runway_open'); } catch (_e) {}
       return;
     }
     let items = res.items || [];
@@ -14943,7 +14980,7 @@ function _frameRunwayRender_(items, containerBanner) {
         +   '<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:800">Runway</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:' + (runWithM ? '15' : '18') + 'px;font-weight:900;line-height:1.1">' + runDispM + '</div></div>'
         + '</div>'
         + '<div style="margin-top:8px;font-size:11px;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;display:flex;align-items:center;justify-content:space-between;gap:8px"><span>📍 ' + binsM + '</span>'
-        +   ((it.bins && it.bins.length) ? '<button onclick="event.stopPropagation();_binMoveOpen_(\'' + esc(it.sku) + '\')" style="background:rgba(66,165,245,.10);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:900;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.4px" title="Move qty between bins">↹ Move</button>' : '')
+        +   ((it.bins && it.bins.length) ? '<button onclick="event.stopPropagation();_binMoveOpen_(\'' + esc(it.sku) + '\')" style="background:rgba(66,165,245,.10);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:4px;padding:8px 12px;font-size:12px;font-weight:900;cursor:pointer;font-family:\'Barlow Condensed\',Arial,sans-serif;letter-spacing:.4px;min-height:34px" title="Move qty between bins">↹ Move</button>' : '')
         + '</div>'
         + '<div style="margin-top:4px;font-size:10px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important">🗓 ' + lcM + '</div>'
         + '</div>';
@@ -15086,7 +15123,7 @@ function _frameRunwayRender_(items, containerBanner) {
         const fg = b.is_dnu ? '#FF7070' : '#fff';
         const dnuMark = b.is_dnu ? ' ⊘' : '';
         const onclickArgs = "'" + esc(it.sku).replace(/'/g, "\\'") + "','" + esc(b.location).replace(/'/g, "\\'") + "'," + Number(b.qty || 0) + ',' + (b.is_dnu ? 'true' : 'false');
-        return '<button onclick="_frameRunwayOpenBinEdit_(' + onclickArgs + ')" title="Tap to edit qty" style="display:inline-block;background:' + bg + ' !important;border:1px solid ' + bd + ';color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px;font-family:\'JetBrains Mono\',monospace;font-weight:700;cursor:pointer">' + esc(b.location) + '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:500"> · </span>' + _fmtRunwayQty_(b.qty) + dnuMark + '</button>';
+        return '<button onclick="_frameRunwayOpenBinEdit_(' + onclickArgs + ')" title="Tap to edit qty" style="display:inline-block;background:' + bg + ' !important;border:1px solid ' + bd + ';color:' + fg + ' !important;-webkit-text-fill-color:' + fg + ' !important;border-radius:5px;padding:7px 10px;margin:2px 4px 2px 0;font-size:12px;min-height:32px;font-family:\'JetBrains Mono\',monospace;font-weight:700;cursor:pointer">' + esc(b.location) + '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-weight:500"> · </span>' + _fmtRunwayQty_(b.qty) + dnuMark + '</button>';
       }).join('');
     }
     // v10.735 — data-search-haystack for client-side search filter.
@@ -15147,7 +15184,7 @@ function _frameRunwayRender_(items, containerBanner) {
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important;-webkit-text-fill-color:' + (it.on_order > 0 ? '#FFB300' : 'var(--text-dim)') + ' !important">' + onOrderDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + velDisp + '</td>'
          +   '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + runDisp + '</td>'
-         +   '<td style="padding:8px 6px;line-height:1.7">' + binsHtml + ((it.bins && it.bins.length) ? ' <button onclick="event.stopPropagation();_binMoveOpen_(\'' + esc(it.sku) + '\')" title="Move qty between bins" style="background:rgba(66,165,245,.10);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:3px;padding:1px 6px;font-size:9px;font-weight:900;cursor:pointer;margin-left:4px">↹</button>' : '') + '</td>'
+         +   '<td style="padding:8px 6px;line-height:1.7">' + binsHtml + ((it.bins && it.bins.length) ? ' <button onclick="event.stopPropagation();_binMoveOpen_(\'' + esc(it.sku) + '\')" title="Move qty between bins" style="background:rgba(66,165,245,.10);border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:5px;padding:7px 10px;font-size:12px;font-weight:900;cursor:pointer;margin-left:4px;min-height:32px">↹</button>' : '') + '</td>'
          +   '<td style="padding:8px 6px;white-space:nowrap">' + lastCountedHtml + '</td>'
          +   '<td style="padding:8px 4px;text-align:right;white-space:nowrap">'
          +     '<button onclick="_invTraceLeaf_(\'' + esc(it.sku) + '\')" title="See where this item is consumed (variant_map → bundles → orders)" style="background:rgba(0,230,118,.10);border:1px solid #00E676;color:#00E676 !important;-webkit-text-fill-color:#00E676 !important;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:900;cursor:pointer">🔬</button>'
@@ -15327,7 +15364,7 @@ async function _stockV2StartSession_(verb) {
     +   '<div style="font-size:12px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:12px">Scan a bin barcode, type a location, or pick from below.</div>'
     +   '<div style="display:flex;gap:6px;margin-bottom:14px">'
     +     '<input id="stockV2BinInput" type="text" placeholder="Bin code (e.g. 001.005 or STAGING)" autocomplete="off" autocorrect="off" autocapitalize="characters" '
-    +       'style="flex:1;padding:11px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid ' + verbColor + ' !important;border-radius:6px;font-size:14px;font-family:\'JetBrains Mono\',monospace;font-weight:700;outline:none">'
+    +       'style="flex:1;padding:11px 12px;background:rgba(0,0,0,.30) !important;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border:1.5px solid ' + verbColor + ' !important;border-radius:6px;font-size:16px;font-family:\'JetBrains Mono\',monospace;font-weight:700;outline:none">'
     +     '<button onclick="_stockV2BinCameraScan_(\'' + verb + '\')" title="Scan with camera" style="padding:11px 12px;background:rgba(0,0,0,.30) !important;color:' + verbColor + ' !important;-webkit-text-fill-color:' + verbColor + ' !important;border:1.5px solid ' + verbColor + ' !important;border-radius:6px;font-size:18px;cursor:pointer;line-height:1">📷</button>'
     +     '<button onclick="_stockV2BinGo_(\'' + verb + '\')" style="padding:11px 14px;background:' + verbColor + ' !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:6px;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">Go ›</button>'
     +   '</div>'
@@ -15959,6 +15996,13 @@ function _stockV2RenderSessionSummary_() {
   document.body.appendChild(ov);
 }
 async function renderStockV2Dashboard_() {
+  // v10.1483 — sequence token: five callers can overlap (tab open,
+  // foreground refresh, add-item, bin-edit, retry) and the LAST
+  // response used to paint even when it was the STALEST (a 10s GAS
+  // fallback finishing after a fresh worker response repainted
+  // pre-edit numbers, inviting duplicate corrections).
+  const _mySeq = (window._stockV2RenderSeq_ = (window._stockV2RenderSeq_ || 0) + 1);
+  const _isCurrent = () => _mySeq === window._stockV2RenderSeq_;
   const list = document.getElementById('stockV2List');
   const stats = document.getElementById('stockV2Stats');
   const empty = document.getElementById('stockV2Empty');
@@ -16194,6 +16238,7 @@ async function renderStockV2Dashboard_() {
     }
     // v10.1476 — cache the rendered items so _stockV2OpenItem_ can look
     // one up by SKU when a card is tapped (previously stubbed as an alert).
+    if (!_isCurrent()) return;   // v10.1483 — a newer render superseded this one
     window._stockV2ItemsCache_ = items;
     list.innerHTML = items.map(it => _stockV2RowHtml_(it)).join('');
     // v10.698 — sync pending-badge after dashboard paints.
@@ -37885,7 +37930,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1482"></script>
+<script src="./pack.js?v=10.1483"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37896,7 +37941,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1482<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1483<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
