@@ -6,6 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Stacker Guide</title>
+<!-- v3.23 (2026-08-11) — Height (mm) stat dropped from the footer (Zac: not
+     needed on layers). -->
 <!-- v3.22 (2026-08-11) — footer back on the iPad screen: 100dvh (visible
      viewport) instead of 100vh, safe-area padding on the footer, resize
      re-render for toolbar collapse. -->
@@ -149,7 +151,6 @@
   <footer>
     <div class="stat"><span class="num" id="layerNum">—</span><span class="lbl">Layer</span></div>
     <div class="stat"><span class="num" id="layerParts">—</span><span class="lbl">Parts</span></div>
-    <div class="stat"><span class="num" id="layerHeight">—</span><span class="lbl">Height (mm)</span></div>
     <span class="spacer"></span>
     <button id="btnReset" title="Clear all in-place marks for this recipe">Reset</button>
     <button id="btnPrev" disabled>← Prev Layer</button>
@@ -359,8 +360,6 @@ function renderAll(){
   $('progressBadge').textContent=inPlaceThisLayer+' / '+total+' in place';
   $('layerNum').textContent=(li+1);
   $('layerParts').textContent=total;
-  const layerHeight=layer.reduce((mx,p)=>Math.max(mx,p.thickness||19),0);
-  $('layerHeight').textContent=Math.round(layerHeight);
 
   const globalPlaced=S.inPlace.size;
   const globalTotal=layers.reduce((s,l)=>s+l.length,0)||1;
