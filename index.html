@@ -32797,19 +32797,32 @@ async function refreshGroundQueue() {
   if (typeof _refreshGroundPickupsBadge_ === 'function') _refreshGroundPickupsBadge_();
 
   // Try to paint from cache before the network round-trip.
+  // v10.1489 — age-gate the instant paint. cached_at was WRITTEN since v67
+  // but never read: Monday morning the iPad painted Friday afternoon's
+  // queue as if it were current ("14 awaiting · refreshing…" for orders
+  // long since shipped). Older than 12h → skip the instant paint and show
+  // the loading state; a 5s spinner misleads less than a dead queue.
+  // Fresher cache still paints, with its age shown when it's not recent.
   let cached = null;
+  let cachedAgeMin = 0;
   try {
     const raw = localStorage.getItem(GROUND_QUEUE_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.queue)) cached = parsed;
+      if (parsed && Array.isArray(parsed.queue)) {
+        cachedAgeMin = parsed.cached_at
+          ? Math.max(0, Math.round((Date.now() - new Date(parsed.cached_at).getTime()) / 60000))
+          : 0;
+        if (cachedAgeMin <= 12 * 60) cached = parsed;
+      }
     }
   } catch(e) {}
 
   if (cached && cached.queue.length > 0) {
     groundQueue = paintGroundQueue_(cached.queue.slice(), list, empty);
     renderGroundHoldsBanner_(cached.holds || []);
-    status.textContent = groundQueue.length + ' awaiting · refreshing…';
+    status.textContent = groundQueue.length + ' awaiting · refreshing…'
+      + (cachedAgeMin > 5 ? ' (list from ' + (cachedAgeMin >= 60 ? Math.round(cachedAgeMin / 60) + 'h' : cachedAgeMin + 'min') + ' ago)' : '');
   } else {
     // v10.165 Sable S1 — shaped skeleton placeholders match final card
     // proportions so the page doesn't reflow when data arrives.
@@ -38064,7 +38077,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1488"></script>
+<script src="./pack.js?v=10.1489"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38075,7 +38088,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1488<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1489<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

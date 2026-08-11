@@ -72,6 +72,23 @@ async function _guardedAction_(opts) {
 }
 
 const PACK_QUEUE_CACHE_KEY = 'mbd_pack_queue_cache_v1';
+
+// v10.1489 — queue-cache age stamps. The instant-paint caches (Ground /
+// Pack / Pre-Pack) stored rows with no timestamp, so a Monday-morning tab
+// painted Friday's queue as if current until the refresh landed. The stamp
+// lives in a sibling '<key>_at' localStorage entry (no cache-format change,
+// old clients unaffected). _qcFresh_ = stamped within maxAgeHours; an
+// UNSTAMPED cache counts as stale so pre-v10.1489 leftovers age out on
+// first load instead of painting forever.
+function _qcStamp_(key) {
+  try { localStorage.setItem(key + '_at', String(Date.now())); } catch (e) {}
+}
+function _qcFresh_(key, maxAgeHours) {
+  try {
+    const at = Number(localStorage.getItem(key + '_at') || 0);
+    return at > 0 && (Date.now() - at) < (maxAgeHours || 12) * 3600 * 1000;
+  } catch (e) { return false; }
+}
 const PACK_DEVICE_ID_KEY = 'mbd_pack_device_id';
 // v10.270 — Zac 2026-05-24 19:29 EDT: "every device is iPad something
 // but should be user-namable." Device ID stays the immutable identity
@@ -1940,9 +1957,10 @@ function renderPackTab() {
   document.getElementById('packQueueDetail').style.display = 'none';
   document.getElementById('packQueueList').style.display = '';
   // Paint cached rows immediately for instant feel, then refresh.
+  // v10.1489 — only when the cache is <12h old (see _qcFresh_).
   try {
     const cached = JSON.parse(localStorage.getItem(PACK_QUEUE_CACHE_KEY) || '[]');
-    if (Array.isArray(cached) && cached.length) {
+    if (Array.isArray(cached) && cached.length && _qcFresh_(PACK_QUEUE_CACHE_KEY, 12)) {
       _packQueueCache = cached;
       paintPackQueue_(cached, true);
     }
@@ -1991,6 +2009,7 @@ async function refreshPackQueue() {
     _packQueueCache = inflightRows.concat(packedRows);
     _packUpcomingCache = inflight.upcoming || [];
     localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
+    _qcStamp_(PACK_QUEUE_CACHE_KEY);
     paintPackQueue_(_packQueueCache, false);
     paintPackUpcoming_(_packUpcomingCache);
     // v10.605 — render fill-mode chip + unscheduled-soon warning above the queue.
@@ -7826,7 +7845,7 @@ function renderPrePackTab() {
   document.getElementById('prePackQueueList').style.display = '';
   try {
     const cached = JSON.parse(localStorage.getItem(PRE_PACK_QUEUE_CACHE_KEY) || '[]');
-    if (Array.isArray(cached) && cached.length) {
+    if (Array.isArray(cached) && cached.length && _qcFresh_(PRE_PACK_QUEUE_CACHE_KEY, 12)) {
       _prePackQueueCache = cached;
       paintPrePackQueue_(cached, true);
     }
@@ -7883,6 +7902,7 @@ async function refreshPrePackQueue() {
     }
     _prePackQueueCache = res.rows || [];
     localStorage.setItem(PRE_PACK_QUEUE_CACHE_KEY, JSON.stringify(_prePackQueueCache));
+    _qcStamp_(PRE_PACK_QUEUE_CACHE_KEY);
     paintPrePackQueue_(_prePackQueueCache, false);
     const pending = _prePackQueueCache.filter(r => !r.hardware_packed_at).length;
     const done = _prePackQueueCache.filter(r => r.hardware_packed_at).length;
@@ -16068,7 +16088,7 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
                   const idx = (_packQueueCache || []).findIndex(r => String(r.order_number) === String(orderNumber));
                   if (idx >= 0) _packQueueCache[idx] = boot.row;
                   try {
-                    if (typeof PACK_QUEUE_CACHE_KEY !== 'undefined') localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
+                    if (typeof PACK_QUEUE_CACHE_KEY !== 'undefined') { localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache)); _qcStamp_(PACK_QUEUE_CACHE_KEY); }
                   } catch(e) {}
                   // Re-render detail with fresh row if still open.
                   if (_packDetailOrderNumber === String(orderNumber) && typeof openPackDetail === 'function') {
@@ -16125,7 +16145,7 @@ async function jumpToPackForOrder_(orderNumber, bucketKind) {
             if (existsIdx >= 0) _packQueueCache[existsIdx] = boot.row;
             else _packQueueCache.unshift(boot.row);
             try {
-              if (typeof PACK_QUEUE_CACHE_KEY !== 'undefined') localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache));
+              if (typeof PACK_QUEUE_CACHE_KEY !== 'undefined') { localStorage.setItem(PACK_QUEUE_CACHE_KEY, JSON.stringify(_packQueueCache)); _qcStamp_(PACK_QUEUE_CACHE_KEY); }
             } catch(e) {}
             // Repaint the queue so the order is visible if user backs out.
             if (typeof paintPackQueue_ === 'function') paintPackQueue_(_packQueueCache, false);
