@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Stacker Guide</title>
+<!-- v3.21 (2026-08-11) — PIN provisioning. An unprovisioned device now gets a
+     PIN box instead of a dead "recipe not found": enter the shop PIN, the page
+     exchanges it for the device secret (throttled RPC) and reloads. -->
 <!-- v3.20 (2026-08-11) — parts drawn in the right frame. Recipe centres are in
      the FOOTPRINT frame (editor clamps 0..foot); the guide drew them raw in the
      pallet viewBox, hanging parts off the dashed line by (19, 50.5)mm. Now
@@ -219,6 +222,44 @@ function loadLib(){try{return JSON.parse(localStorage.getItem(LS_LIB)||'{}');}ca
 function getDeviceSecret(){try{return localStorage.getItem(DEV_KEY)||'';}catch(_){return '';}}
 function hasBackend(){return !!(window.STACKING_CONFIG && window.STACKING_CONFIG.supabase_url && window.STACKING_CONFIG.anon_key);}
 function isProvisioned(){return hasBackend() && !!getDeviceSecret();}
+// v3.21 — PIN provisioning: exchange the shop PIN for the device secret
+// (provision_stacking_device RPC, throttled server-side). Same localStorage
+// slot the #setup?device= link fills; just a friendlier door.
+async function provisionWithPin(pin){
+  const secret=await _rpc('provision_stacking_device',{p_pin:String(pin||'').trim()});
+  if(!secret) throw new Error('Empty secret from server');
+  localStorage.setItem(DEV_KEY, secret);
+  return true;
+}
+function pinFormHtml(msg){
+  return '<div class="big">'+(msg||'Set up this device')+'</div>'+
+    '<div class="hint">Enter the shop PIN to load the recipe library on this device. One time only.</div>'+
+    '<div style="display:flex;gap:12px;margin-top:18px;align-items:center">'+
+    '<input id="pinInput" type="tel" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN" '+
+    'style="font-size:34px;font-family:var(--mono);width:190px;text-align:center;letter-spacing:8px;'+
+    'padding:12px;border-radius:12px;border:2px solid var(--line2);background:var(--panel2);color:var(--ink)">'+
+    '<button id="pinGo" style="font-size:20px;font-weight:700;padding:18px 26px;border-radius:12px;'+
+    'border:0;background:var(--accent-strong);color:#fff">Unlock</button></div>'+
+    '<div class="hint" id="pinErr" style="color:var(--bad);min-height:22px;margin-top:10px"></div>';
+}
+function wirePinForm(){
+  const go=$('pinGo'), inp=$('pinInput');
+  if(!go||!inp) return;
+  const submit=async()=>{
+    go.disabled=true; $('pinErr').textContent='';
+    try{
+      await provisionWithPin(inp.value);
+      toast('\u2713 Device set up for Bedrock sync');
+      setTimeout(()=>location.reload(), 600);
+    }catch(e){
+      $('pinErr').textContent=String(e && e.message || e).replace(/^stacking:\s*/,'');
+      go.disabled=false; inp.focus(); inp.select();
+    }
+  };
+  go.addEventListener('click', submit);
+  inp.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
+  inp.focus();
+}
 
 async function _rpc(fn, args){
   if(!hasBackend()) throw new Error('Bedrock backend not configured.');
@@ -275,6 +316,13 @@ async function loadRecipe(sku){
     if(lib[sku]){snap=lib[sku]; source='local';}
   }
   if(!snap){
+    if(hasBackend() && !isProvisioned()){
+      // v3.21: the recipe may well exist in the cloud — this device just
+      // can't see it yet. Offer the PIN right here instead of a dead end.
+      $('emptyState').innerHTML=pinFormHtml('Set up this device to load '+sku);
+      wirePinForm();
+      return;
+    }
     $('emptyState').innerHTML='<div class="big">Recipe not found: '+sku+'</div>'+
       '<div class="hint">No recipe with SKU <code>'+sku+'</code> in cloud or local library.<br>'+
       'Open the <a href="./">Recipe Editor</a> to build one first.</div>';

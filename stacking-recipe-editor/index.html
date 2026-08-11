@@ -714,7 +714,7 @@
           <li><span class="pill">Cloud only</span> — on another device, not this one yet. Tap Load to fetch.</li>
         </ul>
         <p style="margin:6px 0"><b>Delete</b> in the Library shows a two-step dialog when a cloud copy exists: "Delete BOTH local AND cloud" (permanent, every device loses it) OR "Delete LOCAL only" (cloud copy stays).</p>
-        <p style="margin:6px 0"><b>To provision a device</b> for cloud sync: get the setup URL from Zac and open it once — you'll see a toast "✓ Device provisioned for Bedrock sync". After that this device reads + writes the cloud library automatically.</p>
+        <p style="margin:6px 0"><b>To provision a device</b> for cloud sync: open <b>Library</b> and enter the shop PIN in the blue banner (ask Zac for the PIN). You'll see "✓ Device provisioned for Bedrock sync" and the device reads + writes the cloud library from then on. (The old #setup URL from Zac still works too.)</p>
         <p style="margin:6px 0"><b>Diagnostic:</b> in DevTools console, run <code>stackingDiag()</code> — dumps provisioning + cloud reachability + local recipe count.</p>
       </div>
 
@@ -791,7 +791,7 @@
         <ul style="margin:0;padding-left:18px">
           <li><b>Saved a recipe but not in Library</b> — check the toast. Missing SKU flashes the input red; overwrite-cancel says "Save cancelled". Every successful save toasts <b>✓ Saved SKU …</b>. If you're on mobile and see nothing, quit and reopen the browser (cache) and reload with <code>?cachebust=1</code>.</li>
           <li><b>Guide says "Recipe not found"</b> — the SKU in the URL doesn't match any local or cloud recipe. Open the Editor, check Library for the exact spelling.</li>
-          <li><b>Cloud sync says "OFF"</b> — this device isn't provisioned. Get the setup URL from Zac and open it once.</li>
+          <li><b>Cloud sync says "OFF"</b> — this device isn't provisioned. Open <b>Library</b> and enter the shop PIN in the blue banner.</li>
           <li><b>Drill editor says "no .moz drill data"</b> — this recipe was authored from text-paste, not .moz. Re-import the source .moz file(s) via <b>Import .moz…</b> to get drills + bands.</li>
           <li><b>Save button did nothing</b> (mobile) — check the version pill in the header. If below 3.11, browser is serving cached HTML — quit Safari, reopen, load with <code>?cachebust=1</code>.</li>
           <li><b>Diagnostic dump</b> — open DevTools console (Chrome ⌘⌥J), run <code>stackingDiag()</code>. Prints provisioning state + cloud reachability + local recipe count. Paste that to Zac.</li>
@@ -848,6 +848,16 @@ function hasBackend(){
   return !!(window.STACKING_CONFIG && window.STACKING_CONFIG.supabase_url && window.STACKING_CONFIG.anon_key);
 }
 function isProvisioned(){ return hasBackend() && !!getDeviceSecret(); }
+// v3.40 — PIN provisioning (Zac: "make it way more user friendly like a
+// pin"). Exchanges the shop PIN for the device secret via the throttled
+// provision_stacking_device RPC; fills the same localStorage slot as the
+// #setup?device= link, which still works.
+async function provisionWithPin(pin){
+  const secret = await _rpc('provision_stacking_device', { p_pin: String(pin||'').trim() });
+  if(!secret) throw new Error('Empty secret from server');
+  localStorage.setItem(DEV_KEY, secret);
+  return true;
+}
 
 // Boot-time hash handler: consume `#setup?device=<value>` and store.
 // Strip the URL after so the secret doesn't sit in history/address bar.
@@ -958,7 +968,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.39';
+const APP_VERSION = '3.40';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3921,6 +3931,38 @@ async function renderLibList(){
   const keys=[...union.keys()].sort();
   const syncTag=remoteErr?' · cloud sync ERROR ('+remoteErr+')':remote?' · cloud sync ON':isProvisioned()?' · cloud sync OFF':' · local only (not provisioned)';
   $('libCount').textContent=keys.length+' recipe'+(keys.length!==1?'s':'')+syncTag;
+  // v3.40: unprovisioned device -> inline PIN box at the top of the Library,
+  // instead of sending people hunting for a setup URL.
+  const oldBanner=$('pinBanner'); if(oldBanner) oldBanner.remove();
+  if(hasBackend() && !isProvisioned()){
+    const b=document.createElement('div');
+    b.id='pinBanner';
+    b.style.cssText='display:flex;align-items:center;gap:10px;padding:12px 14px;margin:0 0 12px;'+
+      'border:2px solid var(--accent);border-radius:12px;background:rgba(77,159,255,.08)';
+    b.innerHTML='<span style="font-weight:700">\ud83d\udd11 Cloud library locked</span>'+
+      '<span style="color:var(--ink3);font-size:13px">enter the shop PIN once to sync this device</span>'+
+      '<span style="flex:1"></span>'+
+      '<input id="pinInput" type="tel" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN" '+
+      'style="font-size:20px;font-family:var(--mono);width:120px;text-align:center;letter-spacing:4px;'+
+      'padding:8px;border-radius:10px;border:2px solid var(--line2);background:var(--panel2);color:var(--ink)">'+
+      '<button id="pinGo" class="primary" style="font-size:15px;font-weight:700;padding:10px 18px;'+
+      'border-radius:10px;border:0;background:var(--accent-strong);color:#fff">Unlock</button>'+
+      '<span id="pinErr" style="color:var(--bad);font-size:13px"></span>';
+    list.parentNode.insertBefore(b, list);
+    const submit=async()=>{
+      $('pinGo').disabled=true; $('pinErr').textContent='';
+      try{
+        await provisionWithPin($('pinInput').value);
+        toast('\u2713 Device provisioned for Bedrock sync');
+        await renderLibList();
+      }catch(e){
+        $('pinErr').textContent=String(e && e.message || e).replace(/^stacking:\s*/,'');
+        $('pinGo').disabled=false; $('pinInput').focus(); $('pinInput').select();
+      }
+    };
+    $('pinGo').addEventListener('click', submit);
+    $('pinInput').addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
+  }
   if(!keys.length){list.innerHTML='<div class="hint" style="text-align:center;padding:20px">No saved recipes yet. Build a layout and click <b>Save recipe</b>.</div>';return;}
   list.innerHTML='';
   for(const k of keys){
