@@ -34473,16 +34473,35 @@ async function createLabelsForCurrentOrder() {
   _updateLoader();
   const _loaderTimer = setInterval(_updateLoader, 1500);
   loadingEl.style.display = 'block';
+  let _moneyTimeout = false;
   try {
-    await callStartPackAndRender(groundPendingOrder);
+    const _spRes = await callStartPackAndRender(groundPendingOrder);
+    _moneyTimeout = !!(_spRes && _spRes.moneyTimeout);
   } finally {
     clearInterval(_loaderTimer);
-    window._buyLabelInFlight.delete(orderKey);
-    if (btn) {
-      btn.disabled = false;
-      btn.style.opacity = '';
-      btn.style.cursor = '';
-      btn.innerHTML = '🚀 Create Labels &amp; Start Pack';
+    if (_moneyTimeout) {
+      // v10.1487 — CONSUME the money-timeout contract. The abort/5xx
+      // message already says "may have COMPLETED — do NOT tap again",
+      // but this finally block used to re-enable the button and clear
+      // the in-flight lock anyway, re-arming the exact double-tap the
+      // message warns about (the 32460 $57.30 incident class). Keep the
+      // lock for 3 minutes — long enough for the server to finish and
+      // for the packer to refresh and see the truth.
+      setTimeout(() => { try { window._buyLabelInFlight.delete(orderKey); } catch (_e) {} }, 180000);
+      if (btn) {
+        btn.disabled = true;
+        btn.style.opacity = '.55';
+        btn.style.cursor = 'not-allowed';
+        btn.textContent = '⚠ May have completed — refresh & re-open order first';
+      }
+    } else {
+      window._buyLabelInFlight.delete(orderKey);
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '';
+        btn.style.cursor = '';
+        btn.innerHTML = '🚀 Create Labels &amp; Start Pack';
+      }
     }
   }
 }
@@ -34698,6 +34717,13 @@ async function callStartPackAndRender(orderRow) {
   } catch (e) {
     document.getElementById('groundErrorBody').textContent = String(e.message || e);
     showGroundView('error');
+    // v10.1487 — propagate the money-timeout contract (v10.1398/v10.1480
+    // set e.mbdMoneyTimeout on aborts/5xx where the buy MAY have
+    // completed server-side). Callers use this to keep the buy button
+    // locked instead of re-arming the double-tap that bills a second
+    // label. Returned rather than rethrown so the three non-money
+    // callers keep their existing "error view shown, no throw" contract.
+    if (e && e.mbdMoneyTimeout) return { moneyTimeout: true };
   }
 }
 
@@ -36009,12 +36035,32 @@ async function completeGroundPack() {
       showToast('Could not complete: ' + errTxt);
       return;
     }
+    // v10.1487 — the server has reported inventoryError in this response
+    // since v66, and the client silently dropped it: "Shipped — 0
+    // inventory rows written" read exactly like success while counts
+    // drifted. The order IS shipped (money step done) — but the failure
+    // must surface, not vanish into a 1s toast.
+    if (data.inventoryError) {
+      alert('Order marked SHIPPED ✓ — but inventory recording FAILED:\n\n'
+        + data.inventoryError
+        + '\n\nStock counts will drift for the SKUs on this order. Tell Zac (screenshot this).');
+    }
     showToast(data.shadowMode
       ? 'Shadow complete (no real ship)'
       : 'Shipped — ' + (data.inventoryRowsWritten || 0) + ' inventory rows written');
     leaveGroundPack();
     refreshGroundQueue();
   } catch (e) {
+    // v10.1487 — consume the money-timeout contract here too. On an
+    // abort where the server may have finished marking the order
+    // shipped, re-enabling the button invites a pointless re-tap loop;
+    // the honest move is a blocking explanation + a locked button.
+    if (e && e.mbdMoneyTimeout) {
+      btn.disabled = true;
+      btn.textContent = '⚠ May have completed — refresh first';
+      alert(e.message);
+      return;
+    }
     btn.disabled = false;
     btn.innerHTML = '✓ Complete &amp; Mark Shipped';
     showToast('Network error: ' + e.message);
@@ -38004,7 +38050,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1485"></script>
+<script src="./pack.js?v=10.1487"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38015,7 +38061,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1485<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1487<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
