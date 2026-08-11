@@ -1,6 +1,18 @@
 # Bedrock — Claude conventions
 
-Static web app deployed straight from this repo. iPads on the shop floor load it. No build step, no test suite, no linter — the version chip at the bottom-right of the page is the visual proof a deploy landed.
+Static web app served from this repo (GitHub Pages). iPads on the shop floor load it. The version chip at the bottom-right of the page is the visual proof a deploy landed.
+
+## ⚠ SOURCE OF TRUTH — read before touching anything (2026-08-11)
+**Do NOT edit or push `index.html`, `pack.js`, or `board.html` in this repo.**
+Bedrock's PWA source of truth is `murphybeddepot/mbd-warehouse`. Its test-gated
+`deploy-pwa.yml` pipeline (69-suite test gate + white-screen validation)
+publishes those files INTO this repo, stamping `.bedrock-sync` with provenance
+in the same commit. A direct push here trips `verify-sync-stamp.yml` (fails CI
++ opens an alarm issue) and FREEZES the pipeline until a human syncs the edits
+back into mbd-warehouse. Make PWA changes in an mbd-warehouse session instead.
+What IS still edited here: CI workflows, this file, README, `.gitignore` —
+anything iPads don't load. The version-bump / cache-bust rules below now apply
+to the PWA source in mbd-warehouse, and are kept here for reference.
 
 ## Repo layout
 - `index.html` — the app, inline `<script>`. Visible tabs: Pre-Pack, Pack, Cabinets, Ground. Hidden admin tabs: Stock, Count, Inventory, Barcodes, Log, Export.
@@ -19,10 +31,10 @@ Static web app deployed straight from this repo. iPads on the shop floor load it
 - Match the existing terse commit style. **No "Generated with Claude Code" footer, no claude.ai session URL** in commit messages.
 - Single author: `office@murphybeddepot.com`. No co-author tags.
 
-## Branching — depends on device
-- **Desktop session (laptop with full diff visible):** commit straight to `main`, push, done. Matches existing history.
-- **Mobile session (phone/tablet):** always work on a branch named `claude/<short-task>`, push the branch, and stop there. Do not merge to `main` and do not push to `main` from a phone session. The branch + GitHub diff is the review gate before iPads pick up the change.
-- If you can't tell which device the user is on, **ask before pushing.**
+## Branching
+- Metadata/CI commits in this repo: straight to `main` is fine.
+- PWA work happens in mbd-warehouse (see SOURCE OF TRUTH above) under that
+  repo's own conventions.
 
 ## Code style already established
 - Comments explain *why*, not *what*. The codebase has no `TODO`/`FIXME` markers — don't introduce them. If something is genuinely deferred, leave a one-line `// X deferred — <reason>` and move on.

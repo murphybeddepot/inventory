@@ -1,0 +1,127 @@
+name: verify-sync-stamp
+
+# Bedrock's PWA source of truth is murphybeddepot/mbd-warehouse. Its
+# test-gated deploy-pwa.yml pipeline publishes index.html / pack.js /
+# board.html into THIS repo, always updating the .bedrock-sync
+# provenance stamp in the same commit.
+#
+# This workflow is the receiving-side guard: a push to main that
+# changes PWA files WITHOUT updating .bedrock-sync bypassed the
+# pipeline. That freezes the deploy pipeline (its stale-source guard
+# refuses to overwrite unsynced changes) until a human syncs the
+# direct edits back into mbd-warehouse. So: fail the run and open (or
+# update — never duplicate) an alarm issue naming the commit.
+#
+# Pipeline pushes always touch .bedrock-sync and pass untouched.
+# Pushes that don't touch PWA files (CI, docs, CLAUDE.md) pass too.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    name: PWA changes came through the pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check changed files against the sync stamp
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const PWA_FILES = ['index.html', 'pack.js', 'board.html'];
+            const STAMP = '.bedrock-sync';
+            const ISSUE_TITLE = '⚠ Direct push bypassed the deploy pipeline';
+
+            const before = context.payload.before;
+            const head = context.sha;
+
+            // Branch creation / force-push edge: no usable base — compare
+            // the head commit alone via its own file list.
+            let files = [];
+            if (before && !/^0+$/.test(before)) {
+              const cmp = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: before,
+                head: head,
+              });
+              files = (cmp.data.files || []).map(f => f.filename);
+            } else {
+              const commit = await github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: head,
+              });
+              files = (commit.data.files || []).map(f => f.filename);
+            }
+
+            const pwaTouched = files.filter(f => PWA_FILES.includes(f));
+            const stampTouched = files.includes(STAMP);
+
+            core.info('Changed files: ' + files.join(', '));
+
+            if (pwaTouched.length === 0) {
+              core.info('No PWA files changed — nothing to verify.');
+              return;
+            }
+            if (stampTouched) {
+              core.info('PWA files changed WITH .bedrock-sync — pipeline publish, OK.');
+              return;
+            }
+
+            // Bypass detected. Open the alarm issue, or add to the
+            // existing open one — don't spam duplicates.
+            const pusher = (context.payload.pusher && context.payload.pusher.name) || 'unknown';
+            const headMsg = (context.payload.head_commit && context.payload.head_commit.message || '').split('\n')[0];
+            const detail = [
+              '**Commit:** ' + head + ' (`' + headMsg + '`)',
+              '**Pushed by:** ' + pusher,
+              '**PWA files changed without `.bedrock-sync`:** ' + pwaTouched.join(', '),
+              '',
+              'Bedrock\'s PWA source of truth is `murphybeddepot/mbd-warehouse`;',
+              'its `deploy-pwa.yml` pipeline (69-suite test gate + white-screen',
+              'validation) publishes into this repo with a `.bedrock-sync`',
+              'provenance stamp. This push changed PWA files directly, which',
+              '**freezes the deploy pipeline** — its stale-source guard will',
+              'refuse to publish until these changes are synced back into',
+              'mbd-warehouse by a human.',
+              '',
+              '**To unfreeze:** port this commit\'s changes into',
+              'mbd-warehouse\'s PWA source and let the pipeline republish.',
+            ].join('\n');
+
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = open.data.find(i => i.title === ISSUE_TITLE);
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: 'Another bypassing push:\n\n' + detail,
+              });
+              core.info('Commented on existing issue #' + existing.number);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: ISSUE_TITLE,
+                body: detail,
+              });
+              core.info('Opened issue #' + created.data.number);
+            }
+
+            core.setFailed(
+              'PWA files (' + pwaTouched.join(', ') + ') changed without a '
+              + '.bedrock-sync update — this push bypassed the mbd-warehouse '
+              + 'deploy pipeline and freezes it until synced back.');
