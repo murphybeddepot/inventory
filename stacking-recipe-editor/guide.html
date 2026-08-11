@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Stacker Guide</title>
+<!-- v3.22 (2026-08-11) — footer back on the iPad screen: 100dvh (visible
+     viewport) instead of 100vh, safe-area padding on the footer, resize
+     re-render for toolbar collapse. -->
 <!-- v3.21 (2026-08-11) — PIN provisioning. An unprovisioned device now gets a
      PIN box instead of a dead "recipe not found": enter the shop PIN, the page
      exchanges it for the device secret (throttled RPC) and reloads. -->
@@ -42,7 +45,10 @@
   html,body{margin:0;padding:0;height:100%;overflow:hidden}
   body{font-family:var(--sans);background:var(--bg);color:var(--ink);
     -webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
-  #app{display:flex;flex-direction:column;height:100vh}
+  /* v3.22: 100vh on iPad Safari includes the space behind the toolbar, which
+     pushed the footer buttons off-screen with no scroll (overflow:hidden).
+     dvh tracks the VISIBLE viewport; vh stays as the fallback for old engines. */
+  #app{display:flex;flex-direction:column;height:100vh;height:100dvh}
 
   /* Top bar — SKU + layer position + progress */
   header{flex:0 0 auto;display:flex;align-items:center;gap:16px;
@@ -80,6 +86,7 @@
   /* Bottom controls */
   footer{flex:0 0 auto;display:flex;align-items:center;gap:12px;
     padding:16px 24px;background:var(--panel);border-top:2px solid var(--line2)}
+    padding-bottom:max(14px, env(safe-area-inset-bottom));
   footer .stat{display:flex;flex-direction:column;gap:2px}
   footer .stat .num{font-size:34px;font-weight:800;line-height:1;
     font-family:var(--mono);color:var(--ink)}
@@ -365,6 +372,11 @@ function renderAll(){
 
   renderStage(layer);
 }
+
+// v3.22: Safari's toolbar collapsing/expanding resizes the dvh viewport after
+// first paint; re-render so the SVG rescales instead of leaving a stale fit.
+let _rsz=null;
+window.addEventListener('resize', ()=>{ clearTimeout(_rsz); _rsz=setTimeout(()=>{ if(S.snapshot) renderAll(); }, 150); });
 
 function renderStage(layer){
   const stage=$('stage');
