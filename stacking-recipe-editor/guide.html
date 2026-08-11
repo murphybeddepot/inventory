@@ -6,6 +6,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Stacker Guide</title>
+<!-- v3.20 (2026-08-11) — parts drawn in the right frame. Recipe centres are in
+     the FOOTPRINT frame (editor clamps 0..foot); the guide drew them raw in the
+     pallet viewBox, hanging parts off the dashed line by (19, 50.5)mm. Now
+     offset by the footprint origin. -->
 <!-- v3.19 (2026-08-11) — white pallet. The pallet outline was dark-on-dark and
      vanished behind the parts (Zac: "the pallet is invisible in the background").
      Now a white deck with slat boards and a solid warm-grey frame; footprint
@@ -350,15 +354,21 @@ function renderStage(layer){
   // font size + always the short 2A-style code.
   const LABEL_SIZE = Math.round(Math.min(pal.L, pal.W) * 0.055); // ~55px @ 991mm short side
 
-  // Placed parts
+  // Placed parts.
+  // v3.20: p.cx/p.cy are the part centre in the FOOTPRINT frame — the editor
+  // clamps placements to 0..foot.L/0..foot.W (inFootprint, index.html) — so
+  // every part must shift by the footprint offset inside the pallet viewBox.
+  // Drawing them raw is why parts hung off the dashed line left and bottom
+  // by exactly (19, 50.5)mm while the recipe showed them inside (Zac's
+  // screenshot, 2026-08-11).
   const li=S.activeLayerIdx;
   layer.forEach((p,pi)=>{
     const key=li+':'+pi;
     const inplace=S.inPlace.has(key);
-    // p.cx/p.cy are center in pallet frame; p.L/p.W are dims; p.angle is rotation.
+    const pcx = p.cx + footOffX, pcy = p.cy + footOffY;
     const w = p.angle===90||p.angle===270 ? p.W : p.L;
     const h = p.angle===90||p.angle===270 ? p.L : p.W;
-    const x = p.cx - w/2, y = p.cy - h/2;
+    const x = pcx - w/2, y = pcy - h/2;
     const rect=svgel('rect',{x,y,width:w,height:h,rx:4,
       class:'part-shape'+(inplace?' inplace':''),
       'data-key':key});
@@ -378,12 +388,12 @@ function renderStage(layer){
     // like a code rather than a sentence.
     const short = (p.partNum && String(p.partNum).trim())
       || (p.name ? String(p.name).split(/\s+/)[0].slice(0,4).toUpperCase() : '?');
-    const lbl=svgel('text',{x:p.cx,y:p.cy,class:'part-label','font-size':LABEL_SIZE});
+    const lbl=svgel('text',{x:pcx,y:pcy,class:'part-label','font-size':LABEL_SIZE});
     lbl.textContent = short;
     svg.appendChild(lbl);
     // Checkmark badge above the label when inplace
     if(inplace){
-      const chk=svgel('text',{x:p.cx,y:p.cy - LABEL_SIZE*0.85,
+      const chk=svgel('text',{x:pcx,y:pcy - LABEL_SIZE*0.85,
         'font-size':LABEL_SIZE*1.1,class:'part-check'});
       chk.textContent='✓';
       chk.style.opacity='1';
