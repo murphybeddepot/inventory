@@ -4673,38 +4673,6 @@ function _showBulkPrintFailureBanner_(instFails, pickFails) {
   document.body.appendChild(ov);
 }
 
-function _showBulkPickListFailureBanner_(failures) {
-  const prior = document.getElementById('bulkPickListFailBanner');
-  if (prior) prior.remove();
-  const ov = document.createElement('div');
-  ov.id = 'bulkPickListFailBanner';
-  ov.style.cssText = 'position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:10030;max-width:560px;width:90%;background:rgba(139,0,0,.96);color:#fff;-webkit-text-fill-color:#fff;border:1px solid #ff5252;border-radius:10px;padding:14px 16px;box-shadow:0 10px 32px rgba(0,0,0,.6);font-family:inherit';
-  const rows = failures.map(f => {
-    const isMissingUrl = /no pick_list_pdf_url/i.test(f);
-    const ordMatch = f.match(/#(\d+)/);
-    const ord = ordMatch ? ordMatch[1] : '';
-    const setUrlBtn = isMissingUrl && ord
-      ? ' <button onclick="promptForPickListUrl_(\'' + ord + '\')" style="margin-left:6px;padding:3px 8px;font-size:10px;font-weight:800;background:#FFB300;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;border:none;border-radius:4px;cursor:pointer">＋ Set URL</button>'
-      : '';
-    return '<div style="font-size:12px;font-family:\'JetBrains Mono\',monospace;line-height:1.5;color:#fff !important;-webkit-text-fill-color:#fff">' + esc(f) + setUrlBtn + '</div>';
-  }).join('');
-  ov.innerHTML = ''
-    + '<div style="display:flex;align-items:start;gap:10px;margin-bottom:8px">'
-    + '<div style="font-size:22px;line-height:1;flex-shrink:0">⚠</div>'
-    + '<div style="flex:1;font-weight:800;font-size:14px;color:#fff !important;-webkit-text-fill-color:#fff">' + failures.length + ' pick list failure' + (failures.length === 1 ? '' : 's')
-    + ' — usually means the gcal event description didn\'t have a Drive URL we could parse</div>'
-    + '<button onclick="document.getElementById(\'bulkPickListFailBanner\').remove()" style="background:transparent;color:#fff;-webkit-text-fill-color:#fff;border:none;font-size:18px;cursor:pointer;line-height:1">✕</button>'
-    + '</div>'
-    + '<div style="border-top:1px solid rgba(255,255,255,.30);padding-top:8px">' + rows + '</div>';
-  document.body.appendChild(ov);
-  // Auto-fade after 18s only if the operator hasn't touched it.
-  setTimeout(() => {
-    const el = document.getElementById('bulkPickListFailBanner');
-    if (el && !el.dataset.touched) { el.style.transition = 'opacity .5s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 500); }
-  }, 18000);
-  ov.addEventListener('click', () => { ov.dataset.touched = '1'; });
-}
-
 // v10.549 — manager prompt to set / fix pick_list_pdf_url on a row.
 // Used by the failure banner's "+ Set URL" button. Calls a new
 // orchestrator action; doesn't auto-retry the print (operator can
@@ -7360,7 +7328,12 @@ function fmt(n) {
   return isNaN(v)?'\u2014':(Number.isInteger(v)?v.toLocaleString():v.toFixed(2));
 }
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // v10.1492 — also escapes single quotes. esc() covered &<>" but not ',
+  // so any single-quoted attribute built with it was injection-prone and
+  // authors had to remember which of esc()/escapeHtml() covered what
+  // (~1,600 combined call sites). Now a strict superset — same output
+  // for every string without an apostrophe.
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function updateBadge() {
   const n=inv.filter(i=>i._changed).length;
@@ -8640,77 +8613,6 @@ function _batchCountSwitchLocation_(newBin) {
 // Old v10.192 search-and-jump flow — kept as the secondary path for
 // "find a specific SKU's location" from Stock locations. The 📝 Count
 // button now routes to openLocationBatchCount_ instead per Zac's spec.
-function openLocationFirstCount_(binCode) {
-  const prior = document.getElementById('locFirstCountOverlay');
-  if (prior) prior.remove();
-  const det = _locationDetails_(binCode);
-
-  const ov = document.createElement('div');
-  ov.id = 'locFirstCountOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10010;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
-  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
-
-  const panel = document.createElement('div');
-  panel.className = 'keep-dark-text';
-  panel.style.cssText = 'background:#fff;border-radius:14px;padding:18px 20px;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:12px;box-sizing:border-box';
-  panel.addEventListener('click', e => e.stopPropagation());
-
-  // Build current-occupants summary
-  const occupants = [];
-  (typeof items !== 'undefined' ? items : []).forEach(i => {
-    if (i.deleted) return;
-    (i._locations || []).forEach(l => {
-      if (String(l.loc || '').trim() === binCode && (parseFloat(l.qty) || 0) > 0) {
-        occupants.push({ sku: i.sku || i.name, name: i.name, qty: parseFloat(l.qty), itemRow: i.row });
-      }
-    });
-  });
-  const occupantsHtml = occupants.length
-    ? '<div style="margin-top:8px"><strong>Currently here:</strong><ul style="margin:4px 0 0;padding-left:18px;font-size:12px;color:#333">' + occupants.map(o => '<li>' + esc(o.sku || '') + (o.name && o.name !== o.sku ? ' — ' + esc(o.name) : '') + ' · qty ' + o.qty + '</li>').join('') + '</ul></div>'
-    : '<div style="margin-top:8px;color:#888;font-size:12px">No items currently logged at this location.</div>';
-
-  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
-    +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">📝 Count at <span style="font-family:\'JetBrains Mono\',monospace;color:#003087">' + esc(binCode) + '</span></div>'
-    +   '<button onclick="document.getElementById(\'locFirstCountOverlay\').remove()" style="background:none;border:none;font-size:22px;color:#666;cursor:pointer">✕</button>'
-    + '</div>'
-    + '<div style="background:#F5F7FA;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;color:#333">'
-    +   occupantsHtml
-    + '</div>'
-    + '<label style="display:block;font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;letter-spacing:1px">Find or scan SKU:</label>'
-    + '<input type="text" id="locFirstSkuInput" placeholder="SKU or product name…" autocomplete="off" style="padding:11px 14px !important;font-size:14px !important;border:2px solid #ccc !important;border-radius:8px !important;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important">'
-    + '<div id="locFirstSkuResults" style="max-height:200px;overflow-y:auto"></div>'
-    + '<div style="font-size:11px;color:#888">Tip: tapping a result jumps to its item card with this location pre-selected, so you can record the qty on the existing flow.</div>'
-    + '<div style="display:flex;justify-content:flex-end;gap:8px">'
-    +   '<button onclick="document.getElementById(\'locFirstCountOverlay\').remove()" style="padding:10px 14px !important;background:#f5f5f5 !important;color:#444 !important;-webkit-text-fill-color:#444 !important;border:1px solid #ccc !important;border-radius:8px !important;font-size:13px !important;font-weight:700 !important;cursor:pointer !important">Cancel</button>'
-    + '</div>';
-
-  ov.appendChild(panel);
-  document.body.appendChild(ov);
-
-  // Search wiring
-  const skuInp = document.getElementById('locFirstSkuInput');
-  const resultsEl = document.getElementById('locFirstSkuResults');
-  function _renderResults() {
-    const q = String(skuInp.value || '').toLowerCase().trim();
-    if (!q || q.length < 1) { resultsEl.innerHTML = ''; return; }
-    const matches = (typeof items !== 'undefined' ? items : [])
-      .filter(i => !i.deleted)
-      .filter(i => (String(i.sku || '').toLowerCase().includes(q) || String(i.name || '').toLowerCase().includes(q)))
-      .slice(0, 20);
-    if (!matches.length) {
-      resultsEl.innerHTML = '<div style="padding:10px;color:#888;font-size:12px">No items match "' + esc(q) + '". You can add the item via the main Stock search.</div>';
-      return;
-    }
-    resultsEl.innerHTML = matches.map(i => '<div onclick="jumpToItemForLocationCount_(' + i.row + ', \'' + binCode + '\')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #eee;cursor:pointer;color:#1a1a1a;font-size:13px">'
-      + '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:800;color:#003087;min-width:80px">' + esc(i.sku || '') + '</span>'
-      + '<span style="flex:1;color:#1a1a1a">' + esc(i.name || '') + '</span>'
-      + '<span style="color:#666;font-size:11px">on hand: ' + (i.onHand || 0) + '</span>'
-      + '</div>').join('');
-  }
-  skuInp.addEventListener('input', _renderResults);
-  setTimeout(() => skuInp.focus(), 50);
-}
-
 // Jump to a specific item's card with a target location pre-staged
 // (adds an empty entry for the bin if none exists, then renders).
 function jumpToItemForLocationCount_(itemRow, binCode) {
@@ -9462,52 +9364,6 @@ async function _emergencyAddCabinetToInventory_(cabinetNum, deliveryDate) {
 // operator see why the pipeline decided what it did when gcal/PQ
 // state seems to disagree (Zac 16:17 EDT: 31830 stalled but gcal
 // shows shipped).
-async function _diagOrderPipeline_(orderNumber) {
-  const prior = document.getElementById('diagOrderOverlay');
-  if (prior) prior.remove();
-  const ov = document.createElement('div');
-  ov.id = 'diagOrderOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10020;display:flex;align-items:center;justify-content:center;padding:14px';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  const body = document.createElement('div');
-  body.className = 'keep-dark-text';
-  body.style.cssText = 'background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border-radius:14px;padding:20px;max-width:720px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.5)';
-  body.innerHTML = '<div style="padding:20px;text-align:center;color:#666 !important;-webkit-text-fill-color:#666 !important">🔎 Asking the server about #' + esc(orderNumber) + '…</div>';
-  ov.appendChild(body);
-  document.body.appendChild(ov);
-  try {
-    const res = await groundApi('diagOrderPipeline', { orderNumber: orderNumber });
-    if (!res || !res.ok) {
-      body.innerHTML = '<div style="padding:14px;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important">Diagnose failed: ' + esc((res && res.error) || 'unknown') + '</div>';
-      return;
-    }
-    const kv = (obj, keys) => {
-      if (!obj) return '<div style="color:#888 !important;-webkit-text-fill-color:#888 !important;font-style:italic">(none)</div>';
-      const useKeys = keys || Object.keys(obj);
-      return useKeys.map(k => {
-        const v = obj[k];
-        if (v === null || v === undefined || v === '') return null;
-        return '<div style="display:flex;gap:8px;padding:2px 0;font-family:monospace;font-size:11px;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important"><span style="color:#666 !important;-webkit-text-fill-color:#666 !important;min-width:140px">' + esc(k) + '</span><span style="word-break:break-all">' + esc(typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</span></div>';
-      }).filter(Boolean).join('');
-    };
-    body.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">'
-      +   '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif !important;font-size:20px;font-weight:900;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;text-transform:uppercase;letter-spacing:.5px">🔍 Diagnose: #' + esc(res.order_number) + '</div>'
-      +   '<button onclick="document.getElementById(\'diagOrderOverlay\').remove()" style="background:transparent;border:none;font-size:22px;color:#666 !important;-webkit-text-fill-color:#666 !important;cursor:pointer">✕</button>'
-      + '</div>'
-      + '<div style="background:#EAF0FB !important;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#003087 !important;-webkit-text-fill-color:#003087 !important;line-height:1.5">' + esc(res.verdict || '(no verdict)') + '</div>'
-      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">Pipeline row (computed)</div>'
-      + kv(res.pipeline_row, ['order_number','ship_date','status','pipeline_status','is_on_active_list','stalled','stall_reasons','cal_h','cal_b','cal_p','cal_l','cal_shipped','carrier_display','booker','booked_at','customer_ready','hw_needs_count','on_hold'])
-      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 4px">Schedule overlay (what listScheduleByDateRange returned)</div>'
-      + kv(res.schedule_row, ['order_number','ship_date','status','stalled','stall_reasons','cal_h','cal_b','cal_p','cal_l','cal_shipped','cal_label','carrier_key','carrier_display','sched_stage','cal_sourced'])
-      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 4px">Holds</div>'
-      + kv(res.hold_row)
-      + '<div style="font-size:11px;font-weight:800;color:#444 !important;-webkit-text-fill-color:#444 !important;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 4px">Raw PackingQueue row (key fields)</div>'
-      + kv(res.packing_queue_row, ['order_number','ship_date','status','on_active_list','hardware_packed_at','booked_at','customer_ready','customer_name','task_line','pick_list_pdf_url','last_updated_at']);
-  } catch (err) {
-    body.innerHTML = '<div style="padding:14px;color:#8B0000 !important;-webkit-text-fill-color:#8B0000 !important">Diagnose error: ' + esc(err.message) + '</div>';
-  }
-}
-
 // v10.317 — used by the "🔄 Re-push session to server" button on the
 // detail card for a received_local cabinet. Walks the local session's
 // checked cabinets and force-pushes them to the orchestrator's
@@ -10333,8 +10189,6 @@ async function _frameRunwayFullVelocityViaWorkerWithTimeout_(windows, timeoutMs)
 // button now ('⚡ Compute velocity') does all 5 windows via worker
 // direct. The function reference is kept as a thin alias in case
 // any deep-link or saved button references it.
-async function _frameRunwayComputeVelocity_() { return _frameRunwayComputeAllWindows_(); }
-
 // v10.724 — Receive Container UI. Multi-step:
 //   1. Open container picker (if multiple on-order containers).
 //   2. Fetch preview via worker (returns SKU list + qtys).
@@ -17373,16 +17227,6 @@ function timeAgoShort_(ts) {
   if (days < 1) return Math.max(1, Math.floor(ms / (3600 * 1000))) + 'h';
   if (days < 30) return days + 'd';
   return Math.floor(days / 30) + 'mo';
-}
-
-function markItemOnOrder(uuid) {
-  const item = items.find(i => i.uuid === uuid);
-  if (!item) return;
-  item.onOrder = true;
-  item.orderedAt = Date.now();
-  saveItems();
-  showToast('📦 ' + (item.sku || 'item') + ' marked on order');
-  renderItems();
 }
 
 function markItemReceivedFromOrder(uuid) {
@@ -25478,21 +25322,6 @@ function _itemLocPickBay_(bay) {
 }
 // Populate aisle dropdown when Stock tab opens.
 document.addEventListener('DOMContentLoaded', () => _populateItemLocAisleDropdown_());
-function itemLocBackspace() {
-  const inp = document.getElementById('itemLocSearchInput');
-  if (!inp) return;
-  inp.value = inp.value.slice(0, -1);
-  renderItemLocResult(inp.value);
-  if (typeof FB !== 'undefined' && FB.error) FB.error();
-}
-function itemLocClear() {
-  const inp = document.getElementById('itemLocSearchInput');
-  if (!inp) return;
-  inp.value = '';
-  renderItemLocResult('');
-  if (typeof FB !== 'undefined' && FB.error) FB.error();
-}
-
 // Render every active item that has stock at the queried location.
 // Match strategy: case-insensitive substring on the location code, so
 // "001" finds "001.005" and "001.010" — useful when scanning whole aisles.
@@ -28609,44 +28438,6 @@ function pushSingleCabinetToServer_(session, cab) {
     }
     // Failure case: already queued + badge updated by commitReceiveProgressQueued_.
   });
-}
-
-function autoStartReceiveFromServerSession(s) {
-  // Human-readable shipment name from the delivery date, e.g. "May 14".
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  let name = 'Auto-loaded';
-  if (s.delivery_date) {
-    const parts = String(s.delivery_date).split('-');
-    if (parts.length === 3) {
-      name = months[Number(parts[1]) - 1] + ' ' + Number(parts[2]);
-    }
-  }
-  // v70: the server now returns enriched cabinet records with received
-  // state from any other device's prior commits. Pass the full objects
-  // through so we don't lose that state on load.
-  const enriched = (s.cabinets || []).map(c => {
-    if (typeof c === 'string') {
-      return { num: c, received: false, location: '', receivedAt: '', receivedBy: '' };
-    }
-    return {
-      num: c.num,
-      received: !!c.received,
-      location: c.location || '',
-      receivedAt: c.received_at || '',
-      receivedBy: c.received_by || '',
-      addedManually: !!c.added_manually,
-      committedAt: c.received ? (c.received_at || '') : '',  // already saved on server side
-    };
-  });
-  startReceiveSession(enriched, {
-    name: name,
-    serverSessionId: s.session_id,
-    truckCount: s.truck_count || 0,
-    deliveryDate: s.delivery_date || '',
-  });
-  const doneCount = enriched.filter(c => c.received).length;
-  const tail = doneCount > 0 ? ' (' + doneCount + ' already received)' : '';
-  showToast('✓ Loaded ' + enriched.length + ' cabinets for ' + name + tail);
 }
 
 function showReceiveSetup() {
@@ -34419,8 +34210,6 @@ function printQrTags_(items, pageTitle, heading, hint, layout) {
 }
 
 // Backwards-compat alias — the More menu used to call this name directly.
-async function openSampleColorLabelsPrinter() { return openBarcodeTagPrinter('colors'); }
-
 async function fetchGroundSamplesColors_(orderNumber) {
   const contentEl = document.getElementById('groundSamplesColorsContent');
   if (!contentEl) return;
@@ -38077,7 +37866,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1489"></script>
+<script src="./pack.js?v=10.1492"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38088,7 +37877,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1489<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1492<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

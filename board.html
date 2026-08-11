@@ -83,7 +83,9 @@
   var DEV_URL = 'https://script.google.com/macros/s/AKfycbxRWGc8U4Q9upNJayYDdOh1Wbveamaob8I2tnK_pnVutACZMv86g3f6QV4PN0L2KKH2/exec';
   var ORCH = /[?&]dev=1/.test(location.search) ? DEV_URL : STABLE_URL;
   var SECRET = localStorage.getItem('mbd_ground_secret') || '';
-  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+  // v10.1492 — was &<> only: no quote escaping at all, so any attribute
+  // interpolation on the board was injection-prone. Now matches esc().
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   var REFRESH_MS = 45000;
   var lastLoadAt = 0;
   function tick(){

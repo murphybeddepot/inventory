@@ -4772,65 +4772,6 @@ async function printPickListOnlyForOrder_(orderNumber) {
 // Fix: merge cover + instructions + pick list into ONE PDF per
 // order, submit as a single PrintNode job. One job = one staple
 // packet. No timing fragility.
-async function printInstructionsAndPickListCombined_(orderNumber) {
-  const orderStr = String(orderNumber || '').trim();
-  if (!orderStr) return { ok: false, error: 'orderNumber required' };
-  // Source the row from either cache (pipeline preferred — Orders tab).
-  const cached = (typeof getCachedPipelineOrder === 'function')
-    ? getCachedPipelineOrder(orderStr)
-    : ((typeof _packQueueCache !== 'undefined' && Array.isArray(_packQueueCache))
-        ? _packQueueCache.find(r => String(r.order_number) === orderStr) : null);
-  if (!cached) return { ok: false, error: '#' + orderStr + ' not in cache — refresh first' };
-
-  // Need both the instructions URL and pick list URL. Resolve the
-  // instructions URL the same way printInstructionsLink_ does (INST-*
-  // SKUs → InstructionsMap), but inline so we don't double-prompt the
-  // UI banner.
-  let instructionsUrl = '';
-  try {
-    const arr = JSON.parse(String(cached.sku_lines_json || '[]'));
-    const instSkus = Array.isArray(arr)
-      ? Array.from(new Set(arr.map(it => String((it && it.sku) || '').trim().toUpperCase()).filter(s => /^INST-/.test(s))))
-      : [];
-    if (instSkus.length) {
-      const resolveRes = await groundApi('resolveInstructionsForSkus', { skus: instSkus });
-      if (resolveRes && resolveRes.ok && Array.isArray(resolveRes.hits) && resolveRes.hits.length) {
-        instructionsUrl = resolveRes.hits[0].pdf_url;
-      }
-    }
-  } catch (e) { /* swallow — fall back to pick_list_pdf_url below */ }
-  if (!instructionsUrl) instructionsUrl = String(cached.instructions_pdf_url || '').trim();
-
-  const pickListUrl = String(cached.pick_list_pdf_url || '').trim();
-  if (!instructionsUrl && !pickListUrl) {
-    return { ok: false, error: 'no instructions or pick list URL for #' + orderStr };
-  }
-
-  try {
-    showToast('🛠 Building combined packet for #' + orderStr + '…');
-    const coverBytes = await buildPackCoverPagePdf_(cached);
-    let instructionsBytes = null;
-    let pickListBytes = null;
-    if (instructionsUrl) {
-      try { instructionsBytes = await packFetchPdfBytes_(instructionsUrl); }
-      catch (e) { console.warn('combined: instructions fetch failed', e); }
-    }
-    if (pickListUrl) {
-      try { pickListBytes = await packFetchPdfBytes_(pickListUrl); }
-      catch (e) { console.warn('combined: pick list fetch failed', e); }
-    }
-    const merged = await mergeCoverInstructionsPickList_(coverBytes, instructionsBytes, pickListBytes);
-    const base64 = uint8ToBase64_(merged);
-    return await groundApi('printRawPackPdf', {
-      orderNumber: orderStr,
-      base64: base64,
-      jobTitle: 'MBD Pack ' + orderStr + ' — combined (inst + pick list)',
-    });
-  } catch (e) {
-    return { ok: false, error: 'combined print error: ' + (e.message || e) };
-  }
-}
-
 // v10.559 — merge cover + instructions + pick list into one PDF.
 // Blank duplex spacers between each so duplex output starts each
 // document on a clean sheet. Pick list flows last so the operator
@@ -6192,49 +6133,6 @@ async function printTodaysInstructions() {
   }
 }
 
-async function printTodaysInstructionsAirPrintFallback_(inflight) {
-  const withInstructions = inflight.filter(r => r.instructions_pdf_url);
-  const fallbackPick = inflight.filter(r => !r.instructions_pdf_url && r.pick_list_pdf_url);
-  if (!withInstructions.length && !fallbackPick.length) {
-    showPackBanner_('No PDFs available to print', '#ff5252');
-    return;
-  }
-  const total = withInstructions.length + fallbackPick.length;
-  showPackBanner_('Merging ' + total + ' PDFs for AirPrint…', '#42a5f5');
-  try {
-    const PDFLib = await loadPdfLib_();
-    const merged = await PDFLib.PDFDocument.create();
-    const all = withInstructions.concat(fallbackPick);
-    let done = 0, failed = [];
-    for (const r of all) {
-      const url = r.instructions_pdf_url || r.pick_list_pdf_url;
-      try {
-        const bytes = await packFetchPdfBytes_(url);
-        const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
-        const pages = await merged.copyPages(src, src.getPageIndices());
-        pages.forEach(p => merged.addPage(p));
-        done++;
-      } catch (err) {
-        failed.push(r.order_number + ': ' + err.message);
-      }
-    }
-    if (!done) {
-      showPackBanner_('AirPrint merge failed — see alert', '#ff5252');
-      alert('Could not merge any PDFs:\n\n' + failed.join('\n'));
-      return;
-    }
-    const mergedBytes = await merged.save();
-    const blob = new Blob([mergedBytes], { type: 'application/pdf' });
-    const blobUrl = URL.createObjectURL(blob);
-    const w = window.open(blobUrl, '_blank');
-    if (!w) { showPackBanner_('Allow popups, then retry', '#ff9800'); return; }
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 5 * 60 * 1000);
-    showPackBanner_(done + ' merged · Share → Print → AirPrint', '#00e676');
-  } catch (err) {
-    showPackBanner_('AirPrint fallback error: ' + err.message, '#ff5252');
-  }
-}
-
 async function bulkRemoveFromList() {
   if (!_packBulkSelection.size) {
     showToast('Select at least one order first');
@@ -6667,28 +6565,6 @@ async function confirmMarkPickedUp(orderNumber) {
       }
     },
   });
-}
-
-async function resetPackScansForOrder(orderNumber) {
-  if (!confirm('Reset all scan counts for order ' + orderNumber + '? (Photos and claim are preserved.)')) return;
-  try {
-    const res = await groundApi('resetPackScans', {
-      orderNumber: orderNumber,
-      deviceId: getPackDeviceId_(),
-    });
-    if (!res || !res.ok) {
-      showToast('Reset failed: ' + ((res && res.error) || 'unknown'));
-      return;
-    }
-    const cached = _packQueueCache.find(r => String(r.order_number) === String(orderNumber));
-    if (cached) cached.scanned_json = '';
-    delete _packScanState[orderNumber];
-    if (cached) getPackScanState_(cached.order_number, cached.sku_lines_json, '');
-    renderPackSkuList_(orderNumber);
-    showToast('Scans reset');
-  } catch (err) {
-    showToast('Reset error: ' + err.message);
-  }
 }
 
 // Wire Enter-key in the scan input (cordless barcode scanners terminate with \n).
@@ -12730,16 +12606,6 @@ function _plannerHideMobileSelectedBanner_() {
 // clobbered the in-progress add). Now: mutate the local cache + render
 // instantly + fire server save in background. If save fails, rollback
 // the cache to its pre-mutation state.
-function _plannerSnapshotCache_() {
-  if (!_packPlannerCache) return null;
-  return JSON.parse(JSON.stringify(_packPlannerCache));
-}
-function _plannerRestoreCache_(snapshot) {
-  if (snapshot) {
-    _packPlannerCache = snapshot;
-    _renderPackPlanner_(_packPlannerCache);
-  }
-}
 // v10.667 — returns a per-op rollback record { moved, fromBucket }
 // so concurrent drops + unschedules can each revert ONLY their own
 // mutation. Returns null on cache miss.
@@ -18332,33 +18198,6 @@ async function _refreshPrintRelayConfig_() {
 // SHADOWED the maintained one (index.html ~14474) — any fix applied
 // there (like the v10.1482 force_refresh passthrough) never ran.
 // index.html's declaration is now the only one.
-async function _frameRunwayLoadViaWorker_DELETED_(velocityWindow) {
-  const cfg = await _getPrintRelayConfig_();
-  if (!cfg || !cfg.worker_url || !cfg.stamp_secret) {
-    return { ok: false, error: 'Worker config not in localStorage — orchestrator quota dead + no cached relay config. Open Bedrock once after the next quota reset (~3am EDT) to seed the cache.' };
-  }
-  try {
-    const resp = await fetch(cfg.worker_url + '/inventory/dashboard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        secret: cfg.stamp_secret,
-        velocity_days: velocityWindow
-      })
-    });
-    const text = await resp.text();
-    let parsed;
-    try { parsed = JSON.parse(text); }
-    catch (e) { return { ok: false, error: 'Worker non-JSON: ' + text.substring(0, 200) }; }
-    if (resp.status !== 200 || !parsed.ok) {
-      return { ok: false, error: 'Worker HTTP ' + resp.status + ': ' + (parsed.error || text.substring(0, 200)) };
-    }
-    return parsed;
-  } catch (e) {
-    return { ok: false, error: 'Worker fetch error: ' + e.message };
-  }
-}
-
 // Quota-error detection. The orchestrator surfaces these strings when
 // UrlFetchApp is dead.
 function _looksLikeUrlFetchQuota_(text) {
