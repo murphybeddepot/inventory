@@ -9765,17 +9765,36 @@ async function _stockV2DrainPending_() {
   _stockV2DrainRunning_ = true;
   try {
     let q = _stockV2GetPendingQueue_();
-    while (q.length > 0) {
-      const entry = q[0];
+    // v10.1485 — age gate. A queued count is a snapshot of the shelf at
+    // queue time; draining it hours later silently reverts every ship
+    // decrement and other-device count since. Entries older than 60 min
+    // stay queued, get an OLD badge in the pending list, and need a
+    // deliberate Retry-all (or Drop) instead of auto-writing.
+    const _STALE_MS = 60 * 60 * 1000;
+    const _isStale = (e) => {
+      const t = e && e.queued_at ? new Date(e.queued_at).getTime() : 0;
+      return t > 0 && (Date.now() - t) > _STALE_MS;
+    };
+    const staleCount = q.filter(_isStale).length;
+    if (staleCount > 0 && !window._stockV2StaleToastShown_) {
+      window._stockV2StaleToastShown_ = true;
+      if (typeof showToast === 'function') showToast('⚠ ' + staleCount + ' queued count(s) are >1h old — review them in the pending list before syncing');
+    }
+    let i = 0;
+    while (i < q.length) {
+      const entry = q[i];
+      if (_isStale(entry)) { i++; continue; }   // stale entries need a deliberate Retry-all
       try {
         const res = await groundApi('recordInventoryCount', {
           itemSku: entry.sku,
           countedQty: entry.qty,
           by: entry.by || '',
+          location: entry.location || '',
+          counted_at_client: entry.queued_at || '',
         });
         if (res && res.ok) {
-          // Drop the head + persist + loop.
-          q.shift();
+          // Remove this entry + persist + continue at same index.
+          q.splice(i, 1);
           _stockV2SetPendingQueue_(q);
           _stockV2UpdatePendingBadges_();
           // v10.1481 — if the pending-list modal is open, refresh it so
@@ -15257,7 +15276,7 @@ function _stockV2OpenPendingList_() {
         '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(0,0,0,.20);border:1px solid var(--border);border-radius:6px;margin-bottom:5px">'
         + '<div style="flex:1;min-width:0">'
         +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;word-break:break-all">' + esc(e.sku) + '</div>'
-        +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">📍 ' + esc(e.location || '—') + ' · qty: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(String(e.qty)) + '</strong> · queued ' + rel(e.queued_at) + (e.by ? ' · by ' + esc(e.by) : '') + '</div>'
+        +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">📍 ' + esc(e.location || '—') + ' · qty: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(String(e.qty)) + '</strong> · queued ' + rel(e.queued_at) + (e.by ? ' · by ' + esc(e.by) : '') + ((e.queued_at && (Date.now() - new Date(e.queued_at).getTime()) > 3600000) ? ' <span style="background:rgba(255,179,0,.18);color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1px solid rgba(255,179,0,.5);border-radius:999px;padding:1px 7px;font-size:9px;font-weight:900;letter-spacing:.5px">OLD — auto-sync paused</span>' : '') + '</div>'
         + '</div>'
         + '<button onclick="_stockV2DropPending_(' + idx + ',\'' + esc(String(e.sku || '')).replace(/'/g, "\\'") + '\')" title="Drop this entry without syncing" style="background:transparent;border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1">Drop</button>'
         + '</div>'
@@ -15622,6 +15641,12 @@ async function _stockV2ConfirmItem_(sku) {
       itemSku: sku,
       countedQty: onHand,
       by: by,
+      // v10.1485 — bin + client-time context. The count path never sent
+      // location even though the session is bin-scoped, so bins and
+      // on_hand could never be reconciled server-side. Server may
+      // ignore these today; they enable the Tier-2 fix.
+      location: (_stockV2SessionState_ && _stockV2SessionState_.location) || '',
+      counted_at_client: new Date().toISOString(),
     });
     if (res && res.ok) {
       it._server_saved = true;
@@ -15831,6 +15856,8 @@ async function _stockV2KeypadSave_(newQty) {
       itemSku: sku,
       countedQty: qty,
       by: by,
+      location: (_stockV2SessionState_ && _stockV2SessionState_.location) || '',   // v10.1485
+      counted_at_client: new Date().toISOString(),
     });
     if (res && res.ok) {
       it._server_saved = true;
@@ -26458,6 +26485,18 @@ function startAutoSync() {
       try { _prefetchReceiveSessions_(); } catch (e) {}
     } else if (itemPanel && itemPanel.classList.contains('active')) {
       syncItemsNow(true);
+    } else {
+      // v10.1485 — Ground queue refresh while parked on the tab. Two
+      // packers used to see different queues until someone tapped ⟳;
+      // the worker path (v10.1442) makes a 60s poll cheap. Skips while
+      // an order is open (groundCurrentOrder) so a mid-pack repaint
+      // can't disturb the box list.
+      const groundPanel = document.getElementById('tab-ground');
+      if (groundPanel && groundPanel.classList.contains('active')
+          && document.visibilityState === 'visible'
+          && !(typeof groundCurrentOrder !== 'undefined' && groundCurrentOrder)) {
+        try { refreshGroundQueue(); } catch (e) {}
+      }
     }
   }, 60 * 1000); // every 60 seconds
 }
@@ -30615,7 +30654,11 @@ function exportXLSX() {
     }));
     const ws=XLSX.utils.aoa_to_sheet(rows);
     ws['!cols']=[{wch:22},{wch:11},{wch:10},{wch:10},{wch:16},{wch:14},{wch:12},{wch:16},{wch:40},{wch:10},{wch:12},{wch:12},{wch:10},{wch:24},{wch:26},{wch:16},{wch:12},{wch:14},{wch:12},{wch:6},{wch:32},{wch:30},{wch:8},{wch:14},{wch:11},{wch:28},{wch:10},{wch:10},{wch:10},{wch:10},{wch:40}];
-    XLSX.utils.book_append_sheet(wb,ws,'INVENTORY (ELEMENTS)');
+    // v10.1485 — honest name: this sheet exports the ELEMENTS array
+    // frozen into the app at build time (it still contains rows like
+    // -8237 screws), NOT live inventory. Reconcile against Stock 2 /
+    // Runway, never against this sheet.
+    XLSX.utils.book_append_sheet(wb,ws,'LEGACY-FROZEN do not reconcile');
 
     // Scan log with location breakdown
     const logHdrs=['Time','Element','Mode','Qty Change','New On Hand','Location Detail'];
@@ -37961,7 +38004,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1484"></script>
+<script src="./pack.js?v=10.1485"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37972,7 +38015,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1484<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1485<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
