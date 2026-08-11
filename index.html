@@ -5465,7 +5465,7 @@ async function _onOrderDropOnDay_(event, targetDay) {
   if (typeof renderOrdersTab === 'function') renderOrdersTab();
   showToast('↪ Moving #' + orderNumber + ' → ' + targetDay);
   try {
-    const by = (function(){ try { return localStorage.getItem('mbd_device_name') || ''; } catch (e) { return ''; } })() || 'unknown';
+    const by = getOperatorName_() || 'unknown';
     const res = await groundApi('setOrderShipDate', { orderNumber: orderNumber, shipDate: targetDay, by: by, manager_pin: pin });
     if (!res || !res.ok) {
       showToast('Move failed: ' + ((res && res.error) || 'unknown') + ' — reverting');
@@ -10231,7 +10231,7 @@ function _frameRunwayOpenCountNewLeaf_(sku, velocityPerDay, totalUnits) {
     +   '<input type="checkbox" id="cnlIsDnu" style="width:16px;height:16px;margin:0"> Do not use (DNU lot — defective)'
     + '</label>'
     + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px">Counted by</label>'
-    + '<input type="text" id="cnlCountedBy" placeholder="initials" value="' + esc((function(){ try { return localStorage.getItem("mbd_ground_packer") || localStorage.getItem("mbd_device_name") || ""; } catch(e){return"";} })()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    + '<input type="text" id="cnlCountedBy" placeholder="initials" value="' + esc(getOperatorName_()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
     + '<div style="display:flex;gap:8px;margin-top:18px">'
     +   '<button class="cnl-save-btn" onclick="_frameRunwayCountNewLeafSave_(\'' + esc(sku).replace(/\\/g, "\\\\").replace(/\'/g, "\\\'") + '\',\'' + esc(pin) + '\')" style="flex:1;padding:13px 18px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Save count</button>'
     +   '<button onclick="document.getElementById(\'frameRunwayCountNewLeafOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
@@ -10696,7 +10696,7 @@ function _stockV2OpenAddNewItem_() {
     +   '<option value="bag">bag</option>'
     + '</select>'
     + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#7B2CBF !important;-webkit-text-fill-color:#7B2CBF !important;margin-bottom:4px;margin-top:14px">Counted by</label>'
-    + '<input type="text" id="aiCountedBy" placeholder="initials" value="' + esc((function(){ try { return localStorage.getItem("mbd_ground_packer") || localStorage.getItem("mbd_device_name") || ""; } catch(e){return"";} })()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    + '<input type="text" id="aiCountedBy" placeholder="initials" value="' + esc(getOperatorName_()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
     + '<div style="display:flex;gap:8px;margin-top:18px">'
     +   '<button class="ai-save-btn" onclick="_stockV2AddNewItemSave_(\'' + esc(pin) + '\')" style="flex:1;padding:13px 18px;background:#7B2CBF !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">+ Add to inventory</button>'
     +   '<button onclick="document.getElementById(\'stockV2AddItemOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
@@ -10870,7 +10870,7 @@ function _frameRunwayOpenBinEdit_(sku, location, currentQty, isDnu) {
     +   '<input type="checkbox" id="binEditIsDnu" ' + (isDnu ? 'checked' : '') + ' style="width:16px;height:16px;margin:0"> Do not use (DNU lot — defective/India bracket caps)'
     + '</label>'
     + '<label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#5B21B6 !important;-webkit-text-fill-color:#5B21B6 !important;margin-bottom:4px;margin-top:14px">Counted by</label>'
-    + '<input type="text" id="binEditCountedBy" placeholder="initials" value="' + esc((function(){ try { return localStorage.getItem("mbd_ground_packer") || localStorage.getItem("mbd_device_name") || ""; } catch(e){return"";} })()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
+    + '<input type="text" id="binEditCountedBy" placeholder="initials" value="' + esc(getOperatorName_()) + '" style="width:100%;padding:10px 12px;background:#fff !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;border:1.5px solid #ccc;border-radius:8px;font-size:14px;box-sizing:border-box">'
     + '<div style="display:flex;gap:8px;margin-top:18px">'
     +   '<button class="bin-edit-save-btn" onclick="_frameRunwayBinEditSave_(\'' + esc(sku).replace(/'/g, "\\'") + '\',\'' + esc(location).replace(/'/g, "\\'") + '\',\'' + esc(pin) + '\')" style="flex:1;padding:13px 18px;background:#00C853 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">✓ Save</button>'
     +   '<button onclick="document.getElementById(\'frameRunwayBinEditOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
@@ -32213,7 +32213,7 @@ async function openVoidOrderPrompt_() {
   const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('void ' + orderNumber) : null;
   if (!pin) return;
   let voidedBy = '';
-  try { voidedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  voidedBy = getOperatorName_();
   const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('Voiding labels for #' + orderNumber + '…') : null;
   try {
     const res = await groundApi('voidOrderForRepack', {
@@ -36753,7 +36753,7 @@ startAutoSync();
     var item = _gatherFramesState.items[idx];
     if (!item) return;
     var by = '';
-    try { by = String(localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+    by = getOperatorName_();
     var key = item.orderNumber + '|' + item.sku;
     var stamp = {
       cart_id: cartId,
@@ -37866,7 +37866,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1492"></script>
+<script src="./pack.js?v=10.1494"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37877,7 +37877,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1492<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1494<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a

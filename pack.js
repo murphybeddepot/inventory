@@ -80,6 +80,18 @@ const PACK_QUEUE_CACHE_KEY = 'mbd_pack_queue_cache_v1';
 // old clients unaffected). _qcFresh_ = stamped within maxAgeHours; an
 // UNSTAMPED cache counts as stale so pre-v10.1489 leftovers age out on
 // first load instead of painting forever.
+// v10.1494 — canonical operator identity. The
+// ground_packer-then-device_name localStorage read was hand-rolled at
+// ~40 sites in 5 drifting variants; since v10.1488 seeds
+// mbd_device_name from the packer name, one precedence order serves
+// them all. board.html is a separate page and keeps its own copy.
+function getOperatorName_(fallback) {
+  try {
+    return (localStorage.getItem('mbd_ground_packer')
+      || localStorage.getItem('mbd_device_name') || '').trim() || (fallback || '');
+  } catch (e) { return fallback || ''; }
+}
+
 function _qcStamp_(key) {
   try { localStorage.setItem(key + '_at', String(Date.now())); } catch (e) {}
 }
@@ -2171,7 +2183,7 @@ async function togglePackFillMode_() {
   const isManualNow = host && host.innerHTML.indexOf('MANUAL') !== -1 && host.innerHTML.indexOf('Switch to AUTO') !== -1;
   const nextMode = isManualNow ? 'auto' : 'manual';
   let setBy = '';
-  try { setBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  setBy = getOperatorName_();
   try {
     const res = await groundApi('setPackListFillMode', { mode: nextMode, manager_pin: pin, set_by: setBy });
     if (_handleApiErrorWithPin_(res, 'Mode change failed')) return;
@@ -13511,7 +13523,7 @@ async function _savePackerOverride(sku, orderId, orderNumber, pin) {
   if (!carrier) { showToast('Pick a carrier'); return; }
   if (!service) { showToast('Pick a service'); return; }
   let confirmedBy = '';
-  try { confirmedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  confirmedBy = getOperatorName_();
   // v10.513 — fires TWO chained calls (savePackerOverride + resumeOrderFromHold).
   // Double-tap = 4 parallel requests + duplicate override rows.
   return _guardedAction_({
@@ -13577,7 +13589,7 @@ async function beaconReleaseFromPanel_(orderId, orderNumber) {
   const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('Bedrock-release #' + orderNumber) : null;
   if (!pin) return;
   let releasedBy = '';
-  try { releasedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  releasedBy = getOperatorName_();
   return _guardedAction_({
     key: 'beaconRelease:' + orderNumber,
     btnSelector: null,
@@ -13615,7 +13627,7 @@ async function confirmSizeAndResumeFromPanel_(orderId, orderNumber) {
   );
   if (!ok) return;
   let confirmedBy = '';
-  try { confirmedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  confirmedBy = getOperatorName_();
   return _guardedAction_({
     key: 'confirmSize:' + orderNumber,
     btnSelector: null,
@@ -18095,7 +18107,7 @@ async function voidAndRepackFromLookup_(orderId, orderNumber, btn) {
   const pin = (typeof promptManagerPin_ === 'function') ? promptManagerPin_('void labels for ' + orderNumber) : null;
   if (!pin) return;
   let voidedBy = '';
-  try { voidedBy = (localStorage.getItem('mbd_ground_packer') || localStorage.getItem('mbd_device_name') || '').trim(); } catch (e) {}
+  voidedBy = getOperatorName_();
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Voiding…'; }
   const loader = (typeof showGlobalLoader === 'function') ? showGlobalLoader('Voiding labels for #' + orderNumber + '…') : null;
   try {
@@ -18599,7 +18611,7 @@ async function recountSubmit() {
   if (isNaN(qty) || qty < 0) { setErr('Count must be a number ≥ 0'); qtyInput.focus(); return; }
   const location = locInput ? String(locInput.value || '').trim() : '';
   if (status) { status.style.color = 'var(--text-dim)'; status.textContent = 'Recording…'; }
-  const by = (function () { try { return localStorage.getItem('mbd_device_name') || ''; } catch (e) { return ''; } })();
+  const by = getOperatorName_();
   try {
     const res = await groundApi('recordInventoryCount', { itemSku: sku, countedQty: qty, location: location, by: by });
     if (!res || !res.ok) { setErr('Failed: ' + ((res && res.error) || 'unknown')); return; }
