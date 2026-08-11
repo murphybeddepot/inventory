@@ -6,6 +6,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Stacker Guide</title>
+<!-- v3.19 (2026-08-11) — white pallet. The pallet outline was dark-on-dark and
+     vanished behind the parts (Zac: "the pallet is invisible in the background").
+     Now a white deck with slat boards and a solid warm-grey frame; footprint
+     dashes regreyed to survive on white. -->
 <!-- v3.6 (2026-07-29) — Phase 1 scaffold of Zac's ask (Slack 21:19 EDT):
      full-screen stacking guide for the shop iPad + TV. Loads a recipe by
      ?sku=X from cloud (Supabase RPC) or localStorage, renders one layer
@@ -23,7 +27,7 @@
     --good:#2fd67d; --good-strong:#1fb063; --good-soft:#173a26;
     --warn:#f5a623;
     --bad:#e04d4d;
-    --pallet:#3a3f4a; --pallet-fill:#191c22;
+    --pallet:#c9c4b8; --pallet-fill:#f5f4f0; --pallet-slat:#e7e3da; /* v3.19: white pallet — was dark-on-dark, invisible behind the parts (Zac) */
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     --mono:"SF Mono",Menlo,Consolas,monospace;
   }
@@ -96,8 +100,8 @@
     dominant-baseline:middle;pointer-events:none;opacity:0;transition:opacity .12s}
   .part-shape.inplace + .part-check{opacity:1}
 
-  .pallet-outline{fill:var(--pallet-fill);stroke:var(--pallet);stroke-width:3;
-    stroke-dasharray:8 6}
+  .pallet-outline{fill:var(--pallet-fill);stroke:var(--pallet);stroke-width:3}
+  .pallet-slat{fill:var(--pallet-slat)}
 
   /* Toast */
   #toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%) translateY(30px);
@@ -323,13 +327,23 @@ function renderStage(layer){
   const svgW=pal.L*pxPerMm, svgH=pal.W*pxPerMm;
   const svg=svgel('svg',{width:svgW,height:svgH,viewBox:'0 0 '+pal.L+' '+pal.W});
 
-  // Pallet outline
+  // Pallet outline — v3.19: white with deck boards, so the pallet reads as a
+  // pallet instead of vanishing into the page (Zac 2026-08-11).
   svg.appendChild(svgel('rect',{x:0,y:0,width:pal.L,height:pal.W,class:'pallet-outline',rx:6}));
+  // Deck boards run across the width; ~140mm boards with ~60mm gaps.
+  (function(){
+    const BOARD=140, GAP=60, PITCH=BOARD+GAP;
+    const n=Math.floor((pal.L-GAP)/PITCH);
+    const off=(pal.L-(n*PITCH-GAP))/2;
+    for(let i=0;i<n;i++)
+      svg.appendChild(svgel('rect',{x:off+i*PITCH,y:8,width:BOARD,height:pal.W-16,
+        class:'pallet-slat',rx:4}));
+  })();
 
-  // Footprint (subtle inner outline where parts go)
+  // Footprint (subtle inner outline where parts go) — grey that survives on white
   const footOffX=(pal.L-foot.L)/2, footOffY=(pal.W-foot.W)/2;
   svg.appendChild(svgel('rect',{x:footOffX,y:footOffY,width:foot.L,height:foot.W,
-    fill:'none',stroke:'#333842','stroke-width':1,'stroke-dasharray':'4 4'}));
+    fill:'none',stroke:'#9a958a','stroke-width':2,'stroke-dasharray':'8 6'}));
 
   // v3.11: uniform label font sized to the SVG viewBox (not per-part) so
   // every part reads at the same weight. Zac's ask: bolder blocks + same
