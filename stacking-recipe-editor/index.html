@@ -968,7 +968,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.40';
+const APP_VERSION = '3.41';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3008,18 +3008,33 @@ function setOptStatus(text,busy){
   e.style.display = text?'block':'none';
   if(busy){const c=$('optCancel'); if(c)c.onclick=()=>{OPT_CANCEL=true;};}
 }
+// v3.41 — the options list is collapsible (Zac: "how do i collapse the upper
+// section that has the 10 suggestion options so i can zoom in on a larger
+// view of the layers?"). Click the header to fold/unfold, and loading an
+// option AUTO-collapses — that's exactly the moment you want the canvas.
 function renderOptResults(top){
   const box=$('optResults'); if(!box)return; box.innerHTML='';
   if(!top.length){box.style.display='none';return;}
   box.style.display='block';
-  const head=el('div',{class:'hint',style:'margin:8px 0 4px'}); head.textContent='Options — click to load:'; box.appendChild(head);
+  const head=el('div',{class:'hint',style:'margin:8px 0 4px;cursor:pointer;user-select:none'});
+  const body=el('div');
+  let collapsed=false, chosen='';
+  const setHead=()=>{ head.innerHTML=(collapsed?'&#9656;':'&#9662;')+' Options — '+
+    (collapsed?(chosen||top.length+' layouts')+' · click to expand':'click to load:'); };
+  const fold=(c)=>{ collapsed=c; body.style.display=c?'none':'block'; setHead(); };
+  head.onclick=()=>fold(!collapsed);
+  setHead();
+  box.appendChild(head); box.appendChild(body);
   top.forEach((t,idx)=>{
     const L=t.plan.layers.length, last=t.plan.layers[L-1]||[]; let u=0; for(const it of last)u+=it.vw*it.vh;
     const tf=Math.round(u/(S.foot.L*S.foot.W)*100);
     const chip=el('button',{class:'optchip'+(idx===0?' sel':'')});
     chip.innerHTML='<b>#'+(idx+1)+'</b> · '+L+' layers · top '+tf+'% full'+(t.plan.cartonDropped?' · ⚠ carton':'');
-    chip.onclick=()=>{applyPlan(t.plan); box.querySelectorAll('.optchip').forEach(c=>c.classList.remove('sel')); chip.classList.add('sel'); toast('Loaded option #'+(idx+1)+' — '+L+' layers');};
-    box.appendChild(chip);
+    chip.onclick=()=>{applyPlan(t.plan); body.querySelectorAll('.optchip').forEach(c=>c.classList.remove('sel')); chip.classList.add('sel');
+      chosen='loaded #'+(idx+1)+' · '+L+' layers · top '+tf+'% full';
+      fold(true);
+      toast('Loaded option #'+(idx+1)+' — '+L+' layers');};
+    body.appendChild(chip);
   });
 }
 /* kept for compatibility: one-shot deterministic build = Fast preset */
