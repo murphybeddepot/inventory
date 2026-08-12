@@ -968,7 +968,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.41';
+const APP_VERSION = '3.42';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3120,8 +3120,13 @@ function _suggestPack(items, li, crit, seed){
   // so stability matters more than "most pieces" here. Middle layers
   // honor the user's criterion selection.
   const effectiveCrit = (isTop || isBottom) ? 'big' : crit;
-  if(effectiveCrit==='count') pool.sort((a,b)=>(a.Lmm*a.Wmm)-(b.Lmm*b.Wmm));   // small-first packs the most pieces
-  else pool.sort((a,b)=>(b.Lmm*b.Wmm)-(a.Lmm*a.Wmm));                          // big-first for 'big' and 'tight'
+  // v3.42: same-code tiebreak after area, so equal-size different-code parts
+  // (387x182 3D/3F/3G vs 387x177 7A) stop interleaving and same-name parts
+  // pack consecutively -> adjacently (Zac: "the same part name to be grouped
+  // as much as possible").
+  const codeOf=(m)=>String(m.partNum||m.name||'');
+  if(effectiveCrit==='count') pool.sort((a,b)=>(a.Lmm*a.Wmm)-(b.Lmm*b.Wmm) || codeOf(a).localeCompare(codeOf(b)));
+  else pool.sort((a,b)=>(b.Lmm*b.Wmm)-(a.Lmm*a.Wmm) || codeOf(a).localeCompare(codeOf(b)));
   if(seed>0){ const rng=makeRng(seedStr('suggest|'+crit+'|'+li+'|'+seed)); const n=Math.max(1,Math.round(pool.length*0.25));
     for(let k=0;k<n;k++){const i=(rng()*pool.length)|0,j=(rng()*pool.length)|0;const t=pool[i];pool[i]=pool[j];pool[j]=t;} }
   const baseFree=()=>{ let f=[{x:0,y:0,w:Lf,h:Wf}]; for(const c of cartonRectsOnLayer(li,Math.max(gap,10))) f=carve(f,{x:c.x,y:c.y,w:c.w,h:c.h}); return f; };
@@ -3135,7 +3140,9 @@ function _suggestPack(items, li, crit, seed){
   const gapRects = _layerBelowGaps_(li);
   const useGapAware = !!(gapRects && gapRects.length);
   const attempts = [];
-  const shuffleSeeds = useGapAware ? [0, 101, 202, 303, 404] : [0];
+  // v3.42: always explore several orderings — the grouping/sandwich
+  // preferences can only choose among candidates that exist.
+  const shuffleSeeds = [0, 101, 202, 303, 404];
   for(const ss of shuffleSeeds){
     let variantPool;
     if(ss === 0){ variantPool = pool; }
@@ -3155,6 +3162,22 @@ function _suggestPack(items, li, crit, seed){
       attempts.push(r);
     }
   }
+  // v3.42: the SANDWICH candidate — the greedy packer never proposes one rail
+  // per width edge on its own, so build that layout explicitly and let the
+  // scoring decide: reserve a strip on the far edge for the second-longest
+  // rail, pack everything else around it, then set the rail into the strip.
+  (function(){
+    const rails = pool.filter((m)=>Math.max(m.Lmm,m.Wmm) >= 0.75*Lf && Math.max(m.Lmm,m.Wmm) <= Lf);
+    if(rails.length < 2) return;
+    const rail = rails[1];
+    const rh = Math.min(rail.Lmm, rail.Wmm);
+    let free = baseFree();
+    free = carve(free, {x:0, y:Wf-rh-gap, w:Lf, h:rh+gap});
+    const rest = pool.filter((m)=>m!==rail);
+    const r = packBin(free, rest, gap, heurs[0]);
+    r.placed.push({item:rail, px:0, py:Wf-rh, vw:Math.max(rail.Lmm,rail.Wmm), vh:rh, angle:(rail.Lmm>=rail.Wmm?0:90)});
+    attempts.push(r);
+  })();
   let best = null;
   for(const r of attempts){
     let used=0; for(const pl of r.placed) used+=pl.vw*pl.vh;
@@ -3163,12 +3186,65 @@ function _suggestPack(items, li, crit, seed){
     // that pack the same square-mm of parts get ranked by which one
     // sat more of its area over holes in the layer below.
     const scoreArea = -(used + gapCov);
+    // v3.42: the preferences rank BELOW area (never sacrifice a placed part
+    // or gap coverage for prettiness) and ABOVE raw count ordering.
+    const pref = -_preferenceScore_(r.placed, Lf, Wf, gap);
     const score = (effectiveCrit==='count')
-      ? [-r.placed.length, scoreArea]
-      : [scoreArea, -r.placed.length];
-    if(!best || score[0]<best.score[0] || (score[0]===best.score[0] && score[1]<best.score[1])) best={r,score};
+      ? [-r.placed.length, scoreArea, pref]
+      : [scoreArea, pref, -r.placed.length];
+    const lt=(a,b)=>{for(let i=0;i<a.length;i++){if(a[i]<b[i]-1e-9)return true;if(a[i]>b[i]+1e-9)return false;}return false;};
+    if(!best || lt(score, best.score)) best={r,score};
   }
+  _sandwichPost_(best.r.placed, Lf, Wf, gap);
   return best.r;
+}
+
+/* v3.42 — sandwich post-pass. The greedy packer stacks the long rails
+   together at one edge; Zac's edit puts one rail on EACH width edge with the
+   small parts held between. If two+ long parts sit away from the far edge
+   and a pure translation lands one flush on it without touching anything,
+   make the move. Translation only, overlap-checked — it cannot lose a part. */
+function _sandwichPost_(placed, Lf, Wf, gap){
+  const g = Math.max(0, gap||0);
+  const longs = placed.filter((p)=>p.vw >= 0.75*Lf);
+  if(longs.length < 2) return;
+  if(longs.some((p)=>p.py + p.vh > Wf - 3)) return;      // far edge already held
+  const cand = longs.reduce((a,b)=>a.py>b.py?a:b);       // the lowest rail
+  const ny = Wf - cand.vh;
+  const clash = placed.some((o)=>{ if(o===cand) return false;
+    return cand.px < o.px + o.vw + g && o.px < cand.px + cand.vw + g &&
+           ny < o.py + o.vh + g && o.py < ny + cand.vh + g; });
+  if(!clash) cand.py = ny;
+}
+
+/* v3.42 — Zac's stacking preferences (2026-08-12, with before/after
+   screenshots): (1) same part name grouped as much as possible; (2) small
+   shelves/partitions NOT along the top/bottom edge of the diagram — in the
+   center, sandwiched between long parts. His edit of the suggested layer:
+   the two 1955 rails moved to the width edges, small parts held between.
+   Scored, not forced — "when possible" is the spec. */
+function _preferenceScore_(placed, Lf, Wf, gap){
+  const t = (gap||0) + 3;
+  let score = 0;
+  // same-code adjacency: facing edges within the gap, decent overlap
+  for(let i=0;i<placed.length;i++) for(let j=i+1;j<placed.length;j++){
+    const a=placed[i], b=placed[j];
+    const ca=String(a.item&&(a.item.partNum||a.item.name)||''), cb=String(b.item&&(b.item.partNum||b.item.name)||'');
+    if(!ca || ca!==cb) continue;
+    const xGap=Math.max(b.px-(a.px+a.vw), a.px-(b.px+b.vw));
+    const yGap=Math.max(b.py-(a.py+a.vh), a.py-(b.py+b.vh));
+    const xOv=Math.min(a.px+a.vw,b.px+b.vw)-Math.max(a.px,b.px);
+    const yOv=Math.min(a.py+a.vh,b.py+b.vh)-Math.max(a.py,b.py);
+    if((xGap<=t && xGap>=-1 && yOv>=50) || (yGap<=t && yGap>=-1 && xOv>=50)) score += 15000;
+  }
+  // sandwich: long parts belong ON the width edges, small parts do not
+  for(const p of placed){
+    const long = p.vw >= 0.75*Lf;
+    const onEdge = p.py < 3 || (p.py+p.vh) > Wf-3;
+    if(long && onEdge) score += 25000;
+    else if(!long && onEdge) score -= 20000;
+  }
+  return score;
 }
 function suggestLayer(reroll){
   const crit=(($('suggestCrit')||{}).value)||'big';
