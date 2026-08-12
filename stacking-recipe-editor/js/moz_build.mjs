@@ -21,7 +21,7 @@
 // stays plain ES with no bundler.
 
 export const BUILD_VERSION = '1.0.0';
-export const APP_VERSION = '1.1';
+export const APP_VERSION = '1.2';
 
 // ---- giant const templates (verbatim from source) ----
 
@@ -73,7 +73,19 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow }) {
   }
 
     function partXml(p){
-    MAN++;OPID=0;
+    // v3.45 — Zac: "why would the SRE change ANY parts at all!? it should
+    // ONLY be changing the 'cabinet' they're assigned to." Correct, and the
+    // house rule agrees: carry the specimen, never reconstruct. When the
+    // importer captured the part's verbatim source text, emit it untouched
+    // except the ONE thing the SRE owns — the layer Comment. The synthesizer
+    // below survives only for text-imported recipes with no .moz source.
+    if (p.raw) {
+      MAN++;
+      let raw = p.raw;
+      if (/\bComment="/.test(raw)) raw = raw.replace(/(<CabProdPart\b[^>]*?Comment=")[^"]*(")/, `$1${p.layer}$2`);
+      return '    ' + raw + '\r\n';
+    }
+    MAN++;
     const eb=[p.bands.F,p.bands.E,p.bands.B,p.bands.S].map(b=>b?1:0);
     const pts=[[0,0,1],[p.L,0,2],[p.L,p.W,3],[0,p.W,4]];
     const sp=pts.map((q,i)=>`        <ShapePoint ID="${i}" X="${q[0]}" Y="${q[1]}" PtType="0" Data="0" EdgeType="${q[2]}" Anchor="" EBand="${eb[i]}" X_Eq="" Y_Eq="" Data_Eq="" LAdj="0" RAdj="0" TAdj="0" BAdj="0" Scribe="0" Source="0" BoreHoles="0" EBandLock="False" SideName="" />\r\n`).join('');
@@ -90,7 +102,11 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow }) {
   }
 
     function buildLayerMoz(layer){
-    LEG={h:50000,l:52000};MAN=0;
+    // v3.45: OPID resets per PRODUCT. It reset per PART, so every part's ops
+    // were numbered 1,2,3... and Mozaik's product-wide op index kept only the
+    // first winners — the mechanism that ate J002's cams (37 collisions in
+    // one layer file; flip-side cams written first, so they always lost).
+    LEG={h:50000,l:52000};MAN=0;OPID=0;
     const parts=(layers[layer]||[]).map(partXml).join('');
     const pname=prodPat.replace('{layer}',layer);
     const uid=930000+Math.floor(mathRandom()*9000);

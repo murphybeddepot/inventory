@@ -125,6 +125,7 @@ export async function importMozFiles(files) {
         bands: p.bands,
         ops: p.ops,
         pos: p.pos,
+        raw: p.raw || null,       // verbatim CabProdPart text; exports carry it untouched
         _sourceFile: f.name,
       });
     }

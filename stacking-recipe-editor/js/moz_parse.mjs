@@ -67,6 +67,11 @@ export function parseMoz(text, fname) {
   }
 
   const xml = new DOMParser().parseFromString(text.slice(ix), 'text/xml');
+  // v3.45 — capture each part's VERBATIM source text (never reconstruct a
+  // validated artifact: the imported .moz is the specimen). DOM outerHTML
+  // re-serializes — attribute order and CRLF die — so raw slices come from
+  // the original text, index-aligned with querySelectorAll document order.
+  const rawParts = [...text.matchAll(/<CabProdPart\b[\s\S]*?<\/CabProdPart>/g)].map((m) => m[0]);
   const prod = xml.querySelector('Product');
   if (!prod) {
     errors.push(`${fname}: no <Product>`);
@@ -76,7 +81,7 @@ export function parseMoz(text, fname) {
   const prodName = prod.getAttribute('ProdName') || null;
   let n = 0;
 
-  prod.querySelectorAll('CabProdPart').forEach((cp) => {
+  prod.querySelectorAll('CabProdPart').forEach((cp, idx) => {
     const W = parseFloat(cp.getAttribute('W'));
     const L = parseFloat(cp.getAttribute('L'));
 
@@ -149,6 +154,7 @@ export function parseMoz(text, fname) {
 
     // Source line 165 mutated the global `layers` object; we push to
     // the returned array instead. Caller decides how to bucket by layer.
+    p.raw = rawParts[idx] || null;
     parts.push(p);
     n++;
   });
