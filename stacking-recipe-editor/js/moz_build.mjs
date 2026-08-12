@@ -21,7 +21,7 @@
 // stays plain ES with no bundler.
 
 export const BUILD_VERSION = '1.0.0';
-export const APP_VERSION = '1.2';
+export const APP_VERSION = '1.3';
 
 // ---- giant const templates (verbatim from source) ----
 
@@ -44,7 +44,7 @@ const JOBCUS = "3\r\nCustom Parameters\r\n0\r\n<?xml version=\"1.0\" encoding=\"
 // This factory closes over a fresh set of counters + the caller's
 // parameters so multiple concurrent builds can't cross-contaminate.
 
-function makeEmitters({ dims, prodPat, mathRandom, dateNow }) {
+function makeEmitters({ dims, prodPat, mathRandom, dateNow, shell }) {
   const layers = Object.create(null); // filled by caller then read by buildLayerMoz
 
   // Verbatim from source line 173 (per-build counters).
@@ -102,14 +102,31 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow }) {
   }
 
     function buildLayerMoz(layer){
-    // v3.45: OPID resets per PRODUCT. It reset per PART, so every part's ops
-    // were numbered 1,2,3... and Mozaik's product-wide op index kept only the
-    // first winners — the mechanism that ate J002's cams (37 collisions in
-    // one layer file; flip-side cams written first, so they always lost).
     LEG={h:50000,l:52000};MAN=0;OPID=0;
     const parts=(layers[layer]||[]).map(partXml).join('');
     const pname=prodPat.replace('{layer}',layer);
     const uid=930000+Math.floor(mathRandom()*9000);
+    // v3.46 — J003 lesson, the LAST piece of the verbatim doctrine: the layer
+    // product is the SOURCE PRODUCT ITSELF (shell = the imported .moz minus
+    // its parts), refilled with this layer's verbatim parts. The synthesized
+    // wrapper below shipped <CabProdParms /> EMPTY, so Mozaik re-evaluated
+    // Diameter_Eq="MFD" / Depth_Eq="MFP" (the MiniFix parm family defined in
+    // the source's CabProdParms) against nothing and every cam vanished —
+    // holes present in the file, absent on screen, twice (J002, J003).
+    // Shell path deltas, total: ProdName, UniqueID, part Comments. Nothing
+    // else — not parms, not dims, not flags, not the parts.
+    if (shell && (layers[layer]||[]).every(p=>p.raw)) {
+      let t = shell;
+      t = t.replace(/(\sProdName=")[^"]*(")/, ()=>` ProdName="${esc(pname)}"`);
+      t = t.replace(/(\sUniqueID=")[^"]*(")/, ()=>` UniqueID="${uid}"`);
+      t = t.replace('</CabProdParts>', ()=>parts+'  </CabProdParts>');
+      return {pname,text:t};
+    }
+    // Synthesized fallback (text-imported recipes with no source .moz).
+    // v3.45: OPID resets per PRODUCT. It reset per PART, so every part's ops
+    // were numbered 1,2,3... and Mozaik's product-wide op index kept only the
+    // first winners (37 collisions in one layer file; flip-side cams written
+    // first, so they always lost).
     return {pname,text:productMoz(pname,uid,parts,
       `Layer kit ${layer} (${(layers[layer]||[]).length} parts) — Moz Layer Editor v${APP_VERSION}`,
       `layer ${layer}; edited in Moz Layer Editor v${APP_VERSION}; CabNo=stack order at placement`)};
@@ -141,13 +158,13 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow }) {
  * @returns {Promise<Blob>} zip blob, ready for a download <a> tag.
  */
 export async function buildJobZip({
-  layers, jobName, dims, prodPat,
+  layers, jobName, dims, prodPat, shell = null,
   mathRandom = Math.random, dateNow = Date.now,
 }) {
   if (typeof JSZip === 'undefined') {
     throw new Error('moz_build: JSZip is not loaded (add the CDN script tag)');
   }
-  const emit = makeEmitters({ dims, prodPat, mathRandom, dateNow });
+  const emit = makeEmitters({ dims, prodPat, mathRandom, dateNow, shell });
   // Copy the caller's layers into the emitter's private layers object
   // so buildLayerMoz (which reads its enclosing 'layers') sees them.
   for (const k of Object.keys(layers)) emit.layers[k] = layers[k];

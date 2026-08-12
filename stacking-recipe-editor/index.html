@@ -970,7 +970,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.45';
+const APP_VERSION = '3.46';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1035,6 +1035,7 @@ const S = {
   sku:'',
   manifest:[],            // [{partNum,name,section,secIdx,Lmm,Wmm,Lin,Win,qty,thickness,key}]
   importedParts:[],       // Phase-1 .moz round-trip: full parsed CabProdPart records w/ ops+bands+pos
+  sourceShell:null,       // v3.46: source .moz minus parts — layer products rebuild inside it (parm table rides verbatim)
   layers:[[]],            // array of layers; each = array of placed parts
   activeLayer:0,
   sel:new Set(),          // selected placed-part ids (within active layer)
@@ -3404,7 +3405,7 @@ $('mozFileInput').onchange=async(e)=>{
     if(!res.rows.length){toast('No parts parsed from '+files.length+' file(s)');return;}
     loadManifest(res.rows,true);
     // Stash the full parsed records so exportJobZip has ops+bands later.
-    S.importedParts=res.importedParts;
+    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
     scheduleSave();
     toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts from '+files.length+' .moz file(s)'+(res.warnings.length?' — '+res.warnings.length+' warning(s)':''));
   }catch(err){toast('Import failed: '+err.message);}
@@ -3442,7 +3443,7 @@ $('mozRebindInput').onchange=async(e)=>{
       return;
     }
     loadManifest(res.rows,false);          // replace=false: the layout survives
-    S.importedParts=res.importedParts;      // exports now carry the new ops/banding
+    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;      // exports now carry the new ops/banding
     scheduleSave();
     toast('\u2713 Rebound '+res.rows.reduce((s2,r)=>s2+r.qty,0)+' parts to the new .moz — layout kept. Save, then re-export the job.');
   }catch(err){toast('Rebind failed: '+err.message);}
@@ -3495,7 +3496,7 @@ $('mozMatchInput').onchange=async(e)=>{
     const matches=[...bySku.values()].sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));
     if(!matches.length){
       loadManifest(res.rows,true);
-      S.importedParts=res.importedParts;
+      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
       scheduleSave();
       const provTag=isProvisioned()?' (searched local + cloud)':' (local only — device not provisioned)';
       toast('No matching recipe'+provTag+' — imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
@@ -3526,7 +3527,7 @@ $('mozMatchInput').onchange=async(e)=>{
       }
       if(!snapToLoad){ toast('No snapshot available for '+first.sku); return; }
       restoreSnapshot(snapToLoad);
-      S.importedParts=res.importedParts;
+      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
       scheduleSave();
       toast('Loaded '+first.sku+' ['+sourceLabel+']');
       return;
@@ -3550,14 +3551,14 @@ $('mozMatchInput').onchange=async(e)=>{
       // cloud row (rev 1) instead of trying to overwrite V1's history.
       const forked={...JSON.parse(JSON.stringify(snapToFork)), sku:suggestedFork, _revision:null};
       restoreSnapshot(forked);
-      S.importedParts=res.importedParts;
+      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
       scheduleSave();
       toast('Forked '+first.sku+' → '+suggestedFork+' (layout copied — Save when ready)');
       return;
     }
     // === Fall through: blank new manifest
     loadManifest(res.rows,true);
-    S.importedParts=res.importedParts;
+    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
     scheduleSave();
     toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
   }catch(err){toast('Match failed: '+err.message);}
@@ -3661,7 +3662,7 @@ $('dlMozFiles').onclick=async()=>{
   if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
   try{
     const snap=snapshot();
-    snap.importedParts=S.importedParts;
+    snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;
     const files=await window.MozIO.exportPerLayerMoz(snap);
     for(const f of files) download(f.name,f.text,'application/octet-stream');
     toast('Downloaded '+files.length+' per-layer .moz file(s)');
@@ -3671,7 +3672,7 @@ $('dlMozJob').onclick=async()=>{
   if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
   try{
     const snap=snapshot();
-    snap.importedParts=S.importedParts;
+    snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;
     const blob=await window.MozIO.exportJobZip(snap,{jobName:S.sku||'Order'});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
@@ -3946,7 +3947,8 @@ function snapshot(){
     // ops/bands/pos. Populated by btnImportMoz/btnMatchMoz. Empty
     // when the recipe was authored via paste-text; Mozaik export will
     // ask the user to re-import the source .moz files in that case.
-    importedParts:(S.importedParts||[]).map(p=>({...p}))
+    importedParts:(S.importedParts||[]).map(p=>({...p})),
+    sourceShell:S.sourceShell||null
   };
 }
 function restoreSnapshot(snap){
@@ -3962,6 +3964,7 @@ function restoreSnapshot(snap){
   // and won't have this field; empty array is safe (Mozaik export
   // will error with a "re-import source .moz" message).
   S.importedParts=(snap.importedParts||[]).map(p=>({...p}));
+  S.sourceShell=snap.sourceShell||null;
   S.nextId=maxId+1;S.activeLayer=0;S.sel=new Set();S.armed=null;
   syncSettingControls();renderAll();updateSig();
 }

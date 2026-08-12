@@ -72,6 +72,13 @@ export function parseMoz(text, fname) {
   // re-serializes — attribute order and CRLF die — so raw slices come from
   // the original text, index-aligned with querySelectorAll document order.
   const rawParts = [...text.matchAll(/<CabProdPart\b[\s\S]*?<\/CabProdPart>/g)].map((m) => m[0]);
+  // v3.46 — the SHELL: the source file with every part block excised. The
+  // export rebuilds each layer product INSIDE this shell so the product's
+  // own parameter table (MFD/MFP... — the MiniFix parms the cam equations
+  // reference) rides verbatim. J003 lesson: verbatim parts inside a
+  // synthesized wrapper still lose their cams, because <CabProdParms /> was
+  // empty and Mozaik evaluates Diameter_Eq="MFD" against the wrapper.
+  const shell = text.replace(/<CabProdPart\b[\s\S]*?<\/CabProdPart>/g, '');
   const prod = xml.querySelector('Product');
   if (!prod) {
     errors.push(`${fname}: no <Product>`);
@@ -165,5 +172,5 @@ export function parseMoz(text, fname) {
   const eq = [...prod.querySelectorAll('[X_Eq]')].some((e) => /[A-Za-z]/.test(e.getAttribute('X_Eq') || ''));
   if (eq) warnings.push(`${fname}: contains equation-driven fields; loaded literal values only`);
 
-  return { ok: true, parts, prodName, errors, warnings, info };
+  return { ok: true, parts, prodName, shell, errors, warnings, info };
 }

@@ -52,6 +52,7 @@ const DEFAULT_DIMS = { W: 425, H: 2046, D: 704.7 };
 export async function importMozFiles(files) {
   const rows = [];
   const importedParts = [];
+  let sourceShell = null;
   const warnings = [];
   const errors = [];
   // Aggregate identical parts across files so the manifest has one row
@@ -64,6 +65,7 @@ export async function importMozFiles(files) {
     const f = arr[i];
     const text = await f.text();
     const parsed = parseMoz(text, f.name);
+    if (parsed.ok && parsed.shell) sourceShell = parsed.shell;
     for (const w of parsed.warnings) warnings.push(w);
     for (const e of parsed.errors) errors.push(e);
     if (!parsed.ok) continue;
@@ -131,7 +133,7 @@ export async function importMozFiles(files) {
     }
   }
 
-  return { rows, importedParts, warnings, errors };
+  return { rows, importedParts, sourceShell, warnings, errors };
 }
 
 /**
@@ -203,6 +205,7 @@ export async function exportJobZip(snapshot, { jobName } = {}) {
     jobName: jobName || snapshot.sku || 'Order',
     dims: DEFAULT_DIMS,
     prodPat: `${snapshot.sku || 'Layer'} {layer}`,
+    shell: snapshot.sourceShell || null,
   });
 }
 
