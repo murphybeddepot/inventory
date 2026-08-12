@@ -273,6 +273,8 @@
       <button id="btnImportMoz" title="Import parts from one or more Mozaik .moz files">Import .moz…</button>
       <button id="btnValidate" title="Match a text order against saved recipes">Match text…</button>
       <button id="btnMatchMoz" title="Match imported .moz files to an existing saved recipe by geometry signature">Match .moz…</button>
+      <button id="btnRebindMoz" title="Swap the loaded recipe's parts for a new .moz version — the stack layout is KEPT. Use when the product library moved to a new version (v1-42 → v1-47) and the recipe should carry the new drilling/banding.">Rebind .moz…</button>
+      <input id="mozRebindInput" type="file" accept=".moz" multiple style="display:none">
       <!-- Hidden file input the two buttons above trigger via .click(). -->
       <input id="mozFileInput" type="file" accept=".moz" multiple style="display:none">
       <input id="mozMatchInput" type="file" accept=".moz" multiple style="display:none">
@@ -968,7 +970,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.43';
+const APP_VERSION = '3.44';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3408,6 +3410,43 @@ $('mozFileInput').onchange=async(e)=>{
   }catch(err){toast('Import failed: '+err.message);}
 };
 
+// v3.44 — Rebind: what Match .moz was mistaken for (Zac: "i clicked match
+// .moz and the stack layout did not survive"). Match SEARCHES for a recipe by
+// signature and imports fresh when none matches — wiping the working layout.
+// Rebind swaps the part definitions under a LOADED recipe and keeps every
+// placement: same partNums, same dims, new ops/banding source for export.
+$('btnRebindMoz').onclick=()=>{
+  if(!S.manifest.length){toast('Load a recipe first — Rebind swaps parts under an existing layout');return;}
+  $('mozRebindInput').click();
+};
+$('mozRebindInput').onchange=async(e)=>{
+  const files=[...e.target.files]; e.target.value='';
+  if(!files.length)return;
+  if(!window.MozIO){toast('.moz import not loaded (module error)');return;}
+  try{
+    const res=await window.MozIO.importMozFiles(files);
+    if(res.errors.length){toast('Parse errors: '+res.errors[0]);return;}
+    if(!res.rows.length){toast('No parts parsed');return;}
+    // The new parts must BE the same parts: every manifest entry must find a
+    // partNum+dims match in the import, and vice versa. A rebind that changes
+    // the parts list would silently corrupt the placements it claims to keep.
+    const sig=(r)=>r.partNum+'|'+r.Lmm+'x'+r.Wmm;
+    const have=new Map();
+    for(const r of res.rows) have.set(sig(r),(have.get(sig(r))||0)+r.qty);
+    const wantMap=new Map();
+    for(const m of S.manifest) wantMap.set(sig(m),(wantMap.get(sig(m))||0)+m.qty);
+    const missing=[...wantMap.keys()].filter(k=>!have.has(k));
+    const extra=[...have.keys()].filter(k=>!wantMap.has(k));
+    if(missing.length||extra.length){
+      toast('Rebind refused — the .moz is not the same part set ('+missing.length+' missing, '+extra.length+' new). Layout untouched.');
+      return;
+    }
+    loadManifest(res.rows,false);          // replace=false: the layout survives
+    S.importedParts=res.importedParts;      // exports now carry the new ops/banding
+    scheduleSave();
+    toast('\u2713 Rebound '+res.rows.reduce((s2,r)=>s2+r.qty,0)+' parts to the new .moz — layout kept. Save, then re-export the job.');
+  }catch(err){toast('Rebind failed: '+err.message);}
+};
 $('btnMatchMoz').onclick=()=>$('mozMatchInput').click();
 $('mozMatchInput').onchange=async(e)=>{
   const files=[...e.target.files]; e.target.value='';
