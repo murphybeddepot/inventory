@@ -983,7 +983,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.47';
+const APP_VERSION = '3.48';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3542,10 +3542,10 @@ function openGuidedRebind(res,wantQty,haveQty,missing,extra){
       });
     }
     if(extra.length){
-      h+='<h3 style="margin:14px 0 4px;font-size:14px">New in this .moz, not in the recipe</h3>'
-        +'<p class="hint" style="margin:2px 0 6px">A part used as a Map-to target above is consumed by that mapping — its choice here is ignored.</p>';
+      h+='<h3 data-extrahead style="margin:14px 0 4px;font-size:14px">New in this .moz, not in the recipe</h3>';
       extra.forEach((k,i)=>{
-        h+='<div '+rowStyle+'>'+lbl(have.get(k))+' <span class="hint">(qty '+have.get(k).qty+')</span><br>'
+        h+='<div data-extrarow="'+i+'" '+rowStyle+'>'+lbl(have.get(k))+' <span class="hint">(qty '+have.get(k).qty+')</span><br>'
+          +'<span data-consumed="'+i+'" class="hint" style="display:none;margin-top:6px;color:var(--good)">✓ Used as a Map-to target above — nothing to decide here.</span>'
           +'<select data-extrasel="'+i+'" style="margin-top:6px;max-width:100%">'
           +'<option value="add" selected>Add to the parts tray (place it with Suggest layer or drag)</option>'
           +'<option value="skip">Skip — don’t import this part</option>'
@@ -3567,6 +3567,23 @@ function openGuidedRebind(res,wantQty,haveQty,missing,extra){
   }
   $('rebindBody').innerHTML=h;
   $('rebindErr').textContent='';
+  // v3.48 (Zac: "double-working here on the 2a thing") — a new part that is
+  // currently claimed as a Map-to target has nothing to decide: hide its
+  // Add/Skip dropdown live, and bring it back if the mapping moves away.
+  const syncConsumed=()=>{
+    const used=new Set();
+    document.querySelectorAll('[data-missel]').forEach(s2=>{if(s2.value!=='__remove__')used.add(s2.value);});
+    document.querySelectorAll('[data-extrasel]').forEach(s2=>{
+      const i=+s2.getAttribute('data-extrasel');
+      const consumed=used.has(_rbCtx.extra[i]);
+      s2.style.display=consumed?'none':'';
+      const note=document.querySelector('[data-consumed="'+i+'"]');
+      if(note)note.style.display=consumed?'':'none';
+    });
+    $('rebindErr').textContent='';
+  };
+  document.querySelectorAll('[data-missel]').forEach(s2=>s2.addEventListener('change',syncConsumed));
+  if(document.querySelector('[data-extrasel]'))syncConsumed();
   openModal('rebindModal');
 }
 $('rebindApply').onclick=()=>{
