@@ -43,15 +43,27 @@ jobs:
             // Branch creation / force-push edge: no usable base — compare
             // the head commit alone via its own file list.
             let files = [];
+            let compared = false;
             if (before && !/^0+$/.test(before)) {
-              const cmp = await github.rest.repos.compareCommits({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                base: before,
-                head: head,
-              });
-              files = (cmp.data.files || []).map(f => f.filename);
-            } else {
+              // 2026-08-17 — a force-push (or history rewrite) leaves
+              // `before` as a real but unreachable sha; compareCommits
+              // then 404s and this guard failed on every legitimate
+              // stamped publish. Fall back to the head commit's own
+              // file list instead of dying.
+              try {
+                const cmp = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: before,
+                  head: head,
+                });
+                files = (cmp.data.files || []).map(f => f.filename);
+                compared = true;
+              } catch (e) {
+                core.warning('compare ' + before.slice(0,8) + '...' + head.slice(0,8) + ' failed (' + e.status + ') — falling back to head commit file list');
+              }
+            }
+            if (!compared) {
               const commit = await github.rest.repos.getCommit({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
