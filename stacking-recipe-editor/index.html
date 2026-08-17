@@ -520,6 +520,19 @@
   </div>
 </div>
 
+<!-- GUIDED REBIND MODAL (v3.47) -->
+<div class="modal-bg" id="rebindModal">
+  <div class="modal" style="width:820px;max-width:96vw">
+    <h2 id="rebindTitle">Rebind walkthrough <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody" id="rebindBody"></div>
+    <div class="mfoot">
+      <span id="rebindErr" style="color:var(--bad);margin-right:auto"></span>
+      <button class="ghost" data-close>Cancel — layout untouched</button>
+      <button class="primary" id="rebindApply">Apply rebind</button>
+    </div>
+  </div>
+</div>
+
 <!-- LIBRARY MODAL -->
 <div class="modal-bg" id="libModal">
   <div class="modal">
@@ -970,7 +983,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.46';
+const APP_VERSION = '3.47';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3439,14 +3452,140 @@ $('mozRebindInput').onchange=async(e)=>{
     const missing=[...wantMap.keys()].filter(k=>!have.has(k));
     const extra=[...have.keys()].filter(k=>!wantMap.has(k));
     if(missing.length||extra.length){
-      toast('Rebind refused — the .moz is not the same part set ('+missing.length+' missing, '+extra.length+' new). Layout untouched.');
+      openGuidedRebind(res,wantMap,have,missing,extra);   // v3.47: walk through the mismatch instead of refusing
       return;
     }
-    loadManifest(res.rows,false);          // replace=false: the layout survives
-    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;      // exports now carry the new ops/banding
-    scheduleSave();
-    toast('\u2713 Rebound '+res.rows.reduce((s2,r)=>s2+r.qty,0)+' parts to the new .moz — layout kept. Save, then re-export the job.');
+    _rbApply(res,[],[],new Set());         // exact part set: one-tap path, qty updates ride along
   }catch(err){toast('Rebind failed: '+err.message);}
+};
+// v3.47 — GUIDED rebind (Zac 2026-08-17: "if there's a mismatch it should
+// walk me through the changes and what i want to do, not simply reject it
+// (assuming at least an 80% match)"). A mismatch at >=80% part-type overlap
+// opens a walkthrough: each recipe part missing from the new .moz gets
+// Map-to/Remove, each new part gets Add/Skip, qty changes are listed (red
+// when placed pieces exceed the new qty). Below 80% it still refuses -- but
+// shows the match % and exactly what didn't line up. Nothing changes until
+// Apply; Cancel leaves the layout alone.
+const _rbSig=(r)=>r.partNum+'|'+r.Lmm+'x'+r.Wmm;
+const _rbPlacedSig=(p)=>p.partNum+'|'+p.L+'x'+p.W;
+// Executes a rebind. mapPairs=[[oldSig,newSig]] rewrites every placed piece
+// of oldSig to the new part's identity+dims (position/rotation kept);
+// removes=[sig] deletes those placed pieces; skips=Set(sig) leaves those new
+// parts out of the manifest entirely.
+function _rbApply(res,mapPairs,removes,skips){
+  const bySig=new Map();
+  for(const r of res.rows){const k=_rbSig(r);if(!bySig.has(k))bySig.set(k,r);}
+  let mapped=0,removed=0;
+  for(const pair of mapPairs){
+    const nr=bySig.get(pair[1]); if(!nr)continue;
+    for(const layer of S.layers)for(const p of layer){
+      if(_rbPlacedSig(p)!==pair[0])continue;
+      p.partNum=nr.partNum;p.name=nr.name;p.L=nr.Lmm;p.W=nr.Wmm;
+      p.key=mkey({partNum:p.partNum,name:p.name,Lmm:p.L,Wmm:p.W,thickness:p.thickness});
+      mapped++;
+    }
+  }
+  if(removes.length){
+    const rm=new Set(removes);
+    S.layers=S.layers.map(l=>l.filter(p=>{const hit=rm.has(_rbPlacedSig(p));if(hit)removed++;return !hit;}));
+    S.sel=new Set();S.armed=null;
+  }
+  const rows=res.rows.filter(r=>!skips.has(_rbSig(r)));
+  loadManifest(rows,false);                // replace=false: the layout survives
+  S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;        // exports now carry the new ops/banding
+  scheduleSave();
+  const total=rows.reduce((s2,r)=>s2+r.qty,0);
+  toast('✓ Rebound '+total+' parts — layout kept'
+    +(mapped?', '+mapped+' piece(s) remapped':'')
+    +(removed?', '+removed+' placed piece(s) removed':'')
+    +(skips.size?', '+skips.size+' new part type(s) skipped':'')
+    +'. Save, then re-export the job.');
+}
+let _rbCtx=null;
+function openGuidedRebind(res,wantQty,haveQty,missing,extra){
+  // wantQty/haveQty arrive as sig->qty Maps; build sig->{qty,row} views so
+  // the walkthrough can print names and dims, not just signatures.
+  const want=new Map(),have=new Map();
+  for(const m of S.manifest){const k=_rbSig(m);if(!want.has(k))want.set(k,{qty:wantQty.get(k),row:m});}
+  for(const r of res.rows){const k=_rbSig(r);if(!have.has(k))have.set(k,{qty:haveQty.get(k),row:r});}
+  const matched=want.size-missing.length;
+  const pct=Math.round(100*matched/Math.max(want.size,have.size));
+  _rbCtx={res,want,have,missing,extra,pct};
+  const lbl=(e2)=>{const r=e2.row;return '<b>'+esc(r.partNum)+'</b> · '+esc(r.name||'(unnamed)')+' · '+r.Lmm+'×'+r.Wmm+'mm';};
+  const placedBySig=(k)=>{let n=0;for(const layer of S.layers)for(const p of layer)if(_rbPlacedSig(p)===k)n++;return n;};
+  const rowStyle='style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;background:var(--panel2)"';
+  let h='<p class="hint" style="margin-top:0"><b>'+pct+'% match</b> — '+matched+' of '+Math.max(want.size,have.size)
+    +' part types line up ('+missing.length+' in the recipe but not the new file, '+extra.length+' new).</p>';
+  if(pct<80){
+    $('rebindTitle').firstChild.textContent='Rebind refused — '+pct+'% match (needs 80%) ';
+    h+='<p class="hint">This .moz doesn’t look like the same product, so nothing was changed. Here’s what didn’t line up:</p>';
+    for(const k of missing)h+='<div '+rowStyle+'>IN RECIPE, NOT IN NEW FILE — '+lbl(want.get(k))+'</div>';
+    for(const k of extra)h+='<div '+rowStyle+'>ONLY IN NEW FILE — '+lbl(have.get(k))+'</div>';
+    $('rebindApply').style.display='none';
+  }else{
+    $('rebindTitle').firstChild.textContent='Rebind walkthrough — '+pct+'% match ';
+    $('rebindApply').style.display='';
+    if(missing.length){
+      h+='<h3 style="margin:14px 0 4px;font-size:14px">In the recipe, not in the new .moz</h3>';
+      missing.forEach((k,i)=>{
+        const placed=placedBySig(k);
+        // Suggest a mapping: same part code first, else a unique same-dims part.
+        const wr=want.get(k).row;
+        let suggest=extra.find(x=>have.get(x).row.partNum===wr.partNum);
+        if(!suggest){const dimHits=extra.filter(x=>{const r=have.get(x).row;return r.Lmm===wr.Lmm&&r.Wmm===wr.Wmm;});if(dimHits.length===1)suggest=dimHits[0];}
+        h+='<div '+rowStyle+'>'+lbl(want.get(k))+' <span class="hint">(qty '+want.get(k).qty+', '+placed+' placed)</span><br>'
+          +'<select data-missel="'+i+'" style="margin-top:6px;max-width:100%">';
+        for(const x of extra)h+='<option value="'+esc(x)+'"'+(x===suggest?' selected':'')+'>Map to → '
+          +esc(have.get(x).row.partNum+' · '+(have.get(x).row.name||'')+' · '+have.get(x).row.Lmm+'×'+have.get(x).row.Wmm+'mm')+'</option>';
+        h+='<option value="__remove__"'+(suggest?'':' selected')+'>Remove from recipe'+(placed?' (deletes its '+placed+' placed piece'+(placed>1?'s':'')+')':'')+'</option>'
+          +'</select></div>';
+      });
+    }
+    if(extra.length){
+      h+='<h3 style="margin:14px 0 4px;font-size:14px">New in this .moz, not in the recipe</h3>'
+        +'<p class="hint" style="margin:2px 0 6px">A part used as a Map-to target above is consumed by that mapping — its choice here is ignored.</p>';
+      extra.forEach((k,i)=>{
+        h+='<div '+rowStyle+'>'+lbl(have.get(k))+' <span class="hint">(qty '+have.get(k).qty+')</span><br>'
+          +'<select data-extrasel="'+i+'" style="margin-top:6px;max-width:100%">'
+          +'<option value="add" selected>Add to the parts tray (place it with Suggest layer or drag)</option>'
+          +'<option value="skip">Skip — don’t import this part</option>'
+          +'</select></div>';
+      });
+    }
+    const qtyLines=[];
+    for(const k of want.keys()){
+      if(!have.has(k))continue;
+      const wq=want.get(k).qty,hq=have.get(k).qty;
+      if(wq===hq)continue;
+      const placed=placedBySig(k);
+      const over=placed>hq;
+      qtyLines.push('<div '+rowStyle+(over?' data-qtyover="1"':'')+'>'+lbl(want.get(k))+': qty '+wq+' → '+hq
+        +(over?' <span style="color:var(--bad)"><b>— '+placed+' placed; remove '+(placed-hq)+' after the rebind</b></span>':'')+'</div>');
+    }
+    if(qtyLines.length)h+='<h3 style="margin:14px 0 4px;font-size:14px">Quantity changes</h3>'+qtyLines.join('');
+    h+='<p class="hint" style="margin-top:12px">Mapped pieces keep their position and rotation — if their size changed, eyeball the layout after. Nothing is written until you tap Apply.</p>';
+  }
+  $('rebindBody').innerHTML=h;
+  $('rebindErr').textContent='';
+  openModal('rebindModal');
+}
+$('rebindApply').onclick=()=>{
+  const c=_rbCtx; if(!c)return;
+  const mapPairs=[],removes=[],used=new Set();
+  for(const sel of document.querySelectorAll('[data-missel]')){
+    const k=c.missing[+sel.getAttribute('data-missel')];
+    if(sel.value==='__remove__'){removes.push(k);continue;}
+    if(used.has(sel.value)){$('rebindErr').textContent='Two recipe parts map to the same new part — pick different targets.';return;}
+    used.add(sel.value);mapPairs.push([k,sel.value]);
+  }
+  const skips=new Set();
+  for(const sel of document.querySelectorAll('[data-extrasel]')){
+    const k=c.extra[+sel.getAttribute('data-extrasel')];
+    if(used.has(k))continue;                 // consumed as a mapping target
+    if(sel.value==='skip')skips.add(k);
+  }
+  _rbApply(c.res,mapPairs,removes,skips);
+  closeModal('rebindModal');_rbCtx=null;
 };
 $('btnMatchMoz').onclick=()=>$('mozMatchInput').click();
 $('mozMatchInput').onchange=async(e)=>{
