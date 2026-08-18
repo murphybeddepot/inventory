@@ -22,11 +22,18 @@ const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"
 export const DEFAULT_MATERIAL = {
   displayName: '19_Melamine_White', abbr: '19', materialId: '334', textureId: '13327',
   thickness: 19.05, length: 2770, width: 1550, lengthTrim: 3, widthTrim: 3,
+  textureAbbr: '01',
+  textureName: 'C:\\Users\\offic\\OneDrive\\Mozaik MBD\\Textures\\Wood\\Melamine\\White.jpg',
 };
 
 // layerTexts: [{ layer, text }] — the generated layer .moz XML
 // nest: { sheets:[{ placements:[{name,layer,l,w,x,y,rotation}] }], edge }
-export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewCNC-MD' }) {
+export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewCNC-MD',
+  jobName = 'Order',
+  // Mozaik stores an ABSOLUTE path to the .opt in OptimizeRuns.xml. It is the
+  // operator's own path; this default matches the real jobs on Zac's machine.
+  jobsRoot = 'C:\\Users\\offic\\OneDrive\\Mozaik MBD\\Jobs',
+  now = Date.now } = {}) {
   // an empty string from a UI field must not beat the default, and trims of 0
   // are legitimate, so merge field-by-field rather than spreading blindly
   const M = { ...DEFAULT_MATERIAL };
@@ -115,29 +122,50 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const partXml = pool.map(p =>
     `  <OptimizePart PartID="${p.id}" PartNumbers="${p.id}" Quan="1" Name="${esc(p.name)}" `
     + `Width="${p.w}" Length="${p.l}" EdgeBand="None" Color="" AssyNo="${p.layer}" Comment="L${p.layer}" `
-    + `UserAdded="False" RemakeJobName="">${NL}    ${p.shape}${NL}`
+    + `UserAdded="False" RemakeJobName="" AllowRotation="1" LabelPrinted="False" `
+    + `TextureName="${esc(M.textureName || '')}" TextureAbbr="${esc(M.textureAbbr || '')}" `
+    + `TextureID="${esc(M.textureId)}">${NL}    ${p.shape}${NL}`
     + `    <Operations Version="2">${NL}      ${p.ops.join(NL + '      ')}${NL}    </Operations>${NL}`
+    + `    <BandMatTmpSel RootTemplateId="249" MissingTemplateName="Veneer" />${NL}`
     + `  </OptimizePart>`);
 
+  // Element ORDER matches a real file: BatchRevisionNumber, parts, sheets,
+  // RoomInfo, ToolsetByMachine, KerfByMachine. .NET XML deserialisation is
+  // sequence-sensitive, so this is not cosmetic.
+  const tailXml = `  <RoomInfo Number="0" Name="Order Entry" WallCabString="" BaseCabString="" CabNames="">${NL}`
+    + `    <RoomNotes />${NL}  </RoomInfo>${NL}`
+    + `  <ToolsetByMachine Machine="NewCNC-VCNC" Toolset="KDT-612" />${NL}`
+    + `  <KerfByMachine Machine="${machine}" Kerf="14.2875" />`;
   const optXml = `8${NL}<?xml version="1.0" encoding="utf-8" standalone="yes"?>${NL}`
     + `<OptimizeMaterial RunId="1" DisplayName="${M.displayName}" Abbr="${M.abbr}" MaterialId="${M.materialId}" `
     + `TextureId="${M.textureId}" Thickness="${M.thickness}" Width="${M.width}" Length="${M.length}" `
     + `HasGrain="False" WidthTrim="${M.widthTrim ?? nest.edge ?? 3}" LengthTrim="${M.lengthTrim ?? nest.edge ?? 3}" `
     + `FeedRate="100" Comment="" `
-    + `CustomerName="" OptParamSpeed="2" OptParamMachineName="" OptParamSeqByCabN="True" `
+    + `CustomerName="" Timestamp="${(now() / 1000).toFixed(5)}" OptParamSpeed="2" `
+    + `OptParamMachineName="" OptParamSeqByCabN="True" `
     + `OptParamSeqFlipsideFirst="False" OptParamRemnantUsagePolicy="0" IsLegacy="False">${NL}`
-    + partXml.join(NL) + NL + sheetXml.join(NL) + NL + `</OptimizeMaterial>${NL}`;
+    + `  <BatchRevisionNumber MachineName="${machine}" Number="1" />${NL}`
+    + partXml.join(NL) + NL + sheetXml.join(NL) + NL + tailXml + NL + `</OptimizeMaterial>`;
 
+  // Structure copied attribute-for-attribute from a real job. Mozaik threw
+  // "unexpected exception while reading OptimizeRuns.xml" on the first cut,
+  // which was missing OptFilename (the run had no .opt to point at), the
+  // Timestamp, the second RoomUniqueId, and it ended with a trailing newline
+  // the real files do not have.
+  const optFile = `${M.displayName}_Run1.opt`;
   const runsXml = `1${NL}<?xml version="1.0" encoding="utf-8" standalone="yes"?>${NL}`
     + `<OptimizeRuns DefaultRunMachineTemplateId="-1">${NL}`
-    + `  <OptimizeRun Id="1" Name="RUN1" MachineTemplateId="7" UserId="2" CabFilter="All" RoomString="R0-1">${NL}`
+    + `  <OptimizeRun Id="1" Name="RUN1" Timestamp="${(now() / 1000).toFixed(3)}" MachineTemplateId="7" `
+    + `UserId="2" CabFilter="All" RoomString="R0-1">${NL}`
+    + `    <RoomUniqueId Id="5" />${NL}`
     + `    <RoomUniqueId Id="6" />${NL}`
     + pool.map(p => `    <Item Quan="1" W="${p.w}" L="${p.l}" PartName="${esc(p.name)}" CabNos="${p.layer}" `
         + `MaterialId="${M.materialId}" TextureId="${M.textureId}" Texture2Id="-1" `
         + `CutlistItemKey="PART:0#-1#Manual#${p.id}#False#False|1#1#${p.w}#${p.l}#1#39794075" />`).join(NL)
-    + NL + `  </OptimizeRun>${NL}</OptimizeRuns>${NL}`;
+    + NL + `    <OptFilename Filename="${esc(jobsRoot)}\\${esc(jobName)}\\${esc(optFile)}" />${NL}`
+    + `  </OptimizeRun>${NL}</OptimizeRuns>`;      // no trailing newline — real files have none
 
-  return { optName: `${M.displayName}_Run1.opt`, optXml, runsXml,
+  return { optName: optFile, optXml, runsXml,
     poolCount: pool.length, placedCount: nest.sheets.reduce((a, s) => a + (s.placements || []).length, 0),
     unmatched };
 }

@@ -242,7 +242,7 @@ function buildTabs() {
     const n = (s.placements || []).length;
     b.innerHTML = `Sheet ${i + 1} <span class="mono">${n ? 'L' + lys.join('+L') : 'empty'} · ` +
       `${n}p · ${(utilOf(s) * 100).toFixed(0)}%</span>`;
-    b.onclick = () => { sheetIdx = i; selected = null; buildTabs(); draw(); };
+    b.onclick = () => { sheetIdx = i; selected = null; recomputeDice(); buildTabs(); draw(); };
     $('tabs').appendChild(b);
   });
   $('delSheet').disabled = nest.sheets.length <= 1;
@@ -257,6 +257,10 @@ function draw() {
   let g = `<rect x="${M}" y="${M}" width="${L}" height="${W}" fill="var(--board)" stroke="var(--edge)" stroke-width="3"/>`
     + `<rect x="${M + nest.edge}" y="${M + nest.edge}" width="${L - 2 * nest.edge}" height="${W - 2 * nest.edge}"
         fill="none" stroke="var(--edge)" stroke-width="1" stroke-dasharray="12 10" opacity=".7"/>`;
+  // dice belong to THIS sheet — recompute here rather than at each call site
+  // (switching tabs skipped that and showed the previous sheet's grid). Skipped
+  // mid-drag: pointerup recomputes, and it keeps dragging cheap.
+  if (showDice && !drag) recomputeDice();
   for (const d of (showDice ? dice : [])) {
     g += `<rect x="${M + d.x}" y="${M + (W - d.y - d.h)}" width="${d.w}" height="${d.h}"
       fill="none" stroke="var(--soft)" stroke-width="1.2" stroke-dasharray="10 8" opacity=".85"/>`;
