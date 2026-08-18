@@ -1,0 +1,200 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nests — Stacking Recipe Editor</title>
+<style>
+:root{--bg:#F6F4EE;--ink:#26241F;--soft:#6B665C;--line:#D8D3C6;--board:#FDFCF8;
+  --edge:#C9C2B2;--accent:#C25A11;--chip:#ECE8DD;--corridor:#EFEBE0;--bad:#B02A18}
+@media (prefers-color-scheme:dark){:root{--bg:#1B1D21;--ink:#E6E3DC;--soft:#9B968B;--line:#3A3D44;
+  --board:#24262C;--edge:#4A4E58;--accent:#E8843C;--chip:#2C2F36;--corridor:#202228;--bad:#E5654F}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+header{padding:14px 20px 6px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:baseline}
+h1{font-size:18px;margin:0}
+.soft{color:var(--soft);font-size:12.5px}
+.bar{display:flex;gap:8px;padding:8px 20px;flex-wrap:wrap;align-items:center}
+button{font:inherit;border:1px solid var(--line);background:var(--chip);color:var(--ink);
+  border-radius:6px;padding:6px 11px;cursor:pointer;font-weight:650;font-size:13px;
+  display:inline-flex;gap:7px;align-items:center}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button[aria-selected="true"],button[aria-pressed="true"]{border-color:var(--accent);
+  box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--soft)}
+main{padding:4px 20px 10px;max-width:1200px}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--corridor);padding:12px}
+svg{display:block;width:100%;height:auto;touch-action:none}
+.part.sel rect{stroke:var(--accent);stroke-width:5}
+.part.bad rect{stroke:var(--bad);stroke-width:5}
+.part.moved rect{stroke-dasharray:8 4}
+.part text{pointer-events:none;user-select:none}
+#panel{margin:8px 20px;border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--chip);max-width:1160px}
+#tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);padding:5px 8px;border-radius:5px;
+  font:12px ui-monospace,Consolas,monospace;display:none;z-index:9}
+footer{padding:6px 20px 22px;color:var(--soft);font-size:12.5px;max-width:76ch}
+.err{margin:20px;padding:14px;border:1px solid var(--bad);border-radius:8px;color:var(--bad)}
+</style></head><body>
+<header>
+  <h1>Nests</h1>
+  <span class="soft" id="sub">—</span>
+</header>
+<div class="bar">
+  <button id="back">← Back to recipe</button>
+  <button id="renest">↻ Re-nest from recipe</button>
+  <button id="edit" aria-pressed="false">✏️ Edit</button>
+  <button id="apply" class="primary">Use these nests →</button>
+  <span class="soft" id="hint"></span>
+</div>
+<nav class="bar" id="tabs"></nav>
+<main><div class="wrap"><svg id="board"></svg></div></main>
+<div id="panel"><div id="sel" class="soft">Click a part to select it.</div>
+  <pre id="moves" class="mono" style="white-space:pre-wrap;margin:8px 0 0"></pre></div>
+<div id="tip"></div>
+<footer id="foot"></footer>
+<script type="module">
+import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
+const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
+const $ = id => document.getElementById(id);
+const q = new URLSearchParams(location.search);
+let recipe = null, nest = null, sheetIdx = 0, editing = false, selected = null;
+
+try { recipe = JSON.parse(sessionStorage.getItem(KEY_IN) || 'null'); } catch (e) { recipe = null; }
+if (!recipe || !Array.isArray(recipe.parts) || !recipe.parts.length) {
+  document.body.innerHTML = '<div class="err"><b>No recipe handed over.</b><br>' +
+    'Open this page from the recipe editor’s <b>Nests</b> button so it knows which parts to nest. ' +
+    '<a href="./index.html">Back to the editor</a>.</div>';
+} else { boot(); }
+
+function boot() {
+  $('sub').textContent = `${recipe.sku || '(unnamed)'} · ${recipe.parts.length} parts · ` +
+    `${new Set(recipe.parts.map(p => p.layer)).size} layers`;
+  const prev = q.get('fresh') ? null : safeParse(sessionStorage.getItem(KEY_OUT));
+  nest = (prev && prev.sku === recipe.sku && prev.sheets) ? prev : compute();
+  $('foot').textContent = `Sheets fill in layer order — a layer's leftovers spill onto the next sheet rather ` +
+    `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
+    `dragging snaps to exactly that and turns red if anything ends up tighter.`;
+  buildTabs(); draw();
+}
+function safeParse(s) { try { return JSON.parse(s); } catch (e) { return null; } }
+function compute() {
+  const r = nestByLayer(recipe.parts, recipe.opts || {});
+  if (r.error) { alert('Could not nest: ' + r.error); return { ...NEST_DEFAULTS, sheets: [], sku: recipe.sku }; }
+  return { ...r, sku: recipe.sku };
+}
+function buildTabs() {
+  $('tabs').innerHTML = '';
+  nest.sheets.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.setAttribute('aria-selected', i === sheetIdx);
+    b.innerHTML = `Sheet ${i + 1} <span class="mono">L${s.layers.join('+L')} · ` +
+      `${s.placements.length}p · ${(s.utilization * 100).toFixed(0)}%</span>`;
+    b.onclick = () => { sheetIdx = i; selected = null; buildTabs(); draw(); };
+    $('tabs').appendChild(b);
+  });
+}
+const HUES = [210, 28, 95, 350, 265, 160, 45, 315, 190, 75, 230, 15];
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+const colorOf = ly => `hsl(${HUES[(ly - 1) % HUES.length]} ${dark ? '42% 38%' : '48% 72%'})`;
+function draw() {
+  const s = nest.sheets[sheetIdx]; if (!s) return;
+  const M = 20, L = nest.sheetL, W = nest.sheetW, svg = $('board');
+  svg.setAttribute('viewBox', `0 0 ${L + 2 * M} ${W + 2 * M}`);
+  let g = `<rect x="${M}" y="${M}" width="${L}" height="${W}" fill="var(--board)" stroke="var(--edge)" stroke-width="3"/>`
+    + `<rect x="${M + nest.edge}" y="${M + nest.edge}" width="${L - 2 * nest.edge}" height="${W - 2 * nest.edge}"
+        fill="none" stroke="var(--edge)" stroke-width="1" stroke-dasharray="12 10" opacity=".7"/>`;
+  s.placements.forEach((p, i) => {
+    const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0;
+    const cls = 'part' + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap) ? ' bad' : '')
+      + (p._moved ? ' moved' : '');
+    g += `<g class="${cls}" data-i="${i}"><rect x="${M + x0}" y="${M + (W - y1)}" width="${w}" height="${h}"
+      fill="${colorOf(p.layer)}" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1.6"/>
+      <text x="${M + x0 + w / 2}" y="${M + (W - y1) + h / 2}" font-size="${Math.max(22, Math.min(46, Math.min(w, h) * .4))}"
+        text-anchor="middle" dominant-baseline="central" fill="var(--ink)"
+        font-family="ui-monospace,Consolas,monospace" font-weight="600">${esc(p.name)}</text></g>`;
+  });
+  svg.innerHTML = g;
+  renderPanel();
+}
+function esc(s) { return String(s).replace(/[<&>]/g, c => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c])); }
+// ---- snap that keeps the spacing -------------------------------------------
+function snap(p, rawX, rawY, others) {
+  const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0, E = nest.edge, G = nest.gap;
+  let x = Math.max(E, Math.min(rawX, nest.sheetL - E - w));
+  let y = Math.max(E, Math.min(rawY, nest.sheetW - E - h));
+  const xc = [E, nest.sheetL - E - w], yc = [E, nest.sheetW - E - h];
+  for (const o of others) { if (o === p) continue;
+    const [ox0, ox1, oy0, oy1] = partBox(o);
+    xc.push(ox1 + G, ox0 - w - G, ox0, ox1 - w); yc.push(oy1 + G, oy0 - h - G, oy0, oy1 - h); }
+  const near = (v, c) => { let b = v, d = 15; for (const k of c) { const dd = Math.abs(k - v); if (dd < d) { d = dd; b = k; } } return b; };
+  x = Math.max(E, Math.min(near(x, xc), nest.sheetL - E - w));
+  y = Math.max(E, Math.min(near(y, yc), nest.sheetW - E - h));
+  return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+}
+let drag = null;
+const svg = $('board'), tip = $('tip');
+svg.addEventListener('pointerdown', e => {
+  const g = e.target.closest('.part'); if (!g) { selected = null; draw(); return; }
+  selected = nest.sheets[sheetIdx].placements[+g.dataset.i];
+  if (editing) { drag = { p: selected, px: e.clientX, py: e.clientY, sx: selected.x, sy: selected.y };
+    svg.setPointerCapture(e.pointerId); e.preventDefault(); }
+  draw();
+});
+svg.addEventListener('pointermove', e => {
+  if (!drag) {
+    const g = e.target.closest('.part'); if (!g) { tip.style.display = 'none'; return; }
+    const p = nest.sheets[sheetIdx].placements[+g.dataset.i];
+    tip.style.display = 'block';
+    tip.textContent = `${p.name} · ${p.l}×${p.w} · L${p.layer} · (${p.x}, ${p.y})`;
+    tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+    return;
+  }
+  const vb = svg.viewBox.baseVal, sc = vb.width / svg.getBoundingClientRect().width;
+  const [nx, ny] = snap(drag.p, drag.sx + (e.clientX - drag.px) * sc, drag.sy - (e.clientY - drag.py) * sc,
+    nest.sheets[sheetIdx].placements);
+  drag.p.x = nx; drag.p.y = ny; drag.p._moved = true; draw();
+});
+svg.addEventListener('pointerup', () => { drag = null; draw(); });
+function renderPanel() {
+  const s = nest.sheets[sheetIdx];
+  if (selected && editing) {
+    const btns = nest.sheets.map((_, i) => i === sheetIdx ? '' :
+      `<button data-to="${i}">→ Sheet ${i + 1}</button>`).join(' ');
+    $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · layer ${selected.layer}
+      · (${selected.x}, ${selected.y}) &nbsp; Send to: ${btns}`;
+    $('sel').querySelectorAll('button[data-to]').forEach(b => b.onclick = () => sendTo(+b.dataset.to));
+  } else if (selected) {
+    $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · layer ${selected.layer} · (${selected.x}, ${selected.y})`;
+  } else $('sel').textContent = 'Click a part to select it.';
+  const moved = nest.sheets.flatMap((sh, i) => sh.placements.filter(p => p._moved || p._from != null)
+    .map(p => p._from != null ? `${p.name}: sheet ${p._from + 1} → sheet ${i + 1} at (${p.x}, ${p.y})`
+      : `${p.name} sheet ${i + 1}: moved to (${p.x}, ${p.y})`));
+  $('moves').textContent = moved.length ? moved.join('\n') : '';
+  const dup = s.placements.filter(p => violates(p, s.placements, nest.gap)).length;
+  $('hint').textContent = editing
+    ? `drag to move · snaps to ${nest.gap}mm / ${nest.edge}mm${dup ? ` · ${dup} too close` : ''}`
+    : 'read-only';
+}
+function sendTo(target) {
+  const p = selected, from = sheetIdx;
+  nest.sheets[from].placements = nest.sheets[from].placements.filter(q2 => q2 !== p);
+  if (p._from == null) p._from = from;
+  const dest = nest.sheets[target];
+  let spot = null;
+  for (let y = nest.edge; y <= nest.sheetW - nest.edge && !spot; y += 8)
+    for (let x = nest.edge; x <= nest.sheetL - nest.edge && !spot; x += 8) {
+      const t = { ...p, x, y };
+      const [, x1, , y1] = partBox(t);
+      if (x1 <= nest.sheetL - nest.edge && y1 <= nest.sheetW - nest.edge && !violates(t, dest.placements, nest.gap)) spot = [x, y];
+    }
+  if (spot) { p.x = spot[0]; p.y = spot[1]; } else { p.x = nest.edge; p.y = nest.edge; alert(`No ${nest.gap}mm-clear spot on sheet ${target + 1} — parked in the corner, shown red.`); }
+  dest.placements.push(p);
+  if (!dest.layers.includes(p.layer)) dest.layers.push(p.layer), dest.layers.sort((a, b) => a - b);
+  sheetIdx = target; buildTabs(); draw();
+}
+$('edit').onclick = () => { editing = !editing; $('edit').setAttribute('aria-pressed', editing); draw(); };
+$('renest').onclick = () => { if (!confirm('Re-nest from the recipe? Your manual moves on these sheets are lost.')) return;
+  nest = compute(); sheetIdx = 0; selected = null; buildTabs(); draw(); };
+$('back').onclick = () => { stash(); location.href = './index.html'; };
+$('apply').onclick = () => { stash(); alert('Nests saved for this recipe — the editor’s Mozaik job export will use them.'); location.href = './index.html'; };
+function stash() { try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {} }
+addEventListener('beforeunload', stash);
+</script></body></html>

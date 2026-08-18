@@ -566,6 +566,7 @@
         <span style="width:1px;background:var(--line2);align-self:stretch"></span>
         <button id="dlMozFiles" class="primary" title="Emit one .moz file per stacking layer — feed to Mozaik individually.">Mozaik files (per-layer .moz)</button>
         <button id="dlMozJob" class="primary" title="Full Mozaik job zip: Room1 + N layer .moz + JobDat + JobParms.">Mozaik job zip</button>
+        <button id="btnNests" title="Nest these layers onto sheets — sheets fill in layer order, 16mm between parts. Opens the nest editor; come back with the sheets attached to this recipe.">&#129691; Nests&hellip;</button>
       </div>
       <p class="hint" style="margin:-4px 0 12px">The PDF is a visual, shareable layout: a cover summary, an all-layers overview sheet, and one page per layer (parts labelled, support flagged) — for discussion, not for the robot.</p>
       <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px">
@@ -983,7 +984,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.48';
+const APP_VERSION = '3.49';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3823,6 +3824,31 @@ $('dlMozFiles').onclick=async()=>{
     for(const f of files) download(f.name,f.text,'application/octet-stream');
     toast('Downloaded '+files.length+' per-layer .moz file(s)');
   }catch(err){toast('Export failed: '+err.message);}
+};
+/* Nests (v3.49) — Zac 2026-08-18: "how do I go from a stacking recipe edit to
+   the nest edit (and back)?". The recipe knows every part and which layer it
+   belongs to, which is exactly the nester's input, so we hand that over in
+   sessionStorage and open nests.html. Coming back, the nest is stashed under
+   mbd_nest_result keyed by SKU, so re-opening shows your edited sheets rather
+   than re-nesting from scratch. */
+function nestPartsFromRecipe(){
+  const out=[];
+  (S.layers||[]).forEach((layer,i)=>{
+    (layer||[]).forEach(p=>{
+      const L=+p.L, W=+p.W;
+      if(!(L>0&&W>0)) return;                     // unsized part cannot be nested
+      out.push({name:p.partNum||p.name||('part'+out.length), key:p.key, layer:i+1, l:L, w:W});
+    });
+  });
+  return out;
+}
+$('btnNests').onclick=()=>{
+  const parts=nestPartsFromRecipe();
+  if(!parts.length){toast('Nothing to nest — place some parts on a layer first');return;}
+  try{
+    sessionStorage.setItem('mbd_nest_input',JSON.stringify({sku:S.sku||'',parts:parts}));
+  }catch(err){toast('Could not hand the recipe over: '+err.message);return;}
+  location.href='./nests.html';
 };
 $('dlMozJob').onclick=async()=>{
   if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
