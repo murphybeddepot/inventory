@@ -50,7 +50,14 @@ const LEGACY_IDS = {
   '19_Melamine_Monaco': 'mel19-monaco',
 };
 
-export const DEFAULT_MATERIALS = MOZAIK_CATALOG.map((c) => {
+// A picker's first entry is what gets used when nobody chooses, so it must not
+// be an accident of sort order — Black led the list purely by alphabet. Mozaik
+// names the default itself (19_Melamine's FaceTextureId is White), so that one
+// leads, and materials keep library order behind it.
+const CATALOG_ORDERED = [...MOZAIK_CATALOG].sort((a, b) =>
+  (b.isDefaultTexture ? 1 : 0) - (a.isDefaultTexture ? 1 : 0));
+
+export const DEFAULT_MATERIALS = CATALOG_ORDERED.map((c) => {
   const o = OVERRIDES[c.displayName] || {};
   return {
     id: LEGACY_IDS[c.displayName] || SLUG(c.displayName),

@@ -568,6 +568,18 @@
     <h2>Export recipe <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
     <div class="mbody">
       <p class="hint" style="margin-top:0">Per-part placement for every layer, in the current origin / datum / reference settings. Both mm and inch coordinates are included.</p>
+      <!-- v3.60: the Mozaik exports carry a MATERIAL, and until now this screen
+           never said which. Zac: "how do i make sure it's exporting the right
+           material when i choose 'mozaik job zip'?" — you read it here, and
+           change it here, before you click. -->
+      <div style="border:1.5px solid var(--line);border-radius:8px;padding:9px 11px;margin:0 0 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <b style="font-size:13px">Mozaik exports use</b>
+        <select id="expMat" style="font-size:14px;padding:6px 8px;max-width:280px"></select>
+        <span class="hint" id="expMatDesc" style="margin:0"></span>
+        <span class="spacer"></span>
+        <span class="hint" id="expMatNest" style="margin:0"></span>
+      </div>
+      <div id="expMatWarn" style="display:none;border:1.5px solid #b06f00;background:#fff8e6;color:#7a5a00;border-radius:8px;padding:8px 11px;margin:-6px 0 12px;font-size:12px"></div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button id="dlCSV" class="primary">Download CSV</button>
         <button id="dlJSON" class="primary">Download JSON</button>
@@ -995,7 +1007,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.60';
+const APP_VERSION = '3.61';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3807,8 +3819,40 @@ function exportJSON(){
 }
 $('btnExport').onclick=()=>{
   if(!totalPlaced()){toast('Nothing placed to export');return;}
-  openModal('exportModal');renderExportTable();
+  openModal('exportModal');renderExportTable();renderExportMaterial();
 };
+/* The material picker on the export screen. It reads and writes the SAME
+   mbd_last_material the Nests page uses, so the two can never drift apart, and
+   it says up front whether the zip will carry a nest you saved or one built on
+   the spot. */
+async function renderExportMaterial(){
+  const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
+  if(!sel)return;
+  let M,list;
+  try{ M=await import('./js/materials.mjs'); list=M.loadMaterials(); }
+  catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
+  if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
+  let mid=localStorage.getItem('mbd_last_material')||'';
+  if(!list.some(m=>m.id===mid)){ mid=list[0].id; try{localStorage.setItem('mbd_last_material',mid);}catch(e){} }
+  sel.innerHTML=list.map(m=>`<option value="${esc(m.id)}"${m.id===mid?' selected':''}>${esc(m.label)}</option>`).join('');
+  const paint=()=>{
+    const m=list.find(x=>x.id===sel.value)||list[0];
+    desc.textContent=M.describe(m);
+    let saved=null;
+    try{
+      const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}');
+      saved=all[(S.sku||'')+'::'+m.id]||null;
+    }catch(e){}
+    nestEl.textContent=saved&&saved.sheets&&saved.sheets.length
+      ? '\u2713 nest saved for this material \u2014 '+saved.sheets.length+' sheet'+(saved.sheets.length===1?'':'s')
+      : 'no saved nest \u2014 the zip will nest fresh on this stock';
+    const w=M.materialWarnings(m);
+    warnEl.style.display=w.length?'block':'none';
+    warnEl.innerHTML=w.map(x=>'\u26a0 '+esc(x)).join('<br>');
+  };
+  sel.onchange=()=>{ try{localStorage.setItem('mbd_last_material',sel.value);}catch(e){} paint(); };
+  paint();
+}
 function renderExportTable(){
   const rows=buildExportRows();const t=$('exportTable');
   const cols=['layer','partNum','refX_mm','refY_mm','angle','L_mm','W_mm','thickness_mm'];

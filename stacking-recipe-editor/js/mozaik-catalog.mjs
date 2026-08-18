@@ -17,9 +17,10 @@ export const MOZAIK_CATALOG = [
     "widthTrim": 6,
     "additionalSheetSizes": false,
     "displayName": "19_Melamine_Black",
-    "label": "19.05mm Melamine — Black",
+    "label": "19mm Melamine — Black",
     "textureId": "13323",
-    "textureName": "Black"
+    "textureName": "Black",
+    "isDefaultTexture": false
   },
   {
     "abbr": "19",
@@ -32,9 +33,10 @@ export const MOZAIK_CATALOG = [
     "widthTrim": 6,
     "additionalSheetSizes": false,
     "displayName": "19_Melamine_Chocolate",
-    "label": "19.05mm Melamine — Chocolate",
+    "label": "19mm Melamine — Chocolate",
     "textureId": "13324",
-    "textureName": "Chocolate"
+    "textureName": "Chocolate",
+    "isDefaultTexture": false
   },
   {
     "abbr": "19",
@@ -47,9 +49,10 @@ export const MOZAIK_CATALOG = [
     "widthTrim": 6,
     "additionalSheetSizes": false,
     "displayName": "19_Melamine_Gray",
-    "label": "19.05mm Melamine — Gray",
+    "label": "19mm Melamine — Gray",
     "textureId": "13325",
-    "textureName": "Gray"
+    "textureName": "Gray",
+    "isDefaultTexture": false
   },
   {
     "abbr": "19",
@@ -62,9 +65,10 @@ export const MOZAIK_CATALOG = [
     "widthTrim": 6,
     "additionalSheetSizes": false,
     "displayName": "19_Melamine_Monaco",
-    "label": "19.05mm Melamine — Monaco",
+    "label": "19mm Melamine — Monaco",
     "textureId": "13326",
-    "textureName": "Monaco"
+    "textureName": "Monaco",
+    "isDefaultTexture": false
   },
   {
     "abbr": "19",
@@ -77,9 +81,10 @@ export const MOZAIK_CATALOG = [
     "widthTrim": 6,
     "additionalSheetSizes": false,
     "displayName": "19_Melamine_White",
-    "label": "19.05mm Melamine — White",
+    "label": "19mm Melamine — White",
     "textureId": "13327",
-    "textureName": "White"
+    "textureName": "White",
+    "isDefaultTexture": true
   },
   {
     "abbr": "TOPS",
