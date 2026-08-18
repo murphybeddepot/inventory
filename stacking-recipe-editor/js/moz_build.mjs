@@ -20,6 +20,7 @@
 // browser). The exports do not import JSZip themselves so this module
 // stays plain ES with no bundler.
 
+import { buildOptFiles } from './nest_opt.mjs';
 export const BUILD_VERSION = '1.0.0';
 export const APP_VERSION = '1.3';
 
@@ -158,7 +159,7 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow, shell }) {
  * @returns {Promise<Blob>} zip blob, ready for a download <a> tag.
  */
 export async function buildJobZip({
-  layers, jobName, dims, prodPat, shell = null,
+  layers, jobName, dims, prodPat, shell = null, nest = null,
   mathRandom = Math.random, dateNow = Date.now,
 }) {
   if (typeof JSZip === 'undefined') {
@@ -176,9 +177,11 @@ export async function buildJobZip({
   const jf = zip.folder(jn);
   const prW = +dims.W || 425;
   const placed = [];
+  const layerTexts = [];                     // kept for the nest's part pool
   keys.forEach((k, i) => {
     const { pname, text } = emit.buildLayerMoz(k);
     jf.file(pname + '.moz', text);
+    layerTexts.push({ layer: (String(k).match(/\d+/) || [i + 1])[0], text });
     let px = text.slice(text.indexOf('<Product '));
     px = px.replace('UniqueID="' + px.match(/UniqueID="(\d+)"/)[1] + '"', 'UniqueID="' + (940001 + i) + '"');
     px = px.replace('IDTag="0"', 'IDTag="' + (i + 1) + '"');
@@ -202,5 +205,15 @@ export async function buildJobZip({
   jf.file('Frameless V10-JobParms.dat', FRAMELESS_JOBPARMS_B64, { base64: true });
   jf.file('Frameless V12-JobCusParms.dat', FRAMELESS_CUSPARMS_B64, { base64: true });
   jf.file('MBD Library-JobCusParms.dat', JOBCUS);
+  // v3.51 — the NEST rides along when one was made, so the optimizer opens
+  // the job with the sheets already laid out instead of asking the operator
+  // to re-optimize (which would throw the layer ordering away).
+  if (nest && nest.sheets && nest.sheets.length) {
+    const opt = buildOptFiles({ nest, layerTexts });
+    if (opt) {
+      jf.file(opt.optName, opt.optXml);
+      jf.file('OptimizeRuns.xml', opt.runsXml);
+    }
+  }
   return zip.generateAsync({ type: 'blob' });
 }

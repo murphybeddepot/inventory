@@ -576,7 +576,7 @@
         <button id="copyCSV">Copy CSV</button>
         <span style="width:1px;background:var(--line2);align-self:stretch"></span>
         <button id="dlMozFiles" class="primary" title="Emit one .moz file per stacking layer — feed to Mozaik individually.">Mozaik files (per-layer .moz)</button>
-        <button id="dlMozJob" class="primary" title="Full Mozaik job zip: Room1 + N layer .moz + JobDat + JobParms.">Mozaik job zip</button>
+        <button id="dlMozJob" class="primary" title="Full Mozaik job zip: Room1 + N layer .moz + JobDat + JobParms + the nested sheets (.opt) ready to post.">Mozaik job zip</button>
         <button id="btnNests" title="Nest these layers onto sheets — sheets fill in layer order, 16mm between parts. Opens the nest editor; come back with the sheets attached to this recipe.">&#129690; Nests&hellip;</button>
       </div>
       <p class="hint" style="margin:-4px 0 12px">The PDF is a visual, shareable layout: a cover summary, an all-layers overview sheet, and one page per layer (parts labelled, support flagged) — for discussion, not for the robot.</p>
@@ -995,7 +995,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.50';
+const APP_VERSION = '3.51';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3861,18 +3861,36 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
   }catch(err){toast('Could not hand the recipe over: '+err.message);return;}
   location.href='./nests.html';
 };
+/* v3.51 — the job zip carries the NEST too. Preference order: the sheets you
+   edited on the Nests page (stashed per SKU), else one nested on the spot from
+   the current layers, so the zip is never missing a nest just because the page
+   was not opened. Failure to nest is not fatal — you still get the layers. */
+async function nestForExport(){
+  try{
+    const stashed=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
+    if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')) return stashed;
+  }catch(err){/* fall through to a fresh nest */}
+  try{
+    const parts=nestPartsFromRecipe();
+    if(!parts.length) return null;
+    const {nestByLayer}=await import('./js/nest.mjs');
+    const r=nestByLayer(parts);
+    return r&&r.sheets&&r.sheets.length?r:null;
+  }catch(err){ _dbg('nest for export failed: '+err.message); return null; }
+}
 $('dlMozJob').onclick=async()=>{
   if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
   try{
     const snap=snapshot();
     snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;
-    const blob=await window.MozIO.exportJobZip(snap,{jobName:S.sku||'Order'});
+    const nest=await nestForExport();
+    const blob=await window.MozIO.exportJobZip(snap,{jobName:S.sku||'Order',nest});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
     a.download=(S.sku||'Order')+'.zip';
     a.click();
     URL.revokeObjectURL(a.href);
-    toast('Downloaded Mozaik job zip');
+    toast(nest?('Downloaded Mozaik job zip — with '+nest.sheets.length+' nested sheet'+(nest.sheets.length===1?'':'s')):'Downloaded Mozaik job zip (no nest — open Nests to add sheets)');
   }catch(err){toast('Export failed: '+err.message);}
 };
 

@@ -198,7 +198,7 @@ function _snapshotToLayers(snapshot) {
  * Build a Mozaik job zip from the snapshot. Returns a Blob for direct
  * download via <a href={URL.createObjectURL(blob)}>.
  */
-export async function exportJobZip(snapshot, { jobName } = {}) {
+export async function exportJobZip(snapshot, { jobName, nest = null } = {}) {
   const layers = _snapshotToLayers(snapshot);
   return buildJobZip({
     layers,
@@ -206,6 +206,10 @@ export async function exportJobZip(snapshot, { jobName } = {}) {
     dims: DEFAULT_DIMS,
     prodPat: `${snapshot.sku || 'Layer'} {layer}`,
     shell: snapshot.sourceShell || null,
+    // v3.51 — when a nest exists it ships inside the job as optimizer state
+    // (see nest_opt.mjs), so the operator opens the job and posts rather than
+    // re-optimizing and losing the layer ordering.
+    nest,
   });
 }
 
