@@ -58,11 +58,10 @@ const q = new URLSearchParams(location.search);
 let recipe = null, nest = null, sheetIdx = 0, editing = false, selected = null;
 
 try { recipe = JSON.parse(sessionStorage.getItem(KEY_IN) || 'null'); } catch (e) { recipe = null; }
-if (!recipe || !Array.isArray(recipe.parts) || !recipe.parts.length) {
-  document.body.innerHTML = '<div class="err"><b>No recipe handed over.</b><br>' +
-    'Open this page from the recipe editor’s <b>Nests</b> button so it knows which parts to nest. ' +
-    '<a href="./index.html">Back to the editor</a>.</div>';
-} else { boot(); }
+// boot() runs at the BOTTOM of this module, after every const it depends on.
+// Booting here threw "Cannot access 'colorOf' before initialization", which
+// killed the module mid-run: blank sheet AND dead buttons, because the click
+// wiring below never executed.
 
 function boot() {
   $('sub').textContent = `${recipe.sku || '(unnamed)'} · ${recipe.parts.length} parts · ` +
@@ -131,6 +130,7 @@ function snap(p, rawX, rawY, others) {
 }
 let drag = null;
 const svg = $('board'), tip = $('tip');
+if (svg) {
 svg.addEventListener('pointerdown', e => {
   const g = e.target.closest('.part'); if (!g) { selected = null; draw(); return; }
   selected = nest.sheets[sheetIdx].placements[+g.dataset.i];
@@ -153,6 +153,7 @@ svg.addEventListener('pointermove', e => {
   drag.p.x = nx; drag.p.y = ny; drag.p._moved = true; draw();
 });
 svg.addEventListener('pointerup', () => { drag = null; draw(); });
+}
 function renderPanel() {
   const s = nest.sheets[sheetIdx];
   if (selected && editing) {
@@ -197,4 +198,13 @@ $('back').onclick = () => { stash(); location.href = './index.html'; };
 $('apply').onclick = () => { stash(); alert('Nests saved for this recipe — the editor’s Mozaik job export will use them.'); location.href = './index.html'; };
 function stash() { try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {} }
 addEventListener('beforeunload', stash);
+
+// ---- start ------------------------------------------------------------------
+if (!recipe || !Array.isArray(recipe.parts) || !recipe.parts.length) {
+  document.body.innerHTML = '<div class="err"><b>No recipe handed over.</b><br>' +
+    'Open this page from the recipe editor\u2019s <b>Nests</b> button so it knows which parts to nest. ' +
+    '<a href="./index.html">Back to the editor</a>.</div>';
+} else {
+  boot();
+}
 </script></body></html>
