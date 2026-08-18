@@ -77,7 +77,16 @@ const box = (p) => {
 // Not the theoretical maximal-rectangle set — this is deliberately the simple,
 // checkable version, and every candidate is verified against every placement
 // before it is used.
-export function freeRects(sheet, { sheetL, sheetW, edge = 3, gap = 16, minDimMM = 100 }) {
+// The narrow-strip floor. A free rectangle thinner than this on EITHER side is
+// left whole instead of being diced: the 16mm corridors between parts are
+// chips, not scrap, and dicing them was the bulk of the "massively excessive
+// number of cuts" Zac saw. It is a default, not a law — the nest screen
+// exposes it, and shows what it skipped, because a silently-uncut strip looks
+// like a bug (Zac 2026-08-18: "why is the long strip above 1E ... not cut up
+// at all?" — it was a 78in x 3.2in strip one millimetre under the floor).
+export const DEFAULT_MIN_DIM_MM = 100;
+
+export function freeRects(sheet, { sheetL, sheetW, edge = 3, gap = 16, minDimMM = DEFAULT_MIN_DIM_MM }) {
   const parts = (sheet.placements || []).map(box);
   const xs = new Set([edge, sheetL - edge]);
   for (const [x0, x1] of parts) {
@@ -119,6 +128,17 @@ export function freeRects(sheet, { sheetL, sheetW, edge = 3, gap = 16, minDimMM 
   return merged
     .filter(r => r.w >= MIN_DIM && r.h >= MIN_DIM)
     .map(r => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
+}
+
+// What the floor threw away — the strips on the drawing that carry no dice.
+// Corridor chips are excluded (short side under 25mm, or under 0.02 m2) so the
+// overlay shows real leftover material and not the gaps between parts.
+export function skippedStrips(sheet, opts, minDimMM = DEFAULT_MIN_DIM_MM) {
+  const kept = freeRects(sheet, { ...opts, minDimMM });
+  const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+  return freeRects(sheet, { ...opts, minDimMM: 0 })
+    .filter(r => !kept.some(k => same(k, r)))
+    .filter(r => Math.min(r.w, r.h) >= 25 && r.w * r.h >= 20000);
 }
 
 function fitsClear(cand, placements, gap) {

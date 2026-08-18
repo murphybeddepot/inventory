@@ -63,6 +63,9 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <label class="soft">skip offcuts under
     <select id="diceMin"><option value="0">nothing</option><option value="288" selected>2 sq ft</option>
       <option value="576">4 sq ft</option><option value="1152">8 sq ft</option></select></label>
+  <label class="soft">leave strips under
+    <select id="diceStrip"><option value="50">2in</option><option value="75">3in</option>
+      <option value="100" selected>4in</option><option value="150">6in</option></select></label>
   <span class="soft" id="diceCost"></span>
   <button id="addSheet">+ Sheet</button>
   <button id="delSheet">✕ Remove sheet</button>
@@ -115,7 +118,7 @@ import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs';
 import { APP_VERSION } from './js/version.mjs';
-import { fitSalvage, dicePlan, diceCost, scrapSummary, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
+import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar } from './js/scrap.mjs';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
@@ -134,7 +137,7 @@ const $ = id => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 let recipe = null, nest = null, sheetIdx = 0, editing = false, selected = null;
 let materials = [], matId = null;
-let showDice = false, dice = [];
+let showDice = false, dice = [], skipped = [];
 
 try { recipe = JSON.parse(sessionStorage.getItem(KEY_IN) || 'null'); } catch (e) { recipe = null; }
 // boot() runs at the BOTTOM of this module, after every const it depends on.
@@ -314,6 +317,16 @@ function draw() {
     g += `<rect x="${M + d.x}" y="${M + (W - d.y - d.h)}" width="${d.w}" height="${d.h}"
       fill="none" stroke="var(--soft)" stroke-width="1.2" stroke-dasharray="10 8" opacity=".85"/>`;
   }
+  // Strips the floor left whole get their own mark and their size, so an uncut
+  // run of material reads as a decision instead of a bug.
+  for (const r of (showDice ? skipped : [])) {
+    const inw = (Math.min(r.w, r.h) / IN).toFixed(1), inl = (Math.max(r.w, r.h) / IN).toFixed(0);
+    g += `<rect x="${M + r.x}" y="${M + (W - r.y - r.h)}" width="${r.w}" height="${r.h}"
+      fill="none" stroke="var(--warn,#b06f00)" stroke-width="2" stroke-dasharray="4 6" opacity=".9"/>`
+      + `<text x="${M + r.x + r.w / 2}" y="${M + (W - r.y - r.h / 2)}" font-size="${Math.max(18, Math.min(34, Math.min(r.w, r.h) * .55))}"
+        text-anchor="middle" dominant-baseline="central" fill="var(--warn,#b06f00)"
+        font-family="ui-monospace,Consolas,monospace">${inl}\u2033 \u00d7 ${inw}\u2033 left whole</text>`;
+  }
   s.placements.forEach((p, i) => {
     const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0;
     const cls = 'part' + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap) ? ' bad' : '')
@@ -485,19 +498,24 @@ $('diceBtn').onclick = () => {
   recomputeDice(); draw();
 };
 function recomputeDice() {
-  if (!showDice) { dice = []; $('diceCost').textContent = ''; return; }
-  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge };
+  if (!showDice) { dice = []; skipped = []; $('diceCost').textContent = ''; return; }
+  const minDimMM = parseFloat($('diceStrip').value) || 100;
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge, minDimMM };
   const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
   const minIn2 = parseFloat($('diceMin').value) || 0;
   dice = dicePlan(nest.sheets[sheetIdx], opts, maxIn, minIn2);
+  skipped = skippedStrips(nest.sheets[sheetIdx], opts, minDimMM);
   // Every dice cut is machine time, so show what it costs BEFORE it is posted.
   // Feeds are the ones the posted NC uses on this router (F22800 / F5000).
   const c = diceCost(dice);
-  $('diceCost').textContent = dice.length
+  const strip = skipped.length
+    ? ` · ${skipped.length} strip(s) under ${(minDimMM / IN).toFixed(0)}in left whole`
+    : '';
+  $('diceCost').textContent = (dice.length
     ? `${c.pieces} pieces · ${c.metres.toFixed(1)}m of cutting · ~${c.seconds}s added to this sheet`
-    : 'nothing to dice on this sheet';
+    : 'nothing to dice on this sheet') + strip;
 }
-$('diceMax').onchange = $('diceMin').onchange = () => { recomputeDice(); draw(); };
+$('diceMax').onchange = $('diceMin').onchange = $('diceStrip').onchange = () => { recomputeDice(); draw(); };
 $('addSheet').onclick = () => {
   nest.sheets.push({ layers: [], placements: [] });
   sheetIdx = nest.sheets.length - 1; selected = null;
