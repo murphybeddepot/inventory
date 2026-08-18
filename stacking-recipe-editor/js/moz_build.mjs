@@ -209,7 +209,9 @@ export async function buildJobZip({
   // the job with the sheets already laid out instead of asking the operator
   // to re-optimize (which would throw the layer ordering away).
   if (nest && nest.sheets && nest.sheets.length) {
-    const opt = buildOptFiles({ nest, layerTexts });
+    // the material travels with the nest so the .opt carries the identity of
+    // the stock actually chosen (white 1550x2770 vs the 5x8 boards), not a default
+    const opt = buildOptFiles({ nest, layerTexts, material: nest.material || {} });
     if (opt) {
       jf.file(opt.optName, opt.optXml);
       jf.file('OptimizeRuns.xml', opt.runsXml);

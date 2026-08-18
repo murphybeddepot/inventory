@@ -21,13 +21,27 @@ const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"
 
 export const DEFAULT_MATERIAL = {
   displayName: '19_Melamine_White', abbr: '19', materialId: '334', textureId: '13327',
-  thickness: 19.05, length: 2770, width: 1550,
+  thickness: 19.05, length: 2770, width: 1550, lengthTrim: 3, widthTrim: 3,
 };
 
 // layerTexts: [{ layer, text }] — the generated layer .moz XML
 // nest: { sheets:[{ placements:[{name,layer,l,w,x,y,rotation}] }], edge }
 export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewCNC-MD' }) {
-  const M = { ...DEFAULT_MATERIAL, ...material };
+  // an empty string from a UI field must not beat the default, and trims of 0
+  // are legitimate, so merge field-by-field rather than spreading blindly
+  const M = { ...DEFAULT_MATERIAL };
+  for (const [k, v] of Object.entries(material || {})) {
+    if (v === '' || v === null || v === undefined) continue;
+    M[k] = v;
+  }
+  // A DIFFERENT material with no TextureId must not inherit white's id — that
+  // would bind a black/monaco nest to the wrong board in Mozaik and look
+  // perfectly fine on screen. -1 is Mozaik's own "unset" (it uses it for
+  // Texture2Id), so the operator gets asked instead of getting white.
+  if (material && material.displayName && material.displayName !== DEFAULT_MATERIAL.displayName
+      && !String(material.textureId || '').trim()) {
+    M.textureId = '-1';
+  }
   if (!nest || !Array.isArray(nest.sheets) || !nest.sheets.length) return null;
 
   // --- part pool, straight from the layer products -------------------------
@@ -88,7 +102,8 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const optXml = `8${NL}<?xml version="1.0" encoding="utf-8" standalone="yes"?>${NL}`
     + `<OptimizeMaterial RunId="1" DisplayName="${M.displayName}" Abbr="${M.abbr}" MaterialId="${M.materialId}" `
     + `TextureId="${M.textureId}" Thickness="${M.thickness}" Width="${M.width}" Length="${M.length}" `
-    + `HasGrain="False" WidthTrim="${nest.edge ?? 3}" LengthTrim="${nest.edge ?? 3}" FeedRate="100" Comment="" `
+    + `HasGrain="False" WidthTrim="${M.widthTrim ?? nest.edge ?? 3}" LengthTrim="${M.lengthTrim ?? nest.edge ?? 3}" `
+    + `FeedRate="100" Comment="" `
     + `CustomerName="" OptParamSpeed="2" OptParamMachineName="" OptParamSeqByCabN="True" `
     + `OptParamSeqFlipsideFirst="False" OptParamRemnantUsagePolicy="0" IsLegacy="False">${NL}`
     + partXml.join(NL) + NL + sheetXml.join(NL) + NL + `</OptimizeMaterial>${NL}`;
