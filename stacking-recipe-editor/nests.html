@@ -73,7 +73,19 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <select id="matSel"></select>
   <span class="soft" id="matDesc"></span>
   <button id="matEdit">⚙ Materials…</button>
+  <button id="catEdit">⚙ Scrap parts…</button>
 </div>
+<div id="catModal" class="modalbg"><div class="modal">
+  <h2>Scrap salvage parts <span style="flex:1"></span><button id="catClose">✕</button></h2>
+  <p class="soft" style="margin:0 0 10px">What "Fill scrap" tries to recover from the offcut, biggest first.
+    Crates are cut from the same 19mm melamine, so these come off the sheet you are already cutting.
+    <b>Qty is how many you want in total across this nest</b>, not per sheet.</p>
+  <div id="catRows"></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button id="catAdd">+ Add part</button><span style="flex:1"></span>
+    <button id="catSave" class="primary">Save parts</button>
+  </div>
+</div></div>
 <div id="matModal" class="modalbg"><div class="modal">
   <h2>Sheet materials <span style="flex:1"></span>
     <label class="soft" style="font-weight:400">units
@@ -101,8 +113,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs';
-import { fitSalvage, dicePlan, diceCost, scrapSummary, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN }
-  from './js/scrap.mjs';
+import { fitSalvage, dicePlan, diceCost, scrapSummary, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
+         loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar } from './js/scrap.mjs';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -211,6 +223,33 @@ $('matAdd').onclick = () => {
   renderMatRows(collectMatRows(unit).concat(normMat({ label: 'New material', displayName: '19_Melamine_', abbr: '19', materialId: '334' })), unit);
 };
 $('matClose').onclick = () => $('matModal').classList.remove('on');
+$('catEdit').onclick = () => { renderCatRows(catalog()); $('catModal').classList.add('on'); };
+$('catClose').onclick = () => $('catModal').classList.remove('on');
+function renderCatRows(list) {
+  const done = salvagedSoFar(nest.sheets);
+  $('catRows').innerHTML =
+    `<div class="matrow" style="grid-template-columns:1.2fr 1.4fr .8fr .8fr .6fr .8fr auto">` +
+    ['Code', 'Description', 'Length (mm)', 'Width (mm)', 'Qty wanted', 'In nest', ''].map(h => `<div class="hd">${h}</div>`).join('') + '</div>' +
+    list.map((c, i) => `<div class="matrow" data-i="${i}" style="grid-template-columns:1.2fr 1.4fr .8fr .8fr .6fr .8fr auto">
+      <input data-f="name" value="${escAttr(c.name)}">
+      <input data-f="label" value="${escAttr(c.label)}">
+      <input data-f="l" value="${c.l}"><input data-f="w" value="${c.w}">
+      <input data-f="qty" value="${c.qty}">
+      <div class="soft" style="font-size:12px">${done[c.name] || 0} placed</div>
+      <button data-del="${i}">✕</button></div>`).join('');
+  $('catRows').querySelectorAll('button[data-del]').forEach(b => b.onclick = () => {
+    const l = collectCatRows(); l.splice(+b.dataset.del, 1); renderCatRows(l);
+  });
+}
+function collectCatRows() {
+  return [...$('catRows').querySelectorAll('.matrow[data-i]')].map(row => {
+    const o = {}; row.querySelectorAll('input[data-f]').forEach(i => { o[i.dataset.f] = i.value; });
+    return normalizeCat(o);
+  });
+}
+$('catAdd').onclick = () => renderCatRows(collectCatRows().concat(normalizeCat({ name: 'NEW', label: 'New part', l: 500, w: 300, qty: 1 })));
+$('catSave').onclick = () => { saveCatalog(collectCatRows()); $('catModal').classList.remove('on');
+  alert('Saved. "Fill scrap" will use these from now on.'); };
 $('matSave').onclick = () => {
   const list = collectMatRows($('matUnit').value).filter(m => m.label);
   if (!list.length) { alert('Keep at least one material.'); return; }
@@ -407,10 +446,20 @@ addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') { e.preventDefault(); rotateSelected(); }
 });
 // ---- scrap: salvage known parts, then dice the rest --------------------------
+function catalog() { return loadCatalog(); }
 $('scrapBtn').onclick = () => {
   const s = nest.sheets[sheetIdx];
   const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge };
-  const got = fitSalvage(s, opts, DEFAULT_CATALOG);
+  // budget counts what is ALREADY salvaged on every sheet, so filling five
+  // sheets cannot quietly produce five crates' worth
+  const cat = catalog();
+  const budget = remainingBudget(nest.sheets, cat);
+  const wanted = Object.values(budget).reduce((a, b) => a + b, 0);
+  if (!wanted) {
+    alert('Every catalogue part is already salvaged in this nest. Raise the quantities in ⚙ Scrap parts to recover more.');
+    return;
+  }
+  const got = fitSalvage(s, opts, cat, budget);
   if (got.length) s.placements.push(...got);
   // Dice regardless: if no crate panel fits, the offcut still has to come off
   // in pieces someone can carry — that is the whole point of the pass.
@@ -418,8 +467,10 @@ $('scrapBtn').onclick = () => {
   recomputeDice();
   buildTabs(); draw();
   const sum = scrapSummary(s, opts, dice);
+  const done = salvagedSoFar(nest.sheets);
   const head = got.length
-    ? `Salvaged ${got.length} part(s) from the offcut: ${got.map(g => g.name).join(', ')}.`
+    ? `Salvaged ${got.length} part(s) from the offcut: ${got.map(g => g.name).join(', ')}.\n`
+      + `Nest total so far: ${catalog().map(c => `${c.name} ${done[c.name] || 0}/${c.qty}`).join(', ')}.`
     : `No catalogue part fits what is left on this sheet (smallest is ${
         Math.min(...DEFAULT_CATALOG.map(c => Math.min(c.l, c.w)))}mm on its short side).`;
   alert(`${head}\nSheet is ${(sum.usedPct * 100).toFixed(0)}% used; the rest dices into ${sum.pieces} piece(s) ` +

@@ -21,6 +21,44 @@ export const DEFAULT_MAX_PIECE_IN = 11.9;
 
 // Crate panels, from "v2 Crate 80x43xH". qty is per crate; leave a part out of
 // the catalogue (or set qty 0) and it will not be salvaged.
+// Crates ARE cut from 19mm melamine (Zac 2026-08-18), so salvaging these off
+// an offcut is straight material recovery — the same sheet either way.
+// qty is how many of that panel you want IN TOTAL across the job, not per
+// sheet: filling scrap sheet by sheet against a fresh budget quietly produced
+// a crate's worth per sheet.
+const CAT_KEY = 'mbd_scrap_catalog_v1';
+export function loadCatalog() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CAT_KEY) || 'null');
+    if (Array.isArray(raw) && raw.length) return raw.map(normalizeCat);
+  } catch (e) { /* defaults */ }
+  return DEFAULT_CATALOG.map(normalizeCat);
+}
+export function saveCatalog(list) {
+  const clean = (list || []).filter(c => c && c.name).map(normalizeCat);
+  localStorage.setItem(CAT_KEY, JSON.stringify(clean));
+  return clean;
+}
+export function normalizeCat(c) {
+  const n = (v, d) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? x : d; };
+  return { name: String(c.name || 'PART'), label: String(c.label || c.name || 'Part'),
+    l: n(c.l, 100), w: n(c.w, 100), qty: Math.max(0, Math.floor(Number(c.qty) || 0)) };
+}
+// How many of each catalogue part are ALREADY salvaged anywhere in the nest.
+export function salvagedSoFar(sheets) {
+  const t = {};
+  for (const s of sheets || []) for (const p of (s.placements || [])) {
+    if (p.salvage) t[p.name] = (t[p.name] || 0) + 1;
+  }
+  return t;
+}
+export function remainingBudget(sheets, catalog) {
+  const have = salvagedSoFar(sheets);
+  const left = {};
+  for (const c of catalog) left[c.name] = Math.max(0, c.qty - (have[c.name] || 0));
+  return left;
+}
+
 export const DEFAULT_CATALOG = [
   { name: 'BOT', label: 'Crate bottom', l: 2032, w: 1092.2, qty: 1 },
   { name: 'TOP', label: 'Crate top', l: 2032, w: 1092.2, qty: 1 },
