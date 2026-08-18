@@ -165,12 +165,19 @@
   .panelsec h3 .spacer{flex:1}
   .panelsec .pad{padding:4px 12px 12px}
   .inspector .empty{padding:18px 14px;color:var(--ink3);text-align:center;line-height:1.5}
-  .field{display:flex;align-items:center;gap:8px;margin:6px 0}
-  .field label{flex:0 0 92px;font-size:11px}
-  .field .ctl{flex:1;display:flex;gap:6px;align-items:center}
+  .field{display:flex;align-items:center;gap:8px;margin:6px 0;min-width:0}
+  .field label{flex:0 0 92px;font-size:11px;min-width:0}
+  .field .ctl{flex:1;display:flex;gap:6px;align-items:center;min-width:0}
   .field input.num{width:100%}
-  .twocol{display:flex;gap:8px}
-  .twocol .field{flex:1;margin:6px 0}
+  /* v3.50 — a flex child defaults to min-width:auto, so a <select> as wide as
+     its longest option ("Reserve for BOTTOM layer(s)") refused to shrink and
+     pushed these rows past the 326px column, clipping the right side. Let the
+     controls shrink and cap them at the column. */
+  .field .ctl select,.field .ctl input,.field .ctl>*{min-width:0;max-width:100%}
+  .col.right .colbody{overflow-x:hidden}
+  .panelsec .pad{min-width:0;overflow-wrap:anywhere}
+  .twocol{display:flex;gap:8px;min-width:0}
+  .twocol .field{flex:1;margin:6px 0;min-width:0}
   .twocol .field label{flex:0 0 auto}
   .insp-title{font-family:var(--mono);font-size:12px;padding:2px 0 8px;line-height:1.35}
   .insp-title .pn{color:var(--ink3);font-size:10.5px}
@@ -186,7 +193,10 @@
   .layeritem .acts{display:flex;gap:3px;opacity:0}
   .layeritem:hover .acts{opacity:1}
   .layeritem .acts button{padding:2px 6px;font-size:11px}
-  .layeradd{padding:8px 12px;display:flex;gap:6px}
+  /* v3.50 — five buttons on one un-wrapped flex line ran 19px past the
+     326px column, so "Clear stack" was cut off (measured, not guessed). */
+  .layeradd{padding:8px 12px;display:flex;gap:6px;flex-wrap:wrap}
+  .layeradd button{flex:0 1 auto;min-width:0}
 
   .stacksum{padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--ink2);display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
   .stacksum b{color:var(--ink);font-weight:700}
@@ -281,6 +291,7 @@
       <button id="btnLibrary">Library…</button>
       <button id="btnSave">Save recipe</button>
       <button id="btnExport">Export…</button>
+      <button id="btnNestsTop" title="Nest this recipe's layers onto sheets, then come back">&#129690; Nests</button>
       <button id="btnHelp" class="ghost" title="Shortcuts & coordinate model">?</button>
     </div>
   </header>
@@ -566,7 +577,7 @@
         <span style="width:1px;background:var(--line2);align-self:stretch"></span>
         <button id="dlMozFiles" class="primary" title="Emit one .moz file per stacking layer — feed to Mozaik individually.">Mozaik files (per-layer .moz)</button>
         <button id="dlMozJob" class="primary" title="Full Mozaik job zip: Room1 + N layer .moz + JobDat + JobParms.">Mozaik job zip</button>
-        <button id="btnNests" title="Nest these layers onto sheets — sheets fill in layer order, 16mm between parts. Opens the nest editor; come back with the sheets attached to this recipe.">&#129691; Nests&hellip;</button>
+        <button id="btnNests" title="Nest these layers onto sheets — sheets fill in layer order, 16mm between parts. Opens the nest editor; come back with the sheets attached to this recipe.">&#129690; Nests&hellip;</button>
       </div>
       <p class="hint" style="margin:-4px 0 12px">The PDF is a visual, shareable layout: a cover summary, an all-layers overview sheet, and one page per layer (parts labelled, support flagged) — for discussion, not for the robot.</p>
       <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px">
@@ -984,7 +995,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.49';
+const APP_VERSION = '3.50';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3842,7 +3853,7 @@ function nestPartsFromRecipe(){
   });
   return out;
 }
-$('btnNests').onclick=()=>{
+$('btnNestsTop').onclick=$('btnNests').onclick=()=>{
   const parts=nestPartsFromRecipe();
   if(!parts.length){toast('Nothing to nest — place some parts on a layer first');return;}
   try{
