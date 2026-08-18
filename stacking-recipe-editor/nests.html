@@ -49,6 +49,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <header>
   <h1>Nests</h1>
   <span class="soft" id="sub">—</span>
+  <span class="soft" id="ver" style="margin-left:auto;font-family:ui-monospace,Consolas,monospace"></span>
 </header>
 <div class="bar">
   <button id="back">← Back to recipe</button>
@@ -113,6 +114,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs';
+import { APP_VERSION } from './js/version.mjs';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar } from './js/scrap.mjs';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
@@ -141,6 +143,7 @@ try { recipe = JSON.parse(sessionStorage.getItem(KEY_IN) || 'null'); } catch (e)
 // wiring below never executed.
 
 function boot() {
+  $('ver').textContent = 'v' + APP_VERSION;
   materials = loadMaterials();
   const prevNest = safeParse(sessionStorage.getItem(KEY_OUT));
   matId = (prevNest && prevNest.material && prevNest.material.id) || localStorage.getItem('mbd_last_material') || materials[0].id;
@@ -534,7 +537,7 @@ addEventListener('beforeunload', stash);
 if (!recipe || !Array.isArray(recipe.parts) || !recipe.parts.length) {
   document.body.innerHTML = '<div class="err"><b>No recipe handed over.</b><br>' +
     'Open this page from the recipe editor\u2019s <b>Nests</b> button so it knows which parts to nest. ' +
-    '<a href="./index.html">Back to the editor</a>.</div>';
+    '<a href="./index.html">Back to the editor</a>.<div style="margin-top:8px;opacity:.7">v' + APP_VERSION + '</div></div>';
 } else {
   boot();
 }
