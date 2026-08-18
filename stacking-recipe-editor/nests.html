@@ -3,9 +3,9 @@
 <title>Nests — Stacking Recipe Editor</title>
 <style>
 :root{--bg:#F6F4EE;--ink:#26241F;--soft:#6B665C;--line:#D8D3C6;--board:#FDFCF8;
-  --edge:#C9C2B2;--accent:#C25A11;--chip:#ECE8DD;--corridor:#EFEBE0;--bad:#B02A18}
+  --edge:#C9C2B2;--accent:#C25A11;--chip:#ECE8DD;--corridor:#EFEBE0;--bad:#B02A18;--salvage:#9DBF9E}
 @media (prefers-color-scheme:dark){:root{--bg:#1B1D21;--ink:#E6E3DC;--soft:#9B968B;--line:#3A3D44;
-  --board:#24262C;--edge:#4A4E58;--accent:#E8843C;--chip:#2C2F36;--corridor:#202228;--bad:#E5654F}}
+  --board:#24262C;--edge:#4A4E58;--accent:#E8843C;--chip:#2C2F36;--corridor:#202228;--bad:#E5654F;--salvage:#3E6B45}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 header{padding:14px 20px 6px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:baseline}
@@ -54,6 +54,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="back">← Back to recipe</button>
   <button id="renest">↻ Re-nest from recipe</button>
   <button id="edit" aria-pressed="false">✏️ Edit</button>
+  <button id="scrapBtn">♻ Fill scrap</button>
+  <button id="diceBtn" aria-pressed="false">▦ Show offcut dice</button>
   <button id="addSheet">+ Sheet</button>
   <button id="delSheet">✕ Remove sheet</button>
   <button id="apply" class="primary">Save for this material →</button>
@@ -92,6 +94,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs';
+import { fitSalvage, dicePlan, scrapSummary, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN }
+  from './js/scrap.mjs';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -109,6 +113,7 @@ const $ = id => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 let recipe = null, nest = null, sheetIdx = 0, editing = false, selected = null;
 let materials = [], matId = null;
+let showDice = false, dice = [];
 
 try { recipe = JSON.parse(sessionStorage.getItem(KEY_IN) || 'null'); } catch (e) { recipe = null; }
 // boot() runs at the BOTTOM of this module, after every const it depends on.
@@ -252,12 +257,17 @@ function draw() {
   let g = `<rect x="${M}" y="${M}" width="${L}" height="${W}" fill="var(--board)" stroke="var(--edge)" stroke-width="3"/>`
     + `<rect x="${M + nest.edge}" y="${M + nest.edge}" width="${L - 2 * nest.edge}" height="${W - 2 * nest.edge}"
         fill="none" stroke="var(--edge)" stroke-width="1" stroke-dasharray="12 10" opacity=".7"/>`;
+  for (const d of (showDice ? dice : [])) {
+    g += `<rect x="${M + d.x}" y="${M + (W - d.y - d.h)}" width="${d.w}" height="${d.h}"
+      fill="none" stroke="var(--soft)" stroke-width="1.2" stroke-dasharray="10 8" opacity=".85"/>`;
+  }
   s.placements.forEach((p, i) => {
     const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0;
     const cls = 'part' + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap) ? ' bad' : '')
       + (p._moved ? ' moved' : '');
+    const fill = p.salvage ? 'var(--salvage)' : colorOf(p.layer);
     g += `<g class="${cls}" data-i="${i}"><rect x="${M + x0}" y="${M + (W - y1)}" width="${w}" height="${h}"
-      fill="${colorOf(p.layer)}" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1.6"/>
+      fill="${fill}" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1.6"/>
       <text x="${M + x0 + w / 2}" y="${M + (W - y1) + h / 2}" font-size="${Math.max(22, Math.min(46, Math.min(w, h) * .4))}"
         text-anchor="middle" dominant-baseline="central" fill="var(--ink)"
         font-family="ui-monospace,Consolas,monospace" font-weight="600">${esc(p.name)}</text></g>`;
@@ -304,16 +314,19 @@ svg.addEventListener('pointermove', e => {
     nest.sheets[sheetIdx].placements);
   drag.p.x = nx; drag.p.y = ny; drag.p._moved = true; draw();
 });
-svg.addEventListener('pointerup', () => { if (drag) { drag = null; buildTabs(); } draw(); });
+svg.addEventListener('pointerup', () => { if (drag) { drag = null; recomputeDice(); buildTabs(); } draw(); });
 }
 function renderPanel() {
   const s = nest.sheets[sheetIdx];
   if (selected && editing) {
     const btns = nest.sheets.map((_, i) => i === sheetIdx ? '' :
       `<button data-to="${i}">→ Sheet ${i + 1}</button>`).join(' ');
-    $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · layer ${selected.layer}
-      · (${selected.x}, ${selected.y}) &nbsp; Send to: ${btns}`;
+    $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · `
+      + `${selected.salvage ? 'salvage' : 'layer ' + selected.layer} · (${selected.x}, ${selected.y})`
+      + `${selected.rotation ? ' · rot ' + selected.rotation + '°' : ''}`
+      + ` &nbsp; <button id="rotBtn">↻ Rotate 90° (R)</button> &nbsp; Send to: ${btns}`;
     $('sel').querySelectorAll('button[data-to]').forEach(b => b.onclick = () => sendTo(+b.dataset.to));
+    const rb = $('rotBtn'); if (rb) rb.onclick = rotateSelected;
   } else if (selected) {
     $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · layer ${selected.layer} · (${selected.x}, ${selected.y})`;
   } else $('sel').textContent = 'Click a part to select it.';
@@ -345,7 +358,7 @@ function sendTo(target) {
   dest.placements.push(p);
   if (!dest.layers.includes(p.layer)) dest.layers.push(p.layer), dest.layers.sort((a, b) => a - b);
   const wasFrom = nest.sheets[from];
-  sheetIdx = target; buildTabs(); draw();
+  sheetIdx = target; recomputeDice(); buildTabs(); draw();
   // A sheet emptied by that move is dead weight in the job — offer to drop it.
   if (wasFrom && !wasFrom.placements.length && nest.sheets.length > 1) {
     if (confirm(`Sheet ${from + 1} is now empty. Remove it?`)) {
@@ -355,6 +368,61 @@ function sendTo(target) {
       buildTabs(); draw();
     }
   }
+}
+// ---- rotate a selected part (Zac 2026-08-18) --------------------------------
+function rotateSelected() {
+  if (!selected) return;
+  const s = nest.sheets[sheetIdx];
+  const before = { rotation: selected.rotation, x: selected.x, y: selected.y };
+  selected.rotation = (((selected.rotation || 0) + 90) % 360);
+  // rotating changes the footprint, so pull it back inside the sheet and let
+  // the same snap that governs dragging tidy the position. Footprint comes
+  // from partBox — the one place that knows how rotation maps to extents.
+  const [bx0, bx1, by0, by1] = partBox(selected);
+  const w = bx1 - bx0, h = by1 - by0;
+  selected.x = Math.max(nest.edge, Math.min(selected.x, nest.sheetL - nest.edge - w));
+  selected.y = Math.max(nest.edge, Math.min(selected.y, nest.sheetW - nest.edge - h));
+  const [nx, ny] = snap(selected, selected.x, selected.y, s.placements);
+  selected.x = nx; selected.y = ny; selected._moved = true;
+  if (violates(selected, s.placements, nest.gap)) {
+    // leave it, but say so — red already shows it; undoing silently would hide
+    // that the rotation does not fit where it sits
+    $('hint').textContent = `${selected.name} rotated but is now closer than ${nest.gap}mm — move it or rotate back`;
+  }
+  buildTabs(); draw();
+}
+addEventListener('keydown', e => {
+  if (!editing || !selected) return;
+  if (e.key === 'r' || e.key === 'R') { e.preventDefault(); rotateSelected(); }
+});
+// ---- scrap: salvage known parts, then dice the rest --------------------------
+$('scrapBtn').onclick = () => {
+  const s = nest.sheets[sheetIdx];
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge };
+  const got = fitSalvage(s, opts, DEFAULT_CATALOG);
+  if (got.length) s.placements.push(...got);
+  // Dice regardless: if no crate panel fits, the offcut still has to come off
+  // in pieces someone can carry — that is the whole point of the pass.
+  showDice = true; $('diceBtn').setAttribute('aria-pressed', 'true');
+  recomputeDice();
+  buildTabs(); draw();
+  const sum = scrapSummary(s, opts, dice);
+  const head = got.length
+    ? `Salvaged ${got.length} part(s) from the offcut: ${got.map(g => g.name).join(', ')}.`
+    : `No catalogue part fits what is left on this sheet (smallest is ${
+        Math.min(...DEFAULT_CATALOG.map(c => Math.min(c.l, c.w)))}mm on its short side).`;
+  alert(`${head}\nSheet is ${(sum.usedPct * 100).toFixed(0)}% used; the rest dices into ${sum.pieces} piece(s) ` +
+    `no bigger than ${DEFAULT_MAX_PIECE_IN}in for the scrap bin.`);
+};
+$('diceBtn').onclick = () => {
+  showDice = !showDice;
+  $('diceBtn').setAttribute('aria-pressed', showDice);
+  recomputeDice(); draw();
+};
+function recomputeDice() {
+  if (!showDice) { dice = []; return; }
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge };
+  dice = dicePlan(nest.sheets[sheetIdx], opts, DEFAULT_MAX_PIECE_IN);
 }
 $('addSheet').onclick = () => {
   nest.sheets.push({ layers: [], placements: [] });

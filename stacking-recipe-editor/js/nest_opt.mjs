@@ -64,12 +64,32 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   if (!pool.length) return null;
 
   // --- match placements to pool parts (name + dims, each consumed once) ----
+  function poolIndexSource() { return pool; }
   const byKey = new Map();
-  for (const p of pool) {
+  for (const p of poolIndexSource()) {
     const k = `${p.name}|${Math.round(p.l)}x${Math.round(p.w)}`;
     if (!byKey.has(k)) byKey.set(k, []);
     byKey.get(k).push(p);
   }
+  // Salvage parts (crate panels recovered from the offcut) are not in any
+  // layer product, so the pool gets a plain-rectangle entry for each — no
+  // drilling, because there is none. Without this they render in the editor
+  // and never get cut.
+  const salvage = [];
+  for (const s of nest.sheets) for (const pl of (s.placements || [])) {
+    if (!pl.salvage) continue;
+    const id = pool.length + salvage.length + 1;
+    salvage.push({ id, layer: 0, name: pl.name, l: pl.l, w: pl.w, salvage: true,
+      shape: `<Shape Version="2" Name="" Type="1" RadiusX="0" RadiusY="0" Source="1" Data1="0" Data2="0" `
+        + `RotAng="0" DoNotTranslateTo00="False">`
+        + [[0,0,1],[pl.l,0,2],[pl.l,pl.w,3],[0,pl.w,4]].map(([x,y,et],i)=>
+            `<ShapePoint ID="${i}" X="${x}" Y="${y}" PtType="0" Data="0" EdgeType="${et}" Anchor="" `
+            + `EBand="0" X_Eq="" Y_Eq="" Data_Eq="" LAdj="0" RAdj="0" TAdj="0" BAdj="0" Scribe="0" `
+            + `Source="0" BoreHoles="0" EBandLock="False" SideName="" />`).join('')
+        + `</Shape>`,
+      ops: [], key: `${pl.name}|${Math.round(pl.l)}x${Math.round(pl.w)}` });
+  }
+  pool.push(...salvage);
   const loose = [...pool];
   const unmatched = [];
   const sheetXml = nest.sheets.map((s) => {
