@@ -54,7 +54,9 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="back">← Back to recipe</button>
   <button id="renest">↻ Re-nest from recipe</button>
   <button id="edit" aria-pressed="false">✏️ Edit</button>
-  <button id="apply" class="primary">Use these nests →</button>
+  <button id="addSheet">+ Sheet</button>
+  <button id="delSheet">✕ Remove sheet</button>
+  <button id="apply" class="primary">Save for this material →</button>
   <span class="soft" id="hint"></span>
 </div>
 <div class="bar">
@@ -91,6 +93,18 @@ import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
+// Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
+// choosing this material") — a layout packed for 1550x2770 white is not the
+// layout for a 5x8 board, so one stash per sku+material, not per sku.
+const SAVED = 'mbd_nests_by_material_v1';
+const savedKey = (sku, mid) => `${sku || ''}::${mid || ''}`;
+function loadSavedNests() { try { return JSON.parse(localStorage.getItem(SAVED) || '{}') || {}; } catch (e) { return {}; } }
+function savedNestFor(sku, mid) { const n = loadSavedNests()[savedKey(sku, mid)]; return (n && n.sheets && n.sheets.length) ? n : null; }
+function saveNestFor(sku, mid, n) {
+  const all = loadSavedNests();
+  all[savedKey(sku, mid)] = n;
+  try { localStorage.setItem(SAVED, JSON.stringify(all)); return true; } catch (e) { return false; }
+}
 const $ = id => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 let recipe = null, nest = null, sheetIdx = 0, editing = false, selected = null;
@@ -110,8 +124,11 @@ function boot() {
   buildMatUI();
   $('sub').textContent = `${recipe.sku || '(unnamed)'} · ${recipe.parts.length} parts · ` +
     `${new Set(recipe.parts.map(p => p.layer)).size} layers`;
-  const prev = q.get('fresh') ? null : safeParse(sessionStorage.getItem(KEY_OUT));
-  nest = (prev && prev.sku === recipe.sku && prev.sheets) ? prev : compute();
+  const saved = q.get('fresh') ? null : savedNestFor(recipe.sku, matId);
+  const inFlight = q.get('fresh') ? null : safeParse(sessionStorage.getItem(KEY_OUT));
+  nest = saved
+    || ((inFlight && inFlight.sku === recipe.sku && inFlight.material && inFlight.material.id === matId
+         && inFlight.sheets) ? inFlight : compute());
   $('foot').textContent = `Nesting on ${currentMat().label} (${describeMat(currentMat())}). Sheets fill in layer order — a layer's leftovers spill onto the next sheet rather ` +
     `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
     `dragging snaps to exactly that and turns red if anything ends up tighter.`;
@@ -131,7 +148,9 @@ function buildMatUI() {
     }
     matId = sel.value;
     try { localStorage.setItem('mbd_last_material', matId); } catch (e) {}
-    nest = compute(); sheetIdx = 0; selected = null;
+    // a nest saved against THIS material wins over re-nesting
+    nest = savedNestFor(recipe.sku, matId) || compute();
+    sheetIdx = 0; selected = null;
     buildMatUI(); buildTabs(); draw();
   };
   $('matEdit').onclick = openMatEditor;
@@ -201,16 +220,27 @@ function compute() {
   // identity into the .opt instead of assuming white 1550x2770
   return { ...r, sku: recipe.sku, material: mat };
 }
+// Layers and fill are DERIVED from what is on the sheet right now, so moving
+// a part updates its label immediately instead of showing the numbers from
+// when the nest was first computed.
+function layersOf(s) { return [...new Set((s.placements || []).map(p => p.layer))].sort((a, b) => a - b); }
+function utilOf(s) {
+  const A = (nest.sheetL || 1) * (nest.sheetW || 1);
+  return (s.placements || []).reduce((a, p) => a + p.l * p.w, 0) / A;
+}
 function buildTabs() {
   $('tabs').innerHTML = '';
   nest.sheets.forEach((s, i) => {
     const b = document.createElement('button');
     b.setAttribute('aria-selected', i === sheetIdx);
-    b.innerHTML = `Sheet ${i + 1} <span class="mono">L${s.layers.join('+L')} · ` +
-      `${s.placements.length}p · ${(s.utilization * 100).toFixed(0)}%</span>`;
+    const lys = layersOf(s);
+    const n = (s.placements || []).length;
+    b.innerHTML = `Sheet ${i + 1} <span class="mono">${n ? 'L' + lys.join('+L') : 'empty'} · ` +
+      `${n}p · ${(utilOf(s) * 100).toFixed(0)}%</span>`;
     b.onclick = () => { sheetIdx = i; selected = null; buildTabs(); draw(); };
     $('tabs').appendChild(b);
   });
+  $('delSheet').disabled = nest.sheets.length <= 1;
 }
 const HUES = [210, 28, 95, 350, 265, 160, 45, 315, 190, 75, 230, 15];
 const dark = matchMedia('(prefers-color-scheme: dark)').matches;
@@ -274,7 +304,7 @@ svg.addEventListener('pointermove', e => {
     nest.sheets[sheetIdx].placements);
   drag.p.x = nx; drag.p.y = ny; drag.p._moved = true; draw();
 });
-svg.addEventListener('pointerup', () => { drag = null; draw(); });
+svg.addEventListener('pointerup', () => { if (drag) { drag = null; buildTabs(); } draw(); });
 }
 function renderPanel() {
   const s = nest.sheets[sheetIdx];
@@ -292,9 +322,12 @@ function renderPanel() {
       : `${p.name} sheet ${i + 1}: moved to (${p.x}, ${p.y})`));
   $('moves').textContent = moved.length ? moved.join('\n') : '';
   const dup = s.placements.filter(p => violates(p, s.placements, nest.gap)).length;
-  $('hint').textContent = editing
+  const savedNow = savedNestFor(recipe.sku, matId);
+  const isSaved = savedNow && JSON.stringify(savedNow.sheets) === JSON.stringify(nest.sheets);
+  $('hint').textContent = (editing
     ? `drag to move · snaps to ${nest.gap}mm / ${nest.edge}mm${dup ? ` · ${dup} too close` : ''}`
-    : 'read-only';
+    : 'read-only')
+    + (isSaved ? ' · saved for this material' : (savedNow ? ' · differs from the saved layout' : ''));
 }
 function sendTo(target) {
   const p = selected, from = sheetIdx;
@@ -311,14 +344,51 @@ function sendTo(target) {
   if (spot) { p.x = spot[0]; p.y = spot[1]; } else { p.x = nest.edge; p.y = nest.edge; alert(`No ${nest.gap}mm-clear spot on sheet ${target + 1} — parked in the corner, shown red.`); }
   dest.placements.push(p);
   if (!dest.layers.includes(p.layer)) dest.layers.push(p.layer), dest.layers.sort((a, b) => a - b);
+  const wasFrom = nest.sheets[from];
   sheetIdx = target; buildTabs(); draw();
+  // A sheet emptied by that move is dead weight in the job — offer to drop it.
+  if (wasFrom && !wasFrom.placements.length && nest.sheets.length > 1) {
+    if (confirm(`Sheet ${from + 1} is now empty. Remove it?`)) {
+      nest.sheets.splice(from, 1);
+      if (sheetIdx > from) sheetIdx--;
+      if (sheetIdx >= nest.sheets.length) sheetIdx = nest.sheets.length - 1;
+      buildTabs(); draw();
+    }
+  }
 }
+$('addSheet').onclick = () => {
+  nest.sheets.push({ layers: [], placements: [] });
+  sheetIdx = nest.sheets.length - 1; selected = null;
+  buildTabs(); draw();
+};
+$('delSheet').onclick = () => {
+  const s = nest.sheets[sheetIdx];
+  if (nest.sheets.length <= 1) { alert('A nest needs at least one sheet.'); return; }
+  if (s.placements && s.placements.length) {
+    alert(`Sheet ${sheetIdx + 1} still has ${s.placements.length} part(s). Move them first — turn on Edit, ` +
+      `click a part, then "→ Sheet N". Empty sheets remove without asking.`);
+    return;
+  }
+  nest.sheets.splice(sheetIdx, 1);
+  if (sheetIdx >= nest.sheets.length) sheetIdx = nest.sheets.length - 1;
+  selected = null; buildTabs(); draw();
+};
 $('edit').onclick = () => { editing = !editing; $('edit').setAttribute('aria-pressed', editing); draw(); };
 $('renest').onclick = () => { if (!confirm('Re-nest from the recipe? Your manual moves on these sheets are lost.')) return;
   nest = compute(); sheetIdx = 0; selected = null; buildTabs(); draw(); };
 $('back').onclick = () => { stash(); location.href = './index.html'; };
-$('apply').onclick = () => { stash(); alert('Nests saved for this recipe — the editor’s Mozaik job export will use them.'); location.href = './index.html'; };
-function stash() { try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {} }
+$('apply').onclick = () => {
+  stash();
+  const m = currentMat();
+  const ok = saveNestFor(recipe.sku, matId, nest);
+  alert(ok
+    ? `Saved these ${nest.sheets.length} sheets for ${m.label}. Choosing that material again — here or in the job export — uses this layout instead of re-nesting.`
+    : 'Could not save (browser storage full?) — the job export will still use this nest for now.');
+  location.href = './index.html';
+};
+function stash() {
+  try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {}
+}
 addEventListener('beforeunload', stash);
 
 // ---- start ------------------------------------------------------------------

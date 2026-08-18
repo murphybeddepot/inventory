@@ -995,7 +995,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.52';
+const APP_VERSION = '3.53';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3866,6 +3866,18 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    the current layers, so the zip is never missing a nest just because the page
    was not opened. Failure to nest is not fatal — you still get the layers. */
 async function nestForExport(){
+  // v3.53 — a nest SAVED against a material wins (Zac: "use these nests when
+  // choosing this material"), then the in-flight one from this session, then
+  // a fresh nest so the zip is never silently nest-less.
+  try{
+    const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}');
+    const mid=localStorage.getItem('mbd_last_material')||'';
+    const hit=all[(S.sku||'')+'::'+mid];
+    if(hit&&hit.sheets&&hit.sheets.length) return hit;
+    const anyForSku=Object.keys(all).filter(k=>k.startsWith((S.sku||'')+'::')).map(k=>all[k])
+      .find(n=>n&&n.sheets&&n.sheets.length);
+    if(anyForSku) return anyForSku;
+  }catch(err){/* fall through */}
   try{
     const stashed=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
     if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')) return stashed;
