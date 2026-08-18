@@ -56,6 +56,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="edit" aria-pressed="false">✏️ Edit</button>
   <button id="scrapBtn">♻ Fill scrap</button>
   <button id="diceBtn" aria-pressed="false">▦ Show offcut dice</button>
+  <label class="soft">max piece
+    <select id="diceMax"><option value="11.9">12in</option><option value="16">16in</option>
+      <option value="24">24in</option><option value="36">36in</option></select></label>
+  <label class="soft">skip offcuts under
+    <select id="diceMin"><option value="0">nothing</option><option value="288" selected>2 sq ft</option>
+      <option value="576">4 sq ft</option><option value="1152">8 sq ft</option></select></label>
+  <span class="soft" id="diceCost"></span>
   <button id="addSheet">+ Sheet</button>
   <button id="delSheet">✕ Remove sheet</button>
   <button id="apply" class="primary">Save for this material →</button>
@@ -94,7 +101,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs';
-import { fitSalvage, dicePlan, scrapSummary, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN }
+import { fitSalvage, dicePlan, diceCost, scrapSummary, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN }
   from './js/scrap.mjs';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
@@ -424,10 +431,19 @@ $('diceBtn').onclick = () => {
   recomputeDice(); draw();
 };
 function recomputeDice() {
-  if (!showDice) { dice = []; return; }
+  if (!showDice) { dice = []; $('diceCost').textContent = ''; return; }
   const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge };
-  dice = dicePlan(nest.sheets[sheetIdx], opts, DEFAULT_MAX_PIECE_IN);
+  const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
+  const minIn2 = parseFloat($('diceMin').value) || 0;
+  dice = dicePlan(nest.sheets[sheetIdx], opts, maxIn, minIn2);
+  // Every dice cut is machine time, so show what it costs BEFORE it is posted.
+  // Feeds are the ones the posted NC uses on this router (F22800 / F5000).
+  const c = diceCost(dice);
+  $('diceCost').textContent = dice.length
+    ? `${c.pieces} pieces · ${c.metres.toFixed(1)}m of cutting · ~${c.seconds}s added to this sheet`
+    : 'nothing to dice on this sheet';
 }
+$('diceMax').onchange = $('diceMin').onchange = () => { recomputeDice(); draw(); };
 $('addSheet').onclick = () => {
   nest.sheets.push({ layers: [], placements: [] });
   sheetIdx = nest.sheets.length - 1; selected = null;

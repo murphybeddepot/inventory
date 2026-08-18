@@ -39,7 +39,7 @@ const box = (p) => {
 // Not the theoretical maximal-rectangle set — this is deliberately the simple,
 // checkable version, and every candidate is verified against every placement
 // before it is used.
-export function freeRects(sheet, { sheetL, sheetW, edge = 3, gap = 16 }) {
+export function freeRects(sheet, { sheetL, sheetW, edge = 3, gap = 16, minDimMM = 100 }) {
   const parts = (sheet.placements || []).map(box);
   const xs = new Set([edge, sheetL - edge]);
   for (const [x0, x1] of parts) {
@@ -63,9 +63,24 @@ export function freeRects(sheet, { sheetL, sheetW, edge = 3, gap = 16 }) {
     }
     if (y < sheetW - edge) out.push({ x: cx0, y, w: cx1 - cx0, h: sheetW - edge - y });
   }
-  return out.filter(r => r.w > 1 && r.h > 1).map(r => ({
-    x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2),
-  }));
+  // MERGE adjacent bands that share a vertical extent. The sweep puts a column
+  // boundary at every part edge, so one clear strip came out as ten narrow
+  // cells and diced into ten pieces (Zac: "massively excessive number of
+  // cuts"). Merging restores it to the single rectangle it actually is.
+  const merged = [];
+  for (const r of out.sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const prev = merged[merged.length - 1];
+    if (prev && Math.abs(prev.y - r.y) < 0.5 && Math.abs(prev.h - r.h) < 0.5
+        && Math.abs(prev.x + prev.w - r.x) < 0.5) {
+      prev.w += r.w;                       // same band, touching — one rectangle
+    } else merged.push({ ...r });
+  }
+  // A sliver is waste, not scrap: the 16mm corridors between parts are chips.
+  // Anything under minDim on either side is left alone rather than cut up.
+  const MIN_DIM = minDimMM;
+  return merged
+    .filter(r => r.w >= MIN_DIM && r.h >= MIN_DIM)
+    .map(r => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.w.toFixed(2), h: +r.h.toFixed(2) }));
 }
 
 function fitsClear(cand, placements, gap) {
@@ -113,10 +128,16 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
 }
 
 // Everything still empty, split so no piece exceeds maxPiece on either side.
-export function dicePlan(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN) {
+// minAreaIn2: leave small offcuts alone. A piece already smaller than the bin
+// limit does not need cutting up, and every cut is machine time (Zac
+// 2026-08-18: "the scrap dicing is going to add a whole bunch of time").
+export function dicePlan(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN, minAreaIn2 = 0) {
   const MAX = maxPieceIn * IN;
+  const MIN_AREA = minAreaIn2 * IN * IN;
   const out = [];
   for (const fr of freeRects(sheet, opts)) {
+    if (fr.w <= MAX && fr.h <= MAX) continue;          // already bin-sized
+    if (MIN_AREA && fr.w * fr.h < MIN_AREA) continue;  // too small to bother
     const nx = Math.max(1, Math.ceil(fr.w / MAX)), ny = Math.max(1, Math.ceil(fr.h / MAX));
     const cw = fr.w / nx, ch = fr.h / ny;
     for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
@@ -125,6 +146,25 @@ export function dicePlan(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN) {
     }
   }
   return out;
+}
+
+// What the dicing costs at the machine. Feed rates are the ones the posted
+// NC actually uses on this router: F22800 cutting, F5000 plunging.
+export function diceCost(dice, { feed = 22800, plunge = 5000, thickness = 19.05 } = {}) {
+  let len = 0; const seen = new Set();
+  for (const d of dice) {
+    const edges = [
+      ['h', d.y, d.x, d.w], ['h', +(d.y + d.h).toFixed(1), d.x, d.w],
+      ['v', d.x, d.y, d.h], ['v', +(d.x + d.w).toFixed(1), d.y, d.h],
+    ];
+    for (const [ax, a, b, l] of edges) {
+      const k = `${ax}:${a}:${b}:${l}`;
+      if (seen.has(k)) continue;
+      seen.add(k); len += l;
+    }
+  }
+  const seconds = (len / feed) * 60 + dice.length * (thickness / plunge) * 60;
+  return { metres: len / 1000, seconds: Math.round(seconds), pieces: dice.length };
 }
 
 export function scrapSummary(sheet, opts, dice) {
