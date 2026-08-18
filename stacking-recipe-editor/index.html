@@ -995,7 +995,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.59';
+const APP_VERSION = '3.60';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3865,29 +3865,42 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    edited on the Nests page (stashed per SKU), else one nested on the spot from
    the current layers, so the zip is never missing a nest just because the page
    was not opened. Failure to nest is not fatal — you still get the layers. */
+/* v3.60 — the material is RESOLVED, never inherited by accident. Zac: "how do
+   i ensure the job export has the correct material?" Three paths used to
+   answer that differently: the keyed nest was right, the any-material
+   fallback shipped whichever finish was saved first, and a fresh nest carried
+   no material at all — which the .opt writer reads as its default, White. So
+   the zip could say White for a black order and look perfectly normal. Now
+   every path is stamped with the selected material or refuses. */
+async function selectedMaterial(){
+  try{
+    const M=await import('./js/materials.mjs');
+    const list=M.loadMaterials();
+    const mid=localStorage.getItem('mbd_last_material')||'';
+    return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
+  }catch(err){ _dbg('material load failed: '+err.message); return {mat:null,M:null}; }
+}
 async function nestForExport(){
-  // v3.53 — a nest SAVED against a material wins (Zac: "use these nests when
-  // choosing this material"), then the in-flight one from this session, then
-  // a fresh nest so the zip is never silently nest-less.
+  const {mat,M}=await selectedMaterial();
+  const sameMat=(n)=>!mat||!n||!n.material||n.material.displayName===mat.displayName;
   try{
     const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}');
-    const mid=localStorage.getItem('mbd_last_material')||'';
-    const hit=all[(S.sku||'')+'::'+mid];
+    const hit=all[(S.sku||'')+'::'+(mat?mat.id:'')];
     if(hit&&hit.sheets&&hit.sheets.length) return hit;
-    const anyForSku=Object.keys(all).filter(k=>k.startsWith((S.sku||'')+'::')).map(k=>all[k])
-      .find(n=>n&&n.sheets&&n.sheets.length);
-    if(anyForSku) return anyForSku;
+    // NO cross-material fallback: a nest saved for another finish is a nest for
+    // another board. Re-nesting below is correct by construction instead.
   }catch(err){/* fall through */}
   try{
     const stashed=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
-    if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')) return stashed;
+    if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')&&sameMat(stashed)) return stashed;
   }catch(err){/* fall through to a fresh nest */}
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
     const {nestByLayer}=await import('./js/nest.mjs');
-    const r=nestByLayer(parts);
-    return r&&r.sheets&&r.sheets.length?r:null;
+    const opts=(M&&mat)?M.nestOptsFor(mat):{};
+    const r=nestByLayer(parts,opts);
+    return r&&r.sheets&&r.sheets.length?{...r,sku:S.sku||'',material:mat||undefined}:null;
   }catch(err){ _dbg('nest for export failed: '+err.message); return null; }
 }
 $('dlMozJob').onclick=async()=>{
@@ -3896,13 +3909,20 @@ $('dlMozJob').onclick=async()=>{
     const snap=snapshot();
     snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;
     const nest=await nestForExport();
+    const {mat,M}=await selectedMaterial();
+    if(!mat){toast('No material selected — open Nests and pick the stock first.');return;}
+    // Say the material out loud, and say what is wrong with it, BEFORE the
+    // sheets are cut rather than after.
+    const warn=M?M.materialWarnings(mat):[];
+    if(warn.length&&!confirm('Material: '+mat.label+'\n\n'+warn.map(w=>'\u26a0 '+w).join('\n')
+      +'\n\nExport anyway?')) return;
     const blob=await window.MozIO.exportJobZip(snap,{jobName:S.sku||'Order',nest});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
     a.download=(S.sku||'Order')+'.zip';
     a.click();
     URL.revokeObjectURL(a.href);
-    toast(nest?('Downloaded Mozaik job zip — with '+nest.sheets.length+' nested sheet'+(nest.sheets.length===1?'':'s')):'Downloaded Mozaik job zip (no nest — open Nests to add sheets)');
+    toast(nest?('Downloaded Mozaik job zip \u2014 '+mat.label+', '+nest.sheets.length+' nested sheet'+(nest.sheets.length===1?'':'s')):'Downloaded Mozaik job zip (no nest \u2014 open Nests to add sheets)');
   }catch(err){toast('Export failed: '+err.message);}
 };
 
