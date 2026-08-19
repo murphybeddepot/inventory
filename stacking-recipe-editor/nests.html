@@ -546,7 +546,23 @@ $('apply').onclick = () => {
     : 'Could not save (browser storage full?) — the job export will still use this nest for now.');
   location.href = './index.html';
 };
+// The scrap settings ride WITH the nest. They are not geometry — the actual
+// dicing is computed at cut time by quarry/scripts/cut-scrap.mjs against the
+// posted NC, because Mozaik has no way to express a scrap cut and the posted
+// file is the only artifact that can carry one. What travels is the INTENT:
+// the piece size and strip floor chosen here, so the machine cut is the one
+// that was planned instead of whatever the cutter's defaults happen to be.
+function scrapSettings() {
+  return {
+    maxPieceIn: parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN,
+    minStripMM: parseFloat($('diceStrip').value) || 100,
+    minAreaIn2: parseFloat($('diceMin').value) || 0,
+    salvageParts: nest.sheets.reduce((a, sh) => a + (sh.placements || []).filter(p => p.salvage).length, 0),
+    plannedBy: 'nests ' + APP_VERSION,
+  };
+}
 function stash() {
+  try { nest.scrap = scrapSettings(); } catch (e) { /* toolbar not built yet */ }
   try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {}
 }
 addEventListener('beforeunload', stash);

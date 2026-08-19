@@ -216,6 +216,11 @@ export async function buildJobZip({
       jf.file(opt.optName, opt.optXml);
       jf.file('OptimizeRuns.xml', opt.runsXml);
     }
+    // The scrap plan is NOT part of the Mozaik job — Mozaik cannot express a
+    // scrap cut. It rides beside it so cut-scrap.mjs (which adds the dicing to
+    // the posted NC, and is what the Nest Runner's Cut button calls) uses the
+    // piece size chosen in the nest editor rather than its own default.
+    if (nest.scrap) jf.file('scrap-plan.json', JSON.stringify({ job: jn, ...nest.scrap }, null, 2) + '\n');
   }
   return zip.generateAsync({ type: 'blob' });
 }
