@@ -19,7 +19,11 @@
   import { parseMoz } from './js/moz_parse.mjs';
   import { buildJobZip } from './js/moz_build.mjs';
   import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
+  // The library is stored compressed; see js/packstore.mjs for why. Exposed on
+  // window because the app itself is a classic script, not a module.
+  window.PackStore = { compress, decompress, storedBytes };
 </script>
 <style>
   :root{
@@ -1007,7 +1011,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.66';
+const APP_VERSION = '3.67';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -4220,7 +4224,19 @@ function download(name,content,mime){const b=new Blob([content],{type:mime});con
 /* ============================================================
    LIBRARY (localStorage)
    ============================================================ */
-function loadLib(){try{return JSON.parse(localStorage.getItem(LS_LIB)||'{}');}catch(e){return {};}}
+// The library JSON is COMPRESSED on the way to storage (js/packstore.mjs, ~93%
+// on a real recipe). A recipe keeps the verbatim CabProdPart XML of every part
+// so the Mozaik round-trip stays exact, which is ~0.8MB per recipe raw — five
+// or six of those fill the 5MB this origin gets and then every save fails
+// forever, which is exactly what happened to Zac on 2026-08-20.
+// Reads accept BOTH forms so a library written by an older build still opens.
+function loadLib(){
+  try{
+    const raw=localStorage.getItem(LS_LIB)||'{}';
+    const txt=(window.PackStore?window.PackStore.decompress(raw):raw);
+    return JSON.parse(txt||'{}');
+  }catch(e){ return {}; }
+}
 // Returns TRUE only if the library actually reached storage. It used to be a
 // bare setItem with no try/catch, called OUTSIDE the Save handler's try — so a
 // QuotaExceededError became an unhandled rejection and Save did nothing at all,
@@ -4228,7 +4244,9 @@ function loadLib(){try{return JSON.parse(localStorage.getItem(LS_LIB)||'{}');}ca
 // That is the silent-failure class this repo has a standing rule against
 // (2026-08-20: "save recipe doesn't seem to be saving my latest recipe").
 function saveLib(lib){
-  try{ localStorage.setItem(LS_LIB,JSON.stringify(lib)); return true; }
+  const json=JSON.stringify(lib);
+  const body=(window.PackStore?window.PackStore.compress(json):json);
+  try{ localStorage.setItem(LS_LIB,body); _libSaveError=null; return true; }
   catch(e){ _libSaveError=e; return false; }
 }
 let _libSaveError=null;
@@ -4321,8 +4339,10 @@ $('btnSave').onclick=async()=>{
   lib[S.sku]=snap;
   if(!saveLib(lib)){
     const mb=libBytes(); const size=mb?(' Browser storage holds about '+(mb/1048576).toFixed(1)+'MB and is full.'):'';
+    const lib_=localStorage.getItem(LS_LIB); const libMB=lib_?(lib_.length*2/1048576).toFixed(2):'?';
     alert('SAVE FAILED \u2014 "'+S.sku+'" was NOT saved.'+size
       +'\n\nNothing was written, and the copy in the Library is the OLD one.'
+      +'\n\nThe recipe library is using '+libMB+'MB of that (stored compressed).'
       +'\n\nDelete a recipe you no longer need (Library \u2192 Delete) and save again.'
       +(_libSaveError?('\n\n'+_libSaveError.name+': '+_libSaveError.message):''));
     toast('\u274c SAVE FAILED \u2014 storage full. '+S.sku+' was NOT saved.');
@@ -5094,9 +5114,13 @@ document.querySelectorAll('.modal-bg').forEach(bg=>{
    ============================================================ */
 let saveTimer=null;
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(doSave,400);}
-function doSave(){try{localStorage.setItem(LS_WORK,JSON.stringify({
-  snap:snapshot(), unit:S.unit, cartonUnit:S.cartonUnit, grid:S.grid, gridIn:S.gridIn, snap_:S.snap, ghost:S.ghost, labels:S.labels, contain:S.contain, gap:S.gap, maxSupport:S.maxSupport, activeLayer:S.activeLayer
-}));_workSaveFailed=false;}catch(e){
+function doSave(){try{
+  const work={
+    snap:snapshot(), unit:S.unit, cartonUnit:S.cartonUnit, grid:S.grid, gridIn:S.gridIn, snap_:S.snap, ghost:S.ghost, labels:S.labels, contain:S.contain, gap:S.gap, maxSupport:S.maxSupport, activeLayer:S.activeLayer
+  };
+  const json=JSON.stringify(work);
+  localStorage.setItem(LS_WORK, window.PackStore?window.PackStore.compress(json):json);
+  _workSaveFailed=false;}catch(e){
   // Was an empty catch. Once storage is full this stops working and the editor
   // silently reverts to an older state on every reload — which is how a save
   // that DID work still looks like "it lost my latest recipe".
@@ -5106,7 +5130,8 @@ function doSave(){try{localStorage.setItem(LS_WORK,JSON.stringify({
 }}
 let _workSaveFailed=false;
 function restoreWork(){
-  try{const w=JSON.parse(localStorage.getItem(LS_WORK)||'null');if(!w||!w.snap)return false;
+  try{const rawW=localStorage.getItem(LS_WORK)||'null';
+    const w=JSON.parse((window.PackStore?window.PackStore.decompress(rawW):rawW)||'null');if(!w||!w.snap)return false;
     S.unit=w.unit||'mm';S.cartonUnit=w.cartonUnit||'mm';S.grid=w.grid!=null?w.grid:10;S.gridIn=!!w.gridIn;S.snap=w.snap_!==false;S.ghost=w.ghost!==false;S.labels=w.labels!==false;S.contain=w.contain!==false;S.gap=w.gap||0;S.maxSupport=!!w.maxSupport;
     restoreSnapshot(w.snap);
     if(w.activeLayer!=null&&w.activeLayer<S.layers.length)S.activeLayer=w.activeLayer;
