@@ -70,6 +70,17 @@ export function stripEquations(op) {
   return out;
 }
 
+// Mozaik's EdgeBand column is a FLAG, not a list: "Custom*" when the part has
+// any banded edge at all, "None" when it has none. Proven on the same-job pair —
+// its Run #2 marks 61 of 66 parts Custom* and 5 None, and the room's own
+// ShapePoint EBand attributes split 61/5 with the two bare codes (2A, 3C) being
+// exactly the ones Mozaik calls None. We hardcoded "None" on every part, which
+// is why the labels printed no banding notations even though the template was
+// drawing the right thing (Zac 2026-08-20).
+export function bandOf(shapeXml) {
+  return /<ShapePoint\b[^>]*\bEBand="(?!0")[^"]*"/.test(String(shapeXml || '')) ? 'Custom*' : 'None';
+}
+
 // layerTexts: [{ layer, text }] — the generated layer .moz XML
 // nest: { sheets:[{ placements:[{name,layer,l,w,x,y,rotation}] }], edge }
 export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewCNC-MD',
@@ -103,8 +114,18 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   // claimed cabinet "1" and nothing in the file said what cabinet 1 was. Keys
   // are BARE ordinals when only the design room holds cabinets, which is every
   // job we build (verified across J004, BOAZ, PBV2CRATED, LB Optimize).
+  // The name MUST be the product's own ProdName, read out of the layer .moz —
+  // never rebuilt from the job name. v3.62 reconstructed it as `${jobName} L${n}`
+  // and buildOptFiles is called without a jobName, so a job exported as
+  // "QBZ-V3-WHITE" registered cabinets called "Order L1..L8" while the room
+  // held "QBZ-V3-WHITE L1..L8". Mozaik posted the router gcode (which needs
+  // only sheet geometry) and produced ZERO 612 MPRs, because the drilling
+  // comes from the ROOM PRODUCTS and nothing in the run resolved to one.
+  const prodName = (lt, i) => lt.name
+    || (lt.text.match(/<Product\b[^>]*\bProdName="([^"]*)"/) || [])[1]
+    || `${jobName} L${lt.layer}`;
   const cabs = layerTexts.map((lt, i) => ({ key: String(i + 1), ref: `R1C${i + 1}`,
-    layer: String(lt.layer), name: `${jobName} L${lt.layer}` }));
+    layer: String(lt.layer), name: prodName(lt, i) }));
   const cabKeyOf = new Map(cabs.map(c => [c.layer, c.key]));
 
   const pool = [];
@@ -120,7 +141,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
         id: pool.length + 1, layer,
         name: attr(head, 'ReportName') || attr(head, 'Name') || ('P' + (pool.length + 1)),
         l: +attr(head, 'L', '0'), w: +attr(head, 'W', '0'),
-        shape, ops,
+        shape, ops, band: bandOf(shape),
       });
     }
   }
@@ -198,8 +219,8 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const shapeWithOps = (p) => shapeWithOperations(p.shape, p.ops, p.name);
 
   const partXml = pool.map(p =>
-    `  <OptimizePart PartID="${p.id}" PartNumbers="${p.id}" Quan="1" Name="${esc(p.name)}" `
-    + `Width="${p.w}" Length="${p.l}" EdgeBand="None" Color="" AssyNo="${cabOf(p)}" Comment="${p.salvage ? '' : 'L' + p.layer}" `
+    `  <OptimizePart PartID="${p.id}" PartNumbers="" Quan="1" Name="${esc(p.name)}" `
+    + `Width="${p.w}" Length="${p.l}" EdgeBand="${p.band || 'None'}" Color="" AssyNo="${cabOf(p)}" Comment="${p.salvage ? '' : 'L' + p.layer}" `
     + `UserAdded="False" RemakeJobName="" AllowRotation="1" LabelPrinted="False" `
     + `TextureName="${esc(M.textureName || '')}" TextureAbbr="${esc(M.textureAbbr || '')}" `
     + `TextureID="${esc(M.textureId)}">${NL}    ${shapeWithOps(p)}${NL}`

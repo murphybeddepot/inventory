@@ -181,7 +181,9 @@ export async function buildJobZip({
   keys.forEach((k, i) => {
     const { pname, text } = emit.buildLayerMoz(k);
     jf.file(pname + '.moz', text);
-    layerTexts.push({ layer: (String(k).match(/\d+/) || [i + 1])[0], text });
+    // pname is the product's real ProdName — the .opt's cabinet registry must
+    // name THESE, not a string rebuilt from the job name (see nest_opt.mjs).
+    layerTexts.push({ layer: (String(k).match(/\d+/) || [i + 1])[0], text, name: pname });
     let px = text.slice(text.indexOf('<Product '));
     px = px.replace('UniqueID="' + px.match(/UniqueID="(\d+)"/)[1] + '"', 'UniqueID="' + (940001 + i) + '"');
     px = px.replace('IDTag="0"', 'IDTag="' + (i + 1) + '"');
@@ -211,7 +213,7 @@ export async function buildJobZip({
   if (nest && nest.sheets && nest.sheets.length) {
     // the material travels with the nest so the .opt carries the identity of
     // the stock actually chosen (white 1550x2770 vs the 5x8 boards), not a default
-    const opt = buildOptFiles({ nest, layerTexts, material: nest.material || {} });
+    const opt = buildOptFiles({ nest, layerTexts, material: nest.material || {}, jobName: jn });
     if (opt) {
       jf.file(opt.optName, opt.optXml);
       jf.file('OptimizeRuns.xml', opt.runsXml);
