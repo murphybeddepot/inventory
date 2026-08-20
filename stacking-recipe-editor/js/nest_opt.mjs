@@ -218,8 +218,17 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const cabOf = (p) => p.cab || cabKeyOf.get(String(p.layer)) || String(p.layer);
   const shapeWithOps = (p) => shapeWithOperations(p.shape, p.ops, p.name);
 
+  // PartNumbers IS the part's number, and it is what the drill program is NAMED
+  // after: J004's part 9 posts as "1A-J004-09-19.MPR". Emit it empty and Mozaik
+  // has nothing to name an MPR with, so it writes none at all — router gcode and
+  // labels still appear, which is exactly the shape of Zac's report.
+  // v3.65 set this to "" to match a specimen. That specimen was a Mozaik
+  // RE-SAVE, which guts the file (documented in quarry/CLAUDE.md), and every
+  // intact Mozaik .opt on the machine carries the real number. Matching a
+  // degraded file is the trap this repo already had written down; I walked into
+  // it anyway, so it is now written HERE, where the line is.
   const partXml = pool.map(p =>
-    `  <OptimizePart PartID="${p.id}" PartNumbers="" Quan="1" Name="${esc(p.name)}" `
+    `  <OptimizePart PartID="${p.id}" PartNumbers="${p.id}" Quan="1" Name="${esc(p.name)}" `
     + `Width="${p.w}" Length="${p.l}" EdgeBand="${p.band || 'None'}" Color="" AssyNo="${cabOf(p)}" Comment="${p.salvage ? '' : 'L' + p.layer}" `
     + `UserAdded="False" RemakeJobName="" AllowRotation="1" LabelPrinted="False" `
     + `TextureName="${esc(M.textureName || '')}" TextureAbbr="${esc(M.textureAbbr || '')}" `
@@ -244,7 +253,9 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const optXml = `8${NL}<?xml version="1.0" encoding="utf-8" standalone="yes"?>${NL}`
     + `<OptimizeMaterial RunId="1" DisplayName="${M.displayName}" Abbr="${M.abbr}" MaterialId="${M.materialId}" `
     + `TextureId="${M.textureId}" Thickness="${M.thickness}" Width="${M.width}" Length="${M.length}" `
-    + `HasGrain="False" WidthTrim="${M.widthTrim ?? nest.edge ?? 3}" LengthTrim="${M.lengthTrim ?? nest.edge ?? 3}" `
+    // The MATERIAL's trims, which is what Mozaik writes — we were emitting the
+    // nest's edge margin instead, so a run said 8 where the library says 6.
+    + `HasGrain="False" WidthTrim="${M.widthTrim ?? 3}" LengthTrim="${M.lengthTrim ?? 3}" `
     + `FeedRate="100" Comment="" `
     + `CustomerName="" Timestamp="${(now() / 1000).toFixed(5)}" OptParamSpeed="2" `
     // SeqByCabN orders the run by cabinet number. 111 of 111 real files say
