@@ -34,8 +34,8 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=3.71';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.71';
+import { parseMoz } from './moz_parse.mjs?v=3.72';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.72';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 

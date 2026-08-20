@@ -58,6 +58,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="scrapBtn">♻ Fill scrap</button>
   <button id="seamBtn" title="Re-arrange each sheet's own parts so the leftover salvages more and dices less — same parts, same sheets, never worse than the current layout.">⇄ Shape scrap</button>
   <button id="diceBtn" aria-pressed="false">▦ Show offcut dice</button>
+  <button id="tidyBtn" title="Re-arrange THIS sheet's parts so the leftover is already in small pieces — less sawing afterwards. Same parts, same sheet, nothing added or dropped.">🧩 Tidy scrap on this sheet</button>
   <label class="soft">max piece
     <select id="diceMax"><option value="11.9">12in</option><option value="16">16in</option>
       <option value="24">24in</option><option value="36">36in</option></select></label>
@@ -115,13 +116,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet } from './js/nest.mjs?v=3.71';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.72';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.71';
-import { APP_VERSION } from './js/version.mjs?v=3.71';
+         fromMM, toMM } from './js/materials.mjs?v=3.72';
+import { APP_VERSION } from './js/version.mjs?v=3.72';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
-         shapeScrap, plannedRemnants } from './js/scrap.mjs?v=3.71';
+         shapeScrap, plannedRemnants } from './js/scrap.mjs?v=3.72';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -548,6 +549,51 @@ function recomputeDice() {
     : 'nothing to dice on this sheet') + strip;
 }
 $('diceMax').onchange = $('diceMin').onchange = $('diceStrip').onchange = () => { recomputeDice(); draw(); };
+
+// Re-shuffle THIS sheet so the offcut lands in small pieces to begin with.
+// Zac 2026-08-20: "for each nest i hand-build i would like a button to have you
+// re-shuffle the layout of the parts on that nest to create a natural cut-up of
+// scrap into small-enough parts ... creating spaces between them that are small
+// squares/rectangles." Checkerboard is the look when it works, not a rule that
+// can be applied literally — the parts are whatever the layer needs. So it
+// searches, and scores each attempt by the very number shown in the toolbar.
+$('tidyBtn').onclick = () => {
+  const sheet = nest.sheets[sheetIdx];
+  if (!sheet || (sheet.placements || []).length < 2) { alert('This sheet has nothing to re-arrange.'); return; }
+  const minDimMM = parseFloat($('diceStrip').value) || 100;
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge, minDimMM };
+  const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
+  const minIn2 = parseFloat($('diceMin').value) || 0;
+  const score = (sh) => {
+    const c = diceCost(dicePlan(sh, opts, maxIn, minIn2));
+    return { cost: c.metres, pieces: c.pieces, seconds: c.seconds };
+  };
+  const btn = $('tidyBtn'); const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'searching\u2026';
+  // let the button repaint before a synchronous search that takes a moment
+  setTimeout(() => {
+    let r = null;
+    try { r = shuffleForScrap(sheet, opts, score, { tries: 400 }); }
+    catch (e) { alert('Could not re-arrange: ' + e.message); }
+    btn.disabled = false; btn.textContent = label;
+    if (!r) return;
+    if (!r.improved) {
+      alert('Already about as tidy as it gets \u2014 nothing moved.\n\n'
+        + `This sheet needs ${r.before.cost.toFixed(1)}m of cutting for ${r.before.pieces} offcut pieces.`);
+      return;
+    }
+    const ok = confirm('Re-arranged this sheet \u2014 same parts, nothing added or dropped.\n\n'
+      + `cutting   ${r.before.cost.toFixed(1)}m  \u2192  ${r.after.cost.toFixed(1)}m\n`
+      + `pieces    ${r.before.pieces}  \u2192  ${r.after.pieces}\n`
+      + `time      ~${r.before.seconds}s  \u2192  ~${r.after.seconds}s\n\n`
+      + 'Apply it? Your hand-placed positions on THIS sheet are replaced.');
+    if (!ok) return;
+    sheet.placements = r.placements.map((p) => ({ ...p, _moved: true }));
+    selected = null;
+    recomputeDice(); buildTabs(); draw();
+  }, 30);
+};
+
 $('addSheet').onclick = () => {
   nest.sheets.push({ layers: [], placements: [] });
   sheetIdx = nest.sheets.length - 1; selected = null;

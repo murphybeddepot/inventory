@@ -171,3 +171,48 @@ export function violates(p, others, gap) {
     return Math.max(dx, dy) < gap - 0.01;
   });
 }
+
+// ---- re-shuffle ONE sheet so the leftover is already small ------------------
+// Zac 2026-08-20: "for each nest i hand-build i would like a button to have you
+// re-shuffle the layout of the parts on that nest to create a natural cut-up of
+// scrap into small-enough parts, based on the location of the parts (in a
+// checkerboard pattern, etc, creating spaces between them that are small
+// squares/rectangles)."
+//
+// The idea is the inverse of what dicing does. Dicing packs tight and then
+// spends machine time sawing the leftover into carryable pieces; this arranges
+// the SAME parts so the gaps are already the right size and most of that sawing
+// never has to happen.
+//
+// It is a search, not a pattern. "Checkerboard" is the look you get when it
+// works, not an instruction that can be followed literally — the parts are
+// whatever the layer needs and rarely tile. So: pack the sheet many times with
+// different heuristics and jitter, and keep the layout whose LEFTOVER costs the
+// least to cut up. The cost function is the one the editor already shows the
+// operator, so the button optimises exactly the number on screen.
+//
+// scoreSheet is injected rather than imported: nest.mjs must not depend on
+// scrap.mjs (scrap.mjs already reads geometry from here, and a cycle between
+// them would break the module graph in the browser).
+export function shuffleForScrap(sheet, opts = {}, scoreSheet, { tries = 400 } = {}) {
+  const parts = (sheet.placements || []).filter((p) => !p.salvage);
+  const keep = (sheet.placements || []).filter((p) => p.salvage);
+  if (parts.length < 2) return null;
+
+  const base = scoreSheet({ ...sheet, placements: [...parts, ...keep] });
+  let best = null;
+  const HEUR = ['bssf', 'blsf', 'baf', 'bl'];
+  for (let t = 0; t < tries; t++) {
+    const r = packSingleSheet(parts, opts,
+      { heur: HEUR[t % HEUR.length], seed: t * 2654435761 + 7, jitter: (t % 90) * 0.9 });
+    // packSingleSheet returns the placement ARRAY, and it returns null rather
+    // than dropping a part. Both matter: a layout missing a part is not a tidier
+    // layout, it is a lost part.
+    if (!r || r.length !== parts.length) continue;
+    const cand = { ...sheet, placements: [...r, ...keep] };
+    const s = scoreSheet(cand);
+    if (!best || s.cost < best.score.cost) best = { placements: cand.placements, score: s };
+  }
+  if (!best || best.score.cost >= base.cost) return { improved: false, before: base, after: base };
+  return { improved: true, before: base, after: best.score, placements: best.placements };
+}
