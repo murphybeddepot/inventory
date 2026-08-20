@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=3.72';
-  import { buildJobZip } from './js/moz_build.mjs?v=3.72';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.72';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.72';
+  import { parseMoz } from './js/moz_parse.mjs?v=3.73';
+  import { buildJobZip } from './js/moz_build.mjs?v=3.73';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.73';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.73';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1018,7 +1018,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.72';
+const APP_VERSION = '3.73';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',

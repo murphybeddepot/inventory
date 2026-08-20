@@ -211,6 +211,39 @@ export function classifyFields(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN, m
 // minAreaIn2: leave small offcuts alone. A piece already smaller than the bin
 // limit does not need cutting up, and every cut is machine time (Zac
 // 2026-08-18: "the scrap dicing is going to add a whole bunch of time").
+// How BAD is the leftover on this sheet, for the tidy-scrap search.
+//
+// The first version scored on metres of cutting, and Zac's screenshot showed
+// exactly why that is the wrong objective: it packed all twelve 7A offcuts
+// tight into one corner and left a single enormous void, because one big
+// untouched rectangle costs no cutting at all. What he actually wants is the
+// opposite — "more spaces between especially the 7a parts, creating a bunch of
+// small-ish scrap parts". His Mozaik example spreads them out.
+//
+// So the cost is the AREA of leftover that is still too big to be useful. A
+// free rectangle already at or under maxPiece on both sides is a finished
+// offcut and costs nothing; anything larger is charged for its whole area,
+// which is what makes the search push parts apart rather than herd them.
+// Cutting length is kept only as a tiebreak between layouts that are equally
+// good at that.
+export function scrapPenalty(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN) {
+  const MAX = maxPieceIn * IN;
+  let oversize = 0, ready = 0;
+  for (const r of freeRects(sheet, opts)) {
+    if (r.w <= MAX && r.h <= MAX) { ready += r.w * r.h; continue; }
+    oversize += r.w * r.h;
+  }
+  const cut = diceCost(dicePlan(sheet, opts, maxPieceIn, 0));
+  return {
+    oversizeM2: +(oversize / 1e6).toFixed(3),   // what the search minimises
+    readyM2: +(ready / 1e6).toFixed(3),         // leftover already usable as-is
+    metres: cut.metres, pieces: cut.pieces, seconds: cut.seconds,
+    // one number, so the caller cannot accidentally weight it differently:
+    // oversize area dominates, cutting metres only separates ties
+    cost: oversize / 1e6 + cut.metres / 1000,
+  };
+}
+
 export function dicePlan(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN, minAreaIn2 = 0) {
   const MAX = maxPieceIn * IN;
   const out = [];

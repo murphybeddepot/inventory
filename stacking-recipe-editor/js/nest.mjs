@@ -194,6 +194,39 @@ export function violates(p, others, gap) {
 // scoreSheet is injected rather than imported: nest.mjs must not depend on
 // scrap.mjs (scrap.mjs already reads geometry from here, and a cycle between
 // them would break the module graph in the browser).
+// SPREAD the packed layout out across the sheet.
+//
+// A bin packer always herds parts into one corner, so however many ways you
+// re-pack, the leftover is one big void — which is exactly what Zac's
+// screenshot showed: twelve 7A offcuts stacked together and half the board
+// empty. His Mozaik example does the opposite, putting air BETWEEN the parts so
+// the leftover is already in small pieces.
+//
+// Scaling POSITIONS (never sizes) about the sheet's origin can only grow the
+// separation between any two parts — if x1 < x2 then f*x1 < f*x2 and the gap
+// f*(x2-x1) >= (x2-x1) — so it cannot introduce an overlap. It can only push a
+// part off the far edge, and the factor is clamped so it never does.
+export function spreadOut(placements, opts, fx = 1, fy = 1) {
+  const { edge, sheetL, sheetW } = { ...NEST_DEFAULTS, ...opts };
+  const box = (p) => { const rot = ((p.rotation % 360) + 360) % 360, sw = rot === 90 || rot === 270;
+    return [sw ? p.w : p.l, sw ? p.l : p.w]; };
+  const cap = (f, axis) => {
+    let m = f;
+    for (const p of placements) {
+      const [bw, bh] = box(p);
+      const pos = axis === 'x' ? p.x : p.y, size = axis === 'x' ? bw : bh;
+      const lim = (axis === 'x' ? sheetL : sheetW) - edge;
+      if (pos > edge) m = Math.min(m, (lim - size - edge) / (pos - edge));
+    }
+    return Math.max(1, m);
+  };
+  const sx = cap(fx, 'x'), sy = cap(fy, 'y');
+  if (sx === 1 && sy === 1) return null;
+  return placements.map((p) => ({ ...p,
+    x: +(edge + (p.x - edge) * sx).toFixed(2),
+    y: +(edge + (p.y - edge) * sy).toFixed(2) }));
+}
+
 export function shuffleForScrap(sheet, opts = {}, scoreSheet, { tries = 400 } = {}) {
   const parts = (sheet.placements || []).filter((p) => !p.salvage);
   const keep = (sheet.placements || []).filter((p) => p.salvage);
@@ -209,9 +242,15 @@ export function shuffleForScrap(sheet, opts = {}, scoreSheet, { tries = 400 } = 
     // than dropping a part. Both matter: a layout missing a part is not a tidier
     // layout, it is a lost part.
     if (!r || r.length !== parts.length) continue;
-    const cand = { ...sheet, placements: [...r, ...keep] };
-    const s = scoreSheet(cand);
-    if (!best || s.cost < best.score.cost) best = { placements: cand.placements, score: s };
+    // try the tight pack AND several spread-out versions of it: the spreading
+    // is what turns one big void into many small ones
+    for (const [fx, fy] of [[1, 1], [1.25, 1], [1, 1.25], [1.2, 1.2], [1.6, 1], [1, 1.6], [1.5, 1.5], [2.2, 2.2]]) {
+      const pl = (fx === 1 && fy === 1) ? r : spreadOut(r, opts, fx, fy);
+      if (!pl) continue;
+      const cand = { ...sheet, placements: [...pl, ...keep] };
+      const s = scoreSheet(cand);
+      if (!best || s.cost < best.score.cost) best = { placements: cand.placements, score: s };
+    }
   }
   if (!best || best.score.cost >= base.cost) return { improved: false, before: base, after: base };
   return { improved: true, before: base, after: best.score, placements: best.placements };

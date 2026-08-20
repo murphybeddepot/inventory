@@ -116,13 +116,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.72';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.73';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.72';
-import { APP_VERSION } from './js/version.mjs?v=3.72';
+         fromMM, toMM } from './js/materials.mjs?v=3.73';
+import { APP_VERSION } from './js/version.mjs?v=3.73';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
-         shapeScrap, plannedRemnants } from './js/scrap.mjs?v=3.72';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.73';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -564,10 +564,7 @@ $('tidyBtn').onclick = () => {
   const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge, minDimMM };
   const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
   const minIn2 = parseFloat($('diceMin').value) || 0;
-  const score = (sh) => {
-    const c = diceCost(dicePlan(sh, opts, maxIn, minIn2));
-    return { cost: c.metres, pieces: c.pieces, seconds: c.seconds };
-  };
+  const score = (sh) => scrapPenalty(sh, opts, maxIn);
   const btn = $('tidyBtn'); const label = btn.textContent;
   btn.disabled = true; btn.textContent = 'searching\u2026';
   // let the button repaint before a synchronous search that takes a moment
@@ -579,13 +576,14 @@ $('tidyBtn').onclick = () => {
     if (!r) return;
     if (!r.improved) {
       alert('Already about as tidy as it gets \u2014 nothing moved.\n\n'
-        + `This sheet needs ${r.before.cost.toFixed(1)}m of cutting for ${r.before.pieces} offcut pieces.`);
+        + `${r.before.oversizeM2}m\u00b2 of the leftover is still bigger than one offcut piece.`);
       return;
     }
     const ok = confirm('Re-arranged this sheet \u2014 same parts, nothing added or dropped.\n\n'
-      + `cutting   ${r.before.cost.toFixed(1)}m  \u2192  ${r.after.cost.toFixed(1)}m\n`
-      + `pieces    ${r.before.pieces}  \u2192  ${r.after.pieces}\n`
-      + `time      ~${r.before.seconds}s  \u2192  ~${r.after.seconds}s\n\n`
+      + `too-big leftover   ${r.before.oversizeM2}m\u00b2  \u2192  ${r.after.oversizeM2}m\u00b2\n`
+      + `usable as-is       ${r.before.readyM2}m\u00b2  \u2192  ${r.after.readyM2}m\u00b2\n`
+      + `cutting            ${r.before.metres.toFixed(1)}m  \u2192  ${r.after.metres.toFixed(1)}m\n`
+      + `pieces             ${r.before.pieces}  \u2192  ${r.after.pieces}\n\n`
       + 'Apply it? Your hand-placed positions on THIS sheet are replaced.');
     if (!ok) return;
     sheet.placements = r.placements.map((p) => ({ ...p, _moved: true }));
