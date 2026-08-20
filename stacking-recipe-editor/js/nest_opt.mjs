@@ -178,9 +178,20 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
         + `ExplodedFromGroup="" ExplodedFromGroupSuffix="" TakenFromRemakeBin="False" `
         + `ForceOnionSkin="False" LabelPrinted="False" />`;
     }).filter(Boolean);
+    // Planned remnants — the free fields the dice deliberately leaves whole,
+    // computed by the nest page (scrap.mjs plannedRemnants) and carried on the
+    // sheet. The .opt has a first-class record for these, and real files prove
+    // the attribute frame: on a 2444.8x1225.6 sheet a specimen remnant reads
+    // X="2105" Length="339.8" Width="1225.6" — so Length is the X-axis extent
+    // and Width the Y-axis extent, sheet frame, NOT the part convention.
+    // Without this a kept-whole field exists only as an absence of dice lines;
+    // with it Mozaik shows the offcut and can offer it to a later run.
+    const rems = (s.remnants || []).map((r, i) =>
+      `    <OptimizeRemnantLocation X="${r.x}" Y="${r.y}" Width="${r.h}" Length="${r.w}" `
+      + `Name="${esc(M.displayName)}" Comment="" Quan="1" LabelPrinted="False" RemnantNumber="${i + 1}" />`);
     return `  <OptimizeSheet Width="${M.width}" Length="${M.length}" Rotation="0" Quan="1" Flipped="False" `
       + `HasBeenCut="False" ExportedToCNCOperator="False" PatternNumber="${sheetIdx + 1}" PatternNumberSuffix="" `
-      + `MachineName="${machine}">${NL}${locs.join(NL)}${NL}  </OptimizeSheet>`;
+      + `MachineName="${machine}">${NL}${[...locs, ...rems].join(NL)}${NL}  </OptimizeSheet>`;
   });
 
   const cabOf = (p) => p.cab || cabKeyOf.get(String(p.layer)) || String(p.layer);

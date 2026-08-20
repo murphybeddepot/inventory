@@ -120,6 +120,41 @@ export function nestByLayer(parts, opts = {}) {
   };
 }
 
+// Repack ONE sheet's own parts into one bin, or say it cannot be done.
+// This exists for the seam-nesting pass (Zac 2026-08-19: space the parts so
+// the scrap comes off as small remnants between them, instead of packing
+// tight and dicing one big field). That pass tries many arrangements of the
+// SAME parts on the SAME sheet and keeps the one whose leftover salvages
+// best and dices cheapest — so by construction it can never change the sheet
+// count or which layers a sheet carries; only where the parts sit on it.
+//
+// Uses the same Bin, the same gap/edge inflation, the same rotations as
+// nestByLayer — one packer, not a second copy of the rules that can drift.
+// Returns placements in the nest's own shape, or null when this attempt
+// could not seat every part (the caller just discards that attempt).
+export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jitter = 0 } = {}) {
+  const { gap, edge, sheetL, sheetW } = { ...NEST_DEFAULTS, ...opts };
+  const bin = new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap);
+  const rnd = mulberry(seed);
+  let left = parts.map(p => ({ ...p, l0: p.l, w0: p.w, w: p.l + gap, h: p.w + gap }));
+  while (left.length) {
+    let pick = null;
+    for (const it of left) {
+      const b = bin.best(it, heur, rnd, jitter);
+      if (b && (!pick || b.s < pick.b.s)) pick = { it, b };
+    }
+    if (!pick) return null;                    // an arrangement that drops a part is no arrangement
+    bin.put(pick.b, pick.it);
+    left = left.filter(i => i !== pick.it);
+  }
+  return bin.placed.map(({ it, x, y, rot }) => ({
+    name: it.name, layer: it.layer, key: it.key,
+    l: it.l0, w: it.w0, x: +(x + edge).toFixed(2), y: +(y + edge).toFixed(2),
+    rotation: rot ? 90 : 0,
+    ...(it.salvage ? { salvage: true, label: it.label } : {}),
+  }));
+}
+
 // Geometry helpers the editor page shares, so "does this overlap?" is
 // answered by the same code that placed the parts.
 export function partBox(p) {

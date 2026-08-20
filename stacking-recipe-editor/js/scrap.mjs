@@ -150,11 +150,16 @@ function fitsClear(cand, placements, gap) {
   });
 }
 
-// Greedy: biggest catalogue part that still fits, into the biggest free rect.
-// Returns the salvaged placements (same shape as nest placements, flagged
-// salvage:true so the editor and the .opt can treat them separately).
+// Greedy: biggest catalogue part first, anchored at free-rect corners. A
+// candidate may EXTEND past the free rect it is anchored in: the free-space
+// model is a banded sweep, so one clear strip above three parts reads as
+// three same-height cells, and requiring containment in a single cell meant
+// a 2032mm crate side could never be salvaged from space that is physically
+// clear (found 2026-08-19 by the seam-nest tests — the Fill scrap button had
+// the same blindness). The containment check that matters is explicit
+// instead: inside the sheet trim, and gap-clear of every real placement.
 export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null) {
-  const { gap = 16 } = opts;
+  const { gap = 16, edge = 3, sheetL = 2770, sheetW = 1550 } = opts;
   const placed = [...(sheet.placements || [])];
   const got = [];
   const left = catalog.map(c => ({ ...c, remaining: budget ? (budget[c.name] ?? c.qty) : c.qty }))
@@ -169,7 +174,7 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
       for (const fr of frees) {
         for (const rot of [0, 90]) {
           const w = rot ? c.w : c.l, h = rot ? c.l : c.w;
-          if (w > fr.w + 0.01 || h > fr.h + 0.01) continue;
+          if (fr.x + w > sheetL - edge + 0.01 || fr.y + h > sheetW - edge + 0.01) continue;
           const cand = { x: fr.x, y: fr.y, w, h };
           if (!fitsClear(cand, placed, gap)) continue;
           const pl = { name: c.name, label: c.label, layer: 0, salvage: true,
@@ -185,17 +190,31 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
   return got;
 }
 
+// One decision, made in one place: which free fields get DICED and which
+// stay WHOLE. dicePlan and plannedRemnants are two views of this same split —
+// factoring it out is what stops "the .opt says remnant, the machine dices
+// it" from ever being possible, because both read the same verdict.
+export function classifyFields(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN, minAreaIn2 = 0) {
+  const MAX = maxPieceIn * IN;
+  const MIN_AREA = minAreaIn2 * IN * IN;
+  const dice = [], keep = [];
+  for (const fr of freeRects(sheet, opts)) {
+    if ((fr.w <= MAX && fr.h <= MAX)             // already bin-sized
+      || (MIN_AREA && fr.w * fr.h < MIN_AREA)) { // too small to bother cutting
+      keep.push(fr);
+    } else dice.push(fr);
+  }
+  return { dice, keep };
+}
+
 // Everything still empty, split so no piece exceeds maxPiece on either side.
 // minAreaIn2: leave small offcuts alone. A piece already smaller than the bin
 // limit does not need cutting up, and every cut is machine time (Zac
 // 2026-08-18: "the scrap dicing is going to add a whole bunch of time").
 export function dicePlan(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN, minAreaIn2 = 0) {
   const MAX = maxPieceIn * IN;
-  const MIN_AREA = minAreaIn2 * IN * IN;
   const out = [];
-  for (const fr of freeRects(sheet, opts)) {
-    if (fr.w <= MAX && fr.h <= MAX) continue;          // already bin-sized
-    if (MIN_AREA && fr.w * fr.h < MIN_AREA) continue;  // too small to bother
+  for (const fr of classifyFields(sheet, opts, maxPieceIn, minAreaIn2).dice) {
     const nx = Math.max(1, Math.ceil(fr.w / MAX)), ny = Math.max(1, Math.ceil(fr.h / MAX));
     const cw = fr.w / nx, ch = fr.h / ny;
     for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
@@ -204,6 +223,15 @@ export function dicePlan(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN, minArea
     }
   }
   return out;
+}
+
+// The fields the dice deliberately leaves whole — those ARE the sheet's
+// usable remnants, and the .opt has a first-class record for exactly that
+// (OptimizeRemnantLocation), so Mozaik can show and re-use them instead of
+// them existing only as an absence of dice lines. Same verdict as dicePlan
+// by construction.
+export function plannedRemnants(sheet, opts, maxPieceIn = DEFAULT_MAX_PIECE_IN, minAreaIn2 = 0) {
+  return classifyFields(sheet, opts, maxPieceIn, minAreaIn2).keep;
 }
 
 // What the dicing costs at the machine. Feed rates are the ones the posted
@@ -223,6 +251,88 @@ export function diceCost(dice, { feed = 22800, plunge = 5000, thickness = 19.05 
   }
   const seconds = (len / feed) * 60 + dice.length * (thickness / plunge) * 60;
   return { metres: len / 1000, seconds: Math.round(seconds), pieces: dice.length };
+}
+
+// ---- seam nesting: shape the scrap instead of dicing it ---------------------
+// Zac 2026-08-19: "what if the parts themselves were spaced as optimally as
+// possible to create most of the scrap cuts as small remnants between the
+// parts instead of grouping all the parts together then having to dice up
+// larger remnants."
+//
+// The version built here is cluster-and-seam, not uniform spreading: for each
+// sheet, try many arrangements of that sheet's OWN parts (packSingleSheet —
+// the same packer, different orderings), salvage catalogue panels into each
+// arrangement, and keep the arrangement whose leftover salvages the most and
+// then dices the cheapest at the user's current dice settings. The current
+// arrangement is always candidate zero, so the result is never worse than
+// doing nothing — and because every candidate is the same parts on the same
+// sheet, the pass CANNOT change the sheet count or which layers a sheet
+// carries. Sheet count > layer order > seams, by construction rather than by
+// policy.
+//
+// Machine-time honesty: pass-counting says a seam is roughly a wash (its two
+// borders each need a freeing pass where one shared corridor freed both, but
+// it deletes a dice rip of the same length). The win this optimizes for is
+// scrap QUALITY — catalogue panels seated, leftover pre-sized so the dice has
+// little to do, fields that stay whole recorded as real remnants.
+//
+// packOne is injected (the page passes packSingleSheet from nest.mjs) so this
+// module keeps zero imports and stays testable in isolation.
+export function shapeScrap(nest, opts, packOne, {
+  catalog = DEFAULT_CATALOG, maxPieceIn = DEFAULT_MAX_PIECE_IN, minAreaIn2 = 0,
+  attempts = 60,
+} = {}) {
+  // The budget starts at the full catalogue quantities: salvage is re-derived
+  // on every sheet this pass touches, so nothing pre-existing counts against
+  // it. Each sheet's winner consumes as it lands, which is what keeps "2
+  // sides" meaning two across the whole nest.
+  const budget = {};
+  for (const c of catalog) budget[c.name] = c.qty;
+  const report = [];
+  const salvArea = (pls) => pls.filter(p => p.salvage).reduce((a, p) => a + p.l * p.w, 0);
+
+  for (const sheet of nest.sheets) {
+    const real = (sheet.placements || []).filter(p => !p.salvage);
+    if (!real.length) { report.push(null); continue; }
+
+    // Candidate zero is the sheet exactly as it stands (its old salvage
+    // dropped — salvage is re-derived per candidate against the live budget).
+    // Every OTHER candidate must carry exactly the same parts: an arrangement
+    // that lost one would WIN this scoring (fewer parts = more salvage, less
+    // dicing), so a packer bug would silently delete a part from the nest.
+    // Refused here, at the seam, rather than trusted to the packer.
+    const want = real.map(p => `${p.name}|${p.l}x${p.w}`).sort().join(',');
+    const complete = (arr) => Array.isArray(arr)
+      && arr.map(p => `${p.name}|${p.l}x${p.w}`).sort().join(',') === want;
+    const candidates = [real.map(p => ({ ...p }))];
+    for (let t = 0; t < attempts; t++) {
+      const heur = ['bssf', 'blsf', 'baf', 'bl'][t % 4];
+      const arr = packOne(real, opts, { heur, seed: t * 2654435761 + 7, jitter: t < 4 ? 0 : (t % 30) * 2.5 });
+      if (complete(arr)) candidates.push(arr);
+    }
+
+    let best = null;
+    for (const cand of candidates) {
+      const salv = fitSalvage({ placements: cand }, opts, catalog, budget);
+      const full = [...cand, ...salv];
+      const cost = diceCost(dicePlan({ placements: full }, opts, maxPieceIn, minAreaIn2));
+      const sa = salvArea(full);
+      if (!best || sa > best.sa + 0.5
+        || (Math.abs(sa - best.sa) <= 0.5 && (cost.metres < best.cost.metres - 1e-9
+          || (Math.abs(cost.metres - best.cost.metres) <= 1e-9 && cost.pieces < best.cost.pieces)))) {
+        best = { full, salv, cost, sa };
+      }
+    }
+
+    // the baseline the winner is judged against: candidate zero, same rules
+    const baseSalv = fitSalvage({ placements: candidates[0] }, opts, catalog, budget);
+    const before = diceCost(dicePlan({ placements: [...candidates[0], ...baseSalv] }, opts, maxPieceIn, minAreaIn2));
+
+    sheet.placements = best.full;
+    for (const s of best.salv) budget[s.name] = Math.max(0, (budget[s.name] || 0) - 1);
+    report.push({ salvaged: best.salv.length, before, after: best.cost });
+  }
+  return report;
 }
 
 export function scrapSummary(sheet, opts, dice) {

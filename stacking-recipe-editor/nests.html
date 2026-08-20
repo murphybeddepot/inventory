@@ -56,6 +56,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="renest">↻ Re-nest from recipe</button>
   <button id="edit" aria-pressed="false">✏️ Edit</button>
   <button id="scrapBtn">♻ Fill scrap</button>
+  <button id="seamBtn" title="Re-arrange each sheet's own parts so the leftover salvages more and dices less — same parts, same sheets, never worse than the current layout.">⇄ Shape scrap</button>
   <button id="diceBtn" aria-pressed="false">▦ Show offcut dice</button>
   <label class="soft">max piece
     <select id="diceMax"><option value="11.9">12in</option><option value="16">16in</option>
@@ -114,12 +115,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS } from './js/nest.mjs';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet } from './js/nest.mjs';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs';
 import { APP_VERSION } from './js/version.mjs';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
-         loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar } from './js/scrap.mjs';
+         loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
+         shapeScrap, plannedRemnants } from './js/scrap.mjs';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -492,6 +494,36 @@ $('scrapBtn').onclick = () => {
   alert(`${head}\nSheet is ${(sum.usedPct * 100).toFixed(0)}% used; the rest dices into ${sum.pieces} piece(s) ` +
     `no bigger than ${DEFAULT_MAX_PIECE_IN}in for the scrap bin.`);
 };
+// ---- shape scrap: seam-nest every sheet (Zac 2026-08-19) --------------------
+// "what if the parts themselves were spaced as optimally as possible to
+// create most of the scrap cuts as small remnants between the parts instead
+// of grouping all the parts together then having to dice up larger remnants"
+// — re-arranges each sheet's OWN parts (same parts, same sheets, so sheet
+// count and layer order cannot change), salvages the catalogue into every
+// candidate arrangement, and keeps whichever salvages most then dices
+// cheapest at the dice settings currently chosen on this toolbar. The
+// current layout is always a candidate, so this is never worse than doing
+// nothing.
+$('seamBtn').onclick = () => {
+  const edited = nest.sheets.some(sh => (sh.placements || []).some(p => p._moved || p._from != null));
+  if (edited && !confirm('Shaping the scrap re-arranges parts on every sheet. Your manual moves are lost. Continue?')) return;
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
+    minDimMM: parseFloat($('diceStrip').value) || 100 };
+  const rep = shapeScrap(nest, opts, packSingleSheet, {
+    catalog: catalog(),
+    maxPieceIn: parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN,
+    minAreaIn2: parseFloat($('diceMin').value) || 0,
+  });
+  showDice = true; $('diceBtn').setAttribute('aria-pressed', 'true');
+  selected = null; recomputeDice(); buildTabs(); draw();
+  const rows = rep.map((r, i) => r
+    ? `Sheet ${i + 1}: ${r.salvaged ? r.salvaged + ' salvaged · ' : ''}dice ${r.before.metres.toFixed(1)}m/${r.before.pieces}p → ${r.after.metres.toFixed(1)}m/${r.after.pieces}p`
+    : `Sheet ${i + 1}: empty`);
+  const dm = rep.reduce((a, r) => a + (r ? r.before.metres - r.after.metres : 0), 0);
+  alert(`Scrap shaped at ${$('diceMax').value}in pieces.\n${rows.join('\n')}\n`
+    + (dm > 0.05 ? `${dm.toFixed(1)}m less dicing than the packed layout.`
+      : 'The packed layout was already as good — nothing changed.'));
+};
 $('diceBtn').onclick = () => {
   showDice = !showDice;
   $('diceBtn').setAttribute('aria-pressed', showDice);
@@ -563,6 +595,19 @@ function scrapSettings() {
 }
 function stash() {
   try { nest.scrap = scrapSettings(); } catch (e) { /* toolbar not built yet */ }
+  // Planned remnants ride ON each sheet so the job export writes them into
+  // the .opt as OptimizeRemnantLocation records. Computed here — at handover
+  // — against the dice settings as they stand, the same verdict the dice
+  // overlay shows, so the .opt can never promise a remnant the dice would cut.
+  try {
+    const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
+      minDimMM: parseFloat($('diceStrip').value) || 100 };
+    const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
+    const minIn2 = parseFloat($('diceMin').value) || 0;
+    for (const sh of nest.sheets) {
+      sh.remnants = (sh.placements || []).length ? plannedRemnants(sh, opts, maxIn, minIn2) : [];
+    }
+  } catch (e) { /* toolbar not built yet */ }
   try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {}
 }
 addEventListener('beforeunload', stash);
