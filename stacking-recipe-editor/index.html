@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=3.69';
-  import { buildJobZip } from './js/moz_build.mjs?v=3.69';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.69';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.69';
+  import { parseMoz } from './js/moz_parse.mjs?v=3.71';
+  import { buildJobZip } from './js/moz_build.mjs?v=3.71';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.71';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.71';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -876,7 +876,14 @@
 const MM_PER_IN = 25.4;
 const SVGNS = 'http://www.w3.org/2000/svg';
 const LS_LIB = 'mbd_stacking_library_v1';
-const LS_WORK = 'mbd_stacking_work_v1';
+const LS_WORK = 'mbd_stacking_work_v1';       // plain — what pre-3.67 builds read
+// v3.70: the compressed working copy lives under its OWN key. v3.67 started
+// writing LZW into LS_WORK, and any browser still running older cached code
+// then did JSON.parse on it, threw, and fell through to the SAMPLE parts list —
+// which is exactly what Zac saw on his PC and not his MacBook ("when i refresh
+// it loads some other parts list"). Two keys means the two builds cannot
+// corrupt each other's view while caches drain.
+const LS_WORK2 = 'mbd_stacking_work_v2';
 
 /* ============================================================
    BEDROCK BACKEND (v10.1324 — 2026-07-22)
@@ -1011,7 +1018,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.69';
+const APP_VERSION = '3.71';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -5119,7 +5126,8 @@ function doSave(){try{
     snap:snapshot(), unit:S.unit, cartonUnit:S.cartonUnit, grid:S.grid, gridIn:S.gridIn, snap_:S.snap, ghost:S.ghost, labels:S.labels, contain:S.contain, gap:S.gap, maxSupport:S.maxSupport, activeLayer:S.activeLayer
   };
   const json=JSON.stringify(work);
-  localStorage.setItem(LS_WORK, window.PackStore?window.PackStore.compress(json):json);
+  if(window.PackStore){ localStorage.setItem(LS_WORK2, window.PackStore.compress(json)); }
+  else { localStorage.setItem(LS_WORK, json); }
   _workSaveFailed=false;}catch(e){
   // Was an empty catch. Once storage is full this stops working and the editor
   // silently reverts to an older state on every reload — which is how a save
@@ -5130,15 +5138,23 @@ function doSave(){try{
 }}
 let _workSaveFailed=false;
 function restoreWork(){
-  try{const rawW=localStorage.getItem(LS_WORK)||'null';
-    const w=JSON.parse((window.PackStore?window.PackStore.decompress(rawW):rawW)||'null');if(!w||!w.snap)return false;
+  try{
+    // v2 (compressed) wins; v1 is what an older build left behind.
+    const raw2=localStorage.getItem(LS_WORK2);
+    const rawW=raw2!=null?raw2:(localStorage.getItem(LS_WORK)||'null');
+    const txt=window.PackStore?window.PackStore.decompress(rawW):rawW;
+    const w=JSON.parse(txt||'null');
+    if(!w||!w.snap){ _workRestoreFailed=(rawW&&rawW!=='null'); return false; }
     S.unit=w.unit||'mm';S.cartonUnit=w.cartonUnit||'mm';S.grid=w.grid!=null?w.grid:10;S.gridIn=!!w.gridIn;S.snap=w.snap_!==false;S.ghost=w.ghost!==false;S.labels=w.labels!==false;S.contain=w.contain!==false;S.gap=w.gap||0;S.maxSupport=!!w.maxSupport;
     restoreSnapshot(w.snap);
     if(w.activeLayer!=null&&w.activeLayer<S.layers.length)S.activeLayer=w.activeLayer;
     syncSettingControls();renderAll();
     return true;
-  }catch(e){return false;}
+  }catch(e){ _workRestoreFailed=true; return false; }
 }
+// True when a working copy EXISTED and could not be read — the difference
+// between "first visit" and "your layout is in there and I could not open it".
+let _workRestoreFailed=false;
 
 /* ============================================================
    RENDER ALL + INIT
@@ -5163,15 +5179,32 @@ function renderCartons(){
 function renderAll(){syncSettingControls();render();renderTray();renderLayers();renderInspector();renderCartons();updateSig();}
 window.addEventListener('resize',()=>{render();});
 
-(function init(){
+// BOOT AFTER THE MODULES. A classic inline script runs at its position in the
+// document; <script type="module"> is DEFERRED and executes later, before
+// DOMContentLoaded. So window.PackStore did not exist yet when init() ran, the
+// compressed session could not be decompressed, and the editor came up empty —
+// the same "it forgot my parts list" symptom, now caused by load order instead
+// of caching. DOMContentLoaded is after modules, so boot there.
+function boot(){
   const vt=document.getElementById('verTag'); if(vt)vt.textContent='v'+APP_VERSION;
   syncSettingControls();
   if(!restoreWork()){
-    try{const {rows}=parsePartList(SAMPLE_PARTS);if(rows.length)loadManifest(rows,true);}catch(e){}
-    renderAll();
+    // Loading the SAMPLE list over somebody's real work is the worst possible
+    // recovery, and it looks like the app lost the job. Only do it on a genuine
+    // first visit; if a working copy was there and unreadable, say so and leave
+    // the screen empty so Library -> Load is the obvious next move.
+    if(_workRestoreFailed){
+      renderAll();
+      setTimeout(()=>{ try{ toast('Could not read the last session \u2014 open Library and Load your recipe.'); }catch(e){} },400);
+    } else {
+      try{const {rows}=parsePartList(SAMPLE_PARTS);if(rows.length)loadManifest(rows,true);}catch(e){}
+      renderAll();
+    }
   }
   updateSig();
-})();
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+else boot();
 </script>
 </body>
 </html>
