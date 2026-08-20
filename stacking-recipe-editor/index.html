@@ -1007,7 +1007,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.65';
+const APP_VERSION = '3.66';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3901,7 +3901,8 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
   const parts=nestPartsFromRecipe();
   if(!parts.length){toast('Nothing to nest — place some parts on a layer first');return;}
   try{
-    sessionStorage.setItem('mbd_nest_input',JSON.stringify({sku:S.sku||'',parts:parts}));
+    if(typeof doSave==='function') doSave();   // never leave with a stale working copy
+  sessionStorage.setItem('mbd_nest_input',JSON.stringify({sku:S.sku||'',parts:parts}));
   }catch(err){toast('Could not hand the recipe over: '+err.message);return;}
   location.href='./nests.html';
 };
@@ -4220,7 +4221,22 @@ function download(name,content,mime){const b=new Blob([content],{type:mime});con
    LIBRARY (localStorage)
    ============================================================ */
 function loadLib(){try{return JSON.parse(localStorage.getItem(LS_LIB)||'{}');}catch(e){return {};}}
-function saveLib(lib){localStorage.setItem(LS_LIB,JSON.stringify(lib));}
+// Returns TRUE only if the library actually reached storage. It used to be a
+// bare setItem with no try/catch, called OUTSIDE the Save handler's try — so a
+// QuotaExceededError became an unhandled rejection and Save did nothing at all,
+// with no toast, no error, and the old recipe still sitting in the Library.
+// That is the silent-failure class this repo has a standing rule against
+// (2026-08-20: "save recipe doesn't seem to be saving my latest recipe").
+function saveLib(lib){
+  try{ localStorage.setItem(LS_LIB,JSON.stringify(lib)); return true; }
+  catch(e){ _libSaveError=e; return false; }
+}
+let _libSaveError=null;
+// How much room is left, in plain words, for the failure message.
+function libBytes(){
+  try{ let n=0; for(const k in localStorage) n+=(localStorage[k]||'').length+k.length; return n*2; }
+  catch(e){ return null; }
+}
 function snapshot(){
   return {
     sku:S.sku, savedAt:new Date().toISOString(), appVersion:APP_VERSION,
@@ -4254,6 +4270,12 @@ function restoreSnapshot(snap){
   S.sourceShell=snap.sourceShell||null;
   S.nextId=maxId+1;S.activeLayer=0;S.sel=new Set();S.armed=null;
   syncSettingControls();renderAll();updateSig();
+  // Flush to the working copy NOW. Loading a recipe touches no part, so the
+  // 400ms scheduleSave never fires — and the Nests page is a full navigation,
+  // so coming back rebuilt the editor from the PREVIOUS session's autosave,
+  // SKU and all. The next Save then wrote the old layout under the old name and
+  // the recipe you just nested was simply never updated (2026-08-20).
+  if(typeof doSave==='function') doSave();
 }
 /* Save (v3.1 — Phase 1.1 cross-device):
    1) Write to localStorage (always, even offline / unprovisioned).
@@ -4296,7 +4318,16 @@ $('btnSave').onclick=async()=>{
   if(exists && prevSig && prevSig !== snap.signature){
     try{ localStorage.removeItem('mbd_stacking_guide:'+S.sku); }catch(_){}
   }
-  lib[S.sku]=snap;saveLib(lib);
+  lib[S.sku]=snap;
+  if(!saveLib(lib)){
+    const mb=libBytes(); const size=mb?(' Browser storage holds about '+(mb/1048576).toFixed(1)+'MB and is full.'):'';
+    alert('SAVE FAILED \u2014 "'+S.sku+'" was NOT saved.'+size
+      +'\n\nNothing was written, and the copy in the Library is the OLD one.'
+      +'\n\nDelete a recipe you no longer need (Library \u2192 Delete) and save again.'
+      +(_libSaveError?('\n\n'+_libSaveError.name+': '+_libSaveError.message):''));
+    toast('\u274c SAVE FAILED \u2014 storage full. '+S.sku+' was NOT saved.');
+    return;
+  }
   // v3.8: if Library modal is open, refresh its list so the newly-saved
   // recipe appears immediately without a close/reopen dance.
   const libOpen = $('libModal') && $('libModal').classList.contains('show');
@@ -4316,7 +4347,10 @@ $('btnSave').onclick=async()=>{
     if(result && result.new_revision){
       snap._revision=result.new_revision;
       lib[S.sku]._revision=result.new_revision;
-      saveLib(lib);
+      // If THIS write fails the recipe body is already saved but the revision
+      // is lost, and every later save then reports a phantom CLOUD CONFLICT.
+      // Say so plainly rather than blaming the cloud for a local failure.
+      if(!saveLib(lib)) toast('\u26a0 Saved, but the cloud revision could not be stored (storage full) \u2014 the next save may report a false conflict.');
       toast('✓ Saved '+S.sku+' (local + cloud rev '+result.new_revision+placedNote+')');
     }else{
       toast('✓ Saved '+S.sku+' (local; cloud returned no revision'+placedNote+')');
@@ -5062,7 +5096,15 @@ let saveTimer=null;
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(doSave,400);}
 function doSave(){try{localStorage.setItem(LS_WORK,JSON.stringify({
   snap:snapshot(), unit:S.unit, cartonUnit:S.cartonUnit, grid:S.grid, gridIn:S.gridIn, snap_:S.snap, ghost:S.ghost, labels:S.labels, contain:S.contain, gap:S.gap, maxSupport:S.maxSupport, activeLayer:S.activeLayer
-}));}catch(e){}}
+}));_workSaveFailed=false;}catch(e){
+  // Was an empty catch. Once storage is full this stops working and the editor
+  // silently reverts to an older state on every reload — which is how a save
+  // that DID work still looks like "it lost my latest recipe".
+  if(!_workSaveFailed){ _workSaveFailed=true;
+    try{ toast('\u26a0 Auto-save stopped \u2014 browser storage is full. Save your recipe and delete an old one.'); }catch(_){}
+  }
+}}
+let _workSaveFailed=false;
 function restoreWork(){
   try{const w=JSON.parse(localStorage.getItem(LS_WORK)||'null');if(!w||!w.snap)return false;
     S.unit=w.unit||'mm';S.cartonUnit=w.cartonUnit||'mm';S.grid=w.grid!=null?w.grid:10;S.gridIn=!!w.gridIn;S.snap=w.snap_!==false;S.ghost=w.ghost!==false;S.labels=w.labels!==false;S.contain=w.contain!==false;S.gap=w.gap||0;S.maxSupport=!!w.maxSupport;
