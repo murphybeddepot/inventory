@@ -9740,12 +9740,19 @@ function _frameRunwayOpen_() {
     +     '<div class="runway-title" style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:20px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1.5px;text-transform:uppercase;line-height:1">📊<span class="runway-title-text"> Inventory Runway</span></div>'
     +     '<div id="frameRunwaySub" style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:3px">Loading inventory…</div>'
     +   '</div>'
+    // v10.1506 — window defaults to 90d (the Inventory sheet's ordering
+    // basis; Zac quotes cam/pin at ~46/day = the 90d rate) and the
+    // choice persists per device. Long windows stay available but are
+    // no longer the accidental default: with today's BOM, pre-V2 months
+    // charge Boaz/Library cams inside hardware packs, so 180/360d
+    // averages dilute the true current rate (cam read 17/day on 360d
+    // vs 46/day real — Zac caught it 2026-08-21).
     +   '<select id="frameRunwayWindowSel" onchange="_frameRunwayChangeWindow_(this.value)" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;border-radius:6px;padding:5px 7px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">'
-    +     '<option value="30">Show 30d</option>'
-    +     '<option value="60">Show 60d</option>'
-    +     '<option value="90">Show 90d</option>'
-    +     '<option value="180">Show 180d</option>'
-    +     '<option value="360">Show 360d</option>'
+    +     ['30','60','90','180','360'].map(function(w){
+            var savedW = '90';
+            try { savedW = localStorage.getItem('mbd_runway_window_days') || '90'; } catch(e) {}
+            return '<option value="' + w + '"' + (w === savedW ? ' selected' : '') + '>Show ' + w + 'd</option>';
+          }).join('')
     +   '</select>'
     +   '<button class="runway-btn" onclick="_frameRunwayComputeAllWindows_()" id="frameRunwayVelAllBtn" title="Compute velocity" style="background:rgba(66,165,245,.18) !important;border:1px solid #42a5f5;color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⚡<span class="runway-btn-label"> Compute velocity</span></button>'
     +   '<button class="runway-btn" onclick="_frameRunwayReload_()" title="Reload" style="background:rgba(0,0,0,.30) !important;border:1px solid var(--border);color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;border-radius:6px;padding:6px 9px;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:11px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;cursor:pointer">⟳</button>'
@@ -10072,7 +10079,11 @@ function _frameRunwayMoreOutsideClick_(e) {
 }
 // v10.716 — operator changes the displayed window. Cheap reload (uses
 // cached payload if available — different window = different cache key).
-async function _frameRunwayChangeWindow_(val) { _frameRunwayLoad_(false); }
+async function _frameRunwayChangeWindow_(val) {
+  // v10.1506 — remember the operator's window per device.
+  try { localStorage.setItem('mbd_runway_window_days', String(val)); } catch (e) {}
+  _frameRunwayLoad_(false);
+}
 // v10.716 — one Shopify pass over the longest window (360d), credits
 // each line item to every window it qualifies for. Populates all 5
 // cache slots so the operator can flip the dropdown without re-fetch.
@@ -14457,7 +14468,10 @@ async function _frameRunwayLoad_(forceRefresh) {
   const sub = document.getElementById('frameRunwaySub');
   const body = document.getElementById('frameRunwayBody');
   const sel = document.getElementById('frameRunwayWindowSel');
-  const windowDays = Number((sel && sel.value) || 30);
+  // v10.1506 — 90d is the default basis (matches the Inventory sheet).
+  let _winPref = 90;
+  try { _winPref = Number(localStorage.getItem('mbd_runway_window_days')) || 90; } catch (e) {}
+  const windowDays = Number((sel && sel.value) || _winPref);
   // v10.809 — pull velocity snapshot from Supabase if local stash is
   // empty or >24h old. Phone benefits from iPad's ⚡ Compute
   // automatically (task #75). Await briefly so first render uses it.
@@ -14766,6 +14780,13 @@ function _frameRunwayRender_(items, containerBanner) {
   let windowLabel = activeWindow ? (activeWindow + 'd') : 'pending';
   if (activeWindow && activeEffective && activeEffective < activeWindow) {
     windowLabel = activeWindow + 'd (' + activeEffective + 'd of data)';
+  }
+  // v10.1506 — long-window caveat: today's BOM applied to pre-V2 sales
+  // undercounts loose cam/pin (they moved into hardware packs), so
+  // 180/360d averages read far below the true current rate. 90d is the
+  // ordering basis.
+  if (activeWindow && activeWindow > 90) {
+    windowLabel += '</strong> <span style="color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;font-weight:700">⚠ long window — historical mix dilutes current rates; use 90d for ordering</span><strong>';
   }
   // v10.1505 — attribution line: unmatched units are a number Zac sees,
   // never a silent drop. Green ≥98%, red below with the top offenders.
@@ -37961,7 +37982,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1505"></script>
+<script src="./pack.js?v=10.1506"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37972,7 +37993,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1505<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1506<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
