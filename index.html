@@ -1517,6 +1517,11 @@ input::placeholder, textarea::placeholder {
        work; they're removed in step 7 once parity is validated. -->
   <button class="tab-btn" id="tab-orders-btn" onclick="switchTab('orders')"><span class="tab-icon">📦</span><span>Orders</span></button>
   <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')"><span class="tab-icon">🚚</span><span>Ground</span></button>
+  <!-- v10.1510 — Stock 2 promoted to a permanent primary tab on every
+       device (Zac 2026-08-21: "make stock 2 a permanent tab in bedrock
+       on all devices"). Was flag-gated per device via
+       mbd_stock_v2_enabled since v10.689; the flag is retired. -->
+  <button class="tab-btn" id="tab-items-v2-btn" onclick="switchTab('items-v2')"><span class="tab-icon">📊</span><span>Stock 2</span></button>
   <button class="tab-btn" id="tab-more-btn" onclick="openMoreMenu()"><span class="tab-icon">☰</span><span>More</span></button>
   <!-- Hidden / More-menu-only tabs -->
   <button class="tab-btn" id="tab-lookup-btn" onclick="switchTab('lookup')" style="display:none">Lookup</button>
@@ -1524,9 +1529,6 @@ input::placeholder, textarea::placeholder {
   <button class="tab-btn" id="tab-pack-btn" onclick="switchTab('pack')" style="display:none">Pack</button>
   <button class="tab-btn" id="tab-schedule-btn" onclick="switchTab('schedule')" style="display:none">Schedule (legacy)</button>
   <button class="tab-btn" id="tab-items-btn" onclick="switchTab('items')" style="display:none">Stock</button>
-  <!-- v10.689 — Stock 2.0 (Phase 0 dashboard). Flag-gated via the
-       mbd_stock_v2_enabled localStorage key. More menu has a toggle. -->
-  <button class="tab-btn" id="tab-items-v2-btn" onclick="switchTab('items-v2')" style="display:none">Stock 2</button>
   <button class="tab-btn" id="tab-cycle-btn" onclick="switchTab('cycle')" style="display:none">Count</button>
   <button class="tab-btn" id="tab-scan-btn" onclick="switchTab('scan')" style="display:none">Inventory</button>
   <button class="tab-btn" id="tab-barcodes-btn" onclick="switchTab('barcodes')" style="display:none">Barcodes</button>
@@ -2023,8 +2025,8 @@ input::placeholder, textarea::placeholder {
         <button onclick="closeMoreMenu();_stockV2Toggle_()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">📋</span>
       <div style="flex:1">
-        <div>Stock 2.0 <span id="stockV2StatusBadge" style="margin-left:6px;font-size:10px;font-weight:900;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px">Off</span></div>
-        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Phase 0 dashboard preview — see stale items first. Tap to toggle.</div>
+        <div>Stock 2.0 <span id="stockV2StatusBadge" style="margin-left:6px;font-size:10px;font-weight:900;background:#e6f7ec;color:#1b7d3d;padding:2px 6px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px">Permanent tab</span></div>
+        <div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Counting, receiving, runway + PO tools. Now a permanent tab on every device — tap to open.</div>
       </div>
       <span style="color:#999;font-size:18px">›</span>
     </button>
@@ -6890,16 +6892,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // open per session is instant. Fires 8s after boot; gated on PIN
   // being cached so anonymous boots stay quiet.
   try { if (typeof _schedulePlannerPrewarm_ === 'function') _schedulePlannerPrewarm_(); } catch (e) {}
-  // v10.689 — Stock 2.0 nav visibility + status badge sync.
+  // v10.1510 — Stock 2 is a permanent primary tab (flag retired);
+  // just make sure nothing left it hidden. Badge text is static in
+  // the More-menu markup now.
   try {
     if (typeof _stockV2SyncTabVisibility_ === 'function') _stockV2SyncTabVisibility_();
-    const badge = document.getElementById('stockV2StatusBadge');
-    if (badge) {
-      const on = (typeof _stockV2Enabled_ === 'function') && _stockV2Enabled_();
-      badge.textContent = on ? 'On' : 'Off';
-      badge.style.background = on ? '#e6f4ea' : '#f0f0f0';
-      badge.style.color = on ? '#1e8e3e' : '#666';
-    }
   } catch (e) {}
   // v10.699 punch-list P (Seth) — boot-time pending-badge sync. If
   // the queue has items from a prior session (PWA was closed before
@@ -15340,21 +15337,19 @@ function _stockV2ClearAllPending_() {
   const ov = document.getElementById('stockV2PendingList');
   if (ov) ov.remove();
 }
-function _stockV2Enabled_() {
-  try { return localStorage.getItem('mbd_stock_v2_enabled') === '1'; }
-  catch (e) { return false; }
-}
+// v10.1510 — Stock 2 is a permanent primary tab on every device (Zac
+// 2026-08-21). The per-device mbd_stock_v2_enabled flag is retired;
+// these shims stay because callers are spread across boot + More menu.
+function _stockV2Enabled_() { return true; }
 function _stockV2Toggle_() {
-  const on = !_stockV2Enabled_();
-  try { localStorage.setItem('mbd_stock_v2_enabled', on ? '1' : '0'); } catch (e) {}
-  _stockV2SyncTabVisibility_();
   if (typeof showToast === 'function') {
-    showToast(on ? '✓ Stock 2.0 enabled — tap "Stock 2" in More menu' : 'Stock 2.0 hidden');
+    showToast('Stock 2 is a permanent tab now — nothing to toggle');
   }
+  if (typeof switchTab === 'function') switchTab('items-v2');
 }
 function _stockV2SyncTabVisibility_() {
   const btn = document.getElementById('tab-items-v2-btn');
-  if (btn) btn.style.display = _stockV2Enabled_() ? '' : 'none';
+  if (btn) btn.style.display = '';
 }
 async function _stockV2StartSession_(verb) {
   // v10.690 (Phase 1A) — bin-picker modal. Scan or tap-pick a bin to
@@ -38046,7 +38041,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1509"></script>
+<script src="./pack.js?v=10.1510"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38057,7 +38052,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1509<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1510<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
