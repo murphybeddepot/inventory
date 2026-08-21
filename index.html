@@ -12880,6 +12880,31 @@ async function _poReceiveLine_(poId, sku, remaining, poName) {
   } catch (e) { alert('Receive failed: ' + e.message); }
 }
 
+// v10.1511 (Zac 2026-08-21: "no way to edit the 'received' if one
+// accidentally receives twice") — remove N units from a line's receipt.
+// Server reverses on_hand, logs PO_RECEIVE_UNDO, appends a negative
+// received_lines entry (audit stays append-only) and re-projects
+// on-order.
+async function _poUndoReceiveLine_(poId, sku, received, poName) {
+  if (received <= 0) return;
+  const qtyStr = prompt('Remove how many from RECEIVED for ' + sku + '?\n(Currently received: ' + received + ')\n\nUse this to fix an accidental double receive.', String(received));
+  if (qtyStr === null) return;
+  const qty = Number(qtyStr);
+  if (!isFinite(qty) || qty <= 0) { alert('Qty must be > 0'); return; }
+  if (qty > received) { alert('Only ' + received + ' received — cannot remove ' + qty); return; }
+  const undoneBy = (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : (prompt('Your name (optional)', '') || '');
+  try {
+    const r = await groundApi('undoPOReceive', { po_id: poId, sku, qty, undone_by: undoneBy });
+    if (!r.ok) { alert('Undo failed: ' + (r.error || 'unknown')); return; }
+    if (typeof showToast === 'function') {
+      showToast('↩ Removed ' + qty + ' ' + sku + ' from received · now ' + r.received_for_sku + ' · PO ' + r.status);
+    }
+    const phOv = document.getElementById('poHistoryOverlay');
+    if (phOv) { phOv.remove(); _frameRunwayOpenPoHistory_(); }
+    if (typeof _frameRunwayLoad_ === 'function') _frameRunwayLoad_(true);
+  } catch (e) { alert('Undo failed: ' + e.message); }
+}
+
 async function _poMarkReceived_(poId, poName) {
   if (!confirm('Mark PO "' + (poName || poId) + '" as RECEIVED?\n\nThis will:\n• Add every line item\'s qty to items.on_hand\n• Log a PO_RECEIVE transaction per line\n• Remove the PO from the Runway on-order banner\n\nIrreversible.')) return;
   const receivedBy = prompt('Who received it? (your name)', (typeof groundPackerName !== 'undefined' && groundPackerName) ? groundPackerName : '') || '';
@@ -13097,19 +13122,39 @@ async function _frameRunwayOpenPoHistory_() {
             + '<th style="padding:4px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Line $</th>'
             + '<th style="padding:4px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Action</th>'
             + '</tr></thead><tbody>';
+          // v10.1511 — Häfele lines showed only the dotted item number.
+          // The Runway items cache carries the descriptive names; show
+          // "NAME" over the code so the receiver knows what the part IS.
+          const _skuNames = {};
+          try {
+            (window._frameRunwayItemsCache || []).forEach(it => {
+              const k = String(it.sku || '').trim();
+              const nm = String(it.name || '').trim();
+              if (k && nm && nm !== k) _skuNames[k] = nm;
+            });
+          } catch (e) { /* names are a nicety — never block the table */ }
           for (const L of lines) {
             const ordered = Number(L.qty) || 0;
             const sku = String(L.sku || '').trim();
             const received = Number(recBySku[sku]) || 0;
             const remaining = Math.max(0, ordered - received);
             const recColor = received === 0 ? '#888' : (received >= ordered ? '#00C853' : '#FFB300');
+            const dispName = _skuNames[sku] || '';
+            const skuCell = dispName
+              ? '<div style="font-weight:700">' + esc(dispName) + '</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#999 !important;-webkit-text-fill-color:#999 !important">' + esc(L.sku) + '</div>'
+              : '<span style="font-family:\'JetBrains Mono\',monospace">' + esc(L.sku) + '</span>';
+            // v10.1511 — ↩ lets the receiver fix an accidental double
+            // receive right here (server: undoPOReceive).
+            const undoBtn = received > 0
+              ? ' <button onclick="event.stopPropagation();_poUndoReceiveLine_(\'' + esc(r.po_id) + '\',\'' + esc(sku) + '\',' + received + ',\'' + esc(r.po_name || r.po_id) + '\')" title="Fix an accidental receive — remove units from received" style="background:rgba(255,179,0,.12);color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1px solid #FFB300;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:900;cursor:pointer;font-family:inherit">↩</button>'
+              : '';
             const actionCell = (lifeStatus === 'received' || remaining === 0)
               ? '<span style="color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;font-weight:900">✓</span>'
               : '<button onclick="event.stopPropagation();_poReceiveLine_(\'' + esc(r.po_id) + '\',\'' + esc(sku) + '\',' + remaining + ',\'' + esc(r.po_name || r.po_id) + '\')" style="background:rgba(0,200,83,.15);color:#00C853 !important;-webkit-text-fill-color:#00C853 !important;border:1px solid #00C853;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:900;cursor:pointer;font-family:inherit">📥 Receive</button>';
             html += '<tr style="border-bottom:1px solid #222;color:#fff !important;-webkit-text-fill-color:#fff !important">'
-              + '<td style="padding:4px 8px;font-family:\'JetBrains Mono\',monospace">' + esc(L.sku) + '</td>'
+              + '<td style="padding:4px 8px">' + skuCell + '</td>'
               + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + ordered.toLocaleString() + '</td>'
-              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + recColor + ' !important;-webkit-text-fill-color:' + recColor + ' !important">' + received + ' / ' + ordered + '</td>'
+              + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:' + recColor + ' !important;-webkit-text-fill-color:' + recColor + ' !important;white-space:nowrap">' + received + ' / ' + ordered + undoBtn + '</td>'
               + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (L.unit_cost != null ? '$' + Number(L.unit_cost).toFixed(2) : '—') + '</td>'
               + '<td style="padding:4px 8px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + (L.line_total != null ? '$' + Number(L.line_total).toFixed(2) : '—') + '</td>'
               + '<td style="padding:4px 8px">' + actionCell + '</td>'
@@ -38041,7 +38086,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1510"></script>
+<script src="./pack.js?v=10.1511"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38052,7 +38097,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1510<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1511<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
