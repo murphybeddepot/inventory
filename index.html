@@ -14352,6 +14352,13 @@ function _frameRunwayApplyVelocity_(items, windowDays) {
     }
     return items;
   }
+  // v10.1509 — a stamped stash that lacks this window's slot should use
+  // ANY available window rather than render pending (better a labeled
+  // 30d number than a dash while the full sweep finishes).
+  if (stash && stash.engine === 'grammar-v1' && stash.per_window && !stash.per_window[windowDays]) {
+    const avail = Object.keys(stash.per_window);
+    if (avail.length) windowDays = Number(avail.includes('90') ? 90 : avail[0]);
+  }
   if (!stash || !stash.per_window || !stash.per_window[windowDays]) return items;
   const velMap = stash.per_window[windowDays];
   // v10.1482 — single module-scope alias map (was a third diverged
@@ -14520,10 +14527,22 @@ async function _frameRunwayLoad_(forceRefresh) {
   // v10.809 — pull velocity snapshot from Supabase if local stash is
   // empty or >24h old. Phone benefits from iPad's ⚡ Compute
   // automatically (task #75). Await briefly so first render uses it.
-  try { await Promise.race([
-    _frameRunwayPullVelocitySnapshotIfStale_(),
-    new Promise(r => setTimeout(r, 1500))   // 1.5s max — don't block UX
-  ]); } catch (e) { /* fall through */ }
+  // v10.1509 — the 1.5s pull race lost on cellular: the Supabase pull
+  // completed AFTER paint and nothing re-rendered, so the page showed
+  // "pending" forever while the fresh stamped snapshot sat in
+  // localStorage (Zac's phone, 2026-08-21). Wait up to 4s, and when the
+  // pull lands late, re-render once so its data actually paints.
+  try {
+    let _raced = false;
+    const _pullP = _frameRunwayPullVelocitySnapshotIfStale_().then(function (wrote) {
+      if (wrote && _raced && _isCurrent()) _frameRunwayLoad_(false);
+      return wrote;
+    }).catch(function () { return false; });
+    await Promise.race([
+      _pullP,
+      new Promise(r => setTimeout(() => { _raced = true; r(); }, 4000))
+    ]);
+  } catch (e) { /* fall through */ }
   // v10.809 — Instant render from cache (task #72). Zac: "i don't
   // understand why everything in inventory runway takes too long to
   // load as though it's using a manual calculator by hand."
@@ -38027,7 +38046,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1508"></script>
+<script src="./pack.js?v=10.1509"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38038,7 +38057,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1508<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1509<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
