@@ -14333,6 +14333,8 @@ function _frameRunwayApplyVelocity_(items, windowDays) {
       days_of_runway: dor,
       days_of_runway_with_on_order: dorWith,
       velocity_window_days: windowDays,
+      // v10.1505 — actual data span behind the rate (worker v32.18).
+      velocity_effective_days: v.effective_days || windowDays,
       _velocity_status: 'phase1_worker_direct'
     };
   });
@@ -14366,7 +14368,17 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
     }
     // Persist all returned windows in localStorage; render merges them.
     try {
-      const stamp = { computed_at: parsed.computed_at, stats: parsed.stats, per_window: parsed.per_window };
+      // v10.1505 — carry attribution + true data span (worker v32.18):
+      // velocity now divides by the span Shopify ACTUALLY returned, and
+      // unmatched SKUs are a loud number, not a silent drop.
+      const stamp = {
+        computed_at: parsed.computed_at,
+        stats: parsed.stats,
+        per_window: parsed.per_window,
+        attribution: parsed.attribution || null,
+        data_span_days: parsed.data_span_days || null,
+        effective_windows: parsed.effective_windows || null,
+      };
       localStorage.setItem('mbd_frame_runway_velocity', JSON.stringify(stamp));
     } catch (e) { /* quota / private mode */ }
     return parsed;
@@ -14741,15 +14753,43 @@ function _frameRunwayRender_(items, containerBanner) {
   // v10.727 — figure out which velocity window is active from the
   // first item that has a velocity. Used in column headers + the
   // legend so the operator can see which window's data is showing.
-  let activeWindow = null;
+  let activeWindow = null, activeEffective = null;
   for (const it of items) {
-    if (it.velocity_window_days) { activeWindow = it.velocity_window_days; break; }
+    if (it.velocity_window_days) {
+      activeWindow = it.velocity_window_days;
+      activeEffective = it.velocity_effective_days || null;
+      break;
+    }
   }
-  const windowLabel = activeWindow ? (activeWindow + 'd') : 'pending';
+  // v10.1505 — say the BASIS out loud: "90d (60.2d of data)" when
+  // Shopify's API served less history than the window asked for.
+  let windowLabel = activeWindow ? (activeWindow + 'd') : 'pending';
+  if (activeWindow && activeEffective && activeEffective < activeWindow) {
+    windowLabel = activeWindow + 'd (' + activeEffective + 'd of data)';
+  }
+  // v10.1505 — attribution line: unmatched units are a number Zac sees,
+  // never a silent drop. Green ≥98%, red below with the top offenders.
+  let attributionLine = '';
+  try {
+    const stashRaw = localStorage.getItem('mbd_frame_runway_velocity');
+    const stash = stashRaw ? JSON.parse(stashRaw) : null;
+    const a = stash && stash.attribution;
+    if (a && a.total_units) {
+      const pct = (a.rate * 100).toFixed(1);
+      if (a.rate >= 0.98) {
+        attributionLine = ' <span style="color:#00E676 !important;-webkit-text-fill-color:#00E676 !important">✓ ' + pct + '% of sold units attributed.</span>';
+      } else {
+        const top = (a.top_unmatched || []).slice(0, 4).map(t => t.sku + ' (' + t.units + 'u)').join(', ');
+        attributionLine = ' <span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-weight:700">⚠ only ' + pct + '% of sold units attributed — ' + a.unmatched_units + ' units unmatched'
+          + (top ? ' (' + top + ')' : '') + '.</span>';
+      }
+    }
+  } catch (e) { /* stash unreadable — omit the line */ }
   // Legend row above the table.
   html += '<div style="padding:8px 11px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;margin-bottom:10px;font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;line-height:1.5">'
        +   '<strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">Reading this table:</strong> '
-       +   'velocity = units consumed per day over the selected window (currently <strong style="color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important">' + windowLabel + '</strong>). '
+       +   'velocity = units consumed per day over the selected window (currently <strong style="color:#42a5f5 !important;-webkit-text-fill-color:#42a5f5 !important">' + windowLabel + '</strong>).'
+       +   attributionLine + ' '
        +   'Runway = days of stock at that pace. '
        +   '<span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important">red &lt; 30d</span> · '
        +   '<span style="color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">yellow &lt; 60d</span> · '
@@ -14782,7 +14822,10 @@ function _frameRunwayRender_(items, containerBanner) {
       const onHandM = (it.flags && it.flags.dropship) ? '—' : _fmtRunwayQty_(it.on_hand);
       const onOrderM = (it.on_order > 0) ? _fmtRunwayQty_(it.on_order) : '—';
       const noBomM = it._velocity_status === 'no_bom_match';
-      const velM = (it.velocity_per_day == null) ? (noBomM ? '—' : '…') : (Math.round(it.velocity_per_day * 10) / 10);
+      // v10.1505 — red NO DATA on mobile too (see desktop velDisp note).
+      const velM = (it.velocity_per_day == null)
+        ? (noBomM ? '<span style="color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;font-weight:900;font-size:10px">NO DATA</span>' : '…')
+        : (Math.round(it.velocity_per_day * 10) / 10);
       // v10.835 — mobile runway: distinguish "no sales" (vel=0) from truly
       // infinite (huge stock + tiny vel) so we stop slapping ∞ on every
       // stagnant SKU. Server caps both cases at 999; we recover intent here.
@@ -14896,9 +14939,12 @@ function _frameRunwayRender_(items, containerBanner) {
     //   - compute done, no BOM match → "—" (greyed)
     //   - compute done, has data → number
     const noBomMatch = it._velocity_status === 'no_bom_match';
+    // v10.1505 — no-data renders RED and loud, not a quiet dash: a blank
+    // reads as "zero demand", which is exactly how invisible elements
+    // stayed invisible (Zac plan step 5, approved 2026-08-21).
     const velDisp = (it.velocity_per_day == null)
       ? (noBomMatch
-          ? '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;opacity:.4" title="No BOM match — Shopify orders don\'t consume this SKU under this name. Check bundle_bom or sell variant directly.">—</span>'
+          ? '<span style="background:rgba(255,82,82,.15);border:1px solid #FF5252;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:900;letter-spacing:.5px;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important" title="No demand data — neither the SKU grammar nor bundle_bom links Shopify sales to this element. Fix the mapping; this is NOT zero demand.">NO DATA</span>'
           : '<span style="color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;font-style:italic">pending</span>')
       : (Math.round(it.velocity_per_day * 10) / 10);
     // v10.709 — runway color-coded (red <30d, yellow <60d, green ≥60d).
@@ -37915,7 +37961,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1504"></script>
+<script src="./pack.js?v=10.1505"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37926,7 +37972,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1504<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1505<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
