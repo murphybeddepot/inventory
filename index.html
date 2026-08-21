@@ -10193,7 +10193,16 @@ async function _frameRunwayFullVelocityViaWorkerWithTimeout_(windows, timeoutMs)
       return { ok: false, error: 'Worker HTTP ' + resp.status + ': ' + (parsed.error || text.substring(0, 200)) };
     }
     try {
-      const stamp = { computed_at: parsed.computed_at, stats: parsed.stats, per_window: parsed.per_window };
+      // v10.1507 — engine-stamped stash: data computed by the sheet-grammar
+      // resolver carries engine:'grammar-v1'; un-stamped (pre-fix) data is
+      // rejected at merge + pull so stale numbers can't wear the new UI.
+      const stamp = {
+        computed_at: parsed.computed_at, stats: parsed.stats, per_window: parsed.per_window,
+        attribution: parsed.attribution || null,
+        data_span_days: parsed.data_span_days || null,
+        effective_windows: parsed.effective_windows || null,
+        engine: 'grammar-v1',
+      };
       localStorage.setItem('mbd_frame_runway_velocity', JSON.stringify(stamp));
       // v10.809 — fire-and-forget push to velocity_snapshot table so
       // other devices read it without re-running Compute (task #75).
@@ -14240,7 +14249,13 @@ async function _frameRunwayPushVelocitySnapshot_(stamp) {
       snapshot_id: 'latest',
       computed_at: stamp.computed_at || new Date().toISOString(),
       windows_json: stamp.per_window || {},
-      stats_json: stamp.stats || {},
+      // v10.1507 — engine + attribution ride inside stats_json so the
+      // existing table schema needs no change.
+      stats_json: Object.assign({}, stamp.stats || {}, {
+        engine: stamp.engine || null,
+        attribution: stamp.attribution || null,
+        data_span_days: stamp.data_span_days || null,
+      }),
       computed_by: navigator.userAgent ? navigator.userAgent.slice(0, 80) : 'unknown',
       last_updated_at: new Date().toISOString(),
     };
@@ -14283,12 +14298,24 @@ async function _frameRunwayPullVelocitySnapshotIfStale_() {
     if (!Array.isArray(rows) || !rows.length) return false;
     const snap = rows[0];
     if (!snap.windows_json) return false;
+    // v10.1507 — refuse snapshots computed by the pre-grammar engine:
+    // 2026-08-21 a stale shared snapshot painted cam at 23.5/day (real:
+    // ~46) on Zac's phone in the brand-new UI. Un-stamped data now reads
+    // as "no data" and triggers a fresh compute instead of rendering.
+    const snapStats = snap.stats_json || {};
+    if (snapStats.engine !== 'grammar-v1') {
+      console.log('DIAG-V10.1507-VELSYNC rejected pre-grammar snapshot from ' + snap.computed_at);
+      return false;
+    }
     const remoteAt = snap.computed_at ? new Date(snap.computed_at).getTime() : 0;
     if (localStamp && localComputedAt > 0 && localComputedAt >= remoteAt) return false;
     const stamp = {
       computed_at: snap.computed_at,
-      stats: snap.stats_json || {},
+      stats: snapStats,
       per_window: snap.windows_json || {},
+      attribution: snapStats.attribution || null,
+      data_span_days: snapStats.data_span_days || null,
+      engine: 'grammar-v1',
     };
     localStorage.setItem('mbd_frame_runway_velocity', JSON.stringify(stamp));
     console.log('DIAG-V10.807-VELSYNC pulled snapshot from ' + snap.computed_at);
@@ -14308,6 +14335,18 @@ function _frameRunwayApplyVelocity_(items, windowDays) {
     const raw = localStorage.getItem('mbd_frame_runway_velocity');
     if (raw) stash = JSON.parse(raw);
   } catch (e) { return items; }
+  // v10.1507 — a stash computed by the pre-grammar engine renders as
+  // NO data (never as numbers), and kicks off one fresh compute so the
+  // device heals itself without anyone hunting for the ⚡ button.
+  if (stash && stash.per_window && stash.engine !== 'grammar-v1') {
+    if (!window._mbdVelAutoKick_) {
+      window._mbdVelAutoKick_ = true;
+      setTimeout(function () {
+        try { _frameRunwayComputeAllWindows_(); } catch (e) { /* button flow shows its own errors */ }
+      }, 800);
+    }
+    return items;
+  }
   if (!stash || !stash.per_window || !stash.per_window[windowDays]) return items;
   const velMap = stash.per_window[windowDays];
   // v10.1482 — single module-scope alias map (was a third diverged
@@ -14389,6 +14428,7 @@ async function _frameRunwayFullVelocityViaWorker_(windows) {
         attribution: parsed.attribution || null,
         data_span_days: parsed.data_span_days || null,
         effective_windows: parsed.effective_windows || null,
+        engine: 'grammar-v1',   // v10.1507 — see engine-stamp note
       };
       localStorage.setItem('mbd_frame_runway_velocity', JSON.stringify(stamp));
     } catch (e) { /* quota / private mode */ }
@@ -37982,7 +38022,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1506"></script>
+<script src="./pack.js?v=10.1507"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -37993,7 +38033,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1506<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1507<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
