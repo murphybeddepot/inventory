@@ -17889,6 +17889,37 @@ function _openPrintKanbanCardsImpl_(opts) {
   toolbar.appendChild(btnGroup);
   panel.appendChild(toolbar);
 
+  // v10.1515 — vendor chips (Zac: "Make the kanban cards selectable by
+  // vendor at least"). Tap a vendor → the list narrows to that vendor
+  // and exactly its cards get selected (OK-stock rows included — a
+  // vendor print run wants the vendor's whole set). "All vendors"
+  // clears the narrowing without touching the selection. Chips derive
+  // from the modal's own source items so both Stock 1.0 and Stock 2
+  // entry points get them.
+  const vendorCounts = {};
+  sorted.forEach(i => {
+    const v = String(i.vendor || '').trim().toUpperCase();
+    if (v) vendorCounts[v] = (vendorCounts[v] || 0) + 1;
+  });
+  const vendorNames = Object.keys(vendorCounts).sort();
+  if (vendorNames.length >= 2) {
+    const chipRow = document.createElement('div');
+    chipRow.id = 'kbVendorChips';
+    chipRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+    const mkChip = (label, vendorKey) => {
+      const c = document.createElement('button');
+      c.className = 'kbVendorChip';
+      c.setAttribute('data-vendor', vendorKey);
+      c.textContent = label;
+      c.style.cssText = 'padding:5px 10px;background:' + (vendorKey ? '#f5f5f5' : '#003087') + ';color:' + (vendorKey ? '#444' : '#fff') + ';border:1px solid ' + (vendorKey ? '#ccc' : '#003087') + ';border-radius:14px;font-size:11px;font-weight:800;letter-spacing:.3px;cursor:pointer;text-transform:uppercase';
+      c.addEventListener('click', () => _kbSelectVendor_(vendorKey));
+      return c;
+    };
+    chipRow.appendChild(mkChip('All vendors', ''));
+    vendorNames.forEach(v => chipRow.appendChild(mkChip(v + ' (' + vendorCounts[v] + ')', v)));
+    panel.appendChild(chipRow);
+  }
+
   // Show OK toggle
   const okLabel = document.createElement('label');
   okLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:#666;cursor:pointer';
@@ -17917,6 +17948,7 @@ function _openPrintKanbanCardsImpl_(opts) {
     row.className = 'kbRow';
     row.setAttribute('data-sku', sku);
     row.setAttribute('data-name', String(item.name || '').toLowerCase());
+    row.setAttribute('data-vendor', String(item.vendor || '').trim().toUpperCase());
     row.setAttribute('data-okhide', hideOk ? '1' : '0');
     row.style.cssText = 'display:' + (hideOk ? 'none' : 'flex') + ';align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer';
     const cb = document.createElement('input');
@@ -17935,6 +17967,12 @@ function _openPrintKanbanCardsImpl_(opts) {
     nameDiv.style.cssText = 'flex:1;font-size:13px;color:#444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     nameDiv.textContent = String(item.name || '');
     row.appendChild(nameDiv);
+    if (item.vendor) {
+      const vSpan = document.createElement('span');
+      vSpan.style.cssText = 'font-size:10px;font-weight:700;color:#777;letter-spacing:.3px;flex-shrink:0;text-transform:uppercase';
+      vSpan.textContent = String(item.vendor).trim();
+      row.appendChild(vSpan);
+    }
     const tagSpan = document.createElement('span');
     tagSpan.style.cssText = 'font-size:10px;font-weight:900;color:' + laneColor + ';letter-spacing:.5px;flex-shrink:0';
     tagSpan.textContent = laneTag;
@@ -17982,13 +18020,43 @@ function _kbDestChange_() {
 function _kbFilterRows_(q) {
   const s = String(q || '').toLowerCase();
   const showOk = !!(document.getElementById('kbShowOk') || {}).checked;
+  // v10.1515 — vendor chip narrowing composes with the text filter.
+  const ovKb = document.getElementById('kanbanPrintOverlay');
+  const vendor = (ovKb && ovKb._kbVendor) || '';
   document.querySelectorAll('.kbRow').forEach(row => {
     const sku = (row.getAttribute('data-sku') || '').toLowerCase();
     const name = row.getAttribute('data-name') || '';
     const isOk = row.getAttribute('data-okhide') === '1';
     const matches = !s || sku.includes(s) || name.includes(s);
-    row.style.display = (matches && (showOk || !isOk)) ? 'flex' : 'none';
+    const vendorMatch = !vendor || (row.getAttribute('data-vendor') || '') === vendor;
+    row.style.display = (matches && vendorMatch && (showOk || !isOk)) ? 'flex' : 'none';
   });
+}
+
+function _kbSelectVendor_(vendorKey) {
+  // v10.1515 — tap a vendor chip: narrow the list to that vendor and
+  // select exactly its rows (all of them — the OK toggle flips on so
+  // in-stock cards aren't silently dropped from a vendor print run).
+  // 'All vendors' clears the narrowing and leaves selection alone.
+  const ov = document.getElementById('kanbanPrintOverlay');
+  if (!ov) return;
+  ov._kbVendor = vendorKey || '';
+  document.querySelectorAll('.kbVendorChip').forEach(c => {
+    const active = (c.getAttribute('data-vendor') || '') === ov._kbVendor;
+    c.style.background = active ? '#003087' : '#f5f5f5';
+    c.style.color = active ? '#fff' : '#444';
+    c.style.borderColor = active ? '#003087' : '#ccc';
+  });
+  if (vendorKey) {
+    const okCb = document.getElementById('kbShowOk');
+    if (okCb && !okCb.checked) okCb.checked = true;
+    document.querySelectorAll('.kbRow').forEach(row => {
+      const cb = row.querySelector('.kbItemCheck');
+      if (cb) cb.checked = (row.getAttribute('data-vendor') || '') === vendorKey;
+    });
+  }
+  _kbFilterRows_((document.getElementById('kbFilter') || {}).value || '');
+  _kbUpdateSelCount_();
 }
 
 function _kbToggleOk_(on) {
@@ -38237,7 +38305,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1514"></script>
+<script src="./pack.js?v=10.1515"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38248,7 +38316,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1514<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1515<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
