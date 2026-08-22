@@ -18058,6 +18058,16 @@ function _openPrintKanbanCardsImpl_(opts) {
     tagSpan.style.cssText = 'font-size:10px;font-weight:900;color:' + laneColor + ';letter-spacing:.5px;flex-shrink:0';
     tagSpan.textContent = laneTag;
     row.appendChild(tagSpan);
+    // v10.1518 — per-card preview. A button inside the <label> doesn't
+    // forward the click to the checkbox, but stop it anyway so the row
+    // selection never flips from a preview tap.
+    const pvBtn = document.createElement('button');
+    pvBtn.type = 'button';
+    pvBtn.textContent = '👁';
+    pvBtn.title = 'Preview this card';
+    pvBtn.style.cssText = 'background:none;border:1px solid #ccc;border-radius:6px;font-size:13px;padding:2px 7px;cursor:pointer;flex-shrink:0';
+    pvBtn.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); _kbPreviewCards_(sku); });
+    row.appendChild(pvBtn);
     listBox.appendChild(row);
   });
   panel.appendChild(listBox);
@@ -18076,6 +18086,11 @@ function _openPrintKanbanCardsImpl_(opts) {
   cancelBtn.style.cssText = 'padding:11px 16px;background:#f5f5f5;color:#444;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer';
   cancelBtn.addEventListener('click', () => ov.remove());
   actBtns.appendChild(cancelBtn);
+  const previewBtn = document.createElement('button');
+  previewBtn.textContent = '👁 Preview';
+  previewBtn.style.cssText = 'padding:11px 14px;background:#fff;color:#003087;border:1.5px solid #003087;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer';
+  previewBtn.addEventListener('click', () => _kbPreviewCards_());
+  actBtns.appendChild(previewBtn);
   const printBtn = document.createElement('button');
   printBtn.textContent = '🖨 Print';
   printBtn.style.cssText = 'padding:11px 18px;background:linear-gradient(135deg,#003087,#1565C0);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;text-transform:uppercase';
@@ -18272,6 +18287,56 @@ function _kbShowFailBanner_(ov, errMsg, dest) {
 
 // Legacy popup-print fallback — used only if the server-side PrintNode
 // path fails. Keeps the operator unblocked.
+// v10.1518 (Zac 2026-08-22: "add a way to preview one/them") — in-app
+// preview of kanban cards, no popup, no print dialog. Renders through
+// the SAME markup + CSS helpers as the print window (_kbCardHtml_ /
+// _kbCardCssRules_), sized as a real 4×6 card (browsers map 1in→96px
+// on screen), zoomed down to fit a phone. Pass a sku to preview that
+// one card; omit to preview the current selection.
+function _kbPreviewCards_(singleSku) {
+  const ovSrc = document.getElementById('kanbanPrintOverlay');
+  const src = (ovSrc && ovSrc._kbSourceItems) || (typeof items === 'undefined' ? [] : items);
+  let list;
+  if (singleSku) {
+    list = src.filter(i => i && String(i.sku || '') === String(singleSku));
+  } else {
+    const sel = {};
+    document.querySelectorAll('.kbItemCheck:checked').forEach(cb => { sel[cb.getAttribute('data-sku')] = true; });
+    list = src.filter(i => i && sel[i.sku]);
+  }
+  if (!list.length) { if (typeof showToast === 'function') showToast('Nothing to preview — select at least one card'); return; }
+  const prior = document.getElementById('kanbanPreviewOverlay');
+  if (prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'kanbanPreviewOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:10002;display:flex;flex-direction:column;align-items:center;padding:14px;overflow-y:auto';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  const zoom = Math.min(1, (window.innerWidth * 0.82) / 384);   // 4in card = 384 CSS px
+  const style = document.createElement('style');
+  style.textContent = _kbCardCssRules_(false, '#kanbanPreviewOverlay ')
+    + '#kanbanPreviewOverlay .card { width:4in; height:6in; flex:none; zoom:' + zoom + '; font-family:\'Barlow Condensed\',Arial,sans-serif; color:#000; box-shadow:0 6px 30px rgba(0,0,0,.5); }';
+  ov.appendChild(style);
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:12px;align-items:center;color:#fff;font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:15px;font-weight:800;letter-spacing:.5px;margin-bottom:12px;flex-wrap:wrap;justify-content:center';
+  const cap = document.createElement('span');
+  cap.textContent = '👁 ' + list.length + ' card' + (list.length === 1 ? '' : 's') + ' · shown as printed (4×6)';
+  bar.appendChild(cap);
+  const close = document.createElement('button');
+  close.textContent = '✕ Close';
+  close.style.cssText = 'padding:8px 14px;background:#fff;color:#1a1a1a;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer';
+  close.addEventListener('click', () => ov.remove());
+  bar.appendChild(close);
+  ov.appendChild(bar);
+  const stack = document.createElement('div');
+  stack.style.cssText = 'display:flex;flex-direction:column;gap:16px;align-items:center;padding-bottom:30px';
+  stack.innerHTML = list.map(i => _kbCardHtml_({
+    sku: i.sku || '', name: i.name || '', vendor: i.vendor || '',
+    category: i.category || '', reorderPoint: i.reorderPoint || 0,
+  })).join('');
+  ov.appendChild(stack);
+  document.body.appendChild(ov);
+}
+
 function _kbFallbackPopupPrint_(itemList, dest) {
   let pageSize, nUpCols, nUpRows, cardW, cardH;
   if (dest === 'label46') {
@@ -22817,36 +22882,55 @@ async function _saveEmailTpl_(templateKey, flow, ov, status, saveBtn) {
   }
 }
 
-function _kbOpenPrintWindow_(itemList, opts) {
+// v10.1518 — shared kanban card markup + CSS. The print window and the
+// in-app preview render from the SAME two helpers so the preview is
+// truthful — a card can never look different on screen than on paper.
+// prefix scopes the CSS rules when injected inside the app's DOM.
+function _kbCardHtml_(item) {
   const pwaBase = (location.origin + location.pathname).replace(/index\.html$/, '');
-  function cardHtml(item) {
-    const sku = String(item.sku || '').trim();
-    const name = String(item.name || '').trim();
-    const vendor = String(item.vendor || item.category || '').trim();
-    const rp = Number(item.reorderPoint) || 0;
-    const qrTarget = pwaBase + '?reorder=' + encodeURIComponent(sku);
-    const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=0&data=' + encodeURIComponent(qrTarget);
-    return '<div class="card">'
-      +   '<div class="vendor">' + escHtml_(vendor) + '</div>'
-      +   '<div class="sku">' + escHtml_(sku) + '</div>'
-      +   (name ? '<div class="name">' + escHtml_(name) + '</div>' : '')
-      +   '<div class="rule"></div>'
-      +   '<div class="qr-row">'
-      +     '<div class="meta">'
-      +       (rp ? '<div><span class="lbl">Reorder ≤</span><span class="val">' + rp + '</span></div>' : '')
-      +       '<div><span class="lbl">SCAN TO</span><span class="val">REORDER</span></div>'
-      +     '</div>'
-      +     '<img class="qr" src="' + qrSrc + '" alt="QR">'
-      +   '</div>'
-      + '</div>';
-  }
+  const sku = String(item.sku || '').trim();
+  const name = String(item.name || '').trim();
+  const vendor = String(item.vendor || item.category || '').trim();
+  const rp = Number(item.reorderPoint) || 0;
+  const qrTarget = pwaBase + '?reorder=' + encodeURIComponent(sku);
+  const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=0&data=' + encodeURIComponent(qrTarget);
+  return '<div class="card">'
+    +   '<div class="vendor">' + escHtml_(vendor) + '</div>'
+    +   '<div class="sku">' + escHtml_(sku) + '</div>'
+    +   (name ? '<div class="name">' + escHtml_(name) + '</div>' : '')
+    +   '<div class="rule"></div>'
+    +   '<div class="qr-row">'
+    +     '<div class="meta">'
+    +       (rp ? '<div><span class="lbl">Reorder ≤</span><span class="val">' + rp + '</span></div>' : '')
+    +       '<div><span class="lbl">SCAN TO</span><span class="val">REORDER</span></div>'
+    +     '</div>'
+    +     '<img class="qr" src="' + qrSrc + '" alt="QR">'
+    +   '</div>'
+    + '</div>';
+}
+
+function _kbCardCssRules_(smallCard, prefix) {
+  const p = prefix || '';
+  return p + '.card { border: 2px solid #000; border-radius: 4px; padding: ' + (smallCard ? '0.1in' : '0.18in 0.2in') + '; display:flex; flex-direction:column; page-break-inside: avoid; background:#fff; overflow:hidden; }'
+    + p + '.vendor { font-size: ' + (smallCard ? '8pt' : '11pt') + '; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color:#555; }'
+    + p + '.sku { font-size: ' + (smallCard ? '18pt' : '28pt') + '; font-weight: 900; line-height: 1.05; margin-top: 4px; word-break: break-word; }'
+    + p + '.name { font-size: ' + (smallCard ? '8pt' : '11pt') + '; color:#333; margin-top: 4px; line-height: 1.25; }'
+    + p + '.rule { border-top: 1px dashed #999; margin: ' + (smallCard ? '6px 0 4px' : '10px 0 8px') + '; }'
+    + p + '.qr-row { display:flex; gap: 12px; justify-content:space-between; align-items:flex-end; flex: 1; }'
+    + p + '.meta { font-family: Arial, sans-serif; display:flex; flex-direction:column; gap:6px; }'
+    + p + '.meta .lbl { font-size: ' + (smallCard ? '6pt' : '8pt') + '; color:#666; letter-spacing:.5px; text-transform: uppercase; display:block; }'
+    + p + '.meta .val { font-size: ' + (smallCard ? '10pt' : '14pt') + '; font-weight: 900; }'
+    + p + '.qr { width: ' + (smallCard ? '1in' : '1.4in') + '; height: ' + (smallCard ? '1in' : '1.4in') + '; }';
+}
+
+function _kbOpenPrintWindow_(itemList, opts) {
   const w = window.open('', '_blank');
   if (!w) { showToast('Pop-up blocked — allow pop-ups to print cards'); return; }
   // Group items into pages of nUpCols * nUpRows.
   const perPage = opts.nUpCols * opts.nUpRows;
   const pages = [];
   for (let i = 0; i < itemList.length; i += perPage) pages.push(itemList.slice(i, i + perPage));
-  const pagesHtml = pages.map(pg => '<div class="page">' + pg.map(cardHtml).join('') + '</div>').join('');
+  const pagesHtml = pages.map(pg => '<div class="page">' + pg.map(_kbCardHtml_).join('') + '</div>').join('');
   // Card padding/font scales down for smaller cards (8-up).
   const smallCard = (opts.dest === 'paperNup' && opts.nUpRows * opts.nUpCols >= 6);
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>MBD Kanban Cards</title>'
@@ -22858,16 +22942,7 @@ function _kbOpenPrintWindow_(itemList, opts) {
     +   '.toolbar button { padding: 8px 14px; background:#003087; color:#fff; border:none; border-radius:6px; font-weight:700; cursor:pointer; }'
     +   '.page { display:grid; grid-template-columns: repeat(' + opts.nUpCols + ', 1fr); grid-template-rows: repeat(' + opts.nUpRows + ', 1fr); gap: ' + (opts.dest === 'label46' ? '0' : '0.15in') + '; padding: 0; page-break-after: always; width: 100%; ' + (opts.dest === 'label46' ? 'height:100vh;' : '') + ' }'
     +   '.page:last-child { page-break-after: auto; }'
-    +   '.card { border: 2px solid #000; border-radius: 4px; padding: ' + (smallCard ? '0.1in' : '0.18in 0.2in') + '; display:flex; flex-direction:column; page-break-inside: avoid; background:#fff; overflow:hidden; }'
-    +   '.vendor { font-size: ' + (smallCard ? '8pt' : '11pt') + '; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color:#555; }'
-    +   '.sku { font-size: ' + (smallCard ? '18pt' : '28pt') + '; font-weight: 900; line-height: 1.05; margin-top: 4px; word-break: break-word; }'
-    +   '.name { font-size: ' + (smallCard ? '8pt' : '11pt') + '; color:#333; margin-top: 4px; line-height: 1.25; }'
-    +   '.rule { border-top: 1px dashed #999; margin: ' + (smallCard ? '6px 0 4px' : '10px 0 8px') + '; }'
-    +   '.qr-row { display:flex; gap: 12px; justify-content:space-between; align-items:flex-end; flex: 1; }'
-    +   '.meta { font-family: Arial, sans-serif; display:flex; flex-direction:column; gap:6px; }'
-    +   '.meta .lbl { font-size: ' + (smallCard ? '6pt' : '8pt') + '; color:#666; letter-spacing:.5px; text-transform: uppercase; display:block; }'
-    +   '.meta .val { font-size: ' + (smallCard ? '10pt' : '14pt') + '; font-weight: 900; }'
-    +   '.qr { width: ' + (smallCard ? '1in' : '1.4in') + '; height: ' + (smallCard ? '1in' : '1.4in') + '; }'
+    +   _kbCardCssRules_(smallCard, '')
     +   '@media print { .toolbar { display:none; } }'
     + '</style>'
     + '</head><body>'
@@ -38386,7 +38461,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1517"></script>
+<script src="./pack.js?v=10.1518"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38397,7 +38472,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1517<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1518<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
