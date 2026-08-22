@@ -11457,23 +11457,31 @@ function _renderDailyPulse_(pickupDiag, recentPickups, morningData) {
 function _copyToClipboardWithToast_(text, toastMsg) {
   toastMsg = toastMsg || '✓ Copied';
   const cleanup = (ok) => {
-    if (typeof showToast === 'function') showToast(ok ? '📋 ' + toastMsg : '⚠ Copy failed');
+    if (typeof showToast === 'function') showToast(ok ? '📋 ' + toastMsg : '⚠ Copy failed — long-press to copy manually');
+  };
+  // v10.1516 — the textarea path is now also the rejection fallback:
+  // on the iPhone PWA writeText can REJECT (not just be absent), and
+  // the old code only toasted the failure. Worse, callers that used
+  // writeText directly with no catch left the clipboard holding
+  // whatever was there before — Zac pasted a stale URL-encoded Gmail
+  // link thinking it was his PO email.
+  const taFallback = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = String(text);
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      cleanup(ok);
+    } catch (e) { cleanup(false); }
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(String(text)).then(() => cleanup(true)).catch(() => cleanup(false));
+    navigator.clipboard.writeText(String(text)).then(() => cleanup(true)).catch(taFallback);
     return;
   }
-  // Fallback
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = String(text);
-    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-    cleanup(true);
-  } catch (e) { cleanup(false); }
+  taFallback();
 }
 
 // v10.1249 — Generate PO include-checkbox + manual-qty state helpers.
@@ -11761,11 +11769,22 @@ function _frameRunwayPoEmail_() {
   // works in a desktop browser session; in the iPhone PWA the popup is
   // blocked or lands on a dead page. Detect the block and fall back:
   // copy the full email to the clipboard + tell the operator plainly.
-  const w = window.open(url, '_blank');
-  if (!w) {
-    const text = 'To: ' + (e.toEmail || '') + '\nSubject: ' + e.subject + '\n\n' + e.body;
-    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
-    alert('Gmail compose could not open here (popup blocked — common on phones).\n\nThe full PO email was copied to your clipboard: open your mail app and paste.\n\nThe PO is still saved to history either way.');
+  // v10.1516 — on an iOS home-screen PWA window.open returns a HANDLE
+  // yet the compose page still dead-ends (no Google session in the PWA
+  // web view), so the null-check never fired. On standalone iOS, skip
+  // the popup entirely and go straight to the copy path — through
+  // _copyToClipboardWithToast_ so a clipboard failure SURFACES instead
+  // of leaving stale (URL-encoded) content for the paste.
+  const text = 'To: ' + (e.toEmail || '') + '\nSubject: ' + e.subject + '\n\n' + e.body;
+  if (navigator.standalone === true) {
+    _copyToClipboardWithToast_(text, 'PO email copied');
+    alert('Gmail compose can\'t open inside the home-screen app.\n\nThe full PO email (To / Subject / body) was copied as plain text: open your mail app and paste.\n\nThe PO is still saved to history either way.');
+  } else {
+    const w = window.open(url, '_blank');
+    if (!w) {
+      _copyToClipboardWithToast_(text, 'PO email copied');
+      alert('Gmail compose could not open here (popup blocked — common on phones).\n\nThe full PO email was copied to your clipboard: open your mail app and paste.\n\nThe PO is still saved to history either way.');
+    }
   }
   // v10.809 — auto-save PO to po_history so Zac never loses one again.
   // v10.1513 — idempotent per modal session: re-taps update ONE row.
@@ -11806,13 +11825,12 @@ function _frameRunwayPoCopyToClipboard_() {
   const e = _frameRunwayPoBuildEmailBody_();
   if (!e) { alert('No lines to copy.'); return; }
   const text = 'To: ' + (e.toEmail || 'project@qdmetalwork.com') + '\nSubject: ' + e.subject + '\n\n' + e.body;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => {
-      if (typeof showToast === 'function') showToast('✓ PO body copied to clipboard');
-    });
-  } else {
-    alert('Clipboard unavailable — manually copy from a long-press.');
-  }
+  // v10.1516 — was a bare writeText().then(toast) with NO catch: on the
+  // iPhone PWA the write can reject, the toast never fired, and the
+  // clipboard silently kept its previous content (Zac pasted a stale
+  // URL-encoded Gmail link believing it was the PO body). The shared
+  // helper retries via textarea and toasts failure loudly.
+  _copyToClipboardWithToast_(text, 'PO body copied to clipboard');
   _frameRunwaySavePoToHistory_(e, 'copy_body');
 }
 
@@ -38305,7 +38323,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1515"></script>
+<script src="./pack.js?v=10.1516"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38316,7 +38334,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1515<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1516<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
