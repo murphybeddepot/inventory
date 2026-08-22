@@ -11016,7 +11016,10 @@ const _ITEM_TO_BOM_ALIAS = {
 
 const _VENDOR_CONTACTS = {
   'KRY/wbs-india': { email: 'project@qdmetalwork.com', name: 'Lily Yan', label: 'KRY' },
-  'HAFELE':        { email: 'Greg.Burgin@hafele.us', name: 'Greg Burgin', phone: '800-423-3531', mobile: '904-612-2172', label: 'Hafele' },
+  // v10.1517 — orderStyle:true = this vendor gets a PLACE-THE-ORDER
+  // email (first-name greeting, no prices, no quote asks, standing
+  // order note appended), matching what Zac actually sends Greg.
+  'HAFELE':        { email: 'Greg.Burgin@hafele.us', name: 'Greg Burgin', phone: '800-423-3531', mobile: '904-612-2172', label: 'Hafele', orderStyle: true },
   'ULINE':         { email: '', name: 'ULINE', label: 'ULINE' },
   'ALIBABA':       { email: '', name: 'Alibaba supplier', label: 'Alibaba' },
   'AMAZON':        { email: '', name: 'Amazon', label: 'Amazon' },
@@ -11140,6 +11143,7 @@ function _frameRunwayOpenPoGenerator_() {
     +   '<button id="poGenAlreadyOrderedBtn" onclick="_frameRunwayPoSaveAlreadyOrdered_()" style="flex:1;padding:13px 18px;background:#1A5C1A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #00C853;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">💾 Save as already ordered</button>'
     +   '<button id="poGenMailtoBtn" onclick="_frameRunwayPoEmail_()" style="flex:1;padding:13px 18px;background:#7B2CBF !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.4px">📧 Open in Gmail</button>'
     +   '<button onclick="_frameRunwayPoCopyToClipboard_()" style="padding:13px 18px;background:#003087 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;letter-spacing:.4px">📋 Copy body</button>'
+    +   '<button onclick="_poVendorOrderNoteEdit_()" title="Standing note appended to order-style vendor emails (card reference — stored on this device only)" style="padding:13px 14px;background:#5D4037 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer">✎ Note</button>'
     +   '<button onclick="document.getElementById(\'poGeneratorOverlay\').remove()" style="padding:13px 18px;background:#1a1a1a !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Cancel</button>'
     + '</div>'
     + '</div>';
@@ -11702,6 +11706,31 @@ function _frameRunwayPoBuildEmailBody_() {
   const greetName = (contact && contact.name) || 'team';
   const vendorLabel = (contact && contact.label) || vendor || 'supplier';
   const toEmail = (contact && contact.email) || '';
+  // v10.1517 (Zac 2026-08-22: "With Hafele here's what I actually send
+  // to Greg" — a place-the-order email, not a quote request). Vendors
+  // flagged orderStyle get his real format: first-name greeting,
+  // numbered lines with no prices, "You can place the order, please.",
+  // then the standing order note (his card reference). The note lives
+  // ONLY in this device's localStorage — index.html publishes to the
+  // public Pages repo, so card details can never be committed here.
+  if (contact && contact.orderStyle) {
+    let ob = 'Hi ' + String(greetName).split(' ')[0] + ',\n\n';
+    ob += 'Murphy Bed Depot — ' + poName + ' — please place an order for the following:\n\n';
+    effectiveLines.forEach((L, idx) => {
+      const skuLine = (L.name && L.name !== L.sku) ? (L.sku + '  ·  ' + L.name) : L.sku;
+      ob += (idx + 1) + '. ' + skuLine + '  —  ' + L.effective_qty + ' units\n';
+    });
+    ob += '\nYou can place the order, please.\n';
+    const note = _poVendorOrderNote_(vendor, false);
+    if (note) ob += note + '\n';
+    ob += '\nThank you,\n\nZac';
+    return {
+      subject: 'Murphy Bed Depot PO (' + vendorLabel + ') — ' + poName + ' — ' + today + ' (' + totalUnits + ' units)',
+      body: ob,
+      toEmail,
+      vendor,
+    };
+  }
   let body = 'Hi ' + greetName + ',\n\n';
   body += 'Murphy Bed Depot ' + (poName ? '— ' + poName + ' — ' : '— ') + 'please quote production + shipping for the following:\n\n';
   effectiveLines.forEach((L, idx) => {
@@ -11753,6 +11782,40 @@ function _frameRunwayPoBuildEmailBody_() {
     toEmail,
     vendor,
   };
+}
+
+// v10.1517 — standing per-vendor order note (e.g. the Hafele card
+// reference lines). Saved ONLY in this device's localStorage: the PWA
+// is published to a public repo, so payment details must never appear
+// in code, git, or any server. First order-style email prompts once;
+// the ✎ Note button edits it later. '|' separates lines in the prompt.
+function _poVendorOrderNote_(vendorKey, forceEdit) {
+  if (!vendorKey) return '';
+  const key = 'mbd_po_order_note_' + vendorKey;
+  let note = '';
+  try { note = localStorage.getItem(key) || ''; } catch (e) { /* private mode — prompt each time */ }
+  if (!forceEdit && note) return note;
+  const entered = prompt(
+    'Standing note appended to ' + vendorKey + ' order emails (card reference, terms).\n'
+    + 'Saved only on THIS device — never in the app or on a server.\n\n'
+    + 'Separate lines with | for example:\n'
+    + 'CC ends in 1234. | expiration 01/23 | code 456',
+    note || '');
+  if (entered == null) return note || '';   // cancelled — keep what we had
+  const clean = entered.split('|').map(s => s.trim()).filter(Boolean).join('\n');
+  try {
+    if (clean) localStorage.setItem(key, clean);
+    else localStorage.removeItem(key);
+  } catch (e) { /* storage unavailable — the returned value still works this session */ }
+  return clean;
+}
+
+function _poVendorOrderNoteEdit_() {
+  const venEl = document.getElementById('poVendorFilter');
+  const vendor = (venEl && venEl.value) || '';
+  if (!vendor) { alert('Pick a vendor first — the note is per-vendor.'); return; }
+  const n = _poVendorOrderNote_(vendor, true);
+  if (typeof showToast === 'function') showToast(n ? '✓ ' + vendor + ' note saved (this device only)' : vendor + ' note cleared');
 }
 
 function _frameRunwayPoEmail_() {
@@ -38323,7 +38386,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1516"></script>
+<script src="./pack.js?v=10.1517"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38334,7 +38397,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1516<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1517<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
