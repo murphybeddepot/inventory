@@ -3065,6 +3065,12 @@ input::placeholder, textarea::placeholder {
          items + bin), with name/unit/category passthrough. -->
     <button onclick="_stockV2OpenAddNewItem_()" style="padding:11px 10px;background:linear-gradient(180deg,#3d1a5e,#7B2CBF) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #C77DFF;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">+ Add New Item</button>
   </div>
+  <!-- v10.1512 (Zac 2026-08-21): kanban cards for hardware items, one
+       obvious tap for Shane. Opens the print-selection modal fed by the
+       Stock 2 items table (names + Häfele codes + vendors). -->
+  <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">
+    <button onclick="_stockV2OpenKanbanCards_()" style="padding:11px 10px;background:linear-gradient(180deg,#00303f,#00838F) !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:1.5px solid #26C6DA;border-radius:10px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:.6px">🏷 Print Kanban Cards (hardware)</button>
+  </div>
   <!-- v10.1216 (Zac 2026-07-08): Shelf Entry primary home. Was More
        menu; belongs on Stock 2 alongside Counting / Runway / Add Item. -->
   <div style="margin-bottom:8px">
@@ -15396,6 +15402,56 @@ function _stockV2SyncTabVisibility_() {
   const btn = document.getElementById('tab-items-v2-btn');
   if (btn) btn.style.display = '';
 }
+// v10.1512 (Zac 2026-08-21: "easy and clear way for Shane to print
+// kanban cards for each hardware item") — Stock-2-native kanban print.
+// Feeds the SAME selection modal + PrintNode pipeline the Stock 1.0
+// kanban uses, but with the hardware items table (Häfele codes,
+// descriptive names, vendors) and lanes derived from runway days.
+async function _stockV2OpenKanbanCards_() {
+  let src = window._frameRunwayItemsCache;
+  if (!src || !src.length) {
+    // Runway not opened yet on this device — fetch the same payload.
+    if (typeof showToast === 'function') showToast('Loading hardware items…');
+    try {
+      const r = await _frameRunwayLoadViaWorker_(90, false);
+      if (r && r.ok && Array.isArray(r.items)) src = r.items;
+    } catch (e) { /* fall through to the alert below */ }
+  }
+  if (!src || !src.length) {
+    alert('Could not load the hardware item list. Open 📊 Inventory Runway once, then try again.');
+    return;
+  }
+  const mapped = src
+    .filter(it => it && it.sku && !(it.flags && it.flags.hidden_from_runway))
+    .map(it => {
+      const runway = (it.days_of_runway == null) ? null : Number(it.days_of_runway);
+      const lane = (Number(it.on_order) > 0) ? 'onorder'
+        : (runway != null && runway < 30) ? 'reorder'
+        : (runway != null && runway < 60) ? 'low'
+        : 'ok';
+      return {
+        sku: String(it.sku),
+        name: String(it.name || it.sku),
+        vendor: String((it.flags && it.flags.vendor) || ''),
+        category: 'hardware',
+        reorderPoint: 0,
+        _kbLane: lane,
+      };
+    });
+  _openPrintKanbanCardsImpl_({
+    sourceItems: mapped,
+    preselectAll: true,
+    title: '🏷 Hardware Kanban Cards',
+  });
+  // Every card is pre-checked ("each hardware item"); the OK rows are
+  // hidden behind the existing "Include OK-stock items" toggle, so
+  // flip it on so Shane sees the full pre-checked list immediately.
+  try {
+    const okCb = document.getElementById('kbShowOk');
+    if (okCb && !okCb.checked) { okCb.checked = true; okCb.dispatchEvent(new Event('change')); }
+  } catch (e) { /* list still usable via the toggle */ }
+}
+
 async function _stockV2StartSession_(verb) {
   // v10.690 (Phase 1A) — bin-picker modal. Scan or tap-pick a bin to
   // enter the session. Verb (count/receive) carries through.
@@ -17642,17 +17698,29 @@ function openPrintKanbanCards() {
   }
 }
 
-function _openPrintKanbanCardsImpl_() {
-  const candidates = (typeof items === 'undefined' ? [] : items).filter(i => i && !i.deleted);
+function _openPrintKanbanCardsImpl_(opts) {
+  // v10.1512 — parameterized so Stock 2 can feed its OWN hardware items
+  // (the modal was hardwired to the old Stock 1.0 `items` global; Shane
+  // had no path to kanban cards for Häfele hardware). opts:
+  //   sourceItems  — item array to list (default: Stock 1.0 global)
+  //   preselectAll — check every visible row (Stock 2: card per item)
+  //   title        — modal heading override
+  // Source items may carry a precomputed _kbLane (Stock 2 lanes come
+  // from runway days, not Stock 1.0's reorderPoint math).
+  opts = opts || {};
+  const srcArr = Array.isArray(opts.sourceItems) ? opts.sourceItems
+    : (typeof items === 'undefined' ? [] : items);
+  const laneOf = it => it._kbLane || laneForItem(it);
+  const candidates = srcArr.filter(i => i && !i.deleted);
   if (candidates.length === 0) {
-    alert('No items to print cards for. Items array length: ' + (typeof items === 'undefined' ? 'undefined' : items.length));
+    alert('No items to print cards for.');
     return;
   }
   console.log('openPrintKanbanCards: ' + candidates.length + ' candidates');
   // Sort same as the kanban view: by lane (reorder > onorder > low > ok),
   // then by deficit-magnitude within each.
   const sorted = candidates.slice().sort((a, b) => {
-    const la = laneForItem(a), lb = laneForItem(b);
+    const la = laneOf(a), lb = laneOf(b);
     if (la !== lb) return KB_LANE_ORDER.indexOf(la) - KB_LANE_ORDER.indexOf(lb);
     return String(a.sku || '').localeCompare(String(b.sku || ''));
   });
@@ -17660,8 +17728,8 @@ function _openPrintKanbanCardsImpl_() {
   // can flip on the "Show OK items" toggle to add ok-lane cards.
   const preSel = {};
   sorted.forEach(i => {
-    const lane = laneForItem(i);
-    if (lane === 'reorder' || lane === 'onorder' || lane === 'low') preSel[i.sku] = true;
+    const lane = laneOf(i);
+    if (opts.preselectAll || lane === 'reorder' || lane === 'onorder' || lane === 'low') preSel[i.sku] = true;
   });
 
   // Remove any prior overlay (in case of double-tap).
@@ -17670,6 +17738,7 @@ function _openPrintKanbanCardsImpl_() {
 
   const ov = document.createElement('div');
   ov.id = 'kanbanPrintOverlay';
+  ov._kbSourceItems = sorted;   // v10.1512 — print + fallback read from HERE
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:10001;display:flex;align-items:center;justify-content:center;padding:14px;overflow-y:auto';
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
 
@@ -17685,7 +17754,7 @@ function _openPrintKanbanCardsImpl_() {
   // Header
   const header = document.createElement('div');
   header.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
-  header.innerHTML = '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">🖨 Print Kanban Cards</div>';
+  header.innerHTML = '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#1a1a1a;text-transform:uppercase;letter-spacing:.5px">' + (opts.title || '🖨 Print Kanban Cards') + '</div>';
   const closeBtn = document.createElement('button');
   closeBtn.textContent = '✕';
   closeBtn.style.cssText = 'background:none;border:none;font-size:22px;color:#999;cursor:pointer';
@@ -17761,7 +17830,7 @@ function _openPrintKanbanCardsImpl_() {
   listBox.id = 'kbItemList';
   listBox.style.cssText = 'border:1px solid #e0e0e0;border-radius:8px;max-height:300px;overflow-y:auto;background:#fff';
   sorted.forEach(item => {
-    const lane = laneForItem(item);
+    const lane = laneOf(item);
     const sku = String(item.sku || '');
     const sel = !!preSel[sku];
     const hideOk = lane === 'ok';
@@ -17879,7 +17948,12 @@ async function _kbPrintSelected_() {
   const selectedSkus = Array.from(document.querySelectorAll('.kbItemCheck:checked')).map(cb => cb.getAttribute('data-sku'));
   if (!selectedSkus.length) { showToast('Select at least one card'); return; }
   const skuSet = {}; selectedSkus.forEach(s => { skuSet[s] = true; });
-  const selectedItems = items.filter(i => skuSet[i.sku]).map(i => ({
+  // v10.1512 — the overlay carries its own source array (Stock 2 feeds
+  // hardware items; Stock 1.0 stashes its global). Never re-derive from
+  // the Stock 1.0 global here or Stock 2 cards would print blank.
+  const ovForSrc = document.getElementById('kanbanPrintOverlay');
+  const srcForPrint = (ovForSrc && ovForSrc._kbSourceItems) || (typeof items === 'undefined' ? [] : items);
+  const selectedItems = srcForPrint.filter(i => skuSet[i.sku]).map(i => ({
     sku: i.sku || '', name: i.name || '', vendor: i.vendor || '',
     category: i.category || '', reorderPoint: i.reorderPoint || 0,
   }));
@@ -38086,7 +38160,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1511"></script>
+<script src="./pack.js?v=10.1512"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38097,7 +38171,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1511<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1512<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
