@@ -122,13 +122,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.76';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.77';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.76';
-import { APP_VERSION } from './js/version.mjs?v=3.76';
+         fromMM, toMM } from './js/materials.mjs?v=3.77';
+import { APP_VERSION } from './js/version.mjs?v=3.77';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.76';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.77';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -175,14 +175,33 @@ function boot() {
   // saved one and watching the saved one load.
   // The in-flight copy is only trusted when it is for THIS recipe and THIS
   // material; "Revert to saved" below is the way back to the stash.
-  const usable = inFlight && inFlight.sku === recipe.sku && inFlight.material
-    && inFlight.material.id === matId && inFlight.sheets && inFlight.sheets.length;
-  nest = usable ? inFlight : (saved || compute());
+  nest = chooseNest(saved, inFlight, recipe.sku, matId) || compute();
   $('foot').textContent = `Nesting on ${currentMat().label} (${describeMat(currentMat())}). Sheets fill in layer order — a layer's leftovers spill onto the next sheet rather ` +
     `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
     `dragging snaps to exactly that and turns red if anything ends up tighter.`;
   buildTabs(); draw(); refreshCopyFrom();
 }
+// Which layout should open? Pulled out as a pure function because getting it
+// backwards silently ate Zac's work and the bug was invisible from the UI --
+// the editor looked like it had loaded fine, it had just loaded the wrong one.
+//
+// UNSAVED WORK WINS. This was `saved || inFlight`, so the older SAVED layout
+// beat the newer in-flight one: move parts, leave without pressing Save, come
+// back, and the moves were gone. Press Save then and you wrote the old layout
+// over your own work. Zac, 2026-08-24: "i hit 'save for this material' and it
+// didn't save my manual moves." The save was fine.
+//
+// The in-flight copy is only trusted when it belongs to THIS recipe and THIS
+// material -- otherwise it is somebody else's leftovers from the same tab.
+// "Revert to saved" is the way back.
+function chooseNest(saved, inFlight, sku, matId) {
+  const usable = inFlight && inFlight.sheets && inFlight.sheets.length
+    && inFlight.sku === sku && inFlight.material && inFlight.material.id === matId;
+  if (usable) return inFlight;
+  return saved || null;
+}
+if (typeof window !== 'undefined') window.__chooseNest = chooseNest;
+
 function safeParse(s) { try { return JSON.parse(s); } catch (e) { return null; } }
 function buildMatUI() {
   const sel = $('matSel');
