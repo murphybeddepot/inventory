@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=3.79';
-  import { buildJobZip } from './js/moz_build.mjs?v=3.79';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.79';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.79';
+  import { parseMoz } from './js/moz_parse.mjs?v=3.80';
+  import { buildJobZip } from './js/moz_build.mjs?v=3.80';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.80';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.80';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1047,7 +1047,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.79';
+const APP_VERSION = '3.80';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3997,6 +3997,64 @@ async function nestForExport(){
    QB3 -> QB5 -> QB6 off one library recipe is three keystrokes and never
    touches the saved nest. Mozaik makes a folder of this name, so the obvious
    path-hostile characters are refused rather than silently mangled. */
+/* Export pre-flight. Two things were leaving silently and both cost a day.
+   Zac, 2026-08-24: "i missed the rebind... maybe that should be a popup ask
+   etc or more clear that it's not bound to the latest" and "the crate parts
+   are in the nests but are missing crate-part operations."
+
+   1. WHICH PRODUCT the recipe is bound to. The recipe stores each part's
+      verbatim XML at import time and never consults the library again, so
+      installing a new product changes what Mozaik offers and nothing else.
+      A recipe on v1-58 keeps shipping v1-58's shaped 2A/2E for ever.
+   2. PARTS WITH NO OPERATIONS. A part placed on a layer with no imported
+      record still reaches the NEST -- it gets cut to size -- but it is not
+      written into the layer .moz, so it has no drilling and no label. On
+      "QB3W00 2" the .opt carried 32 codes and the .moz files carried 29:
+      E1, S1 and S1-12 were cut blind. */
+function bindingReport(){
+  const ip=S.importedParts||[];
+  const byNum=new Map(ip.map(p=>[p.partNum,p]));
+  const sources=[...new Set(ip.map(p=>p._sourceFile).filter(Boolean))];
+  const placed=[];
+  (S.layers||[]).forEach((layer,i)=>(layer||[]).forEach(p=>placed.push({layer:i+1,partNum:p.partNum,name:p.name})));
+  const blind=placed.filter(p=>{ const rec=byNum.get(p.partNum); return !rec||!(rec.ops||[]).length; });
+  // the newest version we have seen for each family, learned from every recipe
+  // in the library -- so once ONE recipe is rebound the others start warning
+  let newest={};
+  try{
+    const lib=JSON.parse(window.PackStore.decompress(localStorage.getItem('mbd_stacking_library_v1')||'')||'{}');
+    for(const r of Object.values(lib)) for(const p of (r.importedParts||[])){
+      const f=p._sourceFile||''; const m=f.match(/^v(\d+)-(\d+)\s+(.*?)\.moz$/i);
+      if(!m) continue;
+      const fam=m[3], n=parseInt(m[1],10)*10000+parseInt(m[2],10);
+      if(!newest[fam]||n>newest[fam].n) newest[fam]={n,file:f};
+    }
+  }catch(e){}
+  const stale=[];
+  for(const f of sources){
+    const m=f.match(/^v(\d+)-(\d+)\s+(.*?)\.moz$/i); if(!m) continue;
+    const fam=m[3], n=parseInt(m[1],10)*10000+parseInt(m[2],10);
+    if(newest[fam]&&newest[fam].n>n) stale.push({bound:f,newer:newest[fam].file});
+  }
+  return {sources,blind,stale};
+}
+function exportPreflight(){
+  const {sources,blind,stale}=bindingReport();
+  const lines=[];
+  lines.push('Bound to: '+(sources.length?sources.join(', '):'(no .moz — parts came from a text import)'));
+  for(const s of stale) lines.push('\u26a0 NEWER PRODUCT SEEN: '+s.newer+' — Rebind .moz\u2026 to pick it up.');
+  if(blind.length){
+    const names=[...new Set(blind.map(b=>b.partNum))];
+    lines.push('');
+    lines.push('\u26a0 '+blind.length+' placed part(s) have NO OPERATIONS: '+names.join(', '));
+    lines.push('They will be nested and cut to size, but carry no drilling and no label —');
+    lines.push('they are not written into the layer .moz at all. Import the .moz they come');
+    lines.push('from (Import .moz\u2026) so they arrive with their operations.');
+  }
+  const bad=stale.length||blind.length;
+  if(!bad) return true;
+  return confirm(lines.join('\n')+'\n\nExport anyway?');
+}
 const JOBNAME_KEY='mbd_last_job_name_v1';
 function lastJobNameFor(sku){
   try{ return (JSON.parse(localStorage.getItem(JOBNAME_KEY)||'{}'))[sku||'']||''; }catch(e){ return ''; }
@@ -4042,6 +4100,7 @@ $('dlMozJob').onclick=async()=>{
     // itself might need a new name)."
     // Asked AFTER the nest is resolved, so the answer can never affect which
     // layout was chosen.
+    if(!exportPreflight()) return;      // named the problem; user chose to stop
     const jobName=askJobName(S.sku);
     if(jobName===null) return;                 // cancelled — nothing downloaded
     const blob=await window.MozIO.exportJobZip(snap,{jobName,nest});
