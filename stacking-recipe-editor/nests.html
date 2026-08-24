@@ -72,6 +72,11 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="addSheet">+ Sheet</button>
   <button id="delSheet">✕ Remove sheet</button>
   <button id="apply" class="primary">Save for this material →</button>
+  <span id="copyWrap" style="display:none;margin-left:10px">
+    <label for="copyFrom">Copy layout from</label>
+    <select id="copyFrom"></select>
+    <button id="copyBtn">Copy here</button>
+  </span>
   <span class="soft" id="hint"></span>
 </div>
 <div class="bar">
@@ -165,7 +170,7 @@ function boot() {
   $('foot').textContent = `Nesting on ${currentMat().label} (${describeMat(currentMat())}). Sheets fill in layer order — a layer's leftovers spill onto the next sheet rather ` +
     `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
     `dragging snaps to exactly that and turns red if anything ends up tighter.`;
-  buildTabs(); draw();
+  buildTabs(); draw(); refreshCopyFrom();
 }
 function safeParse(s) { try { return JSON.parse(s); } catch (e) { return null; } }
 function buildMatUI() {
@@ -406,10 +411,18 @@ function renderPanel() {
   const dup = s.placements.filter(p => violates(p, s.placements, nest.gap)).length;
   const savedNow = savedNestFor(recipe.sku, matId);
   const isSaved = savedNow && JSON.stringify(savedNow.sheets) === JSON.stringify(nest.sheets);
-  $('hint').textContent = (editing
+  // Two INDEPENDENT facts, and the old wording ran them together as
+  // "read-only · saved for this material", which reads as though the saved
+  // layout were locked. Zac, 2026-08-24: "why does it say read-only · saved for
+  // this material next to save for this material". First half is the Edit
+  // toggle, second half is whether what you are looking at matches the stash.
+  const mode = editing
     ? `drag to move · snaps to ${nest.gap}mm / ${nest.edge}mm${dup ? ` · ${dup} too close` : ''}`
-    : 'read-only')
-    + (isSaved ? ' · saved for this material' : (savedNow ? ' · differs from the saved layout' : ''));
+    : 'viewing — press ✏️ Edit to move parts';
+  const state = isSaved ? `this IS the layout saved for ${currentMat().label}`
+    : savedNow ? `unsaved changes — differs from the layout saved for ${currentMat().label}`
+    : `nothing saved yet for ${currentMat().label}`;
+  $('hint').textContent = `${mode}  ·  ${state}`;
 }
 function sendTo(target) {
   const p = selected, from = sheetIdx;
@@ -609,6 +622,57 @@ $('delSheet').onclick = () => {
   if (sheetIdx >= nest.sheets.length) sheetIdx = nest.sheets.length - 1;
   selected = null; buildTabs(); draw();
 };
+// Copying a layout between materials. Nests are stashed per sku+material
+// because a layout packed for 1550x2770 is not a layout for a 5x8 board -- but
+// when two materials DO share a sheet size, re-nesting by hand is wasted work.
+// Zac, 2026-08-24: "how can i copy nests from one material to another?"
+//
+// The guard tests the thing that actually matters -- does every part still land
+// on THIS sheet -- rather than comparing declared sizes, so a layout that
+// genuinely fits a different board is allowed and one that does not is named.
+function nestsElsewhere() {
+  const all = loadSavedNests();
+  return materials.filter((m) => m.id !== matId)
+    .map((m) => ({ m, n: all[savedKey(recipe.sku, m.id)] }))
+    .filter((x) => x.n && x.n.sheets && x.n.sheets.length);
+}
+function refreshCopyFrom() {
+  const opts = nestsElsewhere();
+  $('copyWrap').style.display = opts.length ? '' : 'none';
+  if (!opts.length) return;
+  $('copyFrom').innerHTML = opts.map(({ m, n }) =>
+    `<option value="${m.id}">${escAttr(m.label)} — ${n.sheets.length} sheet${n.sheets.length === 1 ? '' : 's'}`
+    + ` (${Math.round(n.sheetL)}×${Math.round(n.sheetW)})</option>`).join('');
+}
+$('copyBtn') && ($('copyBtn').onclick = () => {
+  const srcId = $('copyFrom').value;
+  const src = savedNestFor(recipe.sku, srcId);
+  const srcMat = materials.find((m) => m.id === srcId);
+  if (!src) { alert('That material has no saved layout any more.'); return; }
+  const sheets = JSON.parse(JSON.stringify(src.sheets));
+  const off = [];
+  sheets.forEach((sh, i) => (sh.placements || []).forEach((p) => {
+    const [x0, x1, y0, y1] = partBox(p);
+    if (x0 < nest.edge - 0.01 || y0 < nest.edge - 0.01
+      || x1 > nest.sheetL - nest.edge + 0.01 || y1 > nest.sheetW - nest.edge + 0.01) {
+      off.push(`${p.name} on sheet ${i + 1}`);
+    }
+  }));
+  if (off.length) {
+    alert(`Not copied. ${off.length} part(s) would fall off a `
+      + `${Math.round(nest.sheetL)}×${Math.round(nest.sheetW)} sheet:\n\n`
+      + off.slice(0, 8).join('\n') + (off.length > 8 ? `\n…and ${off.length - 8} more` : '')
+      + `\n\n${srcMat.label} is ${Math.round(src.sheetL)}×${Math.round(src.sheetW)}. `
+      + 'Re-nest for this material instead.');
+    return;
+  }
+  nest.sheets = sheets;
+  sheetIdx = 0; selected = null;
+  buildTabs(); draw();
+  alert(`Copied ${sheets.length} sheet(s) from ${srcMat.label}. Nothing is saved yet — `
+    + `check it, then press "Save for this material →".`);
+});
+
 $('edit').onclick = () => { editing = !editing; $('edit').setAttribute('aria-pressed', editing); draw(); };
 $('renest').onclick = () => { if (!confirm('Re-nest from the recipe? Your manual moves on these sheets are lost.')) return;
   nest = compute(); sheetIdx = 0; selected = null; buildTabs(); draw(); };
