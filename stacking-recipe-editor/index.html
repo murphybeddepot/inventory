@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=3.77';
-  import { buildJobZip } from './js/moz_build.mjs?v=3.77';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.77';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.77';
+  import { parseMoz } from './js/moz_parse.mjs?v=3.78';
+  import { buildJobZip } from './js/moz_build.mjs?v=3.78';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.78';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.78';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1047,7 +1047,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.77';
+const APP_VERSION = '3.78';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3971,13 +3971,17 @@ async function nestForExport(){
   try{
     const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}');
     const hit=all[(S.sku||'')+'::'+(mat?mat.id:'')];
-    if(hit&&hit.sheets&&hit.sheets.length) return hit;
+    if(hit&&hit.sheets&&hit.sheets.length){ hit._source='saved'; return hit; }
+    // Nothing saved under THIS sku+material. Say which keys do exist, because
+    // the difference is usually one stale material id and it is invisible
+    // otherwise — the zip just quietly contains a freshly nested layout.
+    _dbg('no saved nest for "'+(S.sku||'')+'::'+(mat?mat.id:'')+'" — have: '+Object.keys(all).join(', '));
     // NO cross-material fallback: a nest saved for another finish is a nest for
     // another board. Re-nesting below is correct by construction instead.
   }catch(err){/* fall through */}
   try{
     const stashed=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
-    if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')&&sameMat(stashed)) return stashed;
+    if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')&&sameMat(stashed)){ stashed._source='in-flight'; return stashed; }
   }catch(err){/* fall through to a fresh nest */}
   try{
     const parts=nestPartsFromRecipe();
@@ -3985,7 +3989,7 @@ async function nestForExport(){
     const {nestByLayer}=await import('./js/nest.mjs');
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
-    return r&&r.sheets&&r.sheets.length?{...r,sku:S.sku||'',material:mat||undefined}:null;
+    return r&&r.sheets&&r.sheets.length?{...r,sku:S.sku||'',material:mat||undefined,_source:'re-nested'}:null;
   }catch(err){ _dbg('nest for export failed: '+err.message); return null; }
 }
 $('dlMozJob').onclick=async()=>{
@@ -4007,7 +4011,17 @@ $('dlMozJob').onclick=async()=>{
     a.download=(S.sku||'Order')+'.zip';
     a.click();
     URL.revokeObjectURL(a.href);
-    toast(nest?('Downloaded Mozaik job zip \u2014 '+mat.label+', '+nest.sheets.length+' nested sheet'+(nest.sheets.length===1?'':'s')):'Downloaded Mozaik job zip (no nest \u2014 open Nests to add sheets)');
+    // A re-nest is not the same as your saved layout, and shipping one without
+    // saying so is how hand-edited sheets disappear between Save and Mozaik.
+    if(nest&&nest._source==='re-nested'){
+      alert('Heads up: the zip carries a FRESHLY NESTED layout, not your saved sheets.\n\n'
+        +'Nothing is saved for "'+(S.sku||'(unnamed)')+'" on '+mat.label+'. If you edited sheets on '
+        +'the Nests page, open Nests, check the material selector says '+mat.label+', and press '
+        +'"Save for this material" — then export again.');
+    }
+    toast(nest?('Downloaded Mozaik job zip \u2014 '+mat.label+', '+nest.sheets.length+' nested sheet'
+      +(nest.sheets.length===1?'':'s')+(nest._source==='saved'?' (your saved layout)':nest._source==='re-nested'?' (RE-NESTED)':' (unsaved edits)'))
+      :'Downloaded Mozaik job zip (no nest \u2014 open Nests to add sheets)');
   }catch(err){toast('Export failed: '+err.message);}
 };
 

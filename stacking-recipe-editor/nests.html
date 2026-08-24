@@ -122,13 +122,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.77';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.78';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.77';
-import { APP_VERSION } from './js/version.mjs?v=3.77';
+         fromMM, toMM } from './js/materials.mjs?v=3.78';
+import { APP_VERSION } from './js/version.mjs?v=3.78';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.77';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.78';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -160,6 +160,13 @@ function boot() {
   const prevNest = safeParse(sessionStorage.getItem(KEY_OUT));
   matId = (prevNest && prevNest.material && prevNest.material.id) || localStorage.getItem('mbd_last_material') || materials[0].id;
   if (!materials.some(m => m.id === matId)) matId = materials[0].id;
+  // The export looks a saved nest up by mbd_last_material, but this page picks
+  // its material from prevNest FIRST -- so the two drifted apart, and index.html
+  // carried a comment insisting they could not. When they disagree you save the
+  // nest under one material and the export asks for another, misses, and quietly
+  // re-nests. Zac, 2026-08-24: "i saved my manually edited nests for the white
+  // material then the edits go away when i export the job."
+  try { localStorage.setItem('mbd_last_material', matId); } catch (e) {}
   buildMatUI();
   $('sub').textContent = `${recipe.sku || '(unnamed)'} · ${recipe.parts.length} parts · ` +
     `${new Set(recipe.parts.map(p => p.layer)).size} layers`;
@@ -721,6 +728,9 @@ $('back').onclick = () => { stash(); location.href = './index.html'; };
 $('apply').onclick = () => {
   stash();
   const m = currentMat();
+  // Save under this material AND point the export at the same one, or the zip
+  // silently re-nests and the manual moves never reach Mozaik.
+  try { localStorage.setItem('mbd_last_material', matId); } catch (e) {}
   const ok = saveNestFor(recipe.sku, matId, nest);
   alert(ok
     ? `Saved these ${nest.sheets.length} sheets for ${m.label}. Choosing that material again — here or in the job export — uses this layout instead of re-nesting.`
