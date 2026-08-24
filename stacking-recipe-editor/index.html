@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=3.78';
-  import { buildJobZip } from './js/moz_build.mjs?v=3.78';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.78';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.78';
+  import { parseMoz } from './js/moz_parse.mjs?v=3.79';
+  import { buildJobZip } from './js/moz_build.mjs?v=3.79';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.79';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.79';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1047,7 +1047,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.78';
+const APP_VERSION = '3.79';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3992,6 +3992,33 @@ async function nestForExport(){
     return r&&r.sheets&&r.sheets.length?{...r,sku:S.sku||'',material:mat||undefined,_source:'re-nested'}:null;
   }catch(err){ _dbg('nest for export failed: '+err.message); return null; }
 }
+/* Job name for the export, kept separate from the recipe sku on purpose.
+   Defaults to the last name used for THIS recipe, else the sku, so exporting
+   QB3 -> QB5 -> QB6 off one library recipe is three keystrokes and never
+   touches the saved nest. Mozaik makes a folder of this name, so the obvious
+   path-hostile characters are refused rather than silently mangled. */
+const JOBNAME_KEY='mbd_last_job_name_v1';
+function lastJobNameFor(sku){
+  try{ return (JSON.parse(localStorage.getItem(JOBNAME_KEY)||'{}'))[sku||'']||''; }catch(e){ return ''; }
+}
+function rememberJobName(sku,name){
+  try{ const all=JSON.parse(localStorage.getItem(JOBNAME_KEY)||'{}');
+    all[sku||'']=name; localStorage.setItem(JOBNAME_KEY,JSON.stringify(all)); }catch(e){}
+}
+function askJobName(sku){
+  const suggested=lastJobNameFor(sku)||sku||'Order';
+  for(;;){
+    const raw=prompt('Export this job as:\n\n'
+      +'This names the Mozaik job folder and the zip. The recipe stays "'
+      +(sku||'(unnamed)')+'", so its saved nests and material are untouched.',suggested);
+    if(raw===null) return null;
+    const name=raw.trim();
+    if(!name){ alert('A job name is required.'); continue; }
+    if(/[\\/:*?"<>|]/.test(name)){ alert('A job name cannot contain \\ / : * ? " < > |'); continue; }
+    rememberJobName(sku,name);
+    return name;
+  }
+}
 $('dlMozJob').onclick=async()=>{
   if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
   try{
@@ -4005,10 +4032,22 @@ $('dlMozJob').onclick=async()=>{
     const warn=M?M.materialWarnings(mat):[];
     if(warn.length&&!confirm('Material: '+mat.label+'\n\n'+warn.map(w=>'\u26a0 '+w).join('\n')
       +'\n\nExport anyway?')) return;
-    const blob=await window.MozIO.exportJobZip(snap,{jobName:S.sku||'Order',nest});
+    // The RECIPE's sku identifies the nest; the JOB NAME identifies the export.
+    // They used to be the same field, so renaming for a new order orphaned the
+    // saved nest under the old sku and the export quietly re-nested. Zac,
+    // 2026-08-24: "if i 'save for this material' then change just the name
+    // before exporting the mozaik job it shouldn't change the nests/material
+    // settings ... when clicking export, it asks for the job name to export as
+    // (because i want to use a saved library recipe/nests, but the export
+    // itself might need a new name)."
+    // Asked AFTER the nest is resolved, so the answer can never affect which
+    // layout was chosen.
+    const jobName=askJobName(S.sku);
+    if(jobName===null) return;                 // cancelled — nothing downloaded
+    const blob=await window.MozIO.exportJobZip(snap,{jobName,nest});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
-    a.download=(S.sku||'Order')+'.zip';
+    a.download=jobName+'.zip';
     a.click();
     URL.revokeObjectURL(a.href);
     // A re-nest is not the same as your saved layout, and shipping one without
@@ -4019,9 +4058,9 @@ $('dlMozJob').onclick=async()=>{
         +'the Nests page, open Nests, check the material selector says '+mat.label+', and press '
         +'"Save for this material" — then export again.');
     }
-    toast(nest?('Downloaded Mozaik job zip \u2014 '+mat.label+', '+nest.sheets.length+' nested sheet'
+    toast(nest?(jobName+'.zip \u2014 '+mat.label+', '+nest.sheets.length+' nested sheet'
       +(nest.sheets.length===1?'':'s')+(nest._source==='saved'?' (your saved layout)':nest._source==='re-nested'?' (RE-NESTED)':' (unsaved edits)'))
-      :'Downloaded Mozaik job zip (no nest \u2014 open Nests to add sheets)');
+      :(jobName+'.zip (no nest \u2014 open Nests to add sheets)'));
   }catch(err){toast('Export failed: '+err.message);}
 };
 
