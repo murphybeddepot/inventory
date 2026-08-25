@@ -34,9 +34,9 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=3.83';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.83';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=3.83';
+import { parseMoz } from './moz_parse.mjs?v=3.84';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.84';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=3.84';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -79,6 +79,15 @@ export async function importMozFiles(files) {
     const secIdx = i + 1;
 
     for (const p of parsed.parts) {
+      // Quan=0 defs are DISABLED in Mozaik — it never cuts them. The
+      // library carries 96 of them (staged/superseded twins, e.g. the
+      // QLHW8M plain ends and PB15 door shadows). Importing them as real
+      // parts is what put phantom un-notched ends in Zac's 2026-08-25 job
+      // and shifted every part number and layer label downstream: the
+      // tray view summed qty (so counts LOOKED right) while importedParts
+      // pushed one qty:1 entry per def regardless of Quan, and the export
+      // handed the phantoms to the nest. Skip them exactly as Mozaik does.
+      if (!(p.qty > 0)) continue;
       // partNum synthesis: prefer the .moz's ReportName (short code like
       // "3A", "7F"), fall back to name-thickness-dim tuple. This becomes
       // the manifest key.
@@ -115,13 +124,16 @@ export async function importMozFiles(files) {
       // importedParts stores the full parsed shape for export
       // round-trip. Keeps per-part ops/bands/pos alive across the
       // save/load boundary.
-      importedParts.push({
+      // One entry PER PHYSICAL PART Mozaik would cut: Quan copies of this
+      // def (today every live def is Quan=1; the loop keeps a Quan=2 def
+      // from silently undercounting if one ever appears).
+      for (let c = 0; c < p.qty; c++) importedParts.push({
         partNum,
         name: p.name,
         L: p.L,
         W: p.W,
         thickness,
-        qty: 1,                    // one entry per physical CabProdPart occurrence
+        qty: 1,
         layer: p.layer,            // original .moz layer name (usually "L1", "L2")
         report: p.report,
         type: p.type,
