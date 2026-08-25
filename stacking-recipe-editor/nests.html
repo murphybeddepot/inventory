@@ -55,10 +55,14 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="back">← Back to recipe</button>
   <button id="renest">↻ Re-nest from recipe</button>
   <button id="edit" aria-pressed="false">✏️ Edit</button>
-  <button id="scrapBtn">♻ Fill scrap</button>
-  <button id="seamBtn" title="Re-arrange each sheet's own parts so the leftover salvages more and dices less — same parts, same sheets, never worse than the current layout.">⇄ Shape scrap</button>
-  <button id="diceBtn" aria-pressed="false">▦ Show offcut dice</button>
-  <button id="tidyBtn" title="Re-arrange THIS sheet's parts so the leftover is already in small pieces — less sawing afterwards. Same parts, same sheet, nothing added or dropped.">🧩 Tidy scrap on this sheet</button>
+  <span class="btngroup" style="border-left:3px solid #c98b2e;padding-left:8px;margin-left:4px">
+    <button id="scrapBtn" title="THE ONLY BUTTON HERE THAT ADDS PARTS. Fits crate panels from the ⚙ Scrap parts catalogue into this sheet's leftover, up to the quantities set there, then dices whatever is still left. Nothing else on this row adds material.">♻ ADD crate parts from scrap</button>
+  </span>
+  <span class="btngroup" style="margin-left:10px">
+    <button id="seamBtn" title="MOVES parts, adds nothing. Re-arranges every sheet's own parts so the leftover salvages more and dices less — same parts, same sheets, never worse than the current layout.">⇄ Move parts · all sheets (better scrap)</button>
+    <button id="tidyBtn" title="MOVES parts, adds nothing. Re-arranges THIS sheet's parts so the leftover is already in small pieces — less sawing afterwards. Same parts, same sheet, nothing added or dropped.">🧩 Move parts · this sheet (tidier scrap)</button>
+    <button id="diceBtn" aria-pressed="false" title="VIEW ONLY. Draws how the leftover would be cut up for the bin. Changes nothing on the sheet.">▦ Show offcut dice (view only)</button>
+  </span>
   <label class="soft">max piece
     <select id="diceMax"><option value="11.9">12in</option><option value="16">16in</option>
       <option value="24">24in</option><option value="36">36in</option></select></label>
@@ -122,13 +126,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.80';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.81';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.80';
-import { APP_VERSION } from './js/version.mjs?v=3.80';
+         fromMM, toMM } from './js/materials.mjs?v=3.81';
+import { APP_VERSION } from './js/version.mjs?v=3.81';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.80';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.81';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
