@@ -14671,6 +14671,14 @@ async function _frameRunwayLoadViaWorker_(windowDays, forceRefresh) {
     if (resp.status !== 200 || !parsed.ok) {
       return { ok: false, error: 'Worker HTTP ' + resp.status + ': ' + (parsed.error || text.substring(0, 200)) };
     }
+    // v10.1511 — the worker has reported partial_failures since v32.5 and
+    // NOTHING has ever rendered it. A degraded read shipped ok:true and the
+    // numbers just looked healthy. That is the same as a console.log, which
+    // this repo does not allow on a path people order stock from: a short
+    // transactions read UNDERSTATES consumption, so on-hand reads HIGH.
+    // Stash it for the renderer to badge.
+    window._frameRunwayPartialFailures_ = Array.isArray(parsed.partial_failures)
+      ? parsed.partial_failures : null;
     return parsed;
   } catch (e) {
     return { ok: false, error: 'Worker fetch error: ' + e.message };
@@ -14956,6 +14964,23 @@ function _fmtRunwayQty_(n) {
 }
 function _frameRunwayRender_(items, containerBanner) {
   let html = '';
+  // v10.1511 — a DEGRADED read is now visible, in red, at the top, before any
+  // number. The worker has reported partial_failures since v32.5 and nothing
+  // rendered it, so a short read looked identical to a healthy one. It is not
+  // cosmetic: the transactions read is what subtracts consumption, so when it
+  // comes back short every on-hand and every runway on this screen reads HIGH,
+  // and the whole point of the screen is deciding what to order.
+  const _pf = (typeof window !== 'undefined') ? window._frameRunwayPartialFailures_ : null;
+  if (_pf && _pf.length) {
+    html += '<div style="padding:11px 13px;background:rgba(211,47,47,.14);border:2px solid #d32f2f;'
+      + 'border-radius:8px;margin-bottom:12px">'
+      + '<div style="font-weight:900;font-size:13px;color:#ff6b6b !important;-webkit-text-fill-color:#ff6b6b !important;'
+      + 'text-transform:uppercase;letter-spacing:.5px">\u26a0 These numbers are incomplete \u2014 do not order from them</div>'
+      + '<div style="font-size:12px;color:#ffb4b4 !important;-webkit-text-fill-color:#ffb4b4 !important;margin-top:5px">'
+      + 'Part of the data did not load. Consumption is UNDER-counted, so on-hand and runway both read HIGH.</div>'
+      + '<div style="font-size:11px;color:#ffd6d6 !important;-webkit-text-fill-color:#ffd6d6 !important;margin-top:6px;'
+      + 'font-family:ui-monospace,Menlo,monospace">' + _pf.map(esc).join('<br>') + '</div></div>';
+  }
   if (containerBanner) {
     html += '<div style="padding:10px 12px;background:rgba(255,179,0,.10);border:1px solid rgba(255,179,0,.45);border-radius:8px;margin-bottom:12px;font-size:12px;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important">' + esc(containerBanner) + '</div>';
   }
@@ -38493,7 +38518,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1519"></script>
+<script src="./pack.js?v=10.1520"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38504,7 +38529,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1519<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1520<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
