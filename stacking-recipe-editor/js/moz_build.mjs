@@ -20,9 +20,9 @@
 // browser). The exports do not import JSZip themselves so this module
 // stays plain ES with no bundler.
 
-import { buildOptFiles } from './nest_opt.mjs?v=3.82';
+import { buildOptFiles } from './nest_opt.mjs?v=3.83';
 export const BUILD_VERSION = '1.0.0';
-export const APP_VERSION = '3.82';
+export const APP_VERSION = '3.83';
 
 // ---- giant const templates (verbatim from source) ----
 
@@ -45,7 +45,7 @@ export const JOBCUS = "3\r\nCustom Parameters\r\n0\r\n<?xml version=\"1.0\" enco
 // This factory closes over a fresh set of counters + the caller's
 // parameters so multiple concurrent builds can't cross-contaminate.
 
-function makeEmitters({ dims, prodPat, mathRandom, dateNow, shell }) {
+function makeEmitters({ dims, prodPat, mathRandom, dateNow, shell, shellByLayer = null }) {
   const layers = Object.create(null); // filled by caller then read by buildLayerMoz
 
   // Verbatim from source line 173 (per-build counters).
@@ -116,8 +116,13 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow, shell }) {
     // holes present in the file, absent on screen, twice (J002, J003).
     // Shell path deltas, total: ProdName, UniqueID, part Comments. Nothing
     // else — not parms, not dims, not flags, not the parts.
-    if (shell && (layers[layer]||[]).every(p=>p.raw)) {
-      let t = shell;
+    // Per-layer shell override. The salvage layer holds CRATE panels, so it is
+    // written into the CRATE's own product wrapper -- borrowing the bed's parm
+    // set is exactly how cams vanished on J002/J003, and the answer there was
+    // "carry the right shell", not "hope the equations are empty".
+    const sh = (shellByLayer && shellByLayer[layer]) || shell;
+    if (sh && (layers[layer]||[]).every(p=>p.raw)) {
+      let t = sh;
       t = t.replace(/(\sProdName=")[^"]*(")/, ()=>` ProdName="${esc(pname)}"`);
       t = t.replace(/(\sUniqueID=")[^"]*(")/, ()=>` UniqueID="${uid}"`);
       t = t.replace('</CabProdParts>', ()=>parts+'  </CabProdParts>');
@@ -128,8 +133,14 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow, shell }) {
     // were numbered 1,2,3... and Mozaik's product-wide op index kept only the
     // first winners (37 collisions in one layer file; flip-side cams written
     // first, so they always lost).
+    // ASCII ONLY in anything written into a .moz. These two strings carried an
+    // em-dash, and a .moz is not allowed one: a latin1 write truncates U+2014
+    // to 0x14 and Mozaik refuses the file -- one em-dash already made a
+    // perfect product unopenable once. Only the SYNTHESIZED path (text-imported
+    // recipes, no source .moz) ever reached it, which is why it survived: every
+    // .moz-imported recipe takes the shell path above and never writes these.
     return {pname,text:productMoz(pname,uid,parts,
-      `Layer kit ${layer} (${(layers[layer]||[]).length} parts) — Moz Layer Editor v${APP_VERSION}`,
+      `Layer kit ${layer} (${(layers[layer]||[]).length} parts) - Moz Layer Editor v${APP_VERSION}`,
       `layer ${layer}; edited in Moz Layer Editor v${APP_VERSION}; CabNo=stack order at placement`)};
   }
 
@@ -159,13 +170,18 @@ function makeEmitters({ dims, prodPat, mathRandom, dateNow, shell }) {
  * @returns {Promise<Blob>} zip blob, ready for a download <a> tag.
  */
 export async function buildJobZip({
-  layers, jobName, dims, prodPat, shell = null, nest = null,
+  layers, jobName, dims, prodPat, shell = null, shellByLayer = null,
+  // Layer keys that hold salvaged scrap panels rather than product parts. They
+  // become real cabinets like any other -- that is the whole point, since the
+  // drilling comes from the ROOM PRODUCTS -- but the .opt marks their parts so
+  // they are not labelled as a layer of the bed.
+  salvageLayers = [], nest = null,
   mathRandom = Math.random, dateNow = Date.now,
 }) {
   if (typeof JSZip === 'undefined') {
     throw new Error('moz_build: JSZip is not loaded (add the CDN script tag)');
   }
-  const emit = makeEmitters({ dims, prodPat, mathRandom, dateNow, shell });
+  const emit = makeEmitters({ dims, prodPat, mathRandom, dateNow, shell, shellByLayer });
   // Copy the caller's layers into the emitter's private layers object
   // so buildLayerMoz (which reads its enclosing 'layers') sees them.
   for (const k of Object.keys(layers)) emit.layers[k] = layers[k];
@@ -183,7 +199,8 @@ export async function buildJobZip({
     jf.file(pname + '.moz', text);
     // pname is the product's real ProdName — the .opt's cabinet registry must
     // name THESE, not a string rebuilt from the job name (see nest_opt.mjs).
-    layerTexts.push({ layer: (String(k).match(/\d+/) || [i + 1])[0], text, name: pname });
+    layerTexts.push({ layer: (String(k).match(/\d+/) || [i + 1])[0], text, name: pname,
+      salvage: salvageLayers.includes(k) });
     let px = text.slice(text.indexOf('<Product '));
     px = px.replace('UniqueID="' + px.match(/UniqueID="(\d+)"/)[1] + '"', 'UniqueID="' + (940001 + i) + '"');
     px = px.replace('IDTag="0"', 'IDTag="' + (i + 1) + '"');

@@ -81,6 +81,29 @@ export function bandOf(shapeXml) {
   return /<ShapePoint\b[^>]*\bEBand="(?!0")[^"]*"/.test(String(shapeXml || '')) ? 'Custom*' : 'None';
 }
 
+// Every operation family the part carries, in file order. It was
+// OperationHole ALONE, which is invisible on a bed (its parts are drilled) and
+// fatal on a crate: a crate side is ten GROOVES and no holes, so the .opt part
+// came out blank and the panel was cut as a plain rectangle. OperationGroove
+// and OperationLineBore are the other two families our products use; anything
+// else would be dropped just as silently, so an unknown family is REPORTED by
+// the caller rather than skipped.
+const OP_FAMILIES = ['OperationHole', 'OperationGroove', 'OperationLineBore'];
+const OP_RE = new RegExp(
+  OP_FAMILIES.map(k => `<${k}\\b[\\s\\S]*?<\\/${k}>|<${k}\\b[^>]*\\/>`).join('|'), 'g');
+export function extractOps(block) {
+  const ops = String(block || '').match(OP_RE) || [];
+  return ops.map(stripEquations);
+}
+// Families present on the part that extractOps does NOT understand.
+export function unknownOpFamilies(block) {
+  const seen = new Set();
+  for (const m of String(block || '').matchAll(/<Operation(\w+)\b/g)) {
+    if (m[1] !== 's' && !OP_FAMILIES.includes('Operation' + m[1])) seen.add('Operation' + m[1]);
+  }
+  return [...seen];
+}
+
 // layerTexts: [{ layer, text }] — the generated layer .moz XML
 // nest: { sheets:[{ placements:[{name,layer,l,w,x,y,rotation}] }], edge }
 export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewCNC-MD',
@@ -129,19 +152,22 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const cabKeyOf = new Map(cabs.map(c => [c.layer, c.key]));
 
   const pool = [];
-  for (const { layer, text } of layerTexts) {
+  for (const { layer, text, salvage: fromSalvageLayer } of layerTexts) {
     const blocks = text.match(/<CabProdPart\b[^>]*>[\s\S]*?<\/CabProdPart>/g) || [];
     for (const b of blocks) {
       const head = b.slice(0, b.indexOf('>'));
       const shape = (b.match(/<PartShapeXml\b[\s\S]*?<\/PartShapeXml>/) || [''])[0]
         .replace(/^<PartShapeXml/, '<Shape').replace(/<\/PartShapeXml>$/, '</Shape>');
-      const ops = (b.match(/<OperationHole\b[\s\S]*?<\/OperationHole>|<OperationHole\b[^>]*\/>/g) || [])
-        .map(stripEquations);
+      const ops = extractOps(b);
       pool.push({
         id: pool.length + 1, layer,
         name: attr(head, 'ReportName') || attr(head, 'Name') || ('P' + (pool.length + 1)),
         l: +attr(head, 'L', '0'), w: +attr(head, 'W', '0'),
         shape, ops, band: bandOf(shape),
+        // a crate panel recovered from the offcut is not a layer of the bed,
+        // so it carries no layer Comment — but it IS a real cabinet part, with
+        // its grooves, which is the difference that gets it drilled
+        ...(fromSalvageLayer ? { salvage: true } : {}),
       });
     }
   }
@@ -155,13 +181,22 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     if (!byKey.has(k)) byKey.set(k, []);
     byKey.get(k).push(p);
   }
-  // Salvage parts (crate panels recovered from the offcut) are not in any
-  // layer product, so the pool gets a plain-rectangle entry for each — no
-  // drilling, because there is none. Without this they render in the editor
-  // and never get cut.
+  // How many of each key the pool can already answer. A salvaged crate panel
+  // whose product IS in the job (the salvage layer) resolves to a REAL part
+  // with its grooves; only the ones nothing in the job describes fall back to
+  // the bare rectangle below.
+  const supply = new Map();
+  for (const p of pool) {
+    const k = `${p.name}|${Math.round(p.l)}x${Math.round(p.w)}`;
+    supply.set(k, (supply.get(k) || 0) + 1);
+  }
   const salvage = [];
+  const blind = [];
   for (const s of nest.sheets) for (const pl of (s.placements || [])) {
     if (!pl.salvage) continue;
+    const k = `${pl.name}|${Math.round(pl.l)}x${Math.round(pl.w)}`;
+    if ((supply.get(k) || 0) > 0) { supply.set(k, supply.get(k) - 1); continue; }
+    blind.push(pl.name);
     const id = pool.length + salvage.length + 1;
     // A salvaged crate panel belongs to no cabinet. Mozaik has a key for
     // exactly that and it is not "0" (which no real file ever uses): BOAZ's
@@ -241,7 +276,10 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   // sequence-sensitive, so this is not cosmetic.
   // Both rooms, in order: the empty Order Entry block real files always carry,
   // then the design room that actually holds the cabinets.
-  const hasSalvage = pool.some(p => p.salvage);
+  // The N1 pseudo-cabinet exists only for salvage nothing in the job
+  // describes. Linked crate panels live in the salvage LAYER and are declared
+  // like any other cabinet, which is what lets Mozaik resolve their drilling.
+  const hasSalvage = pool.some(p => p.cab === 'N1');
   const baseCabString = cabs.map(c => c.ref).concat(hasSalvage ? ['R1N1'] : []).join(',');
   const cabNames = cabs.map(c => `${c.key},${c.name}`).concat(hasSalvage ? ['N1,Scrap salvage'] : []).join('|');
   const tailXml = `  <RoomInfo Number="0" Name="Order Entry" WallCabString="" BaseCabString="" CabNames="">${NL}`
@@ -284,7 +322,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     + NL + `    <OptFilename Filename="${esc(jobsRoot)}\\${esc(jobName)}\\${esc(optFile)}" />${NL}`
     + `  </OptimizeRun>${NL}</OptimizeRuns>`;      // no trailing newline — real files have none
 
-  return { optName: optFile, optXml, runsXml,
+  return { optName: optFile, optXml, runsXml, blindSalvage: blind,
     poolCount: pool.length, placedCount: nest.sheets.reduce((a, s) => a + (s.placements || []).length, 0),
     unmatched };
 }

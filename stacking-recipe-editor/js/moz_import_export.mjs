@@ -34,8 +34,9 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=3.82';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.82';
+import { parseMoz } from './moz_parse.mjs?v=3.83';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.83';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=3.83';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -198,14 +199,53 @@ function _snapshotToLayers(snapshot) {
  * Build a Mozaik job zip from the snapshot. Returns a Blob for direct
  * download via <a href={URL.createObjectURL(blob)}>.
  */
+// The salvage layer: crate panels the nest recovered from leftover material,
+// turned into a REAL product in the job.
+//
+// Why a product and not just an .opt entry (Zac 2026-08-24: "the crate parts
+// are in the nests but are missing crate-part operations"): the drilling comes
+// from the ROOM PRODUCTS. A part that exists only as an optimizer rectangle
+// gets cut to size and nothing else — which is what happened to every crate
+// panel nested so far. Writing the crate's own verbatim CabProdPart into a
+// product the job carries is what makes Mozaik post its grooves.
+//
+// ONE record per PLACEMENT, because nest_opt consumes one pool part per
+// placed rectangle. Two salvaged sides need two records, not one with Quan 2.
+export const SALVAGE_LAYER = 'Salvage';
+export function salvageLayerParts(nest) {
+  const parts = [];
+  const unlinked = [];
+  for (const sheet of (nest && nest.sheets) || []) {
+    for (const pl of (sheet.placements || [])) {
+      if (!pl.salvage) continue;
+      const rec = pl.src ? CRATE_BY_KEY.get(pl.src) : null;
+      if (!rec) { unlinked.push(pl.name); continue; }
+      parts.push({
+        partNum: rec.code, name: rec.name, report: rec.code,
+        L: rec.L, W: rec.W, thickness: 19, qty: 1,
+        layer: SALVAGE_LAYER, type: 'UEND', bands: {}, ops: [], pos: {},
+        raw: rec.raw,                     // verbatim, grooves and all
+        _sourceFile: rec.source,
+      });
+    }
+  }
+  return { parts, unlinked };
+}
+
 export async function exportJobZip(snapshot, { jobName, nest = null } = {}) {
   const layers = _snapshotToLayers(snapshot);
+  const salv = salvageLayerParts(nest);
+  const salvageLayers = [];
+  if (salv.parts.length) { layers[SALVAGE_LAYER] = salv.parts; salvageLayers.push(SALVAGE_LAYER); }
   return buildJobZip({
     layers,
     jobName: jobName || snapshot.sku || 'Order',
     dims: DEFAULT_DIMS,
     prodPat: `${snapshot.sku || 'Layer'} {layer}`,
     shell: snapshot.sourceShell || null,
+    // the crate panels go into the CRATE's product wrapper, not the bed's
+    shellByLayer: salvageLayers.length ? { [SALVAGE_LAYER]: CRATE_SHELL } : null,
+    salvageLayers,
     // v3.51 — when a nest exists it ships inside the job as optimizer state
     // (see nest_opt.mjs), so the operator opens the job and posts rather than
     // re-optimizing and losing the layer ordering.

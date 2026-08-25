@@ -94,11 +94,16 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="catModal" class="modalbg"><div class="modal">
   <h2>Scrap salvage parts <span style="flex:1"></span><button id="catClose">✕</button></h2>
   <p class="soft" style="margin:0 0 10px">What "Fill scrap" tries to recover from the offcut, biggest first.
-    Crates are cut from the same 19mm melamine, so these come off the sheet you are already cutting.
-    <b>Qty is how many you want in total across this nest</b>, not per sheet.</p>
+    Crates are cut from the same 19mm melamine, so these come off the sheet you are already cutting —
+    and <b>every job can place any crate size</b>: this is using up leftover, not a parts list for the
+    job on the bench. <b>Qty is how many you want in total across this nest</b>, not per sheet;
+    set one to 0 to leave it out.</p>
+  <p class="soft" style="margin:0 0 10px">🔗 rows come from the real crate product, so they are cut
+    <b>with their grooves</b>. A row with no link is only cut to size — the panel comes off blank.</p>
   <div id="catRows"></div>
   <div style="display:flex;gap:8px;margin-top:10px">
-    <button id="catAdd">+ Add part</button><span style="flex:1"></span>
+    <button id="catAdd">+ Add part</button>
+    <button id="catReset">↺ Standard crate quantities</button><span style="flex:1"></span>
     <button id="catSave" class="primary">Save parts</button>
   </div>
 </div></div>
@@ -126,13 +131,15 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.82';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.83';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.82';
-import { APP_VERSION } from './js/version.mjs?v=3.82';
+         fromMM, toMM } from './js/materials.mjs?v=3.83';
+import { APP_VERSION } from './js/version.mjs?v=3.83';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
-         loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.82';
+         loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
+         relinkSalvage, matchCratePart,
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.83';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.83';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -158,6 +165,7 @@ try { recipe = JSON.parse(sessionStorage.getItem(KEY_IN) || 'null'); } catch (e)
 // killed the module mid-run: blank sheet AND dead buttons, because the click
 // wiring below never executed.
 
+let _relinkNote = '';
 function boot() {
   $('ver').textContent = 'v' + APP_VERSION;
   materials = loadMaterials();
@@ -187,10 +195,22 @@ function boot() {
   // The in-flight copy is only trusted when it is for THIS recipe and THIS
   // material; "Revert to saved" below is the way back to the stash.
   nest = chooseNest(saved, inFlight, recipe.sku, matId) || compute();
+  // Nests made before the crate link carry bare rectangles: they get cut to
+  // size and come off the machine with no grooves (Zac 2026-08-24, "the crate
+  // parts are in the nests but are missing crate-part operations"). Attach the
+  // real crate record to every salvaged panel we can recognise, in place, so
+  // an existing nest is upgraded without re-nesting and losing manual moves.
+  const relink = relinkSalvage(nest.sheets);
+  if (relink.changed) _relinkNote = `Linked ${relink.linked} salvaged crate panel(s) to their product — `
+    + 'they will now be cut with their grooves. Save for this material to keep it.';
+  if (relink.unlinked.length) _relinkNote = (_relinkNote ? _relinkNote + ' ' : '')
+    + `${relink.unlinked.length} salvaged part(s) match no crate panel (${[...new Set(relink.unlinked)].join(', ')}) `
+    + '— those are cut to size only.';
   $('foot').textContent = `Nesting on ${currentMat().label} (${describeMat(currentMat())}). Sheets fill in layer order — a layer's leftovers spill onto the next sheet rather ` +
     `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
     `dragging snaps to exactly that and turns red if anything ends up tighter.`;
   buildTabs(); draw(); refreshCopyFrom();
+  if (_relinkNote) { $('hint').textContent = _relinkNote; _relinkNote = ''; }
 }
 // Which layout should open? Pulled out as a pure function because getting it
 // backwards silently ate Zac's work and the bug was invisible from the UI --
@@ -280,29 +300,54 @@ $('matAdd').onclick = () => {
 $('matClose').onclick = () => $('matModal').classList.remove('on');
 $('catEdit').onclick = () => { renderCatRows(catalog()); $('catModal').classList.add('on'); };
 $('catClose').onclick = () => $('catModal').classList.remove('on');
+const GRID = 'grid-template-columns:.4fr 1.1fr 1.5fr .8fr .8fr .6fr .8fr auto';
 function renderCatRows(list) {
   const done = salvagedSoFar(nest.sheets);
   $('catRows').innerHTML =
-    `<div class="matrow" style="grid-template-columns:1.2fr 1.4fr .8fr .8fr .6fr .8fr auto">` +
-    ['Code', 'Description', 'Length (mm)', 'Width (mm)', 'Qty wanted', 'In nest', ''].map(h => `<div class="hd">${h}</div>`).join('') + '</div>' +
-    list.map((c, i) => `<div class="matrow" data-i="${i}" style="grid-template-columns:1.2fr 1.4fr .8fr .8fr .6fr .8fr auto">
-      <input data-f="name" value="${escAttr(c.name)}">
-      <input data-f="label" value="${escAttr(c.label)}">
-      <input data-f="l" value="${c.l}"><input data-f="w" value="${c.w}">
+    `<div class="matrow" style="${GRID}">` +
+    ['', 'Code', 'Description', 'Length (mm)', 'Width (mm)', 'Qty wanted', 'In nest', ''].map(h => `<div class="hd">${h}</div>`).join('') + '</div>' +
+    list.map((c, i) => {
+      const linked = c.src && CRATE_BY_KEY.has(c.src);
+      // A linked row's size IS the product's outline. Letting it be typed over
+      // would put a different L/W in the .opt than the .moz carries, and Mozaik
+      // rescales every operation on the part when those disagree.
+      const dim = (f) => linked
+        ? `<div class="soft mono" style="font-size:12px" title="from the crate product — not editable">${c[f]}</div>`
+        : `<input data-f="${f}" value="${c[f]}">`;
+      return `<div class="matrow" data-i="${i}" data-src="${escAttr(c.src || '')}" style="${GRID}">
+      <div title="${linked ? 'linked to the crate product — cut with its grooves' : 'no product behind it — cut to size only, no grooves'}"
+           style="font-size:15px">${linked ? '🔗' : '▢'}</div>
+      ${linked ? `<div class="mono" style="font-size:12px">${escAttr(c.name)}</div>`
+               : `<input data-f="name" value="${escAttr(c.name)}">`}
+      ${linked ? `<div class="soft" style="font-size:12px">${escAttr(c.label)}</div>`
+               : `<input data-f="label" value="${escAttr(c.label)}">`}
+      ${dim('l')}${dim('w')}
       <input data-f="qty" value="${c.qty}">
-      <div class="soft" style="font-size:12px">${done[c.name] || 0} placed</div>
-      <button data-del="${i}">✕</button></div>`).join('');
+      <div class="soft" style="font-size:12px">${done[c.key] || 0} placed</div>
+      ${linked ? '<span></span>' : `<button data-del="${i}">✕</button>`}</div>`;
+    }).join('');
   $('catRows').querySelectorAll('button[data-del]').forEach(b => b.onclick = () => {
     const l = collectCatRows(); l.splice(+b.dataset.del, 1); renderCatRows(l);
   });
 }
 function collectCatRows() {
   return [...$('catRows').querySelectorAll('.matrow[data-i]')].map(row => {
-    const o = {}; row.querySelectorAll('input[data-f]').forEach(i => { o[i.dataset.f] = i.value; });
+    const src = row.dataset.src || '';
+    const rec = src && CRATE_BY_KEY.get(src);
+    const o = rec ? { src, key: src, name: rec.code, label: rec.label, l: rec.L, w: rec.W } : { src };
+    row.querySelectorAll('input[data-f]').forEach(i => { if (o[i.dataset.f] === undefined) o[i.dataset.f] = i.value; });
+    // qty is the one field a linked row owns
+    const q = row.querySelector('input[data-f="qty"]');
+    if (q) o.qty = q.value;
     return normalizeCat(o);
   });
 }
 $('catAdd').onclick = () => renderCatRows(collectCatRows().concat(normalizeCat({ name: 'NEW', label: 'New part', l: 500, w: 300, qty: 1 })));
+$('catReset').onclick = () => {
+  if (!confirm('Put every crate panel back at its standard quantity? Rows you added by hand are kept.')) return;
+  const custom = collectCatRows().filter(c => !c.src);
+  renderCatRows(DEFAULT_CATALOG.map(normalizeCat).concat(custom));
+};
 $('catSave').onclick = () => { saveCatalog(collectCatRows()); $('catModal').classList.remove('on');
   alert('Saved. "Fill scrap" will use these from now on.'); };
 $('matSave').onclick = () => {
@@ -574,7 +619,7 @@ $('scrapBtn').onclick = () => {
   const done = salvagedSoFar(nest.sheets);
   const head = got.length
     ? `Salvaged ${got.length} part(s) from the offcut: ${got.map(g => g.name).join(', ')}.\n`
-      + `Nest total so far: ${catalog().map(c => `${c.name} ${done[c.name] || 0}/${c.qty}`).join(', ')}.`
+      + `Nest total so far: ${catalog().filter(c => c.qty).map(c => `${c.name} ${done[c.key] || 0}/${c.qty}`).join(', ')}.`
     : `No catalogue part fits what is left on this sheet (smallest is ${
         Math.min(...DEFAULT_CATALOG.map(c => Math.min(c.l, c.w)))}mm on its short side).`;
   alert(`${head}\nSheet is ${(sum.usedPct * 100).toFixed(0)}% used; the rest dices into ${sum.pieces} piece(s) ` +

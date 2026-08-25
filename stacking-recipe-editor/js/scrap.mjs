@@ -16,21 +16,43 @@
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=3.83';
+
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;
 
-// Crate panels, from "v2 Crate 80x43xH". qty is per crate; leave a part out of
-// the catalogue (or set qty 0) and it will not be salvaged.
+// Crate panels. The catalogue is a STANDING library of every crate size we
+// build (12 / 14.25 / 19.5in), frozen into crate_parts.mjs from the three
+// proven library products -- so any job can recover any crate panel from its
+// leftover. Zac 2026-08-25: "every job should be free to place all 3 crate
+// size's parts... it's just for using up scrap with crate parts, not crate
+// parts specific to the job being created."
+//
 // Crates ARE cut from 19mm melamine (Zac 2026-08-18), so salvaging these off
-// an offcut is straight material recovery — the same sheet either way.
+// an offcut is straight material recovery -- the same sheet either way.
+//
 // qty is how many of that panel you want IN TOTAL across the job, not per
 // sheet: filling scrap sheet by sheet against a fresh budget quietly produced
 // a crate's worth per sheet.
-const CAT_KEY = 'mbd_scrap_catalog_v1';
+//
+// `src` is the link back to a crate_parts entry, and it is what makes a
+// salvaged panel come off the machine DRILLED. Without it the exporter has
+// only a rectangle to write, which is exactly how every crate part Zac has
+// nested so far got cut blind (2026-08-24). Hand-added rows have no src and
+// still work -- they are just cut to size, same as before.
+const CAT_KEY = 'mbd_scrap_catalog_v2';
+const CAT_KEY_V1 = 'mbd_scrap_catalog_v1';
 export function loadCatalog() {
   try {
     const raw = JSON.parse(localStorage.getItem(CAT_KEY) || 'null');
     if (Array.isArray(raw) && raw.length) return raw.map(normalizeCat);
+  } catch (e) { /* defaults */ }
+  // A v1 catalogue is a list of bare rectangles the user tuned by hand. Carry
+  // their QUANTITIES onto the linked panels rather than throwing the tuning
+  // away, and keep any row that is not a crate panel as-is.
+  try {
+    const v1 = JSON.parse(localStorage.getItem(CAT_KEY_V1) || 'null');
+    if (Array.isArray(v1) && v1.length) return mergeLegacyCatalog(v1).map(normalizeCat);
   } catch (e) { /* defaults */ }
   return DEFAULT_CATALOG.map(normalizeCat);
 }
@@ -41,30 +63,103 @@ export function saveCatalog(list) {
 }
 export function normalizeCat(c) {
   const n = (v, d) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? x : d; };
-  return { name: String(c.name || 'PART'), label: String(c.label || c.name || 'Part'),
-    l: n(c.l, 100), w: n(c.w, 100), qty: Math.max(0, Math.floor(Number(c.qty) || 0)) };
+  const name = String(c.name || 'PART');
+  const src = String(c.src || '');
+  const linked = src && CRATE_BY_KEY.get(src);
+  const out = { key: String(c.key || src || name), name, label: String(c.label || name),
+    l: n(c.l, 100), w: n(c.w, 100), qty: Math.max(0, Math.floor(Number(c.qty) || 0)), src };
+  // A linked row's geometry is the PRODUCT's, never the stored copy: the .opt
+  // part must carry the same L/W as the .moz outline or Mozaik rescales every
+  // operation on it. Editing those numbers by hand is not a thing you can do.
+  if (linked) { out.l = linked.L; out.w = linked.W; out.name = linked.code; }
+  return out;
 }
+// v1 -> v2. Old rows were BOT/TOP/S1/E1 sized for whichever crate was current.
+function mergeLegacyCatalog(v1) {
+  const out = DEFAULT_CATALOG.map(c => ({ ...c }));
+  const extra = [];
+  for (const row of v1) {
+    const hit = matchCratePart(row.name, row.l, row.w);
+    const dst = hit && out.find(c => c.key === hit.key);
+    if (dst) { dst.qty = Math.max(0, Math.floor(Number(row.qty) || 0)); continue; }
+    extra.push(row);
+  }
+  return out.concat(extra);
+}
+
 // How many of each catalogue part are ALREADY salvaged anywhere in the nest.
+// Keyed on the catalogue KEY, not the name: three crate sides are all called
+// "S1" upstream, and bucketing them together made two of the three invisible
+// to the budget.
 export function salvagedSoFar(sheets) {
   const t = {};
   for (const s of sheets || []) for (const p of (s.placements || [])) {
-    if (p.salvage) t[p.name] = (t[p.name] || 0) + 1;
+    if (!p.salvage) continue;
+    const k = p.src || p.name;
+    t[k] = (t[k] || 0) + 1;
   }
   return t;
 }
+// The budget key of a catalogue row. Derived rather than required, so a
+// hand-built catalogue ({name,l,w,qty} and nothing else) still budgets
+// correctly instead of bucketing every row under `undefined`.
+export const catKey = (c) => String((c && (c.key || c.src || c.name)) || '');
 export function remainingBudget(sheets, catalog) {
   const have = salvagedSoFar(sheets);
   const left = {};
-  for (const c of catalog) left[c.name] = Math.max(0, c.qty - (have[c.name] || 0));
+  for (const c of catalog) left[catKey(c)] = Math.max(0, c.qty - (have[catKey(c)] || 0));
   return left;
 }
 
-export const DEFAULT_CATALOG = [
-  { name: 'BOT', label: 'Crate bottom', l: 2032, w: 1092.2, qty: 1 },
-  { name: 'TOP', label: 'Crate top', l: 2032, w: 1092.2, qty: 1 },
-  { name: 'S1', label: 'Crate side', l: 2032, w: 495.3, qty: 2 },
-  { name: 'E1', label: 'Crate end', l: 1066.8, w: 495.3, qty: 2 },
-];
+export const DEFAULT_CATALOG = CRATE_PARTS.map(p => ({
+  key: p.key, name: p.code, label: p.label, l: p.L, w: p.W, qty: p.defaultQty, src: p.key,
+}));
+
+// Find the crate panel a loose rectangle IS. Dimensions are compared
+// UNORDERED because the old catalogue stored the crate end transposed
+// (1066.8 x 495.3 where the product says 495.3 x 1066.8), and a nest full of
+// those is the nest Zac has on his machine right now.
+export function matchCratePart(name, l, w) {
+  const code = String(name || '').trim().toUpperCase();
+  const d = [Math.round(l), Math.round(w)].sort((a, b) => a - b);
+  const fits = (p) => {
+    const pd = [Math.round(p.L), Math.round(p.W)].sort((a, b) => a - b);
+    return Math.abs(pd[0] - d[0]) <= 1 && Math.abs(pd[1] - d[1]) <= 1;
+  };
+  // exact code first, then code family (old "S1" against S1-12/S1-14/S1-19),
+  // then dimensions alone -- each step only accepts an UNAMBIGUOUS answer.
+  const exact = CRATE_PARTS.filter(p => p.code.toUpperCase() === code && fits(p));
+  if (exact.length === 1) return exact[0];
+  const fam = CRATE_PARTS.filter(p => p.code.toUpperCase().split('-')[0] === code.split('-')[0] && fits(p));
+  if (fam.length === 1) return fam[0];
+  const any = CRATE_PARTS.filter(fits);
+  return any.length === 1 ? any[0] : null;
+}
+
+// Attach crate records to salvage placements that predate the link, IN PLACE.
+// Old nests carry bare rectangles; this is what turns them into drilled parts
+// without asking the user to re-nest and lose their manual moves.
+// Returns {linked, unlinked, changed} -- unlinked rows are reported, never
+// silently left to export as blanks.
+export function relinkSalvage(sheets) {
+  const res = { linked: 0, unlinked: [], changed: false };
+  for (const s of sheets || []) for (const p of (s.placements || [])) {
+    if (!p.salvage) continue;
+    if (p.src && CRATE_BY_KEY.has(p.src)) { res.linked++; continue; }
+    const hit = matchCratePart(p.name, p.l, p.w);
+    if (!hit) { res.unlinked.push(p.name); continue; }
+    // The panel's L/W is the product's. If the stored rectangle was
+    // transposed, rotate the placement by the same 90 so the footprint on the
+    // sheet does not move a millimetre.
+    if (Math.round(p.l) !== Math.round(hit.L) || Math.round(p.w) !== Math.round(hit.W)) {
+      p.rotation = (((p.rotation || 0) + 90) % 360);
+    }
+    p.src = hit.key; p.name = hit.code; p.label = hit.label;
+    p.l = hit.L; p.w = hit.W;
+    res.linked++; res.changed = true;
+  }
+  return res;
+}
 
 const box = (p) => {
   const rot = ((p.rotation % 360) + 360) % 360, sw = rot === 90 || rot === 270;
@@ -162,7 +257,7 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
   const { gap = 16, edge = 3, sheetL = 2770, sheetW = 1550 } = opts;
   const placed = [...(sheet.placements || [])];
   const got = [];
-  const left = catalog.map(c => ({ ...c, remaining: budget ? (budget[c.name] ?? c.qty) : c.qty }))
+  const left = catalog.map(c => ({ ...c, remaining: budget ? (budget[catKey(c)] ?? c.qty) : c.qty }))
     .filter(c => c.remaining > 0)
     .sort((a, b) => b.l * b.w - a.l * a.w);
   let progress = true;
@@ -178,6 +273,7 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
           const cand = { x: fr.x, y: fr.y, w, h };
           if (!fitsClear(cand, placed, gap)) continue;
           const pl = { name: c.name, label: c.label, layer: 0, salvage: true,
+            ...(c.src ? { src: c.src } : {}),
             l: c.l, w: c.w, x: +fr.x.toFixed(2), y: +fr.y.toFixed(2), rotation: rot };
           placed.push(pl); got.push(pl); c.remaining--; progress = true;
           break;
@@ -320,7 +416,7 @@ export function shapeScrap(nest, opts, packOne, {
   // it. Each sheet's winner consumes as it lands, which is what keeps "2
   // sides" meaning two across the whole nest.
   const budget = {};
-  for (const c of catalog) budget[c.name] = c.qty;
+  for (const c of catalog) budget[catKey(c)] = c.qty;
   const report = [];
   const salvArea = (pls) => pls.filter(p => p.salvage).reduce((a, p) => a + p.l * p.w, 0);
 
@@ -362,7 +458,7 @@ export function shapeScrap(nest, opts, packOne, {
     const before = diceCost(dicePlan({ placements: [...candidates[0], ...baseSalv] }, opts, maxPieceIn, minAreaIn2));
 
     sheet.placements = best.full;
-    for (const s of best.salv) budget[s.name] = Math.max(0, (budget[s.name] || 0) - 1);
+    for (const s of best.salv) { const k = s.src || s.name; budget[k] = Math.max(0, (budget[k] || 0) - 1); }
     report.push({ salvaged: best.salv.length, before, after: best.cost });
   }
   return report;
