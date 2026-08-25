@@ -126,13 +126,13 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.81';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.82';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.81';
-import { APP_VERSION } from './js/version.mjs?v=3.81';
+         fromMM, toMM } from './js/materials.mjs?v=3.82';
+import { APP_VERSION } from './js/version.mjs?v=3.82';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.81';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.82';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -439,9 +439,12 @@ function renderPanel() {
     $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · `
       + `${selected.salvage ? 'salvage' : 'layer ' + selected.layer} · (${selected.x}, ${selected.y})`
       + `${selected.rotation ? ' · rot ' + selected.rotation + '°' : ''}`
-      + ` &nbsp; <button id="rotBtn">↻ Rotate 90° (R)</button> &nbsp; Send to: ${btns}`;
+      + ` &nbsp; <button id="rotBtn">↻ Rotate 90° (R)</button>`
+      + (selected.salvage ? ` &nbsp; <button id="rmBtn" title="Take this salvaged part off the sheet. Recipe parts cannot be removed — the nest has to carry every part of the product.">🗑 Remove (Del)</button>` : '')
+      + ` &nbsp; Send to: ${btns}`;
     $('sel').querySelectorAll('button[data-to]').forEach(b => b.onclick = () => sendTo(+b.dataset.to));
     const rb = $('rotBtn'); if (rb) rb.onclick = rotateSelected;
+    const xb = $('rmBtn'); if (xb) xb.onclick = removeSelected;
   } else if (selected) {
     $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · layer ${selected.layer} · (${selected.x}, ${selected.y})`;
   } else $('sel').textContent = 'Click a part to select it.';
@@ -516,9 +519,35 @@ function rotateSelected() {
   }
   buildTabs(); draw();
 }
+// Remove a SALVAGED part from a sheet. Zac, 2026-08-25: "how do i remove a
+// crate part from a nest?" -- you could not. Rotate and Send-to-sheet were the
+// only actions, so the only way to drop a crate panel was Re-nest from recipe,
+// which throws away every manual move as well.
+//
+// Salvaged parts only. A recipe part is a panel of the product: a nest missing
+// one is a bed missing a piece, and it would leave quietly because nothing
+// downstream counts placements against the recipe. So that case refuses and
+// says why rather than being silently disallowed.
+function removeSelected() {
+  if (!editing || !selected) return;
+  if (!selected.salvage) {
+    alert(`${selected.name} is a part of the product, not salvage — the nest has to carry `
+      + 'every recipe part or the order ships short. Use "Send to sheet" to move it instead.');
+    return;
+  }
+  const s = nest.sheets[sheetIdx];
+  const i = s.placements.indexOf(selected);
+  if (i < 0) return;
+  s.placements.splice(i, 1);
+  selected = null;
+  recomputeDice();
+  buildTabs(); draw();
+}
+
 addEventListener('keydown', e => {
   if (!editing || !selected) return;
   if (e.key === 'r' || e.key === 'R') { e.preventDefault(); rotateSelected(); }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSelected(); }
 });
 // ---- scrap: salvage known parts, then dice the rest --------------------------
 function catalog() { return loadCatalog(); }
