@@ -92,22 +92,56 @@ export function nestByLayer(parts, opts = {}) {
     return sheets;
   }
 
-  let best = null;
-  for (const cap of [2, 3, 4, 6]) {
+  // LAYER SPREAD — how many different layers may share one sheet.
+  //
+  // The rule was "the lowest cap that nests AT ALL wins": try 2, and break the
+  // moment it produces any result. So 3, 4 and 6 were only ever reached when 2
+  // failed outright, and a spread of 4 was unreachable whenever 2 worked —
+  // however many extra sheets 2 cost. Zac, 2026-08-26: "how can i adjust the
+  // rules for 'renest from recipe' to allow things like up to a spread of 4
+  // layers per nest".
+  //
+  // Now every cap is costed and the alternatives are RETURNED, so the trade is
+  // visible instead of decided in here. Passing maxLayersPerSheet forces one.
+  // The DEFAULT IS UNCHANGED — still the lowest cap that nests — because
+  // quietly re-nesting everybody's jobs differently is not a UI improvement.
+  const CAPS = [1, 2, 3, 4, 6, Number.MAX_SAFE_INTEGER];
+  const forced = Number(opts.maxLayersPerSheet) || null;
+  const tryCaps = forced ? [forced] : CAPS;
+  const costed = [];
+  for (const cap of tryCaps) {
+    let b = null;
     for (let t = 0; t < 240; t++) {
       const r = attempt(cap, ['bssf', 'blsf', 'baf', 'bl'][t % 4], t * 2654435761 + cap, t === 0 ? 0 : (t % 120) * 0.8);
       if (!r) continue;
       const mixed = r.reduce((a, s) => a + s.layers.length, 0);
-      if (!best || r.length < best.sheets.length || (r.length === best.sheets.length && mixed < best.mixed))
-        best = { sheets: r, mixed, cap };
+      if (!b || r.length < b.sheets.length || (r.length === b.sheets.length && mixed < b.mixed)) {
+        b = { sheets: r, mixed, cap };
+      }
     }
-    if (best) break;                        // lowest cap that nests at all wins
+    if (b) costed.push(b);
   }
-  if (!best) return { error: 'could not nest these parts at this spacing' };
+  if (!costed.length) return { error: 'could not nest these parts at this spacing' };
+  // AUTO CHOOSES FROM THE ORIGINAL SET, 2..6 — not from every cap costed.
+  //
+  // Adding 1 and "any" to the costing is for the operator to SEE; letting auto
+  // pick from them would change what every existing recipe re-nests to, which
+  // is a silent re-layout dressed up as a new control. A spread of 1 is a real
+  // choice (one layer per sheet, nothing to sort at the bench) but it is his to
+  // make, not a default to drift into.
+  const AUTO_SET = [2, 3, 4, 6];
+  const best = forced ? costed[0]
+    : (costed.find((c) => AUTO_SET.includes(c.cap)) || costed[0]);
 
   const SHEET_AREA = sheetL * sheetW;
   return {
     gap, edge, sheetL, sheetW, cap: best.cap,
+    // what each spread would have cost, so the page can show the trade rather
+    // than the nester deciding it silently
+    capsTried: costed.map((c) => ({
+      cap: c.cap === Number.MAX_SAFE_INTEGER ? 'any' : c.cap,
+      sheets: c.sheets.length, mixed: c.mixed })),
+    forcedSpread: forced || null,
     sheets: best.sheets.map(({ bin, layers: lys }) => {
       const placements = bin.placed.map(({ it, x, y, rot }) => ({
         name: it.name, layer: it.layer, key: it.key,

@@ -89,6 +89,15 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <label class="soft" for="matSel">Material</label>
   <select id="matSel"></select>
   <span class="soft" id="matDesc"></span>
+  <label class="soft" for="spreadSel" title="How many different LAYERS may share one sheet. Fewer = tidier at the bench, more sheets. More = fewer sheets, more sorting.">Layer spread</label>
+  <select id="spreadSel" onchange="_spreadChange_(this.value)">
+    <option value="">Auto</option>
+    <option value="1">1 · one layer per sheet</option>
+    <option value="2">2</option><option value="3">3</option>
+    <option value="4">4</option><option value="6">6</option>
+    <option value="99">Any</option>
+  </select>
+  <span class="soft" id="spreadTrade" style="font-size:11px"></span>
   <button id="matEdit">⚙ Materials…</button>
   <button id="catEdit">⚙ Scrap parts…</button>
 </div>
@@ -132,15 +141,15 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.88';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.89';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.88';
-import { APP_VERSION } from './js/version.mjs?v=3.88';
+         fromMM, toMM } from './js/materials.mjs?v=3.89';
+import { APP_VERSION } from './js/version.mjs?v=3.89';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.88';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.88';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.89';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.89';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -210,6 +219,7 @@ function boot() {
   $('foot').textContent = `Nesting on ${currentMat().label} (${describeMat(currentMat())}). Sheets fill in layer order — a layer's leftovers spill onto the next sheet rather ` +
     `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
     `dragging snaps to exactly that and turns red if anything ends up tighter.`;
+  const sp = $('spreadSel'); if (sp) sp.value = currentSpread();
   buildTabs(); draw(); refreshCopyFrom();
   if (_relinkNote) { $('hint').textContent = _relinkNote; _relinkNote = ''; }
 }
@@ -361,9 +371,46 @@ $('matSave').onclick = () => {
   buildMatUI(); buildTabs(); draw();
 };
 function currentMat() { return materials.find(m => m.id === matId) || materials[0]; }
+// LAYER SPREAD — how many different layers may share a sheet.
+//
+// Zac 2026-08-26: "how can i adjust the rules for 'renest from recipe' to allow
+// things like up to a spread of 4 layers per nest". He could not: the nester
+// took the lowest spread that worked at all and stopped, so 4 was unreachable
+// whenever 2 worked, whatever that cost in sheets. The choice is his now, and
+// the COST of each option is printed beside it rather than argued about.
+const SPREAD_KEY = 'mbd_nest_layer_spread';
+function currentSpread() {
+  try { return localStorage.getItem(SPREAD_KEY) || ''; } catch (e) { return ''; }
+}
+window._spreadChange_ = (v) => {
+  try { localStorage.setItem(SPREAD_KEY, v || ''); } catch (e) {}
+  if (edited && !confirm('Re-nesting from the recipe throws away the manual moves on screen. Continue?')) {
+    const sel = $('spreadSel'); if (sel) sel.value = currentSpread();
+    return;
+  }
+  nest = compute(); sheetIdx = 0; selected = null;
+  buildTabs(); draw(); refreshCopyFrom();
+};
+function renderSpreadTrade(r) {
+  const el = $('spreadTrade'); if (!el) return;
+  const t = (r && r.capsTried) || [];
+  if (!t.length) { el.textContent = ''; return; }
+  // only worth showing where the answer actually differs
+  const distinct = [...new Set(t.map((c) => c.sheets))].length > 1;
+  el.textContent = distinct
+    ? t.map((c) => `${c.cap}:${c.sheets}sh`).join('  ')
+    : `every spread gives ${t[0].sheets} sheets`;
+  el.title = 'What each layer spread would cost, in sheets. Picked: '
+    + (r.forcedSpread ? 'forced ' + r.forcedSpread : 'auto (' + r.cap + ')');
+}
 function compute() {
   const mat = currentMat();
-  const r = nestByLayer(recipe.parts, nestOptsFor(mat));
+  const spread = Number(currentSpread()) || null;
+  const r = nestByLayer(recipe.parts, {
+    ...nestOptsFor(mat),
+    ...(spread ? { maxLayersPerSheet: spread === 99 ? Number.MAX_SAFE_INTEGER : spread } : {}),
+  });
+  renderSpreadTrade(r);
   if (r.error) {
     alert('Could not nest on ' + mat.label + ': ' + r.error);
     return { ...NEST_DEFAULTS, sheets: [], sku: recipe.sku, material: mat };
