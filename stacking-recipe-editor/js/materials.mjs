@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=3.84';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=3.85';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -35,11 +35,19 @@ export const fromMM = (v, unit) => unit === 'in' ? +(v / MM_PER_IN).toFixed(3) :
 //     for 19_Melamine with additional sheet sizes OFF, but the black and
 //     monaco in the rack are 5x8) — physical truth wins for the NEST, and the
 //     disagreement is reported instead of being quietly resolved either way.
-const FIVE_BY_EIGHT = { length: 2438.4, width: 1524 };
+// v3.85 (Zac 2026-08-26) — the 5x8 board is REAL in Mozaik now, so two of the
+// three overrides are gone. He split the one 19_Melamine material into 5x9
+// (2770x1550, Id 334) and 5x8 (2460x1550, Id 340), both carrying all five
+// finishes. Black and monaco were pinned here purely because Mozaik had no way
+// to say those finishes live on a shorter board; it can say it now, natively,
+// and the library and the nest agree on their own for the first time rather
+// than by us patching around the disagreement.
+//
+// What survives is the one thing Mozaik still cannot know: the trims a run
+// ACTUALLY used. The material declares 10/10; the posted white run that was
+// cut used 3/3, and that is what its nests were built to.
 const OVERRIDES = {
-  '19_Melamine_White': { lengthTrim: 3, widthTrim: 3 },
-  '19_Melamine_Black': { ...FIVE_BY_EIGHT, lengthTrim: 3, widthTrim: 3 },
-  '19_Melamine_Monaco': { ...FIVE_BY_EIGHT, lengthTrim: 3, widthTrim: 3 },
+  '5x9White': { lengthTrim: 3, widthTrim: 3 },
 };
 const SLUG = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 // Saved nests are keyed sku::materialId, so the three materials that existed
@@ -48,6 +56,19 @@ const LEGACY_IDS = {
   '19_Melamine_White': 'mel19-white',
   '19_Melamine_Black': 'mel19-black',
   '19_Melamine_Monaco': 'mel19-monaco',
+  // v3.85 — Zac renamed the material in Mozaik (19_Melamine -> 5x9) and its
+  // ReportName with it, so every displayName changed: 19_Melamine_White is now
+  // 5x9White. The id is derived FROM displayName, so without these five lines
+  // every nest ever saved on melamine would key to a new id and silently
+  // orphan — the export would find nothing and quietly re-nest instead.
+  // Chocolate and Gray are here too: they were never pinned before because
+  // their slugs happened to be stable, which stopped being true the moment the
+  // name changed.
+  '5x9White': 'mel19-white',
+  '5x9Black': 'mel19-black',
+  '5x9Monaco': 'mel19-monaco',
+  '5x9Chocolate': '19-melamine-chocolate',
+  '5x9Gray': '19-melamine-gray',
 };
 
 // A picker's first entry is what gets used when nobody chooses, so it must not
@@ -66,6 +87,9 @@ export const DEFAULT_MATERIALS = CATALOG_ORDERED.map((c) => {
     abbr: c.abbr,
     materialId: c.materialId,
     textureId: c.textureId,
+    // carried so reconcile() can re-find a row whose NAME changed in Mozaik
+    // but whose finish did not — the last rung of the identity ladder
+    textureName: c.textureName || '',
     thickness: c.thickness,
     length: o.length ?? c.length,
     width: o.width ?? c.width,
@@ -90,11 +114,33 @@ export function loadMaterials() {
 // black and monaco had NO texture id at all, which the .opt writer turns into
 // -1 and Mozaik declines to bind. Identity comes from the library; the shop's
 // own numbers (label, board size, trims) are left exactly as edited.
+// NAMES CHANGE IN MOZAIK; IDS DO NOT.
+//
+// This matched on displayName alone, which is Mozaik's ReportName — and Zac
+// renamed it on 2026-08-26 (19_Melamine_Black -> 5x9Black). Every browser
+// already holding the old name would have found no match and silently kept the
+// stale record: old sheet size, blank texture id never filled, and — the part
+// that actually breaks a cut — the DEAD NAME written into the .opt, where
+// Mozaik looks for a material called 19_Melamine_Black and finds nothing.
+//
+// So the fallback walks down the identity ladder: exact name, then the
+// (materialId, textureId) pair Mozaik itself binds on, then materialId plus the
+// finish word the old name ends with (which is what rescues a record whose
+// textureId was never filled in). On a hit by ANY route the row adopts the
+// current displayName, or it would arrive here stale again on the next load.
 function reconcile(m) {
-  const hit = DEFAULT_MATERIALS.find(d => d.displayName === m.displayName);
-  if (!hit) return m;
   const blank = (v) => !String(v ?? '').trim() || String(v).trim() === '-1';
+  const sameId = (a, b) => String(a ?? '') === String(b ?? '');
+  const hit = DEFAULT_MATERIALS.find(d => d.displayName === m.displayName)
+    || (!blank(m.textureId) && DEFAULT_MATERIALS.find(d =>
+      sameId(d.materialId, m.materialId) && sameId(d.textureId, m.textureId)))
+    || DEFAULT_MATERIALS.find(d => sameId(d.materialId, m.materialId)
+      && d.textureName
+      && String(m.displayName || '').toLowerCase().endsWith(String(d.textureName).toLowerCase()));
+  if (!hit) return m;
   return { ...m,
+    // the name Mozaik answers to TODAY — a stale one binds to nothing
+    displayName: hit.displayName,
     materialId: blank(m.materialId) ? hit.materialId : m.materialId,
     textureId: blank(m.textureId) ? hit.textureId : m.textureId,
     mozaikLength: hit.mozaikLength, mozaikWidth: hit.mozaikWidth,
