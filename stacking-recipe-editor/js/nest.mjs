@@ -51,6 +51,31 @@ class Bin {
   }
 }
 
+// SLIVERS — the leftover nobody can use and the saw does not want to meet.
+//
+// Zac 2026-08-26: "really thin slivers of scrap can cause problems ... prefer
+// larger sections of web over small slivers somehow."
+//
+// The nester used to care about exactly two things: sheet count, then layer
+// mixing. Where the leftover ended up was whatever fell out. Two layouts on the
+// same number of sheets could leave one clean slab or a spiderweb of 20mm
+// ribbons, and it had no reason to prefer either.
+//
+// Measured off the Bin's OWN free list, which it already maintains as it packs,
+// so this costs nothing. Note the frame: the bin works in INFLATED coordinates
+// (every part carries its gap), so the 16mm corridors BETWEEN parts have
+// already been subtracted. A sliver here is real leftover material that is too
+// narrow to be worth anything — not a chip between two parts.
+export const SLIVER_MIN_MM = 100;
+function sliverArea(bin, minDim = SLIVER_MIN_MM) {
+  let a = 0;
+  for (const f of bin.free) {
+    if (f.w < 1 || f.h < 1) continue;               // numerical dust
+    if (Math.min(f.w, f.h) < minDim) a += f.w * f.h;
+  }
+  return a;
+}
+
 // parts: [{ name, layer, l, w }] — layer is 1-based
 export function nestByLayer(parts, opts = {}) {
   const { gap, edge, sheetL, sheetW } = { ...NEST_DEFAULTS, ...opts };
@@ -105,6 +130,7 @@ export function nestByLayer(parts, opts = {}) {
   // visible instead of decided in here. Passing maxLayersPerSheet forces one.
   // The DEFAULT IS UNCHANGED — still the lowest cap that nests — because
   // quietly re-nesting everybody's jobs differently is not a UI improvement.
+  const sliverMin = Number(opts.sliverMinMM) > 0 ? Number(opts.sliverMinMM) : SLIVER_MIN_MM;
   const CAPS = [1, 2, 3, 4, 6, Number.MAX_SAFE_INTEGER];
   const forced = Number(opts.maxLayersPerSheet) || null;
   const tryCaps = forced ? [forced] : CAPS;
@@ -115,9 +141,18 @@ export function nestByLayer(parts, opts = {}) {
       const r = attempt(cap, ['bssf', 'blsf', 'baf', 'bl'][t % 4], t * 2654435761 + cap, t === 0 ? 0 : (t % 120) * 0.8);
       if (!r) continue;
       const mixed = r.reduce((a, s) => a + s.layers.length, 0);
-      if (!b || r.length < b.sheets.length || (r.length === b.sheets.length && mixed < b.mixed)) {
-        b = { sheets: r, mixed, cap };
-      }
+      const sliv = r.reduce((a, s) => a + sliverArea(s.bin, sliverMin), 0);
+      // SHEETS still win outright — that is material, and no amount of tidy
+      // leftover is worth an extra board. Slivers come next because a ribbon of
+      // web is waste at best and something that breaks loose at worst. Layer
+      // mixing, which is only bench convenience, sorts the remaining ties.
+      // Slivers are compared in whole square-decimetres so that a few hundred
+      // mm2 of noise cannot outrank a genuinely tidier layout.
+      const dm2 = (x) => Math.round(x / 10000);
+      const better = !b || r.length < b.sheets.length
+        || (r.length === b.sheets.length && dm2(sliv) < dm2(b.sliver))
+        || (r.length === b.sheets.length && dm2(sliv) === dm2(b.sliver) && mixed < b.mixed);
+      if (better) b = { sheets: r, mixed, cap, sliver: sliv };
     }
     if (b) costed.push(b);
   }
@@ -140,7 +175,12 @@ export function nestByLayer(parts, opts = {}) {
     // than the nester deciding it silently
     capsTried: costed.map((c) => ({
       cap: c.cap === Number.MAX_SAFE_INTEGER ? 'any' : c.cap,
-      sheets: c.sheets.length, mixed: c.mixed })),
+      sheets: c.sheets.length, mixed: c.mixed,
+      sliverM2: +(c.sliver / 1e6).toFixed(3) })),
+    // how much leftover is too narrow to be worth anything, in m2 — reported so
+    // the improvement is visible rather than asserted
+    sliverM2: +(best.sliver / 1e6).toFixed(3),
+    sliverMinMM: sliverMin,
     forcedSpread: forced || null,
     sheets: best.sheets.map(({ bin, layers: lys }) => {
       const placements = bin.placed.map(({ it, x, y, rot }) => ({
