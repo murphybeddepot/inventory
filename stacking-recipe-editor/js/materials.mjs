@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=3.85';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=3.86';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -105,7 +105,12 @@ export const DEFAULT_MATERIALS = CATALOG_ORDERED.map((c) => {
 export function loadMaterials() {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (Array.isArray(raw) && raw.length) return raw.map(m => normalize(reconcile(m)));
+    if (Array.isArray(raw) && raw.length) {
+      // migrate BEFORE reconcile: the retired board carries the old name too,
+      // and moving it first means reconcile sees a row that already points at
+      // the material it should have been on all along
+      return raw.map(m => normalize(reconcile(migrateRetiredBoard(m))));
+    }
   } catch (e) { /* fall through to defaults */ }
   return DEFAULT_MATERIALS.map(normalize);
 }
@@ -128,6 +133,43 @@ export function loadMaterials() {
 // finish word the old name ends with (which is what rescues a record whose
 // textureId was never filled in). On a hit by ANY route the row adopts the
 // current displayName, or it would arrive here stale again on the next load.
+// The board WE invented, now retired. Until 2026-08-26 black and monaco were
+// pinned to 2438.4x1524 by an override here, because Mozaik could only hold one
+// sheet per material and the shop's black is a shorter board. That number was
+// our arithmetic on "5x8" (96in x 60in) and nobody ever measured it — Mozaik's
+// own answer is 2460x1550.
+//
+// So any stored row still carrying it is carrying OUR guess, not the shop's
+// measurement, and it is moved to the real material.
+//
+// SCOPED TO THE TWO IDS THE OVERRIDE ACTUALLY WROTE. Matching on the size alone
+// was wrong and a probe caught it: a row somebody had typed 2438.4x1524 into by
+// hand — 96in x 60in is a number a person really might enter — got silently
+// moved onto Mozaik's 2460x1550. Only mel19-black and mel19-monaco could ever
+// have inherited the guess, because those are the only two displayNames the
+// override keyed on. Anything else at that size was measured by a human and is
+// left alone (it will warn about the disagreement, which is correct).
+const RETIRED_GUESS = { length: 2438.4, width: 1524 };
+const RETIRED_IDS = new Set(['mel19-black', 'mel19-monaco']);
+function migrateRetiredBoard(m) {
+  if (!RETIRED_IDS.has(String(m.id || ''))) return m;
+  const near = (a, b) => Math.abs(Number(a) - b) < 0.05;
+  if (!near(m.length, RETIRED_GUESS.length) || !near(m.width, RETIRED_GUESS.width)) return m;
+  const finish = String(m.textureName || '').trim()
+    || (String(m.displayName || '').match(/(Black|Monaco|White|Gray|Chocolate)$/i) || [])[1] || '';
+  if (!finish) return m;
+  const real = DEFAULT_MATERIALS.find(d => /^5x8/.test(d.displayName)
+    && String(d.textureName || '').toLowerCase() === finish.toLowerCase());
+  if (!real) return m;                       // no real short board yet — leave it alone
+  return { ...m,
+    displayName: real.displayName, label: real.label,
+    materialId: real.materialId, textureId: real.textureId, textureName: real.textureName,
+    length: real.length, width: real.width,
+    lengthTrim: real.lengthTrim, widthTrim: real.widthTrim,
+    mozaikLength: real.mozaikLength, mozaikWidth: real.mozaikWidth,
+    additionalSheetSizes: real.additionalSheetSizes };
+}
+
 function reconcile(m) {
   const blank = (v) => !String(v ?? '').trim() || String(v).trim() === '-1';
   const sameId = (a, b) => String(a ?? '') === String(b ?? '');
