@@ -98,6 +98,10 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <option value="99">Any</option>
   </select>
   <span class="soft" id="spreadTrade" style="font-size:11px"></span>
+  <label class="soft" style="margin-left:10px" title="Put the trim and door parts on the LAST sheets and the top layer, so the robot stacks everything under them and a person places these by hand.">
+    <input type="checkbox" id="doorsLast" onchange="_doorsLastChange_(this.checked)"> Trim &amp; doors last
+  </label>
+  <button id="doorsPick" style="display:none">Which parts are trim/doors…</button>
   <button id="matEdit">⚙ Materials…</button>
   <button id="catEdit">⚙ Scrap parts…</button>
 </div>
@@ -115,6 +119,18 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <button id="catAdd">+ Add part</button>
     <button id="catReset">↺ Standard crate quantities</button><span style="flex:1"></span>
     <button id="catSave" class="primary">Save parts</button>
+  </div>
+</div></div>
+<div id="doorModal" class="modalbg"><div class="modal">
+  <h2>Which parts are trim or doors? <span style="flex:1"></span><button id="doorClose">✕</button></h2>
+  <p class="soft" style="margin:0 0 10px">Ticked parts go to the <b>top layer</b> and land on the
+    <b>last sheets</b>, so the robot stacks everything underneath and a person places these by hand.
+    <br>Suggestions come from a &#216;35 hinge cup, or a name reading door / trim / valance / toe /
+    fascia. Both guess wrong sometimes — a hinged <i>top</i> carries the same cups a door does —
+    so nothing is applied until you tick it.</p>
+  <div id="doorRows"></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <span style="flex:1"></span><button id="doorSave" class="primary">Use these</button>
   </div>
 </div></div>
 <div id="matModal" class="modalbg"><div class="modal">
@@ -141,15 +157,15 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.89';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.90';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.89';
-import { APP_VERSION } from './js/version.mjs?v=3.89';
+         fromMM, toMM } from './js/materials.mjs?v=3.90';
+import { APP_VERSION } from './js/version.mjs?v=3.90';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.89';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.89';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.90';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.90';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -220,6 +236,8 @@ function boot() {
     `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
     `dragging snaps to exactly that and turns red if anything ends up tighter.`;
   const sp = $('spreadSel'); if (sp) sp.value = currentSpread();
+  const dl = $('doorsLast'); if (dl) { dl.checked = doorsLastOn();
+    $('doorsPick').style.display = doorsLastOn() ? '' : 'none'; }
   buildTabs(); draw(); refreshCopyFrom();
   if (_relinkNote) { $('hint').textContent = _relinkNote; _relinkNote = ''; }
 }
@@ -403,10 +421,92 @@ function renderSpreadTrade(r) {
   el.title = 'What each layer spread would cost, in sheets. Picked: '
     + (r.forcedSpread ? 'forced ' + r.forcedSpread : 'auto (' + r.cap + ')');
 }
+// DOORS LAST — the toggle, the confirmed set, and the layer bump.
+//
+// Zac 2026-08-26: the robot stacks everything, then a person places the doors
+// on top by hand. So the doors need to be the LAST thing cut and the TOP layer
+// of the stack. Confirmed parts are lifted to one layer above everything else,
+// which puts them on the final sheet(s) because the nester fills in layer
+// order — the same mechanism, not a special case bolted beside it.
+//
+// The set is remembered PER RECIPE, not globally: 8A is a door on Majestic and
+// means nothing on Boaz.
+const DOORS_ON_KEY = 'mbd_nest_doors_last';
+const DOORS_SET_KEY = 'mbd_nest_door_parts_v1';
+function doorsLastOn() {
+  try { return localStorage.getItem(DOORS_ON_KEY) === '1'; } catch (e) { return false; }
+}
+function doorSet() {
+  try {
+    const all = JSON.parse(localStorage.getItem(DOORS_SET_KEY) || '{}');
+    const mine = all[recipe.sku || ''];
+    // never chosen for this recipe yet -> fall back to the guess, so the first
+    // use does something sensible instead of nothing
+    if (!Array.isArray(mine)) return [...new Set(recipe.parts.filter((p) => p.doorGuess).map((p) => p.name))];
+    return mine;
+  } catch (e) { return []; }
+}
+function saveDoorSet(list) {
+  try {
+    const all = JSON.parse(localStorage.getItem(DOORS_SET_KEY) || '{}');
+    all[recipe.sku || ''] = list;
+    localStorage.setItem(DOORS_SET_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+window._doorsLastChange_ = (on) => {
+  try { localStorage.setItem(DOORS_ON_KEY, on ? '1' : '0'); } catch (e) {}
+  $('doorsPick').style.display = on ? '' : 'none';
+  if (on) { openDoorPicker(); return; }          // turning it ON always confirms first
+  reNestForDoors();
+};
+function reNestForDoors() {
+  if (edited && !confirm('Re-nesting from the recipe throws away the manual moves on screen. Continue?')) {
+    $('doorsLast').checked = doorsLastOn();
+    return;
+  }
+  nest = compute(); sheetIdx = 0; selected = null;
+  buildTabs(); draw(); refreshCopyFrom();
+}
+function openDoorPicker() {
+  const chosen = new Set(doorSet());
+  const seen = new Map();
+  for (const p of recipe.parts) {
+    if (!seen.has(p.name)) seen.set(p.name, { name: p.name, title: p.title || '', guess: !!p.doorGuess, n: 0, layer: p.layer });
+    seen.get(p.name).n++;
+  }
+  const rows = [...seen.values()].sort((a, b) =>
+    (b.guess ? 1 : 0) - (a.guess ? 1 : 0) || String(a.name).localeCompare(String(b.name)));
+  $('doorRows').innerHTML = rows.map((r) => `<label style="display:flex;gap:8px;align-items:center;padding:4px 2px">
+    <input type="checkbox" data-door="${escAttr(r.name)}"${chosen.has(r.name) ? ' checked' : ''}>
+    <b style="min-width:46px">${escAttr(r.name)}</b>
+    <span class="soft" style="flex:1">${escAttr(r.title)}</span>
+    <span class="soft" style="font-size:11px">${r.n}\u00d7 · layer ${r.layer}${r.guess ? ' · suggested' : ''}</span>
+  </label>`).join('');
+  $('doorModal').classList.add('on');
+}
+$('doorsPick').onclick = openDoorPicker;
+$('doorClose').onclick = () => { $('doorModal').classList.remove('on');
+  $('doorsLast').checked = doorsLastOn(); $('doorsPick').style.display = doorsLastOn() ? '' : 'none'; };
+$('doorSave').onclick = () => {
+  const picked = [...$('doorRows').querySelectorAll('input[data-door]')]
+    .filter((i) => i.checked).map((i) => i.dataset.door);
+  saveDoorSet(picked);
+  $('doorModal').classList.remove('on');
+  reNestForDoors();
+};
+// the parts the nester actually sees: doors lifted above every other layer
+function partsForNest() {
+  if (!doorsLastOn()) return recipe.parts;
+  const doors = new Set(doorSet());
+  if (!doors.size) return recipe.parts;
+  const top = Math.max(...recipe.parts.map((p) => +p.layer || 1));
+  return recipe.parts.map((p) => (doors.has(p.name) ? { ...p, layer: top + 1 } : p));
+}
+
 function compute() {
   const mat = currentMat();
   const spread = Number(currentSpread()) || null;
-  const r = nestByLayer(recipe.parts, {
+  const r = nestByLayer(partsForNest(), {
     ...nestOptsFor(mat),
     ...(spread ? { maxLayersPerSheet: spread === 99 ? Number.MAX_SAFE_INTEGER : spread } : {}),
   });
