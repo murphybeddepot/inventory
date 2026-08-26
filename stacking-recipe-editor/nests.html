@@ -82,6 +82,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <select id="copyFrom"></select>
     <button id="copyBtn">Copy here</button>
   </span>
+  <span class="soft" id="copyHint" style="display:none;color:#b26a00"></span>
   <span class="soft" id="hint"></span>
 </div>
 <div class="bar">
@@ -131,15 +132,15 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.87';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.88';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.87';
-import { APP_VERSION } from './js/version.mjs?v=3.87';
+         fromMM, toMM } from './js/materials.mjs?v=3.88';
+import { APP_VERSION } from './js/version.mjs?v=3.88';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.87';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.87';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.88';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.88';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -747,19 +748,49 @@ $('delSheet').onclick = () => {
 // The guard tests the thing that actually matters -- does every part still land
 // on THIS sheet -- rather than comparing declared sizes, so a layout that
 // genuinely fits a different board is allowed and one that does not is named.
+// EVERY SAVED NEST, INCLUDING ONES WHOSE MATERIAL IS NO LONGER IN THE LIST.
+//
+// This used to walk `materials` and look each one up, so a nest whose key
+// carried an id the catalogue no longer offers was INVISIBLE — the data sat
+// untouched in localStorage and the screen said there was nothing. Zac,
+// 2026-08-26: "you lost my hard-won nesting work!!" Nothing had been lost;
+// nothing could see it.
+//
+// Enumerating the STORE instead means a nest can never be hidden by a change
+// to the material catalogue. An orphan is shown with its own stored board size
+// and labelled, so it can still be copied onto a current material.
 function nestsElsewhere() {
   const all = loadSavedNests();
-  return materials.filter((m) => m.id !== matId)
-    .map((m) => ({ m, n: all[savedKey(recipe.sku, m.id)] }))
-    .filter((x) => x.n && x.n.sheets && x.n.sheets.length);
+  const prefix = `${recipe.sku || ''}::`;
+  return Object.keys(all)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => ({ id: k.slice(prefix.length), n: all[k] }))
+    .filter((x) => x.id !== matId && x.n && x.n.sheets && x.n.sheets.length)
+    .map((x) => {
+      const m = materials.find((mm) => mm.id === x.id);
+      return { n: x.n, orphan: !m,
+        m: m || { id: x.id, label: `(material "${x.id}" is gone from the list)` } };
+    });
 }
 function refreshCopyFrom() {
   const opts = nestsElsewhere();
   $('copyWrap').style.display = opts.length ? '' : 'none';
   if (!opts.length) return;
-  $('copyFrom').innerHTML = opts.map(({ m, n }) =>
-    `<option value="${m.id}">${escAttr(m.label)} — ${n.sheets.length} sheet${n.sheets.length === 1 ? '' : 's'}`
-    + ` (${Math.round(n.sheetL)}×${Math.round(n.sheetW)})</option>`).join('');
+  $('copyFrom').innerHTML = opts.map(({ m, n, orphan }) =>
+    `<option value="${escAttr(m.id)}">${orphan ? '\u26a0 ' : ''}${escAttr(m.label)}`
+    + ` — ${n.sheets.length} sheet${n.sheets.length === 1 ? '' : 's'}`
+    + ` (${Math.round(n.sheetL)}\u00d7${Math.round(n.sheetW)})</option>`).join('');
+  // an orphan is the interesting case, so say so rather than leaving a bare
+  // warning glyph to be puzzled over
+  const orphans = opts.filter((o) => o.orphan).length;
+  const hint = document.getElementById('copyHint');
+  if (hint) {
+    hint.textContent = orphans
+      ? `${orphans} saved layout${orphans === 1 ? '' : 's'} belong to a material no longer in your list — `
+        + 'still here, pick one to copy it onto this board.'
+      : '';
+    hint.style.display = orphans ? '' : 'none';
+  }
 }
 $('revert') && ($('revert').onclick = () => {
   const savedNow = savedNestFor(recipe.sku, matId);
