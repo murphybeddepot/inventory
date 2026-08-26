@@ -20,9 +20,9 @@
 // browser). The exports do not import JSZip themselves so this module
 // stays plain ES with no bundler.
 
-import { buildOptFiles } from './nest_opt.mjs?v=3.86';
+import { buildOptFiles } from './nest_opt.mjs?v=3.87';
 export const BUILD_VERSION = '1.0.0';
-export const APP_VERSION = '3.86';
+export const APP_VERSION = '3.87';
 
 // ---- giant const templates (verbatim from source) ----
 
@@ -186,7 +186,29 @@ export async function buildJobZip({
   // so buildLayerMoz (which reads its enclosing 'layers') sees them.
   for (const k of Object.keys(layers)) emit.layers[k] = layers[k];
 
-  const keys = Object.keys(emit.layers).sort().filter((k) => (emit.layers[k] || []).length);
+  // LAYER ORDER IS NUMERIC, NOT ALPHABETICAL.
+  //
+  // This was a plain .sort(), which is a STRING sort — so L1..L15 came out
+  // L1 L10 L11 L12 L13 L14 L15 L2 L3 ... and the cabinet numbers were assigned
+  // in that order. Cabinet 2 became L10 and L2 became cabinet 8. The printed
+  // label, the stacker screen and the recipe then each called the same
+  // physical part a different layer, which is exactly what Zac hit on J038
+  // (2026-08-26: "the part labels don't match the cabinet/layer numbers").
+  //
+  // It only bites past nine layers, which is why eight-layer Boaz jobs were
+  // fine and the fifteen-layer Majestic was not — the bug was always there,
+  // waiting for a taller product.
+  //
+  // Numeric where a layer has a number; everything else (the Salvage layer)
+  // keeps a stable alphabetical order AFTER them, so a scrap cabinet can never
+  // push a real layer's number around.
+  const layerOrd = (k) => {
+    const m = String(k).match(/(\d+)/);
+    return m ? +m[1] : Number.MAX_SAFE_INTEGER;
+  };
+  const keys = Object.keys(emit.layers)
+    .sort((a, b) => layerOrd(a) - layerOrd(b) || String(a).localeCompare(String(b)))
+    .filter((k) => (emit.layers[k] || []).length);
   if (!keys.length) throw new Error('moz_build: nothing to build (no layers)');
   const jn = String(jobName || '').trim() || 'Boaz Order';
   const zip = new JSZip();
