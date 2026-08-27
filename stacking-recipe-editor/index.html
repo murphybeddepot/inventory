@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=3.94';
-  import { buildJobZip } from './js/moz_build.mjs?v=3.94';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.94';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.94';
+  import { parseMoz } from './js/moz_parse.mjs?v=3.96';
+  import { buildJobZip } from './js/moz_build.mjs?v=3.96';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=3.96';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=3.96';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -611,6 +611,33 @@
      from) and fires the worker's /stacking/export-job with {family,
      options, job}. A not_built choice is offered DISABLED with its note —
      the honest work queue, right in the picker. -->
+<!-- NEXT STEPS after an export — the workflow, spelled out (Zac 2026-08-27:
+     "then clear instructions page on what to do next … I don't want it
+     complicated but easy and clear"). Shown after every successful export. -->
+<div class="modal-bg" id="nextStepsModal">
+  <div class="modal" style="width:560px">
+    <h2>✅ Exported — what's next <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
+    <div class="mbody" style="font-size:15px;line-height:1.55">
+      <ol style="margin:0 0 10px;padding-left:22px">
+        <li><b>Router gcode:</b> unzip the download, drop the job folder into
+          <b>Mozaik&nbsp;→&nbsp;Jobs</b>, open the job in Mozaik and post the gcode.</li>
+        <li><b>Check it:</b> open <b>🏷 Labels → this job → “Check router gcode”</b>
+          and pick the <b>Label-S…nc</b> files from the job's GCode folder.
+          <b>All green = safe to cut.</b> Red = re-post before cutting.</li>
+        <li><b>Drill:</b> copy the zip's <b>DrillXML</b> folder into the shared
+          drill folder (server exports carry it; for this browser export, run the
+          drill-file maker on the PC). Open one part in the drill software to eyeball it.</li>
+        <li><b>Labels:</b> print from the <b>🏷 Labels</b> page on any iPad — tap a
+          part, label prints, part turns green.</li>
+      </ol>
+      <div class="row" style="justify-content:flex-end;display:flex;gap:10px">
+        <button id="nsOpenLabels">Open 🏷 Labels</button>
+        <button data-close>Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="srvExportModal">
   <div class="modal" style="width:560px">
     <h2>Server job export <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
@@ -1048,7 +1075,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '3.94';
+const APP_VERSION = '3.96';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3870,7 +3897,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=3.94'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=3.96'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -3987,7 +4014,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=3.94');
+    const M=await import('./js/materials.mjs?v=3.96');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4000,7 +4027,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=3.94'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=3.96'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4024,7 +4051,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer}=await import('./js/nest.mjs?v=3.94');
+    const {nestByLayer}=await import('./js/nest.mjs?v=3.96');
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
     return r&&r.sheets&&r.sheets.length?{...r,sku:S.sku||'',material:mat||undefined,_source:'re-nested'}:null;
@@ -4174,6 +4201,7 @@ $('dlMozJob').onclick=async()=>{
     toast(nest?(jobName+'.zip \u2014 '+mat.label+', '+nest.sheets.length+' nested sheet'
       +(nest.sheets.length===1?'':'s')+(nest._source==='saved'?' (your saved layout)':nest._source==='re-nested'?' (RE-NESTED)':' (unsaved edits)'))
       :(jobName+'.zip (no nest \u2014 open Nests to add sheets)'));
+    openModal('nextStepsModal');   // the workflow, spelled out (v3.95)
   }catch(err){toast('Export failed: '+err.message);}
 };
 
@@ -4185,6 +4213,9 @@ $('dlMozJob').onclick=async()=>{
 const NEST_LABELS_BASE='https://mbd-label-stamper.murphybeddepot.workers.dev';
 let LAST_NEST_LABELS_JOB=null;
 $('btnNestLabels').onclick=()=>{
+  window.open(NEST_LABELS_BASE+'/labels/'+(LAST_NEST_LABELS_JOB?'?job='+encodeURIComponent(LAST_NEST_LABELS_JOB):''),'_blank');
+};
+$('nsOpenLabels').onclick=()=>{
   window.open(NEST_LABELS_BASE+'/labels/'+(LAST_NEST_LABELS_JOB?'?job='+encodeURIComponent(LAST_NEST_LABELS_JOB):''),'_blank');
 };
 async function registerNestLabels(zipBlob,jobName,snap){
@@ -4203,15 +4234,30 @@ async function registerNestLabels(zipBlob,jobName,snap){
       if(!ps||!ps.length)return;
       layers['L'+(i+1)]=ps.map(p=>({code:p.partNum,name:p.name,L:p.L,W:p.W,cx:p.cx,cy:p.cy,angle:p.angle||0}));
     });
+    // v3.96 \u2014 ship the whole job zip too, so the worker can wake the
+    // nest-drill-xml workflow and the REAL drill emitter builds the KDT
+    // programs for this browser export (Zac 2026-08-27: "drill code
+    // production should be part of the exporter"). Size-guarded: a zip
+    // past the worker's 20MB-encoded cap just skips the drill build, it
+    // never blocks label registration.
+    let zipB64=null;
+    if(zipBlob.size<=15*1024*1024){
+      const buf=new Uint8Array(await zipBlob.arrayBuffer());
+      let bin='';
+      for(let i=0;i<buf.length;i+=0x8000)bin+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));
+      zipB64=btoa(bin);
+    }
     const r=await fetch(NEST_LABELS_BASE+'/nest-labels/ingest',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({job:jobName,source:'sre_export',opt_text:optText,
-        foot:(snap&&snap.foot)||null,layers})});
+        foot:(snap&&snap.foot)||null,layers,zip_base64:zipB64||undefined})});
     const j=await r.json().catch(()=>null);
     if(r.ok&&j&&j.ok){
       LAST_NEST_LABELS_JOB=j.id;   // the \ud83c\udff7 Labels button deep-links here
-      toast('\ud83c\udff7 Labels ready: '+j.placed+' parts on '+j.sheets+' sheets \u2014 open '
-        +NEST_LABELS_BASE+'/labels/ on the shop iPad');
+      toast('\ud83c\udff7 Labels ready: '+j.placed+' parts on '+j.sheets+' sheets'
+        +(j.drill_started?' \u2014 drill programs building (Drill files card on the Labels page)':'')
+        +' \u2014 open '+NEST_LABELS_BASE+'/labels/ on the shop iPad');
+      if(j.drill_warning)toast('\u26a0 Drill build not started: '+j.drill_warning);
     }else{
       toast('\u26a0 Label station registration failed: '+((j&&j.error)||('HTTP '+r.status))
         +' \u2014 you can still upload the .opt on /labels/');
