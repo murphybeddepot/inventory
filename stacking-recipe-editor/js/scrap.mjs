@@ -16,7 +16,7 @@
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
-import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=3.96';
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=3.97';
 
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;
@@ -145,6 +145,9 @@ export function relinkSalvage(sheets) {
   const res = { linked: 0, unlinked: [], changed: false };
   for (const s of sheets || []) for (const p of (s.placements || [])) {
     if (!p.salvage) continue;
+    // a remnant is an intentional bare rectangle — never "upgrade" one to a
+    // coincidentally same-sized crate panel, and never warn about it
+    if (p.remnant) continue;
     if (p.src && CRATE_BY_KEY.has(p.src)) { res.linked++; continue; }
     const hit = matchCratePart(p.name, p.l, p.w);
     if (!hit) { res.unlinked.push(p.name); continue; }
@@ -284,6 +287,59 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
     }
   }
   return got;
+}
+
+// ---- remnant parts: consume the leftover as REAL parts ----------------------
+// Zac 2026-08-27, after the J038 mystery ("No I didn't reoptimize"): Mozaik's
+// auto scrap-salvage was quietly filling our waste with its own rectangles at
+// post time, forcing a re-flow of every sheet — so the cut layout no longer
+// matched the exported nest, the Labels screens, or the .opt. "Can't the
+// bedrock nest editor cut the scrap into small 'remnant' parts before the
+// nest goes to mozaik?" — this is that. A remnant is a placement with
+// salvage:true (so the export writes it into the .opt via nest_opt's
+// blind-salvage bare-rectangle path, it prints a label like any part, and the
+// Remove button works on it) plus remnant:true (so the crate-panel machinery
+// knows it is an intentional rectangle, not a mislabeled panel). With the
+// waste pre-consumed, Mozaik's own scrap feature has nothing to fill — turn
+// that setting off in Mozaik regardless, or it will still re-flow.
+//
+// Sizing: carve one remnant at a time — the biggest free field gets a piece
+// capped at maxRemnantIn per side, anchored at the field corner, and the
+// free-space model is recomputed with that remnant placed. Gap corridors
+// between remnants (and to every part) hold BY CONSTRUCTION, because
+// freeRects inflates around every placement including the remnants already
+// carved — the same guarantee fitSalvage relies on. Fields below the
+// minAreaIn2 floor are left attached, same rule as the dice.
+export const DEFAULT_MAX_REMNANT_IN = 36;
+export function fitRemnants(sheet, opts, {
+  maxRemnantIn = DEFAULT_MAX_REMNANT_IN, minAreaIn2 = 0, startNum = 1,
+} = {}) {
+  const MAX = maxRemnantIn * IN;
+  const MIN_AREA = minAreaIn2 * IN * IN;
+  const minDim = opts.minDimMM ?? DEFAULT_MIN_DIM_MM;
+  const placed = [...(sheet.placements || [])];
+  const got = [];
+  let n = startNum;
+  for (let guard = 0; guard < 200; guard++) {   // backstop, never the exit path
+    const fr = freeRects({ placements: placed }, opts)
+      .filter((f) => Math.min(f.w, f.h) >= minDim && !(MIN_AREA && f.w * f.h < MIN_AREA))
+      .sort((a, b) => b.w * b.h - a.w * a.h)[0];
+    if (!fr) break;
+    const w = Math.min(fr.w, MAX), h = Math.min(fr.h, MAX);
+    const pl = {
+      name: 'RM' + n, label: 'Remnant ' + Math.round(w) + '×' + Math.round(h),
+      layer: 0, salvage: true, remnant: true,
+      l: +w.toFixed(2), w: +h.toFixed(2),
+      x: +fr.x.toFixed(2), y: +fr.y.toFixed(2), rotation: 0,
+    };
+    placed.push(pl); got.push(pl); n++;
+  }
+  return got;
+}
+export function remnantsSoFar(sheets) {
+  let c = 0;
+  for (const s of sheets || []) for (const p of (s.placements || [])) if (p.remnant) c++;
+  return c;
 }
 
 // One decision, made in one place: which free fields get DICED and which

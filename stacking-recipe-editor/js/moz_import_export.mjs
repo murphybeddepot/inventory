@@ -34,9 +34,9 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=3.96';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.96';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=3.96';
+import { parseMoz } from './moz_parse.mjs?v=3.97';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=3.97';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=3.97';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -231,7 +231,9 @@ export function salvageLayerParts(nest) {
     for (const pl of (sheet.placements || [])) {
       if (!pl.salvage) continue;
       const rec = pl.src ? CRATE_BY_KEY.get(pl.src) : null;
-      if (!rec) { unlinked.push(pl.name); continue; }
+      // remnants are intentional bare rectangles — nest_opt writes them into
+      // the .opt itself (blind-salvage path); no layer part, no warning
+      if (!rec) { if (!pl.remnant) unlinked.push(pl.name); continue; }
       parts.push({
         partNum: rec.code, name: rec.name, report: rec.code,
         L: rec.L, W: rec.W, thickness: 19, qty: 1,

@@ -56,7 +56,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="renest">↻ Re-nest from recipe</button>
   <button id="edit" aria-pressed="false">✏️ Edit</button>
   <span class="btngroup" style="border-left:3px solid #c98b2e;padding-left:8px;margin-left:4px">
-    <button id="scrapBtn" title="THE ONLY BUTTON HERE THAT ADDS PARTS. Fits crate panels from the ⚙ Scrap parts catalogue into this sheet's leftover, up to the quantities set there, then dices whatever is still left. Nothing else on this row adds material.">♻ ADD crate parts from scrap</button>
+    <button id="scrapBtn" title="ADDS PARTS. Fits crate panels from the ⚙ Scrap parts catalogue into this sheet's leftover, up to the quantities set there, then dices whatever is still left.">♻ ADD crate parts from scrap</button>
+    <button id="remnantBtn" title="ADDS PARTS. Cuts this sheet's leftover into labeled rectangle remnants no bigger than 'max piece', so Mozaik's own scrap feature has nothing to add and the posted layout stays exactly this nest. Salvage crate parts first — remnants take whatever is left.">▤ CUT leftover into remnants</button>
   </span>
   <span class="btngroup" style="margin-left:10px">
     <button id="seamBtn" title="MOVES parts, adds nothing. Re-arranges every sheet's own parts so the leftover salvages more and dices less — same parts, same sheets, never worse than the current layout.">⇄ Move parts · all sheets (better scrap)</button>
@@ -157,15 +158,16 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.96';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.97';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.96';
-import { APP_VERSION } from './js/version.mjs?v=3.96';
+         fromMM, toMM } from './js/materials.mjs?v=3.97';
+import { APP_VERSION } from './js/version.mjs?v=3.97';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
+         fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.96';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.96';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.97';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.97';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -772,6 +774,35 @@ $('scrapBtn').onclick = () => {
         Math.min(...DEFAULT_CATALOG.map(c => Math.min(c.l, c.w)))}mm on its short side).`;
   alert(`${head}\nSheet is ${(sum.usedPct * 100).toFixed(0)}% used; the rest dices into ${sum.pieces} piece(s) ` +
     `no bigger than ${DEFAULT_MAX_PIECE_IN}in for the scrap bin.`);
+};
+// ---- remnants: cut the leftover into labeled parts (Zac 2026-08-27) ---------
+// "can't the bedrock nest editor cut the scrap into small 'remnant' parts
+// before the nest goes to mozaik?" — born from the J038 finding: Mozaik's
+// auto scrap-salvage filled our waste with ITS pieces at post time and
+// re-flowed every sheet. Pre-consuming the waste here keeps the posted
+// layout identical to this nest (turn Mozaik's scrap option OFF too).
+$('remnantBtn').onclick = () => {
+  const s = nest.sheets[sheetIdx];
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
+    minDimMM: parseFloat($('diceStrip').value) || 100 };
+  const got = fitRemnants(s, opts, {
+    maxRemnantIn: parseFloat($('diceMax').value) || DEFAULT_MAX_REMNANT_IN,
+    minAreaIn2: parseFloat($('diceMin').value) || 0,
+    startNum: remnantsSoFar(nest.sheets) + 1,
+  });
+  if (got.length) s.placements.push(...got);
+  selected = null; recomputeDice(); buildTabs(); draw();
+  if (!got.length) {
+    alert('Nothing big enough left on this sheet to keep as a remnant '
+      + '(fields under the "skip offcuts under" floor are left attached).');
+    return;
+  }
+  const big = got.reduce((a, p) => (p.l * p.w > a.l * a.w ? p : a), got[0]);
+  alert(`Cut ${got.length} remnant part(s) from this sheet's leftover — biggest `
+    + `${Math.round(big.l)}×${Math.round(big.w)}mm. They export as real parts and print `
+    + `labels like any part (Del removes one).\n\nTurn OFF Mozaik's scrap/salvage option — `
+    + `with the waste pre-cut here it has nothing to add, and the posted layout stays `
+    + `exactly this nest.`);
 };
 // ---- shape scrap: seam-nest every sheet (Zac 2026-08-19) --------------------
 // "what if the parts themselves were spaced as optimally as possible to
