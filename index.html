@@ -23173,19 +23173,28 @@ function escHtml_(s) {
 // v10.1519 — kanban scans of Stock 2 (Häfele) cards used to look up
 // ONLY the old Stock 1.0 items list, so Jonah's 450.81.224 scan
 // emailed Seth '(not on record) / (unknown vendor) / on hand 0'.
-// Resolve against BOTH universes: Stock 1.0 global first, then the
-// Stock 2 runway cache (sku, name, flags.vendor, on_hand).
+// Resolve against BOTH universes.
+// v10.1523 — STOCK 2 WINS on identity. Jessica 2026-08-28: a reorder
+// card went out as 'PUSH LATCH MAGNET (Boaz) / HAFELE / on hand 0' for
+// 450.81.224 — a device-local Stock 1.0 item carried the LB-8 hinge
+// pack's Häfele number in its SKU field and SHADOWED the counted
+// Supabase row (LB-8 HINGE PACK, 200 on hand). The runway master is
+// the source of truth, so its name/vendor/on-hand take precedence;
+// the Stock 1.0 hit is kept only for the local kanban-tile side
+// effects (_s1) and as the fallback when Stock 2 has no such SKU.
 function _reorderLookupItem_(sku) {
   const q = String(sku || '').toLowerCase();
   const s1 = (typeof items !== 'undefined' ? items : []).find(i => i && !i.deleted && String(i.sku || '').toLowerCase() === q);
-  if (s1) {
-    return { name: s1.name || '', vendor: s1.vendor || s1.category || '',
-             onHand: itemQtyBreakdown(s1).ok, reorderPoint: Number(s1.reorderPoint) || 0, _s1: s1 };
-  }
   const s2 = (window._frameRunwayItemsCache || []).find(i => i && String(i.sku || '').toLowerCase() === q);
   if (s2) {
     return { name: String(s2.name || ''), vendor: String((s2.flags && s2.flags.vendor) || ''),
-             onHand: (s2.on_hand == null ? 0 : Number(s2.on_hand)), reorderPoint: 0 };
+             onHand: (s2.on_hand == null ? 0 : Number(s2.on_hand)),
+             reorderPoint: s1 ? (Number(s1.reorderPoint) || 0) : 0,
+             ...(s1 ? { _s1: s1 } : {}) };
+  }
+  if (s1) {
+    return { name: s1.name || '', vendor: s1.vendor || s1.category || '',
+             onHand: itemQtyBreakdown(s1).ok, reorderPoint: Number(s1.reorderPoint) || 0, _s1: s1 };
   }
   return null;
 }
@@ -38541,7 +38550,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1522"></script>
+<script src="./pack.js?v=10.1523"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38552,7 +38561,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1522<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1523<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
