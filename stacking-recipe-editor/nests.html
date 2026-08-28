@@ -83,6 +83,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <select id="copyFrom"></select>
     <button id="copyBtn">Copy here</button>
   </span>
+  <button id="deriveBtn" title="Builds this product's layout from ANOTHER product's proven one, centring each part on its counterpart. Same sheets, same layers, same positions on the table.">⬚ Derive from another product…</button>
   <span class="soft" id="copyHint" style="display:none;color:#b26a00"></span>
   <span class="soft" id="hint"></span>
 </div>
@@ -122,6 +123,24 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <button id="catSave" class="primary">Save parts</button>
   </div>
 </div></div>
+<div id="deriveModal" class="modalbg"><div class="modal">
+  <h2>Derive this layout from another product <span style="flex:1"></span><button id="derClose">✕</button></h2>
+  <p class="soft" style="margin:0 0 10px">Takes a layout that already works and drops <b>this</b>
+    product's parts into it, each one <b>centred on its counterpart</b>. Sheets, layers and positions
+    stay put, so the table looks the same to whoever is stacking it — only the parts are smaller.
+    <br>It only works one way: every part here has to be the <b>same size or smaller</b> than the part
+    it replaces. Anything that is not is named below and nothing is applied.</p>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+    <label for="derFrom">Copy the layout of</label>
+    <select id="derFrom" style="max-width:420px"></select>
+    <button id="derCheck">Check the fit</button>
+  </div>
+  <div id="derReport" style="max-height:46vh;overflow:auto"></div>
+  <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+    <span class="soft" id="derNote" style="flex:1"></span>
+    <button id="derApply" class="primary" disabled>Use this layout</button>
+  </div>
+</div></div>
 <div id="doorModal" class="modalbg"><div class="modal">
   <h2>Which parts are trim or doors? <span style="flex:1"></span><button id="doorClose">✕</button></h2>
   <p class="soft" style="margin:0 0 10px">Ticked parts go to the <b>top layer</b> and land on the
@@ -158,16 +177,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.97';
+import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.98';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.97';
-import { APP_VERSION } from './js/version.mjs?v=3.97';
+         fromMM, toMM } from './js/materials.mjs?v=3.98';
+import { APP_VERSION } from './js/version.mjs?v=3.98';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.97';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.97';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.98';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.98';
+import { deriveNest } from './js/derive_nest.mjs?v=3.98';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1006,6 +1026,92 @@ $('copyBtn') && ($('copyBtn').onclick = () => {
   buildTabs(); draw();
   alert(`Copied ${sheets.length} sheet(s) from ${srcMat.label}. Nothing is saved yet — `
     + `check it, then press "Save for this material →".`);
+});
+
+
+// ---- Derive this product's layout from another product's proven one -------
+// Zac 2026-08-28: "is there a way to pretty closely match the stacking recipe
+// of the queen (maybe center the smaller double parts on the queen part
+// locations)?"  Every saved nest is offered, including ones belonging to other
+// SKUs -- that is the whole point -- and including any whose material has left
+// the list, because a layout you cannot see is a layout you will rebuild by
+// hand.
+function everySavedNest() {
+  const all = loadSavedNests();
+  return Object.keys(all).map((k) => {
+    const i = k.indexOf('::');
+    const sku = i < 0 ? '' : k.slice(0, i), mid = i < 0 ? k : k.slice(i + 2);
+    const m = materials.find((mm) => mm.id === mid);
+    return { key: k, sku, mid, n: all[k],
+      label: `${sku || '(unnamed)'} · ${m ? m.label : `material "${mid}" (gone)`}` };
+  }).filter((x) => x.n && x.n.sheets && x.n.sheets.length
+      && !(x.sku === (recipe.sku || '') && x.mid === matId))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+let derResult = null;
+function openDerive() {
+  const list = everySavedNest();
+  const sel = $('derFrom');
+  if (!list.length) {
+    sel.innerHTML = '<option>(no other saved layouts on this device)</option>';
+    $('derCheck').disabled = true;
+  } else {
+    sel.innerHTML = list.map((x) => `<option value="${escAttr(x.key)}">${escAttr(x.label)}</option>`).join('');
+    $('derCheck').disabled = false;
+  }
+  derResult = null;
+  $('derApply').disabled = true;
+  $('derReport').innerHTML = '';
+  $('derNote').textContent = '';
+  $('deriveModal').classList.add('on');
+}
+$('deriveBtn') && ($('deriveBtn').onclick = openDerive);
+$('derClose') && ($('derClose').onclick = () => $('deriveModal').classList.remove('on'));
+$('derCheck') && ($('derCheck').onclick = () => {
+  const hit = everySavedNest().find((x) => x.key === $('derFrom').value);
+  if (!hit) { $('derReport').innerHTML = '<p class="soft">That layout is gone.</p>'; return; }
+  const mat = currentMat();
+  const r = deriveNest(hit.n, partsForNest(), {
+    ...nestOptsFor(mat), sku: recipe.sku, material: mat, sourceLabel: hit.label,
+  });
+  derResult = r.ok ? r.nest : null;
+  $('derApply').disabled = !r.ok;
+  const rep = r.report;
+  let html = '';
+  if (rep.errors.length) {
+    html += `<div style="color:#b00020"><b>Not applied — ${rep.errors.length} problem(s):</b><ul style="margin:6px 0 0">`
+      + rep.errors.slice(0, 20).map((e) => `<li>${escAttr(e)}</li>`).join('')
+      + (rep.errors.length > 20 ? `<li>…and ${rep.errors.length - 20} more</li>` : '') + '</ul></div>';
+  } else {
+    html += `<div style="color:#0a7"><b>Fits.</b> ${rep.placed} part(s) across ${rep.sheetCount} sheet(s), `
+      + `every one centred inside its counterpart.</div>`;
+  }
+  for (const w of rep.warnings) html += `<div class="soft" style="color:#b26a00">${escAttr(w)}</div>`;
+  if (rep.pairs.length) {
+    const moved = rep.pairs.filter((p) => p.inset > 0.05).length;
+    html += `<p class="soft" style="margin:10px 0 4px">${moved} part(s) are smaller than the part they `
+      + `replace and sit centred in the spare room; ${rep.pairs.length - moved} are the same size and do `
+      + `not move at all. Layer numbers come from the layout you are copying.</p>`;
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="text-align:left"><th>Part</th><th>Sheet</th><th>Layer</th><th>Replaces</th><th>This one</th><th>Inset</th></tr>'
+      + rep.pairs.slice().sort((a, b) => a.sheet - b.sheet || String(a.code).localeCompare(String(b.code)))
+        .map((p) => `<tr><td>${escAttr(p.code)}</td><td>${p.sheet}</td><td>${p.layer}`
+          + `${p.layerWas && p.layerWas !== p.layer ? ` <span class="soft">(was ${p.layerWas})</span>` : ''}`
+          + `</td><td>${escAttr(p.from)}</td><td>${escAttr(p.to)}</td>`
+          + `<td>${p.inset > 0.05 ? p.inset + 'mm' : '—'}</td></tr>`).join('')
+      + '</table>';
+  }
+  $('derReport').innerHTML = html;
+  $('derNote').textContent = r.ok ? 'Nothing is saved until you press "Save for this material →".' : '';
+});
+$('derApply') && ($('derApply').onclick = () => {
+  if (!derResult) return;
+  nest.sheets = JSON.parse(JSON.stringify(derResult.sheets));
+  sheetIdx = 0; selected = null;
+  $('deriveModal').classList.remove('on');
+  buildTabs(); draw();
+  alert(`Layout derived from ${derResult.derivedFrom}. Nothing is saved yet — check it, `
+    + `then press "Save for this material →".`);
 });
 
 $('edit').onclick = () => { editing = !editing; $('edit').setAttribute('aria-pressed', editing); draw(); };
