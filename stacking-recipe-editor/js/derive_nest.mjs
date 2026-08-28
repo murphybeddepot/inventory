@@ -173,3 +173,94 @@ export function deriveLayers(sourceParts, targetParts) {
   });
   return { parts, missing: [...new Set(missing)] };
 }
+
+// ---------------------------------------------------------------------------
+// THE STACKING RECIPE — which is what Zac actually asked for first
+// (2026-08-28: "i was saying FIRST derive the stacking recipe from queen, not
+// nests"). The nest is the sheet layout; the STACK is how the parts go on the
+// pallet, layer by layer, and it is the thing a person follows.
+//
+// This is the same centring idea and it costs nothing, because the model
+// already stores each placed part by its CENTRE (cx, cy) rather than a corner.
+// So "centre the smaller Double part on the Queen part's location" is exactly:
+// keep cx, cy and angle, swap in the new L and W. No arithmetic to get wrong.
+//
+// The PALLET COMES WITH IT. cx/cy are meaningless without the footprint they
+// were placed in, so foot/pal/footPos ride along — deriving the coordinates
+// onto a different-sized pallet would move every part relative to the edges
+// while every number stayed the same, which is the kind of wrong that looks
+// right in a table.
+//
+// Matching is on partNum (the part CODE — 1A, 3G, 8A), then size rank, for the
+// same reason the nest derive uses it: a code with several defs must line its
+// biggest up with its biggest.
+
+/**
+ * @param sourceLayers  [[{ partNum, name, L, W, cx, cy, angle, ... }]]
+ * @param targetManifest  [{ partNum, name, Lmm, Wmm, qty, thickness, key, secIdx }]
+ */
+export function deriveStack(sourceLayers, targetManifest, opts = {}) {
+  const errors = [], warnings = [], pairs = [];
+  const src = Array.isArray(sourceLayers) ? sourceLayers : null;
+  if (!src || !src.some((l) => (l || []).length)) {
+    return { ok: false, layers: null, report: { errors: ['that recipe has no placed parts'], warnings: [], pairs: [] } };
+  }
+
+  // source placements by code, remembering where each sat
+  const byCode = new Map();
+  src.forEach((layer, li) => (layer || []).forEach((p, pi) => {
+    const c = String(p.partNum || p.name || '');
+    if (!byCode.has(c)) byCode.set(c, []);
+    byCode.get(c).push({ p, li, pi, a: (+p.L || 0) * (+p.W || 0) });
+  }));
+
+  // target parts, expanded by qty
+  const tgtByCode = new Map();
+  for (const m of (targetManifest || [])) {
+    const c = String(m.partNum || m.name || '');
+    const n = Math.max(1, +m.qty || 1);
+    if (!tgtByCode.has(c)) tgtByCode.set(c, []);
+    for (let i = 0; i < n; i++) tgtByCode.get(c).push(m);
+  }
+
+  const moves = new Map();
+  for (const [code, srcs] of byCode) {
+    const tgts = (tgtByCode.get(code) || []).slice();
+    if (!tgts.length) { errors.push(`${code}: placed ${srcs.length}x in that recipe, but this product has no such part`); continue; }
+    if (tgts.length !== srcs.length) {
+      errors.push(`${code}: that recipe places ${srcs.length}, this product has ${tgts.length} — counts must match`);
+      continue;
+    }
+    const S = srcs.slice().sort((a, b) => b.a - a.a);
+    const T = tgts.slice().sort((a, b) => (+b.Lmm * +b.Wmm) - (+a.Lmm * +a.Wmm));
+    for (let i = 0; i < S.length; i++) {
+      const s = S[i], t = T[i];
+      const sl = +s.p.L, sw = +s.p.W, tl = +t.Lmm, tw = +t.Wmm;
+      if (tl > sl + TOL || tw > sw + TOL) {
+        errors.push(`${code}: ${tl}x${tw} is bigger than the ${sl}x${sw} it would replace`
+          + ` — it could overhang the pallet or touch its neighbour`);
+        continue;
+      }
+      moves.set(`${s.li}:${s.pi}`, t);
+      pairs.push({ code, layer: s.li + 1, from: `${sl}x${sw}`, to: `${tl}x${tw}`,
+        inset: +(((sl - tl) / 2)).toFixed(1) });
+    }
+  }
+  for (const [code, t] of tgtByCode) {
+    if (!byCode.has(code)) errors.push(`${code}: ${t.length} here, but that recipe never places it — it would be left off the pallet`);
+  }
+
+  const layers = src.map((layer, li) => (layer || []).map((p, pi) => {
+    const t = moves.get(`${li}:${pi}`);
+    if (!t) return null;
+    return { key: t.key, partNum: t.partNum, name: t.name, secIdx: t.secIdx,
+      L: +t.Lmm, W: +t.Wmm, thickness: t.thickness,
+      cx: p.cx, cy: p.cy, angle: +p.angle || 0 };   // the location is the point
+  }).filter(Boolean));
+
+  const ok = errors.length === 0;
+  return { ok, layers: ok ? layers : null,
+    report: { errors, warnings, pairs,
+      layerCount: layers.filter((l) => l.length).length,
+      placed: layers.reduce((a, l) => a + l.length, 0) } };
+}

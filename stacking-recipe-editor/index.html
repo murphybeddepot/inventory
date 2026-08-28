@@ -4892,8 +4892,10 @@ async function renderLibList(){
     // for this SKU, which the shop iPad/TV uses at the stacking station.
     const bGuide=el('button',{title:'Open Stacker Guide (full-screen view for iPad/TV)',text:'🎯 Guide'});
     bGuide.onclick=()=>{ window.open('./guide.html?sku='+encodeURIComponent(k), '_blank'); };
-    const bLoad=el('button',{class:'primary',text:'Load'});
-    bLoad.onclick=async()=>{
+    // Fetching the snapshot is shared by Load and Derive stacking — the cloud
+    // copy is the fresher one and both need it, so neither may have its own
+    // half-copy of this dance.
+    const fetchSnap=async()=>{
       let snap=L;
       if(isProvisioned() && R){
         try{
@@ -4906,8 +4908,52 @@ async function renderLibList(){
           }
         }catch(err){ toast('Cloud fetch failed, using local: '+err.message); }
       }
+      return snap;
+    };
+    const bLoad=el('button',{class:'primary',text:'Load'});
+    bLoad.onclick=async()=>{
+      const snap=await fetchSnap();
       if(!snap){ toast('No snapshot available for '+k); return; }
       restoreSnapshot(snap);closeModal('libModal');toast('Loaded '+k+(snap._revision?' (cloud rev '+snap._revision+')':' (local)'));
+    };
+    // DERIVE STACKING — Zac 2026-08-28: "is there a way to pretty closely match
+    // the stacking recipe of the queen (maybe center the smaller double parts
+    // on the queen part locations)?" and "FIRST derive the stacking recipe from
+    // queen, not nests". Takes THAT recipe's layers and drops THIS product's
+    // parts into them, each centred on its counterpart. The pallet comes with
+    // it: cx/cy are meaningless in a different footprint.
+    const bDer=el('button',{text:'Derive stacking →'});
+    bDer.title='Puts THIS product\'s parts onto '+k+'\'s layers, each centred where its counterpart sits. Same layers, same positions, smaller parts.';
+    bDer.onclick=async()=>{
+      if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
+      const snap=await fetchSnap();
+      if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=3.98');
+      const r=deriveStack(snap.layers, S.manifest, {});
+      if(!r.ok){
+        alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
+          +r.report.errors.slice(0,12).join('\n')
+          +(r.report.errors.length>12?'\n…and '+(r.report.errors.length-12)+' more':'')
+          +'\n\nEvery part here has to be the same size or smaller than the one it replaces, '
+          +'and the two products have to hold the same parts in the same numbers.');
+        return;
+      }
+      const moved=r.report.pairs.filter(p=>p.inset>0.05).length;
+      const samePal=snap.foot&&S.foot&&snap.foot.L===S.foot.L&&snap.foot.W===S.foot.W;
+      if(!confirm('Derive this recipe\'s stacking from '+k+'?\n\n'
+        +r.report.placed+' part(s) across '+r.report.layerCount+' layer(s).\n'
+        +moved+' sit centred in the spare room; '+(r.report.pairs.length-moved)+' do not move at all.\n'
+        +(samePal?'':'\nThe pallet/footprint will also change to '+k+'\'s — the positions are '
+          +'measured in it, so they would mean something different otherwise.\n')
+        +'\nThis REPLACES the current layers. Nothing is saved until you press Save recipe.')) return;
+      S.layers=r.layers;
+      if(snap.foot) S.foot={...snap.foot};
+      if(snap.pal) S.pal={...snap.pal};
+      if(snap.footPos) S.footPos=snap.footPos;
+      S.sel=new Set(); S.activeLayer=0;  // sel is a Set — null breaks every selection path
+      closeModal('libModal');
+      render();renderTray();renderLayers();updateSig();scheduleSave();
+      toast('✓ Stacking derived from '+k+' — '+r.report.placed+' parts, '+r.report.layerCount+' layers');
     };
     const bDel=el('button',{class:'danger',text:'Delete'});
     bDel.onclick=async()=>{
@@ -4936,7 +4982,7 @@ async function renderLibList(){
         }
       }
     };
-    card.appendChild(bGuide);card.appendChild(bLoad);card.appendChild(bDel);
+    card.appendChild(bGuide);card.appendChild(bLoad);card.appendChild(bDer);card.appendChild(bDel);
     list.appendChild(card);
   }
 }
