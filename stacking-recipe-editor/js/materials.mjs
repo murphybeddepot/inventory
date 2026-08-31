@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=3.98';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=3.99';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;

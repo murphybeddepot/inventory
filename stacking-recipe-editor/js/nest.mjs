@@ -246,6 +246,47 @@ export function violates(p, others, gap) {
   });
 }
 
+// EVERY too-close pair in a whole nest, named. Zac 2026-08-31, off the machine:
+// "several parts were too close either to other parts or to remnants that were
+// placed on the sheet, taking sections out of a few parts that shouldn't have
+// been taken out. that's a hugely important thing to avoid!"
+//
+// The spacing rule was always right — the auto-nester inflates every part by
+// the gap, freeRects subtracts it before offering space, and fitSalvage checks
+// again on placement. What was missing is that a MANUAL move or rotate could
+// put two parts inside the gap and nothing stopped the job leaving. `violates`
+// existed, and drove a red outline and a hint line — a failure that surfaces
+// only as a colour is one an operator can scroll past, and this one costs a
+// sheet of melamine and the parts on it.
+//
+// Remnants cut with the button live in `placements` like anything else, so they
+// are covered here too; that is deliberate, since a remnant boundary is a real
+// saw cut and a part sitting inside the gap from one gets eaten exactly the
+// same way.
+export function nestViolations(nest) {
+  const out = [];
+  const gap = Number(nest && nest.gap) || NEST_DEFAULTS.gap;
+  for (const [i, sh] of (nest && nest.sheets || []).entries()) {
+    const pl = sh.placements || [];
+    for (let a = 0; a < pl.length; a++) {
+      for (let b = a + 1; b < pl.length; b++) {
+        const A = partBox(pl[a]), B = partBox(pl[b]);
+        const dx = Math.max(B[0] - A[1], A[0] - B[1]);
+        const dy = Math.max(B[2] - A[3], A[2] - B[3]);
+        const sep = Math.max(dx, dy);
+        if (sep < gap - 0.01) {
+          out.push({
+            sheet: i + 1, a: pl[a].name, b: pl[b].name,
+            mm: +Math.max(0, sep).toFixed(1), gap,
+            overlap: sep < -0.01,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 // ---- re-shuffle ONE sheet so the leftover is already small ------------------
 // Zac 2026-08-20: "for each nest i hand-build i would like a button to have you
 // re-shuffle the layout of the parts on that nest to create a natural cut-up of

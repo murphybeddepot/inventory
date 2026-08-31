@@ -177,17 +177,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.98';
+import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.99';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.98';
-import { APP_VERSION } from './js/version.mjs?v=3.98';
+         fromMM, toMM } from './js/materials.mjs?v=3.99';
+import { APP_VERSION } from './js/version.mjs?v=3.99';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.98';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.98';
-import { deriveNest } from './js/derive_nest.mjs?v=3.98';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.99';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.99';
+import { deriveNest } from './js/derive_nest.mjs?v=3.99';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1118,7 +1118,26 @@ $('edit').onclick = () => { editing = !editing; $('edit').setAttribute('aria-pre
 $('renest').onclick = () => { if (!confirm('Re-nest from the recipe? Your manual moves on these sheets are lost.')) return;
   nest = compute(); sheetIdx = 0; selected = null; buildTabs(); draw(); };
 $('back').onclick = () => { stash(); location.href = './index.html'; };
+
+// A nest whose parts sit inside the gap cuts INTO those parts. This REFUSES
+// rather than warns (Zac 2026-08-31: "that's a hugely important thing to
+// avoid!") — the red outline was already there and a bad nest still reached the
+// machine. Its own function so the Save handler stays short.
+function blockedByTooClose() {
+  const bad = nestViolations(nest);
+  if (!bad.length) return false;
+  const lines = bad.slice(0, 8).map((v) => `  sheet ${v.sheet}: ${v.a} and ${v.b} `
+    + (v.overlap ? 'OVERLAP' : `are ${v.mm}mm apart`) + ` (need ${v.gap}mm)`);
+  alert(`NOT SAVED — ${bad.length} pair(s) are closer than the ${nest.gap}mm corridor.\n\n`
+    + lines.join('\n') + (bad.length > 8 ? `\n  \u2026and ${bad.length - 8} more` : '')
+    + `\n\nThe saw cuts a corridor between parts; inside the gap it cuts INTO them. `
+    + `Move the parts apart (they are outlined red) or re-nest, then save.`);
+  return true;
+}
+
 $('apply').onclick = () => {
+  if (blockedByTooClose()) return;
+
   stash();
   const m = currentMat();
   // Save under this material AND point the export at the same one, or the zip
