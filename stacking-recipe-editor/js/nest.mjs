@@ -21,10 +21,13 @@ function mulberry(seed) {
 }
 
 class Bin {
-  constructor(L, W) { this.free = [{ x: 0, y: 0, w: L, h: W }]; this.placed = []; }
+  constructor(L, W) {
+    // A grained board cannot be turned: every part runs its length along the
+    // sheet's length, so the packer is not allowed to try the 90 candidate.
+    this.noRotate = false; this.free = [{ x: 0, y: 0, w: L, h: W }]; this.placed = []; }
   best(it, heur, rnd, jitter) {
     let best = null;
-    for (const fr of this.free) for (const rot of [0, 90]) {
+    for (const fr of this.free) for (const rot of (this.noRotate ? [0] : [0, 90])) {
       const w = rot ? it.h : it.w, h = rot ? it.w : it.h;
       if (w > fr.w + 1e-9 || h > fr.h + 1e-9) continue;
       const lh = fr.w - w, lv = fr.h - h;
@@ -78,7 +81,7 @@ function sliverArea(bin, minDim = SLIVER_MIN_MM) {
 
 // parts: [{ name, layer, l, w }] — layer is 1-based
 export function nestByLayer(parts, opts = {}) {
-  const { gap, edge, sheetL, sheetW } = { ...NEST_DEFAULTS, ...opts };
+  const { gap, edge, sheetL, sheetW, hasGrain = false } = { ...NEST_DEFAULTS, ...opts };
   const BIN_L = sheetL - 2 * edge + gap, BIN_W = sheetW - 2 * edge + gap;
   const layers = [...new Set(parts.map(p => p.layer))].sort((a, b) => a - b);
   const tooBig = parts.filter(p => Math.min(p.l, p.w) + gap > Math.max(BIN_L, BIN_W)
@@ -94,7 +97,7 @@ export function nestByLayer(parts, opts = {}) {
     const sheets = [];
     while (left.length) {
       if (sheets.length > 40) return null;
-      const bin = new Bin(BIN_L, BIN_W), on = new Set();
+      const bin = Object.assign(new Bin(BIN_L, BIN_W), { noRotate: !!hasGrain }), on = new Set();
       for (;;) {
         const fits = [];
         for (const it of left) { const b = bin.best(it, heur, rnd, jitter); if (b) fits.push({ it, b }); }
@@ -207,8 +210,8 @@ export function nestByLayer(parts, opts = {}) {
 // Returns placements in the nest's own shape, or null when this attempt
 // could not seat every part (the caller just discards that attempt).
 export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jitter = 0 } = {}) {
-  const { gap, edge, sheetL, sheetW } = { ...NEST_DEFAULTS, ...opts };
-  const bin = new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap);
+  const { gap, edge, sheetL, sheetW, hasGrain = false } = { ...NEST_DEFAULTS, ...opts };
+  const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { noRotate: !!hasGrain });
   const rnd = mulberry(seed);
   let left = parts.map(p => ({ ...p, l0: p.l, w0: p.w, w: p.l + gap, h: p.w + gap }));
   while (left.length) {

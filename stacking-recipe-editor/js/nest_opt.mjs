@@ -293,7 +293,9 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     + `TextureId="${M.textureId}" Thickness="${M.thickness}" Width="${M.width}" Length="${M.length}" `
     // The MATERIAL's trims, which is what Mozaik writes — we were emitting the
     // nest's edge margin instead, so a run said 8 where the library says 6.
-    + `HasGrain="False" WidthTrim="${M.widthTrim ?? 3}" LengthTrim="${M.lengthTrim ?? 3}" `
+    // HasGrain was hardcoded False, so a grained board told Mozaik it could
+    // turn parts freely on re-optimise. It rides from the material now.
+    + `HasGrain="${M.hasGrain ? 'True' : 'False'}" WidthTrim="${M.widthTrim ?? 3}" LengthTrim="${M.lengthTrim ?? 3}" `
     + `FeedRate="100" Comment="" `
     + `CustomerName="" Timestamp="${(now() / 1000).toFixed(5)}" OptParamSpeed="2" `
     // SeqByCabN orders the run by cabinet number. 111 of 111 real files say

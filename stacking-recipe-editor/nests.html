@@ -37,7 +37,7 @@ footer{padding:6px 20px 22px;color:var(--soft);font-size:12.5px;max-width:76ch}
 .modal{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;
   max-width:1000px;margin:0 auto;padding:16px}
 .modal h2{margin:0 0 8px;font-size:15px;display:flex;align-items:center;gap:10px}
-.matrow{display:grid;grid-template-columns:1.4fr 1fr .5fr .7fr .7fr .8fr .8fr .6fr .6fr auto;gap:6px;
+.matrow{display:grid;grid-template-columns:1.4fr 1fr .5fr .7fr .7fr .8fr .8fr .6fr .6fr 44px auto;gap:6px;
   align-items:center;margin-bottom:6px}
 .matrow input{width:100%;min-width:0;font:12px ui-monospace,Consolas,monospace;padding:5px 6px;
   border:1px solid var(--line);border-radius:5px;background:var(--board);color:var(--ink)}
@@ -177,17 +177,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=3.99';
+import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=4.00';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=3.99';
-import { APP_VERSION } from './js/version.mjs?v=3.99';
+         fromMM, toMM } from './js/materials.mjs?v=4.00';
+import { APP_VERSION } from './js/version.mjs?v=4.00';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=3.99';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=3.99';
-import { deriveNest } from './js/derive_nest.mjs?v=3.99';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.00';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.00';
+import { deriveNest } from './js/derive_nest.mjs?v=4.00';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -314,7 +314,7 @@ function openMatEditor() {
 function renderMatRows(list, unit) {
   const dim = v => fromMM(v, unit);
   const head = ['Label (yours)', 'Mozaik name', 'Abbr', 'Material ID', 'Texture ID',
-    `Length (${unit})`, `Width (${unit})`, `Trim L`, `Trim W`, ''];
+    `Length (${unit})`, `Width (${unit})`, `Trim L`, `Trim W`, '', 'Grain'];
   $('matRows').innerHTML =
     `<div class="matrow">${head.map(h => `<div class="hd">${h}</div>`).join('')}</div>` +
     list.map((m, i) => `<div class="matrow" data-i="${i}">
@@ -327,6 +327,8 @@ function renderMatRows(list, unit) {
       <input data-f="width" value="${dim(m.width)}">
       <input data-f="lengthTrim" value="${dim(m.lengthTrim)}">
       <input data-f="widthTrim" value="${dim(m.widthTrim)}">
+      <input type="checkbox" data-g="1" ${m.hasGrain ? 'checked' : ''}
+        title="This colour has GRAIN. Parts must all run the same way, so the nester will not rotate anything 90 on this board — and the .opt tells Mozaik the same.">
       <button data-del="${i}" title="Remove">✕</button>
     </div>${m.textureId ? '' : '<div class="matrow"><div></div><div class="warn" style="grid-column:2/-1">No Texture ID — Mozaik may not bind this to the right board. Copy it from the material library.</div></div>'}`).join('');
   $('matRows').querySelectorAll('button[data-del]').forEach(b => b.onclick = () => {
@@ -337,9 +339,11 @@ function collectMatRows(unit) {
   return [...$('matRows').querySelectorAll('.matrow[data-i]')].map(row => {
     const o = {};
     row.querySelectorAll('input[data-f]').forEach(inp => { o[inp.dataset.f] = inp.value; });
+    const g = row.querySelector('input[data-g]');
+    o.hasGrain = !!(g && g.checked);
     ['length', 'width', 'lengthTrim', 'widthTrim'].forEach(k => { o[k] = toMM(parseFloat(o[k]) || 0, unit); });
     const src = materials.find(m => m.displayName === o.displayName);
-    return normMat({ ...o, id: src ? src.id : undefined, thickness: src ? src.thickness : 19.05,
+    return normMat({ ...o, hasGrain: o.hasGrain, id: src ? src.id : undefined, thickness: src ? src.thickness : 19.05,
       verified: src ? src.verified && src.length === o.length && src.width === o.width : false });
   });
 }

@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=3.99';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.00';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -215,6 +215,13 @@ export function normalize(m) {
     // trims may legitimately be 0, so they are not run through the >0 guard
     lengthTrim: Number.isFinite(+m.lengthTrim) ? +m.lengthTrim : 3,
     widthTrim: Number.isFinite(+m.widthTrim) ? +m.widthTrim : 3,
+    // GRAIN. Zac 2026-08-31: "we need the ability to note that certain colors
+    // have grain." A grained board can only be cut one way round — every part
+    // must run its LENGTH along the sheet's length — so the nester may not
+    // rotate anything 90 on it. Defaults false, which is every board we run
+    // today; it is a per-material property because it is the COLOUR that has
+    // grain, not the board size.
+    hasGrain: m.hasGrain === true || m.hasGrain === 'true' || m.hasGrain === 1,
     mozaikLength: Number.isFinite(+m.mozaikLength) ? +m.mozaikLength : null,
     mozaikWidth: Number.isFinite(+m.mozaikWidth) ? +m.mozaikWidth : null,
     additionalSheetSizes: !!m.additionalSheetSizes,
@@ -227,11 +234,12 @@ export function nestOptsFor(mat, gap = 16) {
   // A nest respects the SMALLER of the two trims as its edge margin when they
   // differ, so no part can ever land inside a trim on either axis.
   return { gap, edge: Math.min(m.lengthTrim, m.widthTrim), sheetL: m.length, sheetW: m.width,
-    trimL: m.lengthTrim, trimW: m.widthTrim };
+    trimL: m.lengthTrim, trimW: m.widthTrim, hasGrain: m.hasGrain === true };
 }
 export function describe(m) {
   const n = normalize(m);
-  return `${n.length} × ${n.width} × ${n.thickness}mm · trims ${n.lengthTrim}/${n.widthTrim}`;
+  return `${n.length} × ${n.width} × ${n.thickness}mm · trims ${n.lengthTrim}/${n.widthTrim}`
+    + (n.hasGrain ? ' · GRAIN (no rotation)' : '');
 }
 
 // Every reason this material might not come out of Mozaik as the board you
