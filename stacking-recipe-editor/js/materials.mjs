@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.00';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.01';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -78,6 +78,21 @@ const LEGACY_IDS = {
 const CATALOG_ORDERED = [...MOZAIK_CATALOG].sort((a, b) =>
   (b.isDefaultTexture ? 1 : 0) - (a.isDefaultTexture ? 1 : 0));
 
+// WHICH COLOURS HAVE GRAIN — Zac 2026-08-31: "grain runs along length. monaco
+// and chocolate of current colors are grain."
+//
+// Keyed on the FINISH, not the displayName, so it holds for every board size
+// that finish ever appears on: 5x9Monaco and 5x8Monaco are both grained and a
+// 5x10Monaco added tomorrow would be too, without another edit here.
+//
+// Grain running along the LENGTH is what makes "no rotation" the correct rule
+// rather than "rotate everything" — a part keeps its length on the sheet's
+// length. If a board ever arrives grained ACROSS its width, this flag is not
+// enough to express it and the packer needs a direction, not a boolean.
+const GRAINED_FINISHES = new Set(['monaco', 'chocolate']);
+const finishOf = (c) => String(c.textureName || '').trim().toLowerCase()
+  || (String(c.displayName || '').match(/(Black|Monaco|White|Gray|Chocolate)$/i) || [, ''])[1].toLowerCase();
+
 export const DEFAULT_MATERIALS = CATALOG_ORDERED.map((c) => {
   const o = OVERRIDES[c.displayName] || {};
   return {
@@ -96,6 +111,7 @@ export const DEFAULT_MATERIALS = CATALOG_ORDERED.map((c) => {
     lengthTrim: o.lengthTrim ?? c.lengthTrim,
     widthTrim: o.widthTrim ?? c.widthTrim,
     // what Mozaik itself believes, kept so a mismatch can be NAMED
+    hasGrain: GRAINED_FINISHES.has(finishOf(c)),
     mozaikLength: c.length, mozaikWidth: c.width,
     additionalSheetSizes: c.additionalSheetSizes,
     verified: !!(c.materialId && c.textureId && String(c.textureId) !== '-1'),
@@ -181,6 +197,11 @@ function reconcile(m) {
       && String(m.displayName || '').toLowerCase().endsWith(String(d.textureName).toLowerCase()));
   if (!hit) return m;
   return { ...m,
+    // A material saved before grain existed has no opinion about it, so it
+    // takes the catalogue's. One that DOES carry the key was ticked (or
+    // deliberately un-ticked) by a person and is left alone — adopting the
+    // default unconditionally would quietly undo that every reload.
+    hasGrain: Object.prototype.hasOwnProperty.call(m, 'hasGrain') ? m.hasGrain : hit.hasGrain,
     // the name Mozaik answers to TODAY — a stale one binds to nothing
     displayName: hit.displayName,
     materialId: blank(m.materialId) ? hit.materialId : m.materialId,
