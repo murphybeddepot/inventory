@@ -40,7 +40,10 @@ export function grainRotations(it, crossGrain = CROSS_GRAIN_CODES) {
   return [0];                       // square-ish: either is the same thing
 }
 
-export const NEST_DEFAULTS = { gap: 16, edge: 3, sheetL: 2770, sheetW: 1550 };
+export const NEST_DEFAULTS = { gap: 16, edge: 3, sheetL: 2770, sheetW: 1550,
+  // Zac 2026-09-01: 3E and 5B both moved at the sever, both are narrow, and
+  // 3E sat flush on the trim line. Narrow parts get held off the edges.
+  skinnyMM: 120, skinnyInset: 120 };
 
 function mulberry(seed) {
   return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
@@ -53,17 +56,48 @@ class Bin {
   constructor(L, W) {
     // A grained board cannot be turned: every part runs its length along the
     // sheet's length, so the packer is not allowed to try the 90 candidate.
-    this.grained = false; this.crossGrain = CROSS_GRAIN_CODES; this.free = [{ x: 0, y: 0, w: L, h: W }]; this.placed = []; }
+    this.L = L; this.W = W;
+    this.grained = false; this.crossGrain = CROSS_GRAIN_CODES;
+    // a part narrower than skinnyMM is kept skinnyInset off every edge
+    this.skinnyMM = 0; this.skinnyInset = 0; this.free = [{ x: 0, y: 0, w: L, h: W }]; this.placed = []; }
   best(it, heur, rnd, jitter) {
     let best = null;
+    // SKINNY PARTS STAY INBOARD. Zac 2026-09-01, after 3E (387x87) moved twice
+    // and 5B (96x725) moved and was damaged on J023 run 2: "make sure all skinny
+    // parts are inbound, not near the edges."
+    //
+    // A narrow part has little vacuum footprint to begin with, and the edge of
+    // the table is the worst of it — the seal is weakest there and the part is
+    // holding on least at the exact moment the sever pass cuts its tabs away.
+    // 3E on J023 sat flush on the trim line at 1538 of 1538 usable.
+    //
+    // This is a PREFERENCE, not a refusal: a pass that cannot place a skinny
+    // part inboard must still place it rather than fail the nest, so the second
+    // pass drops the margin. Refusing outright would turn a hold problem into a
+    // no-job problem.
+    const skinny = Math.min(it.w, it.h) < (this.skinnyMM || 0);
+    for (const pass of (skinny ? [this.skinnyInset || 0, 0] : [0])) {
     for (const fr of this.free) for (const rot of (this.grained ? grainRotations(it, this.crossGrain) : [0, 90])) {
       const w = rot ? it.h : it.w, h = rot ? it.w : it.h;
       if (w > fr.w + 1e-9 || h > fr.h + 1e-9) continue;
+      // On the inset pass, OFFSET within the free rect rather than rejecting it.
+      // This packer only ever places at a rect's corner, so simply refusing
+      // edge-touching rects placed nothing at all — the first parts onto an
+      // empty sheet have no inboard corner to sit on. Sliding in is what
+      // actually holds a skinny part off the table edge.
+      let px = fr.x, py = fr.y;
+      if (pass) {
+        px = Math.max(fr.x, pass); py = Math.max(fr.y, pass);
+        if (px + w > fr.x + fr.w + 1e-9 || py + h > fr.y + fr.h + 1e-9) continue;
+        if (px + w > this.L - pass || py + h > this.W - pass) continue;
+      }
       const lh = fr.w - w, lv = fr.h - h;
       let s = heur === 'bssf' ? Math.min(lh, lv) : heur === 'blsf' ? Math.max(lh, lv)
         : heur === 'baf' ? fr.w * fr.h - w * h : fr.y * 4 + fr.x;
       s += (rnd() - 0.5) * jitter;
-      if (!best || s < best.s) best = { s, x: fr.x, y: fr.y, w, h, rot };
+      if (!best || s < best.s) best = { s, x: px, y: py, w, h, rot };
+    }
+    if (best) return best;          // placed inboard; do not fall through
     }
     return best;
   }
@@ -110,7 +144,8 @@ function sliverArea(bin, minDim = SLIVER_MIN_MM) {
 
 // parts: [{ name, layer, l, w }] — layer is 1-based
 export function nestByLayer(parts, opts = {}) {
-  const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES } = { ...NEST_DEFAULTS, ...opts };
+  const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES,
+    skinnyMM = 0, skinnyInset = 0 } = { ...NEST_DEFAULTS, ...opts };
   const BIN_L = sheetL - 2 * edge + gap, BIN_W = sheetW - 2 * edge + gap;
   const layers = [...new Set(parts.map(p => p.layer))].sort((a, b) => a - b);
   const tooBig = parts.filter(p => Math.min(p.l, p.w) + gap > Math.max(BIN_L, BIN_W)
@@ -126,7 +161,7 @@ export function nestByLayer(parts, opts = {}) {
     const sheets = [];
     while (left.length) {
       if (sheets.length > 40) return null;
-      const bin = Object.assign(new Bin(BIN_L, BIN_W), { grained: !!hasGrain, crossGrain }), on = new Set();
+      const bin = Object.assign(new Bin(BIN_L, BIN_W), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset }), on = new Set();
       for (;;) {
         const fits = [];
         for (const it of left) { const b = bin.best(it, heur, rnd, jitter); if (b) fits.push({ it, b }); }
@@ -239,8 +274,9 @@ export function nestByLayer(parts, opts = {}) {
 // Returns placements in the nest's own shape, or null when this attempt
 // could not seat every part (the caller just discards that attempt).
 export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jitter = 0 } = {}) {
-  const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES } = { ...NEST_DEFAULTS, ...opts };
-  const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { grained: !!hasGrain, crossGrain });
+  const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES,
+    skinnyMM = 0, skinnyInset = 0 } = { ...NEST_DEFAULTS, ...opts };
+  const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset });
   const rnd = mulberry(seed);
   let left = parts.map(p => ({ ...p, l0: p.l, w0: p.w, w: p.l + gap, h: p.w + gap }));
   while (left.length) {
