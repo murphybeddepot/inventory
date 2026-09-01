@@ -65,7 +65,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <button id="diceBtn" aria-pressed="false" title="VIEW ONLY. Draws how the leftover would be cut up for the bin. Changes nothing on the sheet.">▦ Show offcut dice (view only)</button>
   </span>
   <label class="soft">max piece
-    <select id="diceMax"><option value="11.9">12in</option><option value="16">16in</option>
+    <select id="diceMax" title="Set to OFF to put no remnants in the job at all — the leftover is simply left on the sheet."><option value="0">OFF - no remnants</option>
+      <option value="11.9" selected>12in</option><option value="16">16in</option>
       <option value="24">24in</option><option value="36">36in</option></select></label>
   <label class="soft">skip offcuts under
     <select id="diceMin"><option value="0">nothing</option><option value="288" selected>2 sq ft</option>
@@ -177,17 +178,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=4.11';
+import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=4.12';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.11';
-import { APP_VERSION } from './js/version.mjs?v=4.11';
+         fromMM, toMM } from './js/materials.mjs?v=4.12';
+import { APP_VERSION } from './js/version.mjs?v=4.12';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.11';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.11';
-import { deriveNest } from './js/derive_nest.mjs?v=4.11';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.12';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.12';
+import { deriveNest } from './js/derive_nest.mjs?v=4.12';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -806,6 +807,11 @@ $('scrapBtn').onclick = () => {
 // re-flowed every sheet. Pre-consuming the waste here keeps the posted
 // layout identical to this nest (turn Mozaik's scrap option OFF too).
 $('remnantBtn').onclick = () => {
+  if (!(parseFloat($('diceMax').value) > 0)) {
+    alert('Remnants are set to OFF (max piece). Choose a size first, or leave the '
+      + 'offcut on the sheet.');
+    return;
+  }
   const s = nest.sheets[sheetIdx];
   const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
     minDimMM: parseFloat($('diceStrip').value) || 100 };
@@ -1191,7 +1197,14 @@ function stash() {
     const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
     const minIn2 = parseFloat($('diceMin').value) || 0;
     for (const sh of nest.sheets) {
-      sh.remnants = (sh.placements || []).length ? plannedRemnants(sh, opts, maxIn, minIn2) : [];
+      // OFF means OFF. Zac 2026-09-01: "it's making a bunch of little remnant
+      // cuts i don't need also.. how do i stop that in the future?" There was
+      // no way to: every export planned remnants and wrote them into the .opt
+      // as OptimizeRemnantLocation, and the only controls made them BIGGER or
+      // SMALLER, never absent. Leftover left alone is a legitimate choice —
+      // often the right one when the offcuts are not worth the saw time.
+      sh.remnants = (maxIn > 0 && (sh.placements || []).length)
+        ? plannedRemnants(sh, opts, maxIn, minIn2) : [];
     }
   } catch (e) { /* toolbar not built yet */ }
   try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {}
