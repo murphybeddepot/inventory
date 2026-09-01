@@ -16,7 +16,7 @@
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
-import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.08';
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.09';
 
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;

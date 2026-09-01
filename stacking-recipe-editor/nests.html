@@ -177,17 +177,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=4.08';
+import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=4.09';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.08';
-import { APP_VERSION } from './js/version.mjs?v=4.08';
+         fromMM, toMM } from './js/materials.mjs?v=4.09';
+import { APP_VERSION } from './js/version.mjs?v=4.09';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.08';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.08';
-import { deriveNest } from './js/derive_nest.mjs?v=4.08';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.09';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.09';
+import { deriveNest } from './js/derive_nest.mjs?v=4.09';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1129,7 +1129,18 @@ $('back').onclick = () => { stash(); location.href = './index.html'; };
 // machine. Its own function so the Save handler stays short.
 function blockedByTooClose() {
   const bad = nestViolations(nest);
-  if (!bad.length) return false;
+  if (!bad.length) { $('hint').textContent = ''; $('apply').textContent = 'Save for this material \u2192'; return false; }
+  // A REFUSAL MUST OUTLIVE THE DIALOG. Zac 2026-09-01 saved a Monaco nest three
+  // times, exported, and got none of his moves: each save was refused for
+  // spacing, and an alert you click through is indistinguishable from one that
+  // worked. The export then finds no saved nest and re-nests, so the moves
+  // vanish with no trace. So the button and the hint line both keep saying it,
+  // and the sheet with the problem is selected.
+  $('apply').textContent = '\u26a0 NOT SAVED \u2014 ' + bad.length + ' too close';
+  $('hint').textContent = 'NOT SAVED: ' + bad.map((v) => `sheet ${v.sheet} ${v.a}/${v.b} `
+    + (v.overlap ? 'overlap' : v.mm + 'mm')).slice(0, 4).join(' \u00b7 ')
+    + (bad.length > 4 ? ` \u00b7 +${bad.length - 4} more` : '') + '  \u2014 they are outlined red';
+  if (bad[0] && nest.sheets[bad[0].sheet - 1]) { sheetIdx = bad[0].sheet - 1; buildTabs(); draw(); }
   const lines = bad.slice(0, 8).map((v) => `  sheet ${v.sheet}: ${v.a} and ${v.b} `
     + (v.overlap ? 'OVERLAP' : `are ${v.mm}mm apart`) + ` (need ${v.gap}mm)`);
   alert(`NOT SAVED — ${bad.length} pair(s) are closer than the ${nest.gap}mm corridor.\n\n`
