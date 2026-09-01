@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.05';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.05';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.05';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.05';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.06';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.06';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.06';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.06';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1075,7 +1075,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.05';
+const APP_VERSION = '4.06';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3897,7 +3897,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.05'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.06'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4014,7 +4014,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.05');
+    const M=await import('./js/materials.mjs?v=4.06');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4027,7 +4027,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.05'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.06'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4051,7 +4051,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.05');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.06');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4731,6 +4731,34 @@ function libBytes(){
   try{ let n=0; for(const k in localStorage) n+=(localStorage[k]||'').length+k.length; return n*2; }
   catch(e){ return null; }
 }
+// The nests belonging to ONE sku, out of the by-material store. Returns a
+// plain {materialId: nest} so the snapshot stays JSON and diffable.
+function nestsForSku(sku){
+  const out={};
+  try{
+    const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}')||{};
+    const pre=(sku||'')+'::';
+    for(const k of Object.keys(all)) if(k.startsWith(pre)) out[k.slice(pre.length)]=all[k];
+  }catch(e){}
+  return out;
+}
+// Write a snapshot's nests back into the local store. NEVER clears one that is
+// not in the snapshot: an older snapshot must not delete a nest saved since,
+// and a recipe saved before this shipped carries no `nests` key at all.
+function restoreNestsForSku(sku,nests){
+  if(!nests||typeof nests!=='object') return 0;
+  let n=0;
+  try{
+    const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}')||{};
+    for(const [mid,nest] of Object.entries(nests)){
+      if(!nest||!nest.sheets||!nest.sheets.length) continue;
+      all[(sku||'')+'::'+mid]=nest; n++;
+    }
+    localStorage.setItem('mbd_nests_by_material_v1',JSON.stringify(all));
+  }catch(e){}
+  return n;
+}
+
 function snapshot(){
   return {
     sku:S.sku, savedAt:new Date().toISOString(), appVersion:APP_VERSION,
@@ -4745,11 +4773,23 @@ function snapshot(){
     // when the recipe was authored via paste-text; Mozaik export will
     // ask the user to re-import the source .moz files in that case.
     importedParts:(S.importedParts||[]).map(p=>({...p})),
-    sourceShell:S.sourceShell||null
+    sourceShell:S.sourceShell||null,
+    /* NESTS RIDE THE SNAPSHOT (Zac 2026-09-01: "now do the recipe and nest
+       sync"). Recipes already sync to Supabase through save_stacking_recipe;
+       nests lived ONLY in localStorage, so a nest saved on the laptop did not
+       exist on the PC, the server export could not see it, and neither could I
+       — which cost two round trips reading QB3M00 off a Mozaik job folder
+       instead of from the recipe that owns it.
+       Folding them into the snapshot needs no new RPC and no schema change:
+       whatever syncs the recipe now syncs its nests. Keyed by material id, and
+       ONLY this sku's nests, so one recipe never carries another's layouts. */
+    nests:nestsForSku(S.sku||'')
   };
 }
 function restoreSnapshot(snap){
   S.sku=snap.sku||'';$('skuInput').value=S.sku;
+  const _n=restoreNestsForSku(S.sku,snap.nests);
+  if(_n) _dbg('restored '+_n+' nest(s) from the recipe snapshot');
   S.foot=snap.foot||S.foot;S.pal=snap.pal||S.pal;S.footPos=snap.footPos||'center';
   S.origin=snap.origin||'TL';S.datum=snap.datum||'foot';S.ref=snap.ref||'center';
   S.manifest=(snap.manifest||[]).map(m=>({...m,key:mkey(m)}));
@@ -4974,7 +5014,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.05');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.06');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
