@@ -152,6 +152,36 @@ export function nestByLayer(parts, opts = {}) {
     || Math.max(p.l, p.w) + gap > Math.max(BIN_L, BIN_W));
   if (tooBig.length) return { error: `${tooBig[0].name} (${tooBig[0].l}x${tooBig[0].w}) is bigger than the sheet` };
 
+  // A GRAINED BOARD ALLOWS ONE ORIENTATION, AND THAT ORIENTATION CAN BE
+  // IMPOSSIBLE. Say which part and why, up front.
+  //
+  // Without this the whole nest failed with "could not nest these parts at
+  // this spacing" — which names nothing, points at the gap, and is wrong:
+  // PB15 V2's 1B is 1895 long, the cross-grain exception list asks for it
+  // turned, and turned it needs 1911mm across a board that has 1546mm of
+  // usable width. Both Monaco boards refused and the message sent you looking
+  // at the spacing (2026-09-01). The exception list is the PRODUCT's, so the
+  // message says how to change it rather than just reporting a dead end.
+  if (hasGrain) {
+    for (const p of parts) {
+      const it = { name: p.name, w: p.l + gap, h: p.w + gap };
+      const rot = grainRotations(it, crossGrain)[0];
+      const bw = rot ? it.h : it.w, bh = rot ? it.w : it.h;
+      if (bw <= BIN_L + 1e-9 && bh <= BIN_W + 1e-9) continue;
+      const cross = crossGrain.has(String(p.name));
+      const other = rot ? { w: it.w, h: it.h } : { w: it.h, h: it.w };
+      const otherFits = other.w <= BIN_L + 1e-9 && other.h <= BIN_W + 1e-9;
+      return { error: cross && otherFits
+        ? `${p.name} (${p.l}x${p.w}) is on the cross-grain list, and running it cross-grain needs `
+          + `${Math.round(bh)}mm across a board with ${Math.round(BIN_W - gap)}mm of usable width. `
+          + `It fits the normal way round. Take ${p.name} off this recipe's grain exceptions, `
+          + `or cut it on a wider board.`
+        : `${p.name} (${p.l}x${p.w}) does not fit this grained board in its one legal orientation `
+          + `— it needs ${Math.round(bw)}x${Math.round(bh)}mm and the usable area is `
+          + `${Math.round(BIN_L - gap)}x${Math.round(BIN_W - gap)}mm.` };
+    }
+  }
+
   function attempt(cap, heur, seed, jitter) {
     const rnd = mulberry(seed);
     // keep the part's own dims (l0/w0): the packing rect overwrites w/h with

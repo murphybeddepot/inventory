@@ -105,6 +105,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <input type="checkbox" id="doorsLast" onchange="_doorsLastChange_(this.checked)"> Trim &amp; doors last
   </label>
   <button id="doorsPick" style="display:none">Which parts are trim/doors…</button>
+  <button id="grainPick" style="display:none">↕ Grain exceptions…</button>
   <button id="matEdit">⚙ Materials…</button>
   <button id="catEdit">⚙ Scrap parts…</button>
 </div>
@@ -154,6 +155,22 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <span style="flex:1"></span><button id="doorSave" class="primary">Use these</button>
   </div>
 </div></div>
+<div id="grainModal" class="modalbg"><div class="modal">
+  <h2>Which parts run across the grain? <span style="flex:1"></span><button id="grainClose">✕</button></h2>
+  <p class="soft" style="margin:0 0 10px">On a grained board the grain runs along the sheet's
+    <b>length</b>, so every part has one way up. Normally that is the part's <b>long side along the
+    grain</b>. Tick a part here to say the opposite: its <b>short side along the grain</b>, on
+    purpose.</p>
+  <p class="soft" style="margin:0 0 10px">This list belongs to <b>this product</b>. The four ticked
+    by default (1A, 1B, 1C, 8A) are the <b>Boaz</b> beds' — the same codes mean different parts in
+    other products, so check them before trusting them. A part that cannot physically go across the
+    grain on this board is marked below.</p>
+  <div id="grainRows"></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button id="grainNone">None run cross-grain</button>
+    <span style="flex:1"></span><button id="grainSave" class="primary">Use these</button>
+  </div>
+</div></div>
 <div id="matModal" class="modalbg"><div class="modal">
   <h2>Sheet materials <span style="flex:1"></span>
     <label class="soft" style="font-weight:400">units
@@ -178,17 +195,18 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap } from './js/nest.mjs?v=4.12';
+import { nestByLayer, partBox, violates, nestViolations, NEST_DEFAULTS, packSingleSheet, shuffleForScrap,
+         CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.13';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.12';
-import { APP_VERSION } from './js/version.mjs?v=4.12';
+         fromMM, toMM } from './js/materials.mjs?v=4.13';
+import { APP_VERSION } from './js/version.mjs?v=4.13';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.12';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.12';
-import { deriveNest } from './js/derive_nest.mjs?v=4.12';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.13';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.13';
+import { deriveNest } from './js/derive_nest.mjs?v=4.13';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -205,6 +223,18 @@ function saveNestFor(sku, mid, n) {
 const $ = id => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 let recipe = null, nest = null, sheetIdx = 0, editing = false, selected = null;
+// HAS ANYTHING BEEN DRAGGED? Asked before any re-nest, because a re-nest
+// throws manual moves away. Two of the four places that asked it read a bare
+// `edited` that is declared NOWHERE — an undeclared identifier in a module
+// throws ReferenceError, so the handler died on its first line and the control
+// did nothing at all. That killed the whole **Layer spread** dropdown and
+// **Trim & doors last**: pick a spread, nothing happens, no message, and the
+// sheets you were trying to save never appear. One helper now, so the four
+// call sites cannot drift apart again.
+function hasManualMoves() {
+  return !!(nest && nest.sheets && nest.sheets.some(
+    (sh) => (sh.placements || []).some((p) => p._moved || p._from != null)));
+}
 let materials = [], matId = null;
 let showDice = false, dice = [], skipped = [];
 
@@ -255,12 +285,11 @@ function boot() {
   if (relink.unlinked.length) _relinkNote = (_relinkNote ? _relinkNote + ' ' : '')
     + `${relink.unlinked.length} salvaged part(s) match no crate panel (${[...new Set(relink.unlinked)].join(', ')}) `
     + '— those are cut to size only.';
-  $('foot').textContent = `Nesting on ${currentMat().label} (${describeMat(currentMat())}). Sheets fill in layer order — a layer's leftovers spill onto the next sheet rather ` +
-    `than holding one open. Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; ` +
-    `dragging snaps to exactly that and turns red if anything ends up tighter.`;
+  refreshFoot();
   const sp = $('spreadSel'); if (sp) sp.value = currentSpread();
   const dl = $('doorsLast'); if (dl) { dl.checked = doorsLastOn();
     $('doorsPick').style.display = doorsLastOn() ? '' : 'none'; }
+  refreshGrainBtn();
   buildTabs(); draw(); refreshCopyFrom();
   if (_relinkNote) { $('hint').textContent = _relinkNote; _relinkNote = ''; }
 }
@@ -293,18 +322,31 @@ function buildMatUI() {
   const m = currentMat();
   $('matDesc').textContent = describeMat(m) + (m.verified ? '' : ' · ids unconfirmed against Mozaik');
   sel.onchange = () => {
-    const edited = nest && nest.sheets.some(sh => sh.placements.some(p => p._moved || p._from != null));
-    if (edited && !confirm('Switching material re-nests from the recipe. Your manual moves are lost. Continue?')) {
+    if (hasManualMoves() && !confirm('Switching material re-nests from the recipe. Your manual moves are lost. Continue?')) {
       sel.value = matId; return;
     }
     matId = sel.value;
     try { localStorage.setItem('mbd_last_material', matId); } catch (e) {}
     // a nest saved against THIS material wins over re-nesting
+    // the grain-exception button only exists on a grained board, so it has to
+    // follow the material rather than the page load
+    refreshGrainBtn();
     nest = savedNestFor(recipe.sku, matId) || compute();
     sheetIdx = 0; selected = null;
-    buildMatUI(); buildTabs(); draw();
+    buildMatUI(); refreshGrainBtn(); refreshFoot(); buildTabs(); draw();
   };
   $('matEdit').onclick = openMatEditor;
+}
+// The line under the sheet names the board being nested on, and it was written
+// ONCE at boot — so after switching material it still said "Nesting on 5x9
+// White (2770 x 1550, trims 3/3)" over a 5x8 Monaco layout. Two different
+// boards, both plausible, and the wrong one printed under the picture.
+function refreshFoot() {
+  const m = currentMat();
+  $('foot').textContent = `Nesting on ${m.label} (${describeMat(m)}). Sheets fill in layer order — `
+    + `a layer's leftovers spill onto the next sheet rather than holding one open. `
+    + `Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; `
+    + `dragging snaps to exactly that and turns red if anything ends up tighter.`;
 }
 function escAttr(x) { return String(x).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
 function openMatEditor() {
@@ -429,7 +471,7 @@ function currentSpread() {
 }
 window._spreadChange_ = (v) => {
   try { localStorage.setItem(SPREAD_KEY, v || ''); } catch (e) {}
-  if (edited && !confirm('Re-nesting from the recipe throws away the manual moves on screen. Continue?')) {
+  if (hasManualMoves() && !confirm('Re-nesting from the recipe throws away the manual moves on screen. Continue?')) {
     const sel = $('spreadSel'); if (sel) sel.value = currentSpread();
     return;
   }
@@ -487,7 +529,7 @@ window._doorsLastChange_ = (on) => {
   reNestForDoors();
 };
 function reNestForDoors() {
-  if (edited && !confirm('Re-nesting from the recipe throws away the manual moves on screen. Continue?')) {
+  if (hasManualMoves() && !confirm('Re-nesting from the recipe throws away the manual moves on screen. Continue?')) {
     $('doorsLast').checked = doorsLastOn();
     return;
   }
@@ -511,6 +553,55 @@ function openDoorPicker() {
   </label>`).join('');
   $('doorModal').classList.add('on');
 }
+// ---- the grain-exception picker -------------------------------------------
+// Only offered on a grained board, because on a plain board it changes nothing
+// and a control that does nothing is a control that gets mis-set.
+function refreshGrainBtn() {
+  const on = !!(currentMat() && currentMat().hasGrain);
+  const b = $('grainPick'); if (!b) return;
+  b.style.display = on ? '' : 'none';
+  if (on) {
+    const n = crossGrainCodes().filter((c) => recipe.parts.some((p) => p.name === c)).length;
+    b.textContent = n ? `↕ Grain exceptions (${n})…` : '↕ Grain exceptions (none)…';
+  }
+}
+function openGrainPicker() {
+  const chosen = new Set(crossGrainCodes());
+  const mat = currentMat();
+  const opts = nestOptsFor(mat);
+  const BIN_L = opts.sheetL - 2 * opts.edge + 16, BIN_W = opts.sheetW - 2 * opts.edge + 16;
+  const seen = new Map();
+  for (const p of recipe.parts) if (!seen.has(p.name)) seen.set(p.name, p);
+  const rows = [...seen.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  $('grainRows').innerHTML = rows.map((r) => {
+    // can this part physically go across the grain on THIS board?
+    const it = { name: r.name, w: r.l + 16, h: r.w + 16 };
+    const rot = grainRotations(it, new Set([r.name]))[0];
+    const bw = rot ? it.h : it.w, bh = rot ? it.w : it.h;
+    const impossible = bw > BIN_L + 1e-9 || bh > BIN_W + 1e-9;
+    return `<label style="display:flex;gap:8px;align-items:center;padding:4px 2px">
+      <input type="checkbox" data-cg="${escAttr(r.name)}"${chosen.has(r.name) ? ' checked' : ''}${impossible ? ' disabled' : ''}>
+      <b style="min-width:46px">${escAttr(r.name)}</b>
+      <span class="soft" style="flex:1">${escAttr(r.title || '')}</span>
+      <span class="soft" style="font-size:11px">${r.l}×${r.w}${impossible
+        ? ' · <b>cannot go cross-grain on this board</b>' : ''}</span>
+    </label>`;
+  }).join('');
+  $('grainModal').classList.add('on');
+}
+$('grainPick').onclick = openGrainPicker;
+$('grainClose').onclick = () => $('grainModal').classList.remove('on');
+$('grainNone').onclick = () => {
+  $('grainRows').querySelectorAll('input[data-cg]').forEach((i) => { i.checked = false; });
+};
+$('grainSave').onclick = () => {
+  const picked = [...$('grainRows').querySelectorAll('input[data-cg]')]
+    .filter((i) => i.checked && !i.disabled).map((i) => i.dataset.cg);
+  saveCrossGrain(picked);
+  $('grainModal').classList.remove('on');
+  refreshGrainBtn();
+  reNestForDoors();                       // same "re-nest, but ask first" path
+};
 $('doorsPick').onclick = openDoorPicker;
 $('doorClose').onclick = () => { $('doorModal').classList.remove('on');
   $('doorsLast').checked = doorsLastOn(); $('doorsPick').style.display = doorsLastOn() ? '' : 'none'; };
@@ -530,11 +621,41 @@ function partsForNest() {
   return recipe.parts.map((p) => (doors.has(p.name) ? { ...p, layer: top + 1 } : p));
 }
 
+// ---- grain exceptions, per RECIPE (v4.13) ---------------------------------
+// The nester ships with four cross-grain codes — 1A, 1B, 1C, 8A — and they are
+// BOAZ's: Zac ruled them as "all 6 of those parts cross-grain on purpose across
+// all boaz beds", and that sentence was then copied verbatim into every
+// family's options registry. The codes are not unique to Boaz, so on another
+// product they name different parts: PB15 V2's 1B is its 1895mm upper end, and
+// asking for that one cross-grain wants 1911mm across a 1546mm-usable board.
+// Both Monaco boards refused to nest at all, with a message about spacing.
+//
+// So the list is a property of the PRODUCT. Order of authority:
+//   1. what was ticked here for this recipe   (localStorage, per sku)
+//   2. what the recipe itself declares        (snapshot.crossGrain, may be [])
+//   3. the nester's Boaz default              (unchanged for every existing recipe)
+const GRAIN_SET_KEY = 'mbd_nest_cross_grain_v1';
+function crossGrainCodes() {
+  try {
+    const mine = (JSON.parse(localStorage.getItem(GRAIN_SET_KEY) || '{}') || {})[recipe.sku || ''];
+    if (Array.isArray(mine)) return mine;
+  } catch (e) {}
+  if (Array.isArray(recipe.crossGrain)) return recipe.crossGrain;
+  return [...CROSS_GRAIN_CODES];
+}
+function saveCrossGrain(list) {
+  try {
+    const all = JSON.parse(localStorage.getItem(GRAIN_SET_KEY) || '{}') || {};
+    all[recipe.sku || ''] = list;
+    localStorage.setItem(GRAIN_SET_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
 function compute() {
   const mat = currentMat();
   const spread = Number(currentSpread()) || null;
   const r = nestByLayer(partsForNest(), {
     ...nestOptsFor(mat),
+    crossGrain: new Set(crossGrainCodes()),
     ...(spread ? { maxLayersPerSheet: spread === 99 ? Number.MAX_SAFE_INTEGER : spread } : {}),
   });
   renderSpreadTrade(r);
@@ -845,8 +966,7 @@ $('remnantBtn').onclick = () => {
 // current layout is always a candidate, so this is never worse than doing
 // nothing.
 $('seamBtn').onclick = () => {
-  const edited = nest.sheets.some(sh => (sh.placements || []).some(p => p._moved || p._from != null));
-  if (edited && !confirm('Shaping the scrap re-arranges parts on every sheet. Your manual moves are lost. Continue?')) return;
+  if (hasManualMoves() && !confirm('Shaping the scrap re-arranges parts on every sheet. Your manual moves are lost. Continue?')) return;
   const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
     minDimMM: parseFloat($('diceStrip').value) || 100 };
   const rep = shapeScrap(nest, opts, packSingleSheet, {

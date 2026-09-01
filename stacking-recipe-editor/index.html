@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.12';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.12';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.12';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.12';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.13';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.13';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.13';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.13';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1075,7 +1075,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.12';
+const APP_VERSION = '4.13';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1141,6 +1141,15 @@ const S = {
   manifest:[],            // [{partNum,name,section,secIdx,Lmm,Wmm,Lin,Win,qty,thickness,key}]
   importedParts:[],       // Phase-1 .moz round-trip: full parsed CabProdPart records w/ ops+bands+pos
   sourceShell:null,       // v3.46: source .moz minus parts — layer products rebuild inside it (parm table rides verbatim)
+  /* v4.13 — WHICH PART CODES RUN CROSS-GRAIN, for THIS product.
+     null = "this recipe has never said", and the nester keeps its own default
+     (the four Boaz codes). An array — including an EMPTY one — is this
+     product's own answer and wins.
+     It has to live on the recipe because the codes mean different parts in
+     different products: 1B is a Boaz stack brace and PB15 V2's 1895mm upper
+     end, and forcing THAT one cross-grain asks for 1911mm across a board with
+     1546mm of usable width, so both Monaco boards refused to nest at all. */
+  crossGrain:null,
   layers:[[]],            // array of layers; each = array of placed parts
   activeLayer:0,
   sel:new Set(),          // selected placed-part ids (within active layer)
@@ -3897,7 +3906,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.12'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.13'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -3997,7 +4006,10 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
   if(!parts.length){toast('Nothing to nest — place some parts on a layer first');return;}
   try{
     if(typeof doSave==='function') doSave();   // never leave with a stale working copy
-  sessionStorage.setItem('mbd_nest_input',JSON.stringify({sku:S.sku||'',parts:parts}));
+  // crossGrain rides the handover so the Nests page nests THIS product's way
+  // rather than Boaz's (v4.13). null = never said; the nester's default holds.
+  sessionStorage.setItem('mbd_nest_input',JSON.stringify({sku:S.sku||'',parts:parts,
+    crossGrain:Array.isArray(S.crossGrain)?S.crossGrain.slice():null}));
   }catch(err){toast('Could not hand the recipe over: '+err.message);return;}
   location.href='./nests.html';
 };
@@ -4014,7 +4026,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.12');
+    const M=await import('./js/materials.mjs?v=4.13');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4027,7 +4039,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.12'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.13'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4060,7 +4072,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.12');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.13');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4826,6 +4838,10 @@ function snapshot(){
     // ask the user to re-import the source .moz files in that case.
     importedParts:(S.importedParts||[]).map(p=>({...p})),
     sourceShell:S.sourceShell||null,
+    /* v4.13 — the grain exceptions travel WITH the recipe. Saved as null when
+       this product has never said, so an existing recipe round-trips byte-for
+       byte and keeps the nester's default. */
+    crossGrain:Array.isArray(S.crossGrain)?S.crossGrain.slice():null,
     /* NESTS RIDE THE SNAPSHOT (Zac 2026-09-01: "now do the recipe and nest
        sync"). Recipes already sync to Supabase through save_stacking_recipe;
        nests lived ONLY in localStorage, so a nest saved on the laptop did not
@@ -4854,6 +4870,9 @@ function restoreSnapshot(snap){
   // will error with a "re-import source .moz" message).
   S.importedParts=(snap.importedParts||[]).map(p=>({...p}));
   S.sourceShell=snap.sourceShell||null;
+  // v4.13 — an ARRAY (even empty) is this product's own grain-exception list;
+  // anything else means it has never said, so the nester's default stands.
+  S.crossGrain=Array.isArray(snap.crossGrain)?snap.crossGrain.slice():null;
   S.nextId=maxId+1;S.activeLayer=0;S.sel=new Set();S.armed=null;
   syncSettingControls();renderAll();updateSig();
   // Flush to the working copy NOW. Loading a recipe touches no part, so the
@@ -5066,7 +5085,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.12');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.13');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
