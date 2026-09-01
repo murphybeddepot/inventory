@@ -11,6 +11,35 @@
 //
 // Pure data in, pure data out — no DOM.
 
+// CROSS-GRAIN PARTS — Zac 2026-09-01: "all 6 of those parts cross-grain on
+// purpose across all boaz beds." The six are 8A x2, 1A, 1B and 1C x2, so the
+// CODES are these four, and the rule is the product's, not the job's — it holds
+// for Queen, Double and Single alike.
+//
+// On a grained board every part has exactly ONE legal orientation, and which
+// one depends on the part:
+//   normal      the part's LONG  side lies along the grain (the sheet's length)
+//   cross-grain the part's SHORT side lies along the grain
+// So "grained" does not mean "never rotate" — that was v4.00's blunt first cut,
+// and it would have placed all four of these the wrong way round. It means the
+// packer is handed one candidate instead of two.
+//
+// Cross-grain is a property of the PART, never of the rotation number: 1A is
+// 178x476 and 8A is 208x476, so the same rotation means opposite things for
+// them. Always decide from the dimensions.
+export const CROSS_GRAIN_CODES = new Set(['1A', '1B', '1C', '8A']);
+
+// The one rotation a part may take on a grained sheet, in the bin's own frame
+// (bin w = the sheet's LENGTH = the grain axis).
+export function grainRotations(it, crossGrain = CROSS_GRAIN_CODES) {
+  const long = Math.max(it.w, it.h), short = Math.min(it.w, it.h);
+  const wantOnGrain = crossGrain.has(String(it.name)) ? short : long;
+  // rot 0 puts it.w on the grain axis; rot 90 puts it.h there
+  if (Math.abs(it.w - wantOnGrain) < 0.01) return [0];
+  if (Math.abs(it.h - wantOnGrain) < 0.01) return [90];
+  return [0];                       // square-ish: either is the same thing
+}
+
 export const NEST_DEFAULTS = { gap: 16, edge: 3, sheetL: 2770, sheetW: 1550 };
 
 function mulberry(seed) {
@@ -24,10 +53,10 @@ class Bin {
   constructor(L, W) {
     // A grained board cannot be turned: every part runs its length along the
     // sheet's length, so the packer is not allowed to try the 90 candidate.
-    this.noRotate = false; this.free = [{ x: 0, y: 0, w: L, h: W }]; this.placed = []; }
+    this.grained = false; this.crossGrain = CROSS_GRAIN_CODES; this.free = [{ x: 0, y: 0, w: L, h: W }]; this.placed = []; }
   best(it, heur, rnd, jitter) {
     let best = null;
-    for (const fr of this.free) for (const rot of (this.noRotate ? [0] : [0, 90])) {
+    for (const fr of this.free) for (const rot of (this.grained ? grainRotations(it, this.crossGrain) : [0, 90])) {
       const w = rot ? it.h : it.w, h = rot ? it.w : it.h;
       if (w > fr.w + 1e-9 || h > fr.h + 1e-9) continue;
       const lh = fr.w - w, lv = fr.h - h;
@@ -81,7 +110,7 @@ function sliverArea(bin, minDim = SLIVER_MIN_MM) {
 
 // parts: [{ name, layer, l, w }] — layer is 1-based
 export function nestByLayer(parts, opts = {}) {
-  const { gap, edge, sheetL, sheetW, hasGrain = false } = { ...NEST_DEFAULTS, ...opts };
+  const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES } = { ...NEST_DEFAULTS, ...opts };
   const BIN_L = sheetL - 2 * edge + gap, BIN_W = sheetW - 2 * edge + gap;
   const layers = [...new Set(parts.map(p => p.layer))].sort((a, b) => a - b);
   const tooBig = parts.filter(p => Math.min(p.l, p.w) + gap > Math.max(BIN_L, BIN_W)
@@ -97,7 +126,7 @@ export function nestByLayer(parts, opts = {}) {
     const sheets = [];
     while (left.length) {
       if (sheets.length > 40) return null;
-      const bin = Object.assign(new Bin(BIN_L, BIN_W), { noRotate: !!hasGrain }), on = new Set();
+      const bin = Object.assign(new Bin(BIN_L, BIN_W), { grained: !!hasGrain, crossGrain }), on = new Set();
       for (;;) {
         const fits = [];
         for (const it of left) { const b = bin.best(it, heur, rnd, jitter); if (b) fits.push({ it, b }); }
@@ -210,8 +239,8 @@ export function nestByLayer(parts, opts = {}) {
 // Returns placements in the nest's own shape, or null when this attempt
 // could not seat every part (the caller just discards that attempt).
 export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jitter = 0 } = {}) {
-  const { gap, edge, sheetL, sheetW, hasGrain = false } = { ...NEST_DEFAULTS, ...opts };
-  const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { noRotate: !!hasGrain });
+  const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES } = { ...NEST_DEFAULTS, ...opts };
+  const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { grained: !!hasGrain, crossGrain });
   const rnd = mulberry(seed);
   let left = parts.map(p => ({ ...p, l0: p.l, w0: p.w, w: p.l + gap, h: p.w + gap }));
   while (left.length) {

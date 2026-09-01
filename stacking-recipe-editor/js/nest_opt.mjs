@@ -265,7 +265,11 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const partXml = pool.map(p =>
     `  <OptimizePart PartID="${p.id}" PartNumbers="${p.id}" Quan="1" Name="${esc(p.name)}" `
     + `Width="${p.w}" Length="${p.l}" EdgeBand="${p.band || 'None'}" Color="" AssyNo="${cabOf(p)}" Comment="${p.salvage ? '' : 'L' + p.layer}" `
-    + `UserAdded="False" RemakeJobName="" AllowRotation="1" LabelPrinted="False" `
+    // On a GRAINED board every part has exactly one legal orientation — its
+    // long side along the grain, or its short side for the cross-grain codes
+    // (1A/1B/1C/8A on Boaz). AllowRotation="1" told Mozaik it could turn any
+    // of them on re-optimise, which would undo the whole layout.
+    + `UserAdded="False" RemakeJobName="" AllowRotation="${M.hasGrain ? 0 : 1}" LabelPrinted="False" `
     + `TextureName="${esc(M.textureName || '')}" TextureAbbr="${esc(M.textureAbbr || '')}" `
     + `TextureID="${esc(M.textureId)}">${NL}    ${shapeWithOps(p)}${NL}`
     + `    <BandMatTmpSel RootTemplateId="249" MissingTemplateName="Veneer" />${NL}`

@@ -5,4 +5,4 @@
 // its own inline const because its script is not a module; the test suite
 // asserts the two match, so drift fails CI instead of quietly showing the
 // wrong number on one screen.
-export const APP_VERSION = '4.01';
+export const APP_VERSION = '4.02';
