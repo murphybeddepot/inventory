@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.09';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.09';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.09';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.09';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.10';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.10';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.10';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.10';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1075,7 +1075,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.09';
+const APP_VERSION = '4.10';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -3897,7 +3897,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.09'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.10'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4014,7 +4014,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.09');
+    const M=await import('./js/materials.mjs?v=4.10');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4027,7 +4027,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.09'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.10'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4040,7 +4040,16 @@ async function nestForExport(){
     // Nothing saved under THIS sku+material. Say which keys do exist, because
     // the difference is usually one stale material id and it is invisible
     // otherwise — the zip just quietly contains a freshly nested layout.
-    _dbg('no saved nest for "'+(S.sku||'')+'::'+(mat?mat.id:'')+'" — have: '+Object.keys(all).join(', '));
+    /* SAY IT OUT LOUD. This was _dbg only, so a key mismatch looked exactly
+       like a job with no nest: the zip quietly carried a fresh layout and the
+       operator's saved moves were gone with no message anywhere. Zac
+       2026-09-01, after three saves that all reported success: "when i export a
+       mozaik job zip it still doesn't have my latest changes". The lookup key
+       and the keys that EXIST are the whole diagnosis, so they go on screen. */
+    const _want=(S.sku||'')+'::'+(mat?mat.id:'');
+    const _have=Object.keys(all);
+    _dbg('no saved nest for "'+_want+'" — have: '+_have.join(', '));
+    window.__nestKeyMiss={want:_want,have:_have};
     // NO cross-material fallback: a nest saved for another finish is a nest for
     // another board. Re-nesting below is correct by construction instead.
   }catch(err){/* fall through */}
@@ -4051,7 +4060,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.09');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.10');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4105,6 +4114,21 @@ function bindingReport(){
   return {sources,blind,stale};
 }
 function exportPreflight(salv){
+  /* A SAVED NEST THAT WAS NOT FOUND. Silently re-nesting throws away hand
+     placement, and the operator has no way to tell — the zip looks normal. */
+  try{
+    if(window.__nestKeyMiss){
+      const k=window.__nestKeyMiss; window.__nestKeyMiss=null;
+      const near=k.have.filter(h=>h.split('::')[0]===k.want.split('::')[0]);
+      if(!confirm('NO SAVED NEST was found for this recipe + material, so the zip '
+        +'will contain a FRESHLY NESTED layout and any parts you moved by hand are lost.\n\n'
+        +'  looking for : '+k.want+'\n'
+        +(near.length?'  you have    : '+near.join('\n                '):'  you have    : (nothing for this recipe)')
+        +'\n\nUsually the material differs between the nest screen and this export. '
+        +'Pick the same material in both, save the nest again, then export.\n\nExport anyway?')) return false;
+    }
+  }catch(err){ _dbg('nest-key check failed: '+err.message); }
+
   /* SPACING. The nest's own corridor is what keeps the saw out of the parts;
      inside it the cut eats them (Zac 2026-08-31: "several parts were too close
      ... taking sections out of a few parts that shouldn't have been taken out.
@@ -5028,7 +5052,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.09');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.10');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
