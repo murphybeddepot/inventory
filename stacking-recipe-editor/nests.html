@@ -655,6 +655,8 @@ function compute() {
   const spread = Number(currentSpread()) || null;
   const r = nestByLayer(partsForNest(), {
     ...nestOptsFor(mat),
+    // which codes run cross-grain is a property of THIS product
+    crossGrain: crossGrainFor(recipe.sku),
     crossGrain: new Set(crossGrainCodes()),
     ...(spread ? { maxLayersPerSheet: spread === 99 ? Number.MAX_SAFE_INTEGER : spread } : {}),
   });

@@ -27,7 +27,23 @@
 // Cross-grain is a property of the PART, never of the rotation number: 1A is
 // 178x476 and 8A is 208x476, so the same rotation means opposite things for
 // them. Always decide from the dimensions.
-export const CROSS_GRAIN_CODES = new Set(['1A', '1B', '1C', '8A']);
+// CROSS-GRAIN IS PER PRODUCT, NOT PER CODE. Shipped in v4.02 as a bare set of
+// codes, which is wrong the moment a second family uses the same names — and
+// they all do. On Boaz, 1A/1B are 178x476 narrow ends, 1C a 175x453 brace and
+// 8A a 208x476 side toe. On Majestic the SAME codes are a 863x495 BASE END, a
+// 768x87 FRONT TOE and a 741x378 BASE DOOR. Applying Boaz's list to a Majestic
+// Monaco nest forces four unrelated parts across the grain for no reason.
+// Caught by the overnight run before any of it was cut.
+export const CROSS_GRAIN_BY_FAMILY = {
+  boaz: new Set(['1A', '1B', '1C', '8A']),   // Zac 2026-09-01, all Boaz sizes
+};
+// Unknown product -> NO forced cross-grain. Every part then runs its long side
+// with the grain, which is the ordinary rule and the safe direction: a part
+// wrongly run long-ways is ugly, a part wrongly run cross-grain is scrap.
+export function crossGrainFor(sku) {
+  return /boaz|[QDS]BZ|[QDS]B3/i.test(String(sku || '')) ? CROSS_GRAIN_BY_FAMILY.boaz : new Set();
+}
+export const CROSS_GRAIN_CODES = new Set();   // default: none, until a family says otherwise
 
 // The one rotation a part may take on a grained sheet, in the bin's own frame
 // (bin w = the sheet's LENGTH = the grain axis).
