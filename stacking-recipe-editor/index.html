@@ -4417,11 +4417,11 @@ $('srvGo').onclick=async()=>{
   msg.textContent='Requesting build\u2026';
   $('srvGo').disabled=true;
   try{
-    const r=await /* ROOT-RELATIVE POST — same bug as the options fetch, one layer down. The
-   editor ships to github.io as well as the worker, and GitHub Pages answers
-   a POST with 405 Method Not Allowed (Zac 2026-09-01: "when i click build on
-   server it says HTTP 405"). Worker endpoints must be addressed absolutely. */
-    fetch(NEST_LABELS_BASE+'/stacking/export-job',{method:'POST',headers:{'Content-Type':'application/json'},
+    /* ROOT-RELATIVE POST — same bug as the options fetch, one layer down. The
+       editor ships to github.io as well as the worker, and GitHub Pages answers
+       a POST with 405 Method Not Allowed (Zac 2026-09-01: "when i click build on
+       server it says HTTP 405"). Worker endpoints must be addressed absolutely. */
+    const r=await fetch(NEST_LABELS_BASE+'/stacking/export-job',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({family:fam.family,options,job})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
