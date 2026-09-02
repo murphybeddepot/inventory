@@ -34,9 +34,9 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.15';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.15';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.15';
+import { parseMoz } from './moz_parse.mjs?v=4.16';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.16';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.16';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 

@@ -120,9 +120,22 @@ class Bin {
       // of skinny parts unnestable — the corner rule has to yield the same way
       // the edge inset does, or it turns a hold problem into a no-job problem.
       if (pass && skinny && this.cornerMM > 0) {
-        const nearX = px < this.cornerMM || px + w > this.L - this.cornerMM;
-        const nearY = py < this.cornerMM || py + h > this.W - this.cornerMM;
-        if (nearX && nearY) continue;
+        const inCorner = (x, y) => (x < this.cornerMM || x + w > this.L - this.cornerMM)
+          && (y < this.cornerMM || y + h > this.W - this.cornerMM);
+        // OFFER AN ALTERNATIVE, do not merely refuse. Rejecting the corner and
+        // falling through put the part at the very corner instead — worse than
+        // no rule at all — because the fallback pass has no margin. Push it
+        // clear along the short axis first, and only give up if that will not
+        // fit inside the rect.
+        if (inCorner(px, py)) {
+          const py2 = Math.max(py, this.cornerMM);
+          if (py2 + h <= fr.y + fr.h + 1e-9 && py2 + h <= this.W - pass && !inCorner(px, py2)) py = py2;
+          else {
+            const px2 = Math.max(px, this.cornerMM);
+            if (px2 + w <= fr.x + fr.w + 1e-9 && px2 + w <= this.L - pass && !inCorner(px2, py)) px = px2;
+            else continue;
+          }
+        }
       }
       const lh = fr.w - w, lv = fr.h - h;
       let s = heur === 'bssf' ? Math.min(lh, lv) : heur === 'blsf' ? Math.max(lh, lv)
