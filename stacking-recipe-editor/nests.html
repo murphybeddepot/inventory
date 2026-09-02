@@ -195,17 +195,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.14';
+import { nestByLayer, partBox, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.15';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.14';
-import { APP_VERSION } from './js/version.mjs?v=4.14';
+         fromMM, toMM } from './js/materials.mjs?v=4.15';
+import { APP_VERSION } from './js/version.mjs?v=4.15';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.14';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.14';
-import { deriveNest } from './js/derive_nest.mjs?v=4.14';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.15';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.15';
+import { deriveNest } from './js/derive_nest.mjs?v=4.15';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -470,7 +470,14 @@ function currentSpread() {
 }
 window._spreadChange_ = (v) => {
   try { localStorage.setItem(SPREAD_KEY, v || ''); } catch (e) {}
-  if (hasManualMoves() && !confirm('Re-nesting from the recipe throws away the manual moves on screen. Continue?')) {
+  // A SAVED layout is precious even with no _moved flag on it. Those flags only
+  // mark moves made THIS session, so a nest loaded from storage — someone's
+  // hand-placed sheets from yesterday — looked untouched and was thrown away
+  // without asking (Zac 2026-09-02: "it also just redoes when you choose the
+  // layer spread dropdown without even pressing the re-nest button").
+  const precious = hasManualMoves() || (nest && nest._source === 'saved') || !!savedNestFor(recipe.sku, matId);
+  if (precious && !confirm('Re-nesting from the recipe throws away the layout on screen, '
+    + 'including anything saved for this material. Continue?')) {
     const sel = $('spreadSel'); if (sel) sel.value = currentSpread();
     return;
   }
