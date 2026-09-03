@@ -10914,10 +10914,15 @@ async function _fxRetryPrintBol_(ev) {
   } catch (e) { showToast('Re-print error: ' + e.message); }
 }
 
-async function _fxBook_() {
+async function _fxBook_(force) {
   const q = _fxSel_();
   if (!q) { showToast('Pick a service first'); return; }
-  const ok = confirm('Book FedEx Freight for order ' + _fxState.orderNumber + '?\n\n'
+  // Audit #2 (2026-09-03, money-8): client in-flight guard — a second tap
+  // while the first booking is still on the wire must not send a second
+  // fedexBookOrder. Lives on _fxState (reset when the modal reopens).
+  if (_fxState._bookInflight) { showToast('Booking already in progress — wait for it to finish'); return; }
+  const ok = confirm((force === true ? 'RE-BOOK (a PRO already exists on this order — this creates a SECOND FedEx shipment unless the first was cancelled in FedEx).\n\n' : '')
+    + 'Book FedEx Freight for order ' + _fxState.orderNumber + '?\n\n'
     + (q.serviceName || q.serviceType) + ' · ' + _fxTierLabel_(q.freightDirectTier) + '\n'
     + 'Account: ' + (q.accountLabel || q.account || '?') + '\n'
     + _fxMoney_(q.totalNet, q.currency) + '\n'
@@ -10926,6 +10931,7 @@ async function _fxBook_() {
   if (!ok) return;
   const btn = document.getElementById('fxBookBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Booking…'; }
+  _fxState._bookInflight = true;
   try {
     const bookPayload = {
       orderNumber: _fxState.orderNumber,
@@ -10936,10 +10942,28 @@ async function _fxBook_() {
       destination: _fxState.dest,
       confirm: 'BOOK-CONFIRMED',
     };
+    if (force === true) bookPayload.force = true;
     if (_fxState.manual) bookPayload.manualShipment = _fxState.manual;
     const res = await groundApi('fedexBookOrder', bookPayload);
     const rr = document.getElementById('fxResult');
     if (!res || !res.ok) {
+      if (res && res.already_booked) {
+        // Audit #2 (money-8/cab-6): the server refused because a PRO is
+        // already on the row. Show it; re-book only on an explicit,
+        // separate confirm (force:true). Not a dead end.
+        if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(255,179,0,.12);border:1px solid #FFB300;border-radius:8px;color:#FFB300;font-size:12px;font-weight:700">Already booked · PRO ' + esc(res.existing_booking_ref || '?')
+          + (res.existing_booker ? ' by ' + esc(res.existing_booker) : '') + '<br>Nothing new was booked. Cancel the existing shipment in FedEx first if it is wrong.<br>'
+          + '<a href="#" onclick="event.preventDefault();_fxBook_(true)" style="color:#ff8a8a;text-decoration:underline">Re-book anyway (creates a second shipment)</a></div>';
+        if (btn) { btn.disabled = false; btn.textContent = '📦 Book selected service'; }
+        return;
+      }
+      if (res && res.in_flight) {
+        // Server-side in-flight key: a booking for this order is still
+        // running. Keep the button off — tapping again cannot help.
+        if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(255,179,0,.12);border:1px solid #FFB300;border-radius:8px;color:#FFB300;font-size:12px;font-weight:700">' + esc(res.error || 'Booking in progress') + '<br>Close and re-open the order in a minute to see the PRO.</div>';
+        if (btn) { btn.disabled = true; btn.textContent = 'Booking in progress — do not tap'; }
+        return;
+      }
       if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(255,82,82,.1);border:1px solid #ff5252;border-radius:8px;color:#ff8a8a;font-size:12px">Book failed: ' + esc((res && res.error) || 'unknown') + '</div>';
       if (btn) { btn.disabled = false; btn.textContent = '📦 Book selected service'; }
       return;
@@ -10958,13 +10982,32 @@ async function _fxBook_() {
     const polLine = pol.ok
       ? '🖨 Order# labels queued (2 landscape pages)'
       : '⚠ Order# label print failed: ' + esc(pol.error || 'unknown');
-    if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(0,230,118,.1);border:1px solid #00e676;border-radius:8px;color:#00e676;font-size:12px;font-weight:800">✓ Booked' + (pro ? ' · PRO ' + esc(pro) : '') + '<br>' + pbLine + '<br>' + polLine + '</div>';
+    // Audit #2 (cab-6): the server now records the PRO on the PackingQueue
+    // row; if that write failed the booking is REAL but Bedrock does not
+    // know — say so, loudly, so Kim keys it via Mark Booked.
+    const recLine = res.record_error
+      ? '<br><span style="color:#ff8a8a">⚠ Booked in FedEx but NOT recorded on the order (' + esc(res.record_error) + ') — enter PRO ' + esc(pro || '?') + ' via Mark Booked.</span>'
+      : '';
+    if (rr) rr.innerHTML = '<div style="padding:12px;background:rgba(0,230,118,.1);border:1px solid #00e676;border-radius:8px;color:#00e676;font-size:12px;font-weight:800">✓ Booked' + (pro ? ' · PRO ' + esc(pro) : '') + '<br>' + pbLine + '<br>' + polLine + recLine + '</div>';
     // v10.120: server-side PDF + PrintNode handles the order# label now;
     // no client popup-print needed.
     _fxState.lastBookResult = res;
   } catch (e) {
+    // Audit #2 (2026-09-03, money-8): on a money-timeout / relay-5xx the
+    // server MAY HAVE BOOKED. The old catch re-armed the Book button under
+    // a toast that said "do not tap again" — keep it DISABLED and put the
+    // message where Kim is looking.
+    if (e && e.mbdMoneyTimeout) {
+      const rr2 = document.getElementById('fxResult');
+      if (rr2) rr2.innerHTML = '<div style="padding:12px;background:rgba(255,82,82,.12);border:1px solid #ff5252;border-radius:8px;color:#ff8a8a;font-size:12px;font-weight:700">⚠ ' + esc(e.message) + '<br>Close this, re-open the order: if a PRO is on it, the booking went through. Do NOT book again from here.</div>';
+      if (btn) { btn.disabled = true; btn.textContent = 'May have booked — do not tap'; }
+      showToast('Booking may have completed — do NOT tap again');
+      return;
+    }
     showToast('Book error: ' + e.message);
     if (btn) { btn.disabled = false; btn.textContent = '📦 Book ' + _fxState.selected.replace(/_/g, ' '); }
+  } finally {
+    _fxState._bookInflight = false;
   }
 }
 
@@ -10973,6 +11016,14 @@ async function _fxPickup_() {
   const close = (document.getElementById('fxPuClose') || {}).value || '17:00';
   if (!date) { showToast('Pick a ready date'); return; }
   if (!confirm('Schedule a FedEx pickup on ' + date + ' (close ' + close + ')?\n\nSeparate from the booking. An uncancelled pickup can incur a charge.')) return;
+  // Audit #2 (2026-09-03, money-8): the pickup button had no disable and
+  // no in-flight guard at all. Same treatment as Book: one request on the
+  // wire at a time; stay disabled when the server may have completed.
+  if (_fxState._pickupInflight) { showToast('Pickup request already in progress'); return; }
+  const puBtn = document.querySelector('#fedexFreightOverlay [onclick="_fxPickup_()"]');
+  const puBtnText = puBtn ? puBtn.textContent : '';
+  if (puBtn) { puBtn.disabled = true; puBtn.textContent = 'Scheduling…'; }
+  _fxState._pickupInflight = true;
   try {
     const _pq = _fxSel_() || {};
     const puPayload = {
@@ -10986,11 +11037,32 @@ async function _fxPickup_() {
     if (_fxState.manual) puPayload.manualShipment = _fxState.manual;
     const res = await groundApi('fedexPickupOrder', puPayload);
     const rr = document.getElementById('fxResult');
-    if (!res || !res.ok) { if (rr) rr.innerHTML = '<div style="padding:10px;color:#ff8a8a;font-size:12px">Pickup failed: ' + esc((res && res.error) || 'unknown') + '</div>'; return; }
-    if (res.simulated) { if (rr) rr.innerHTML = '<div style="padding:10px;color:#FFB300;font-size:12px;font-weight:700">Pickup SIMULATED (' + esc(res.why || '') + ')</div>'; return; }
+    if (!res || !res.ok) {
+      if (rr) rr.innerHTML = '<div style="padding:10px;color:#ff8a8a;font-size:12px">Pickup failed: ' + esc((res && res.error) || 'unknown') + '</div>';
+      if (puBtn) { puBtn.disabled = !!(res && res.in_flight); puBtn.textContent = (res && res.in_flight) ? 'Pickup in progress — do not tap' : puBtnText; }
+      return;
+    }
+    if (res.simulated) {
+      if (rr) rr.innerHTML = '<div style="padding:10px;color:#FFB300;font-size:12px;font-weight:700">Pickup SIMULATED (' + esc(res.why || '') + ')</div>';
+      if (puBtn) { puBtn.disabled = false; puBtn.textContent = puBtnText; }
+      return;
+    }
     showPackBanner_('✓ FedEx pickup scheduled', '#00e676');
     if (rr) rr.innerHTML = '<div style="padding:10px;color:#00e676;font-size:12px;font-weight:800">✓ Pickup scheduled.</div>';
-  } catch (e) { showToast('Pickup error: ' + e.message); }
+    if (puBtn) { puBtn.disabled = true; puBtn.textContent = '✓ Pickup scheduled'; }
+  } catch (e) {
+    if (e && e.mbdMoneyTimeout) {
+      const rr3 = document.getElementById('fxResult');
+      if (rr3) rr3.innerHTML = '<div style="padding:10px;color:#ff8a8a;font-size:12px;font-weight:700">⚠ ' + esc(e.message) + '<br>The pickup MAY be scheduled. Do NOT tap again — check FedEx before re-requesting.</div>';
+      if (puBtn) { puBtn.disabled = true; puBtn.textContent = 'May have scheduled — do not tap'; }
+      showToast('Pickup may have completed — do NOT tap again');
+      return;
+    }
+    showToast('Pickup error: ' + e.message);
+    if (puBtn) { puBtn.disabled = false; puBtn.textContent = puBtnText; }
+  } finally {
+    _fxState._pickupInflight = false;
+  }
 }
 
 async function scheduleAssignBooker(orderNumber, booker) {
