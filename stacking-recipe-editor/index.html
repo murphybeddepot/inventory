@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.19';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.19';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.19';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.19';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.21';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.21';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.21';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.21';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -476,14 +476,14 @@
           <div class="pad">
             <div class="field"><label>Doors placement</label><div class="ctl">
               <select id="doorsPolicy" title="Where doors go in the stack. Foil doors need to be added first or last in drilling — pick which end.">
-                <option value="default" selected>Default (mixed in)</option>
-                <option value="top">Reserve for TOP layer(s)</option>
-                <option value="bottom">Reserve for BOTTOM layer(s)</option>
+                <option value="top" selected>TOP layer(s) &mdash; default</option>
+                <option value="bottom">BOTTOM layer(s)</option>
+                <option value="default">Mixed in (no reservation)</option>
               </select>
             </div></div>
             <div class="hint" style="margin-top:6px">v3.22 packer changes:<br>
               • <b>Top &amp; bottom layers</b> are always packed big-first for stability (boxes sit flat on top, nothing slides).<br>
-              • <b>Doors policy</b> above holds doors back from mid-layers so foil doors enter drilling first or last as planned.
+              • <b>Doors policy</b> above holds doors back from mid-layers so foil doors enter drilling first or last as planned. Defaults to <b>TOP</b>: the robot stacks everything and a person places the doors on top by hand, so a door buried mid-stack has to be dug back out.
             </div>
           </div>
         </div>
@@ -1096,7 +1096,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.19';
+const APP_VERSION = '4.21';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1187,7 +1187,15 @@ const S = {
   traySort:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_sort')||'section'; }catch(_){return 'section';} })(),
   trayGroupByDim:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_group_dim')==='1'; }catch(_){return false;} })(),
   trayVisual:(function(){ try{ return localStorage.getItem('mbd_stacking_tray_visual')==='1'; }catch(_){return false;} })(),
-  doorsPolicy:(function(){ try{ return localStorage.getItem('mbd_stacking_doors_policy')||'default'; }catch(_){return 'default';} })(),
+  // DOORS GO ON TOP UNLESS SOMEONE SAYS OTHERWISE. Zac 2026-09-03: "the
+  // stacking recipe auto-build does NOT put the doors on the top layers by
+  // default so if i re-stack with that the doors end up randomly inside the
+  // stack." The policy existed and defaulted to 'default' = mixed in, which is
+  // the one setting nobody wants: the robot stacks everything and a person
+  // places the doors on top by hand, so a door buried on layer 6 has to be dug
+  // out. An explicit stored choice still wins -- this only changes what happens
+  // when nobody has chosen.
+  doorsPolicy:(function(){ try{ return localStorage.getItem('mbd_stacking_doors_policy')||'top'; }catch(_){return 'top';} })(),
 };
 /* placed part shape: {id, key, partNum, name, secIdx, L, W, thickness, cx, cy, angle} */
 
@@ -2503,7 +2511,7 @@ function _shapeStackEnds_(layers){
   // 2) Doors policy — reserve the DOOR-heavy layer for the requested end.
   //    Skipped in 'default' mode. Only fires when at least one layer has
   //    doors (else it's a no-op).
-  const policy = (typeof S!=='undefined' && S.doorsPolicy) || 'default';
+  const policy = (typeof S!=='undefined' && S.doorsPolicy) || 'top';
   if(policy === 'top' || policy === 'bottom'){
     let bestI = -1, bestC = 0;
     for(let i=0; i<n; i++){ const c = doorN(layers[i]); if(c > bestC){ bestC = c; bestI = i; } }
@@ -3242,7 +3250,7 @@ function _suggestPack(items, li, crit, seed){
   const totalLayers = Math.max(1, (S.layers||[]).length);
   const isTop = li >= totalLayers - 1;   // top-most known layer
   const isBottom = li === 0;
-  const policy = S.doorsPolicy || 'default';
+  const policy = S.doorsPolicy || 'top';
   let filtered = items.slice();
   if(policy === 'top' && !isTop){
     filtered = filtered.filter(m => !_isDoor_(m));
@@ -3927,7 +3935,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.19'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.21'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4126,7 +4134,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.19');
+    const M=await import('./js/materials.mjs?v=4.21');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4139,7 +4147,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.19'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.21'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4172,7 +4180,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.19');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.21');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4225,7 +4233,36 @@ function bindingReport(){
   }
   return {sources,blind,stale};
 }
-function exportPreflight(salv){
+function exportPreflight(salv,nest){
+  /* A SAVED NEST STILL CARRYING PARTS WE NOW BUY.
+     Zac 2026-09-03: "on export? but i nest before export" -- and marking bought
+     AFTER nesting is the case that breaks. nestPartsFromRecipe() filters the
+     bought set, so nesting-then-exporting in that order is clean. But a nest
+     SAVED earlier is returned from localStorage untouched, so the layer .moz
+     correctly drops the doors while the saved sheets still cut them: the job
+     disagrees with itself and only the sheets are wrong.
+
+     REFUSED, not silently stripped. Pulling parts out of sheets you placed by
+     hand leaves holes, changes the sheet count, and hands you a layout you
+     never approved. Re-nesting is four taps and it is yours. */
+  try{
+    const bought=boughtSet();
+    if(bought.size && nest && Array.isArray(nest.sheets)){
+      const on=new Set();
+      for(const sh of nest.sheets) for(const pl of (sh.placements||sh.parts||[]))
+        { const c=pl.name||pl.partNum||pl.code; if(c&&bought.has(c)) on.add(c); }
+      if(on.size){
+        alert('YOUR SAVED NEST STILL CUTS PARTS YOU MARKED BOUGHT.\n\n'
+          +'  on the sheets : '+[...on].join(', ')+'\n\n'
+          +'The layer files leave these out, so the job would disagree with itself — '
+          +'and the sheets are the half that reaches the saw.\n\n'
+          +'Open Nests and re-nest, then Save for this material, then export again. '
+          +'I am not stripping them out of sheets you placed by hand.');
+        return false;
+      }
+    }
+  }catch(err){ _dbg('bought-vs-nest check failed: '+err.message); }
+
   /* BOUGHT PARTS ARE A THING THE OPERATOR MUST KNOW BEFORE THE ZIP EXISTS.
      They are missing from the nest and the layer files ON PURPOSE, and that is
      indistinguishable from a bug at the machine unless it is said here. */
@@ -4342,7 +4379,7 @@ $('dlMozJob').onclick=async()=>{
     // itself might need a new name)."
     // Asked AFTER the nest is resolved, so the answer can never affect which
     // layout was chosen.
-    if(!exportPreflight(salv)) return;  // named the problem; user chose to stop
+    if(!exportPreflight(salv,nest)) return;  // named the problem; user chose to stop
     const jobName=askJobName(S.sku);
     if(jobName===null) return;                 // cancelled — nothing downloaded
     const blob=await window.MozIO.exportJobZip(snap,{jobName,nest});
@@ -5213,7 +5250,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.19');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.21');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
@@ -5414,9 +5451,11 @@ $('refSel').onchange=()=>{S.ref=$('refSel').value;render();renderInspector();sch
 // parts for the top-most or bottom-most layer so foil doors can be handled
 // first/last in the drilling process without mid-stack surprises.
 {const dp=$('doorsPolicy'); if(dp){
-  dp.value = S.doorsPolicy || 'default';
+  // Same fallback as the packer's, or the picker shows one policy while the
+  // stack is built to another -- the two-writers-one-field bug, again.
+  dp.value = S.doorsPolicy || 'top';
   dp.onchange = () => {
-    S.doorsPolicy = dp.value || 'default';
+    S.doorsPolicy = dp.value || 'top';
     try{ localStorage.setItem('mbd_stacking_doors_policy', S.doorsPolicy); }catch(_){}
   };
 }}
