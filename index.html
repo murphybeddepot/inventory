@@ -9640,7 +9640,19 @@ function _stockV2UpdatePendingBadges_() {
     }
   });
 }
-async function _stockV2DrainPending_() {
+// Audit #2 (2026-09-03, pwa-4): opts = { force?: bool, sku?: string }.
+// Auto triggers (online / visibilitychange / boot / post-save) call with no
+// args and keep the v10.1485 60-min age gate. An EXPLICIT Retry passes
+// force:true (Retry-all after a confirm, or the per-row ⟳ Retry with sku)
+// so a stale entry can actually leave the device — before this the modal
+// promised "Retry to force now" while the drain skipped every stale row
+// unconditionally, and the only way out was Drop (a lost physical count).
+// Safe to force ONLY because the server now honors counted_at_client
+// (pwa-3): the replay is written as-of its original count time, or
+// answered {superseded:true} when a newer count already stands.
+async function _stockV2DrainPending_(opts) {
+  const force = !!(opts && opts.force);
+  const onlySku = (opts && opts.sku) ? String(opts.sku) : '';
   if (_stockV2DrainRunning_) return; // re-entrant guard
   _stockV2DrainRunning_ = true;
   try {
@@ -9656,14 +9668,15 @@ async function _stockV2DrainPending_() {
       return t > 0 && (Date.now() - t) > _STALE_MS;
     };
     const staleCount = q.filter(_isStale).length;
-    if (staleCount > 0 && !window._stockV2StaleToastShown_) {
+    if (staleCount > 0 && !force && !window._stockV2StaleToastShown_) {
       window._stockV2StaleToastShown_ = true;
       if (typeof showToast === 'function') showToast('⚠ ' + staleCount + ' queued count(s) are >1h old — review them in the pending list before syncing');
     }
     let i = 0;
     while (i < q.length) {
       const entry = q[i];
-      if (_isStale(entry)) { i++; continue; }   // stale entries need a deliberate Retry-all
+      if (onlySku && String(entry.sku) !== onlySku) { i++; continue; }   // per-row Retry
+      if (!force && _isStale(entry)) { i++; continue; }   // stale entries need a deliberate Retry (force)
       try {
         const res = await groundApi('recordInventoryCount', {
           itemSku: entry.sku,
@@ -9693,7 +9706,14 @@ async function _stockV2DrainPending_() {
               _stockV2RenderSessionView_();
             }
           }
-          if (typeof showToast === 'function') showToast('✓ Synced queued count: ' + entry.sku);
+          if (typeof showToast === 'function') {
+            // Audit #2 (pwa-3): {superseded:true} = the server already holds
+            // a NEWER count for this SKU; the queued one is dropped, not
+            // written backwards over it.
+            showToast(res.superseded
+              ? '↷ ' + entry.sku + ': a newer count was already on file — queued count dropped'
+              : '✓ Synced queued count: ' + entry.sku);
+          }
         } else {
           // Server returned error — stop the drain to avoid hammering.
           break;
@@ -15527,6 +15547,9 @@ function _stockV2OpenPendingList_() {
         +   '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:800;color:var(--text) !important;-webkit-text-fill-color:var(--text) !important;word-break:break-all">' + esc(e.sku) + '</div>'
         +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-top:2px">📍 ' + esc(e.location || '—') + ' · qty: <strong style="color:var(--text) !important;-webkit-text-fill-color:var(--text) !important">' + esc(String(e.qty)) + '</strong> · queued ' + rel(e.queued_at) + (e.by ? ' · by ' + esc(e.by) : '') + ((e.queued_at && (Date.now() - new Date(e.queued_at).getTime()) > 3600000) ? ' <span style="background:rgba(255,179,0,.18);color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border:1px solid rgba(255,179,0,.5);border-radius:999px;padding:1px 7px;font-size:9px;font-weight:900;letter-spacing:.5px">OLD — auto-sync paused</span>' : '') + '</div>'
         + '</div>'
+        // Audit #2 (2026-09-03, pwa-4): per-row ⟳ Retry beside Drop — a
+        // stale row used to have Drop as its ONLY control.
+        + '<button onclick="_stockV2RetryOnePending_(' + idx + ',\'' + esc(String(e.sku || '')).replace(/'/g, "\\'") + '\')" title="Sync this entry now, as of its original count time" style="background:transparent;border:1px solid #FFB300;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1">⟳ Retry</button>'
         + '<button onclick="_stockV2DropPending_(' + idx + ',\'' + esc(String(e.sku || '')).replace(/'/g, "\\'") + '\')" title="Drop this entry without syncing" style="background:transparent;border:1px solid #FF5252;color:#FF5252 !important;-webkit-text-fill-color:#FF5252 !important;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1">Drop</button>'
         + '</div>'
       ).join('');
@@ -15541,7 +15564,7 @@ function _stockV2OpenPendingList_() {
     +     '<div style="font-family:\'Barlow Condensed\',Arial,sans-serif;font-size:22px;font-weight:900;color:#FFB300 !important;-webkit-text-fill-color:#FFB300 !important;letter-spacing:1px;text-transform:uppercase">⟳ ' + q.length + ' PENDING SYNC</div>'
     +     '<button onclick="document.getElementById(\'stockV2PendingList\').remove()" style="background:transparent;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none;font-size:24px;cursor:pointer;padding:0 6px">✕</button>'
     +   '</div>'
-    +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:12px">Saved locally — will sync when server responds. Retry to force now.</div>'
+    +   '<div style="font-size:11px;color:var(--text-dim) !important;-webkit-text-fill-color:var(--text-dim) !important;margin-bottom:12px">Saved locally — fresh entries auto-sync when the server responds. Entries over 1h old wait for an explicit ⟳ Retry: they sync as of their original count time, and a newer count already on file wins.</div>'
     +   '<div style="flex:1;overflow-y:auto;margin-bottom:12px">' + rows + '</div>'
     +   (q.length > 0
         ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
@@ -15580,10 +15603,44 @@ async function _stockV2RetryAllPending_() {
     btn.disabled = true;
     btn.style.opacity = '0.7';
   }
+  // Audit #2 (2026-09-03, pwa-4): an EXPLICIT Retry-all forces the >1h
+  // entries through too (after a confirm that names them) — the
+  // argument-less drain skipped them and this button was a no-op for
+  // exactly the rows the operator opened the list to fix.
+  let force = false;
   try {
-    await _stockV2DrainPending_();
+    const qNow = _stockV2GetPendingQueue_();
+    const staleN = qNow.filter(e => e && e.queued_at && (Date.now() - new Date(e.queued_at).getTime()) > 3600000).length;
+    if (staleN > 0) {
+      force = confirm(staleN + ' queued count(s) are over an hour old. Sync them now as of their ORIGINAL count time? '
+        + 'A newer count already on file for a SKU wins and the queued one is dropped. '
+        + 'Cancel syncs only the fresh entries.');
+    }
+  } catch (e) { force = false; }
+  try {
+    await _stockV2DrainPending_(force ? { force: true } : undefined);
   } finally {
     _stockV2OpenPendingList_(); // re-render with remaining
+  }
+}
+// Audit #2 (2026-09-03, pwa-4): per-row Retry. Same identity check as
+// Drop (the background drain mutates the queue under an open list).
+async function _stockV2RetryOnePending_(idx, sku) {
+  const q = _stockV2GetPendingQueue_();
+  if (idx < 0 || idx >= q.length || (sku && q[idx].sku !== sku)) {
+    if (typeof showToast === 'function') showToast('List was out of date — refreshed. Tap Retry again.');
+    _stockV2OpenPendingList_();
+    return;
+  }
+  const entry = q[idx];
+  const before = q.length;
+  try {
+    await _stockV2DrainPending_({ force: true, sku: String(entry.sku || '') });
+  } finally {
+    if (_stockV2GetPendingQueue_().length >= before && typeof showToast === 'function') {
+      showToast('⚠ ' + entry.sku + ' still pending — server did not accept it yet');
+    }
+    _stockV2OpenPendingList_(); // re-render
   }
 }
 function _stockV2ClearAllPending_() {
@@ -32320,8 +32377,37 @@ async function groundApi(action, payload) {
     // the abort (it forces a page reload = another 20s of Today's Jobs
     // load = wasted time).
     'getResolvedPickList', 'resolvePickListForOrder',
+    // Audit #2 (2026-09-03, pwa-3): a Stock 2 count that ran past the 45s
+    // default was aborted client-side AFTER it applied, then ENQUEUED and
+    // replayed by the offline drain — a second CYCLE_COUNT row and a
+    // moved last_counted_at for a count that already stood. 180s so a
+    // slow GAS run finishes instead of being replayed.
+    'recordInventoryCount',
   ];
   const _isMoneyAction_ = _MONEY_ACTIONS_.indexOf(_actStr) !== -1;
+  // Audit #2 (2026-09-03, pwa-2): which actions may be RE-SENT to direct
+  // /exec after the relay answered non-2xx. A relay 502 arrives AFTER Apps
+  // Script has started executing (worker origin-wait, or GAS's own HTML
+  // error page for a script that already ran), so re-POSTing the same body
+  // double-executes it. v10.1480 closed that for money actions only; every
+  // other write still retried — a pack ± delta landed twice, moveBinQuantity
+  // moved twice, addToTodaysPackList flipped 2N rows, createRemake /
+  // pickListCreatePO / sendReorderRequest produced duplicates, print*
+  // printed twice. Only READS (and writes that carry their own dedupe key)
+  // are safe to replay; everything else fails loudly and is counted.
+  // scripts/test-groundapi-retry-policy.js pins this list against the
+  // dispatcher and against the write-verb rule.
+  const _RETRY_SAFE_ACTIONS_ = [
+    'ping', 'verifyManagerPin', 'recordCycleCount',   // recordCycleCount: uuid-keyed, server dedupes
+    'traceLeaf', 'spineOrderDetail', 'pickListSessionForOrder',
+    'resolveOrderForJump', 'resolvePickListForOrder',
+    'compareCarrierRates', 'fedexParcelRate', 'fedexParcelRateForOrder',
+    'freightRateCompareAll', 'fedexFreightRate', 'fedexQuoteOrder',
+    'checkPrintNodePrinterOnline', 'previewShipConfTemplate',
+    'runDiagV1LabelDryRun', 'runMetaDiag', 'walkLotBackward',
+  ];
+  const _isRetrySafeAction_ = _RETRY_SAFE_ACTIONS_.indexOf(_actStr) !== -1
+    || (/^(get|list|find|diag|search|lookup|read)[A-Z0-9_]/.test(_actStr) && !_isMoneyAction_);
   const _needsMore = /sample/i.test(_actStr)
     || _isMoneyAction_
     || _SLOW_ACTIONS_.indexOf(_actStr) !== -1;
@@ -32354,7 +32440,7 @@ async function groundApi(action, payload) {
       // as "used" if it responded 2xx.
       if (resp.ok) {
         usedRelay = true;
-      } else if (_isMoneyAction_ && resp.status >= 500) {
+      } else if (!_isRetrySafeAction_) {
         // v10.1480 — a relay 5xx does NOT mean the request never ran.
         // The worker may have forwarded to Apps Script and then hit its
         // own origin-wait limit while GAS keeps executing (the v10.946
@@ -32362,23 +32448,41 @@ async function groundApi(action, payload) {
         // here double-executes it: groundBulkPrint buys a second set of
         // labels, createManualGroundOrder creates a duplicate order.
         // Fail loudly instead — same contract as the v10.1398 abort.
+        // Audit #2 (2026-09-03, pwa-2): the same is true of EVERY write,
+        // not just money — see _RETRY_SAFE_ACTIONS_ above. Any non-2xx on
+        // a write action refuses the direct-/exec retry, and the refusal
+        // is counted (logBedrockIssue → unread-issue badge + reportIssue),
+        // where before the fallback was console-only.
         try { clearTimeout(_api_timer); } catch (_e) {}
+        if (action !== 'reportIssue' && typeof logBedrockIssue === 'function') {
+          logBedrockIssue('relay_http', 'Relay HTTP ' + resp.status + ' on write: ' + _actStr,
+            'direct-/exec retry REFUSED (non-idempotent action)', '');
+        }
         const _e_ = new Error(
           'Relay returned HTTP ' + resp.status + ' — but this step may have COMPLETED on the server. '
           + 'Do NOT tap again. Refresh and re-open the order first: if labels/tracking are already there, it worked. '
           + '(action: ' + _actStr + ')');
-        _e_.mbdMoneyTimeout = true;
+        _e_.mbdMoneyTimeout = _isMoneyAction_;
+        _e_.mbdRelayRefused = true;
         _e_.mbdAction = _actStr;
         throw _e_;
       } else {
+        // Read / idempotent action — the direct-/exec fallback is safe.
+        // Audit #2 (pwa-2): counted, not console-only.
         console.log('[groundApi] relay returned HTTP ' + resp.status + ', falling back to direct /exec');
+        if (action !== 'reportIssue' && typeof logBedrockIssue === 'function') {
+          logBedrockIssue('relay_http', 'Relay HTTP ' + resp.status + ' on read: ' + _actStr,
+            'fell back to direct /exec (idempotent action)', '');
+        }
         resp = null;   // discard the error body; fallback will overwrite
       }
     } catch (relayErr) {
       // v10.1480 — the money-5xx guard above throws from inside this
       // try; let it propagate instead of swallowing it into the
       // direct-/exec fallback it exists to prevent.
-      if (relayErr && relayErr.mbdMoneyTimeout) throw relayErr;
+      // Audit #2 (pwa-2): the write-refusal above carries mbdRelayRefused
+      // (mbdMoneyTimeout is only set for money actions) — propagate both.
+      if (relayErr && (relayErr.mbdMoneyTimeout || relayErr.mbdRelayRefused)) throw relayErr;
       // Worker unreachable — fall back to direct /exec (still works in
       // older browsers / Safari).
       console.log('[groundApi] relay unreachable, falling back to direct /exec:', relayErr.message);
@@ -38585,7 +38689,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1525"></script>
+<script src="./pack.js?v=10.1526"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38596,7 +38700,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1525<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1526<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
