@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.23';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.23';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.23';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.23';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.25';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.25';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.25';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.25';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1098,7 +1098,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.23';
+const APP_VERSION = '4.25';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2531,12 +2531,59 @@ function _shapeStackEnds_(layers){
     for(const l of layers) (doorN(l) > 0 ? withDoors : without).push(l);
     // A no-op when every layer has doors, or none does.
     if(withDoors.length && without.length){
+      // ...and the door layers are ORDERED BY CODE among themselves.
+      // Zac 2026-09-03: "on library beds top layer is 8a only, second from top
+      // (top if 4-door) is 8b only". One code per layer, 8A the very top. A
+      // 4-door bed drops the 8B sliders entirely, so its single door layer is
+      // 8A and lands on top by the same rule -- no special case for it.
+      withDoors.sort((a, b) => {
+        const ra = DOOR_STACK_ORDER.indexOf(dominantDoorCode(a));
+        const rb = DOOR_STACK_ORDER.indexOf(dominantDoorCode(b));
+        // Unknown codes (-1) sit below the named ones rather than on top.
+        const na = ra < 0 ? DOOR_STACK_ORDER.length : ra;
+        const nb = rb < 0 ? DOOR_STACK_ORDER.length : rb;
+        return nb - na;          // bottom -> top, so the HIGHEST rank goes last
+      });
       // layers[] runs bottom -> top: index 0 is the floor, n-1 the top.
       const ordered = (policy === 'top') ? [...without, ...withDoors]
-                                         : [...withDoors, ...without];
+                                         : [...withDoors, ...without.slice()];
       for(let i = 0; i < n; i++) layers[i] = ordered[i];
     }
   }
+}
+
+/* THE DOOR STACKING ORDER, top-down. The first entry ends up on the very top
+   layer. Zac 2026-09-03: "top layer is 8a only, second from top (top if
+   4-door) is 8b only". Named once here rather than spelled into the sort, so
+   adding a third door code is one edit and the rule stays readable. */
+const DOOR_STACK_ORDER = ['8A', '8B'];
+
+/** The door code a layer is FOR: the one it has most of. A layer should hold a
+ *  single door code -- see doorLayersMixed() -- but a sort must not throw on a
+ *  stack that has not been cleaned up yet. */
+function dominantDoorCode(layer){
+  const c = {};
+  for(const p of (layer||[])){
+    if(!(p.m && _isDoor_(p.m))) continue;
+    const code = p.m.partNum || p.m.name || '';
+    c[code] = (c[code]||0) + 1;
+  }
+  let best = '', n = 0;
+  for(const k of Object.keys(c)) if(c[k] > n){ n = c[k]; best = k; }
+  return best;
+}
+
+/** 1-based layer numbers holding MORE THAN ONE door code. */
+function doorLayersMixed(layers){
+  const out = [];
+  (layers||[]).forEach((l, i) => {
+    const codes = new Set();
+    for(const p of (l||[])){
+      if(p.m && _isDoor_(p.m)) codes.add(p.m.partNum || p.m.name || '');
+    }
+    if(codes.size > 1) out.push(i + 1);
+  });
+  return out;
 }
 
 /** Which layers still carry doors outside the block they were promised, if any.
@@ -3298,6 +3345,15 @@ function _suggestPack(items, li, crit, seed){
   } else if(policy === 'bottom' && !isBottom){
     filtered = filtered.filter(m => !_isDoor_(m));
   }
+  // ONE DOOR CODE PER LAYER. Zac 2026-09-03: "top layer is 8a only, second
+  // from top ... is 8b only". Once a layer has taken an 8A, no 8B may join it:
+  // 8A and 8B are different doors going to different places, and a layer
+  // holding both is a layer somebody has to sort by hand at the pallet.
+  {
+    const here = dominantDoorCode((S.layers||[])[li]||[]);
+    if(here) filtered = filtered.filter(m =>
+      !_isDoor_(m) || (m.partNum||m.name||'') === here);
+  }
   // If policy filter emptied the pool but there are actual parts left in
   // the tray, fall back to the unfiltered pool — better to place SOME
   // part than leave the layer empty and stall progress.
@@ -3976,7 +4032,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.23'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.25'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4191,7 +4247,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.23');
+    const M=await import('./js/materials.mjs?v=4.25');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4204,7 +4260,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.23'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.25'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4237,7 +4293,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.23');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.25');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4326,14 +4382,24 @@ function exportPreflight(salv,nest){
      than assumed. A door buried mid-stack is a pallet someone has to dig
      through, and it is invisible until the stack is in front of them. */
   try{
-    const bad=doorsOutOfPlace(S.layers||[]);
-    if(bad.length){
+    const L=S.layers||[];
+    const bad=doorsOutOfPlace(L);
+    const mixed=doorLayersMixed(L);
+    // The ORDER among the door layers, top-down, against the stated rule.
+    const doorIdx=[]; L.forEach((l,i)=>{ if(dominantDoorCode(l)) doorIdx.push(i); });
+    const gotTopDown=doorIdx.slice().reverse().map(i=>dominantDoorCode(L[i]));
+    const wantTopDown=DOOR_STACK_ORDER.filter(c=>gotTopDown.includes(c));
+    const wrongOrder=gotTopDown.length===wantTopDown.length
+      && gotTopDown.join(',')!==wantTopDown.join(',');
+    if(bad.length||mixed.length||wrongOrder){
       const pol=(S.doorsPolicy==='bottom')?'BOTTOM':'TOP';
-      if(!confirm('DOORS ARE NOT ALL AT THE '+pol+' OF THE STACK.\n\n'
-        +'  loose on layer(s) : '+bad.join(', ')+'\n\n'
-        +'The doors policy is set to '+pol+', so every door-bearing layer should sit '
-        +'in one block at that end. Re-run the auto-stack, or move them by hand.\n\n'
-        +'Export anyway?')) return false;
+      const lines=[];
+      if(bad.length)   lines.push('  loose on layer(s)   : '+bad.join(', ')+'  (should be one block at the '+pol+')');
+      if(mixed.length) lines.push('  mixed codes on layer: '+mixed.join(', ')+'  (a layer takes ONE door code)');
+      if(wrongOrder)   lines.push('  order top-down      : '+gotTopDown.join(' then ')+'  (should be '+wantTopDown.join(' then ')+')');
+      if(!confirm('THE DOORS ARE NOT STACKED THE WAY THE RULE SAYS.\n\n'+lines.join('\n')
+        +'\n\nRule: '+DOOR_STACK_ORDER.join(' on top, then ')+' below it, one code per layer, '
+        +'all of them at the '+pol+'.\n\nRe-run the auto-stack, or move them by hand.\n\nExport anyway?')) return false;
     }
   }catch(err){ _dbg('doors-placement check failed: '+err.message); }
 
@@ -5018,6 +5084,48 @@ function nestsForSku(sku){
   }catch(e){}
   return out;
 }
+/* RENAMING A RECIPE MUST NOT ORPHAN ITS NESTS.
+   Zac 2026-09-03: "it does not make any sense that i'll spend time editing a
+   bunch of nests, then simply change the name and save to library and it
+   completely re-sets the nests."
+
+   It never reset them -- which is worse, because it looks like data loss and
+   the work is actually still sitting there. Nests are stored under
+   "<sku>::<materialId>". The rename handler set S.sku and saved, so every
+   lookup afterwards used the NEW name, found nothing, and showed an empty
+   nest; the sheets stayed in localStorage under the old key with nothing
+   pointing at them.
+
+   COPIED, not moved. "Change the name and save" is a rename to some people and
+   a fork to others, and copying is right either way: the new name gets the
+   sheets, and if the old recipe still exists it keeps working. An existing
+   nest at the destination is never clobbered -- same rule as
+   restoreNestsForSku, for the same reason. */
+function carryNestsToSku(fromSku,toSku){
+  if(!fromSku||!toSku||fromSku===toSku) return 0;
+  let n=0;
+  try{
+    const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}')||{};
+    const pre=fromSku+'::';
+    for(const k of Object.keys(all)){
+      if(!k.startsWith(pre)) continue;
+      const src=all[k];
+      if(!src||!src.sheets||!src.sheets.length) continue;
+      const dst=toSku+'::'+k.slice(pre.length);
+      const existing=all[dst];
+      if(existing&&existing.sheets&&existing.sheets.length) continue;   // never clobber
+      all[dst]={...src, sku:toSku};
+      n++;
+    }
+    localStorage.setItem('mbd_nests_by_material_v1',JSON.stringify(all));
+  }catch(e){}
+  // The in-flight nest is keyed by sku too, so it goes stale on the same edit.
+  try{
+    const st=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
+    if(st&&st.sku===fromSku){ st.sku=toSku; sessionStorage.setItem('mbd_nest_result',JSON.stringify(st)); }
+  }catch(e){}
+  return n;
+}
 // Write a snapshot's nests back into the local store. NEVER clears one that is
 // not in the snapshot: an older snapshot must not delete a nest saved since,
 // and a recipe saved before this shipped carries no `nests` key at all.
@@ -5324,7 +5432,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.23');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.25');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
@@ -5533,7 +5641,13 @@ $('refSel').onchange=()=>{S.ref=$('refSel').value;render();renderInspector();sch
     try{ localStorage.setItem('mbd_stacking_doors_policy', S.doorsPolicy); }catch(_){}
   };
 }}
-$('skuInput').onchange=()=>{S.sku=$('skuInput').value.trim();scheduleSave();};
+$('skuInput').onchange=()=>{
+  const prev=S.sku;
+  S.sku=$('skuInput').value.trim();
+  const moved=carryNestsToSku(prev,S.sku);
+  if(moved) toast(moved+' saved nest'+(moved===1?'':'s')+' carried over to "'+S.sku+'"');
+  scheduleSave();
+};
 
 $('btnRotate').onclick=()=>{if(S.sel.size)rotateSel(90);};
 $('btnDup').onclick=()=>{if(S.sel.size)dupSel();};
