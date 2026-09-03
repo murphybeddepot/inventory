@@ -6491,8 +6491,11 @@ async function bulkPackAction(target) {
             deviceId: getPackDeviceId_(),
             packerName: localStorage.getItem('mbd_ground_packer') || '',
           });
-          if (res && res.ok) ok++;
-          else {
+          if (res && res.ok) {
+            ok++;
+            // Audit #2 (cab-2): shipped, but the stock ledger refused — count it as a failure the manager sees
+            if (res.ledger_ok === false) failed.push(orderNumber + ': shipped but stock NOT deducted (' + (res.ledger_error || 'ledger write failed') + ')');
+          } else {
             if (res && /pin/i.test(res.error || '')) pinInvalid = true;
             failed.push(orderNumber + ': ' + ((res && res.error) || 'unknown'));
           }
@@ -6535,7 +6538,14 @@ async function confirmMarkPackJobShipped(orderNumber) {
           showToast(((res && res.error) || 'Mark shipped failed'));
           return;
         }
-        showPackBanner_('Order ' + orderNumber + ' shipped 📦', '#00e676');
+        // Audit #2 (cab-2): the server now says whether the stock ledger
+        // took the ship. A shipped order whose deduction failed is a stock
+        // number that reads high until someone notices — say it here.
+        if (res.ledger_ok === false) {
+          showPackBanner_('Order ' + orderNumber + ' shipped — but stock was NOT deducted (' + (res.ledger_error || 'ledger write failed') + '). Tell Zac.', '#ff9100');
+        } else {
+          showPackBanner_('Order ' + orderNumber + ' shipped 📦', '#00e676');
+        }
         await refreshPackQueue();
       } catch (err) {
         showToast('Mark shipped error: ' + err.message);
@@ -12806,6 +12816,9 @@ async function _plannerMarkShipped_(orderNumber) {
         _renderPackPlanner_(_packPlannerCache);
       }
       _handleApiErrorWithPin_(r, 'Mark shipped failed (rolled back)');
+    } else if (r && r.ledger_ok === false) {
+      // Audit #2 (cab-2): status flipped, ledger did not — never let that read as a clean ship
+      showToast('Shipped, but stock was NOT deducted: ' + (r.ledger_error || 'ledger write failed') + ' — tell Zac');
     }
   } catch (e) {
     if (removed && _packPlannerCache) {
