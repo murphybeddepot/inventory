@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.21';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.21';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.21';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.21';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.22';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.22';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.22';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.22';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1096,7 +1096,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.21';
+const APP_VERSION = '4.22';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -2508,20 +2508,51 @@ function _shapeStackEnds_(layers){
       const tmp = layers[n-1]; layers[n-1] = layers[bestJ]; layers[bestJ] = tmp;
     }
   }
-  // 2) Doors policy — reserve the DOOR-heavy layer for the requested end.
-  //    Skipped in 'default' mode. Only fires when at least one layer has
-  //    doors (else it's a no-op).
+  // 2) Doors policy — EVERY door-bearing layer goes to the requested end, not
+  //    just the heaviest one.
+  //
+  //    Zac 2026-09-03: "a little better but not strict enough on all doors
+  //    being on top 2 layers." The old pass found the layer with the MOST
+  //    doors and swapped that one to the top -- its own comment said "safe
+  //    when doors span multiple layers (picks the one with the most doors)",
+  //    which is precisely the case it does not handle. QUHW8M carries eight
+  //    doors over two layers, so one layer floated and the other stayed buried
+  //    mid-stack, which is what he is looking at.
+  //
+  //    A partition, not a swap: door layers keep their relative order and move
+  //    together to one end. Two door layers land as the top two, three as the
+  //    top three -- no number is hardcoded, because the count is a property of
+  //    the order, not of the code.
   const policy = (typeof S!=='undefined' && S.doorsPolicy) || 'top';
   if(policy === 'top' || policy === 'bottom'){
-    let bestI = -1, bestC = 0;
-    for(let i=0; i<n; i++){ const c = doorN(layers[i]); if(c > bestC){ bestC = c; bestI = i; } }
-    if(bestI >= 0){
-      const target = (policy === 'top') ? n-1 : 0;
-      if(bestI !== target){
-        const tmp = layers[target]; layers[target] = layers[bestI]; layers[bestI] = tmp;
-      }
+    const withDoors = [], without = [];
+    for(const l of layers) (doorN(l) > 0 ? withDoors : without).push(l);
+    // A no-op when every layer has doors, or none does.
+    if(withDoors.length && without.length){
+      // layers[] runs bottom -> top: index 0 is the floor, n-1 the top.
+      const ordered = (policy === 'top') ? [...without, ...withDoors]
+                                         : [...withDoors, ...without];
+      for(let i = 0; i < n; i++) layers[i] = ordered[i];
     }
   }
+}
+
+/** Which layers still carry doors outside the block they were promised, if any.
+ *  Returned as 1-based layer numbers so it can be said out loud to a person. */
+function doorsOutOfPlace(layers){
+  const policy = (typeof S!=='undefined' && S.doorsPolicy) || 'top';
+  if(policy !== 'top' && policy !== 'bottom') return [];
+  const doorN = layer => { let c=0; for(const p of (layer||[])){ if(p.m && _isDoor_(p.m)) c++; } return c; };
+  const idx = [];
+  layers.forEach((l, i) => { if(doorN(l) > 0) idx.push(i); });
+  if(!idx.length) return [];
+  // The block must be contiguous AND flush against the requested end.
+  const n = layers.length;
+  const want = (policy === 'top')
+    ? Array.from({length: idx.length}, (_, k) => n - idx.length + k)
+    : Array.from({length: idx.length}, (_, k) => k);
+  const bad = idx.filter((i, k) => i !== want[k]);
+  return bad.map(i => i + 1);
 }
 // v3.24 — stacked-gap penalty. Rasters each layer at 50mm cells, then for
 // every (x,y) column sums (run-1)^2 over maximal runs of consecutive empty
@@ -3248,8 +3279,16 @@ function _suggestPack(items, li, crit, seed){
   // by excluding them from every OTHER layer. When we're ON the target
   // end, keep everything (doors + non-doors will pack together).
   const totalLayers = Math.max(1, (S.layers||[]).length);
-  const isTop = li >= totalLayers - 1;   // top-most known layer
-  const isBottom = li === 0;
+  // A layer counts as the target end if it IS that end, or if it already holds
+  // a door. Eight doors do not fit on one layer, and with only the last layer
+  // eligible the overflow hit the "pool emptied, fall back to everything" path
+  // and scattered into the middle of the stack -- which the post-pack reorder
+  // then had to drag up, non-door parts and all. Letting a second door layer
+  // form next to the first keeps them contiguous, so the reorder moves a clean
+  // block. No layer count is hardcoded; the doors decide how many they need.
+  const _layerHasDoor = (i) => ((S.layers||[])[i]||[]).some(p => p.m && _isDoor_(p.m));
+  const isTop = li >= totalLayers - 1 || _layerHasDoor(li);
+  const isBottom = li === 0 || _layerHasDoor(li);
   const policy = S.doorsPolicy || 'top';
   let filtered = items.slice();
   if(policy === 'top' && !isTop){
@@ -3935,7 +3974,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.21'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.22'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4134,7 +4173,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.21');
+    const M=await import('./js/materials.mjs?v=4.22');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4147,7 +4186,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.21'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.22'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4180,7 +4219,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.21');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.22');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4262,6 +4301,23 @@ function exportPreflight(salv,nest){
       }
     }
   }catch(err){ _dbg('bought-vs-nest check failed: '+err.message); }
+
+  /* DOORS THAT DID NOT MAKE IT TO THE END THEY WERE PROMISED.
+     The reorder partitions every door-bearing layer to the requested end, so
+     this should never fire -- which is exactly why it must be checked rather
+     than assumed. A door buried mid-stack is a pallet someone has to dig
+     through, and it is invisible until the stack is in front of them. */
+  try{
+    const bad=doorsOutOfPlace(S.layers||[]);
+    if(bad.length){
+      const pol=(S.doorsPolicy==='bottom')?'BOTTOM':'TOP';
+      if(!confirm('DOORS ARE NOT ALL AT THE '+pol+' OF THE STACK.\n\n'
+        +'  loose on layer(s) : '+bad.join(', ')+'\n\n'
+        +'The doors policy is set to '+pol+', so every door-bearing layer should sit '
+        +'in one block at that end. Re-run the auto-stack, or move them by hand.\n\n'
+        +'Export anyway?')) return false;
+    }
+  }catch(err){ _dbg('doors-placement check failed: '+err.message); }
 
   /* BOUGHT PARTS ARE A THING THE OPERATOR MUST KNOW BEFORE THE ZIP EXISTS.
      They are missing from the nest and the layer files ON PURPOSE, and that is
@@ -5250,7 +5306,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.21');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.22');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
