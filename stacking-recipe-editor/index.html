@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.26';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.26';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.26';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.26';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.27';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.27';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.27';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.27';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -316,6 +316,17 @@
       <div class="colhead">Parts <span class="spacer"></span><span id="trayCount" class="muted mono"></span></div>
       <div class="traytools">
         <div class="row"><input type="search" id="traySearch" placeholder="Filter parts…" spellcheck="false"></div>
+        <!-- SHOW ONLY WHAT IS MISSING. Zac 2026-09-03: "I NEED A WAY TO SHOW
+             JUST THE PARTS THAT ARE NOT PLACED ON THE LEFT LIST". Finding the
+             seven unplaced pieces in a list of seventy-eight, by eye, is not a
+             thing anyone should be asked to do at a bench. -->
+        <div class="row" style="gap:6px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;cursor:pointer">
+            <input type="checkbox" id="trayUnplacedOnly"> Show only NOT placed
+          </label>
+          <span class="spacer"></span>
+          <span id="trayUnplacedCount" class="muted mono" style="font-size:11px"></span>
+        </div>
         <div class="row" style="gap:6px">
           <label style="font-size:11px;color:var(--ink2)" for="traySort">Sort</label>
           <select id="traySort" style="flex:1;font-size:11px;padding:3px 6px;border:1px solid var(--line2);border-radius:6px;background:var(--field);color:var(--ink)">
@@ -1098,7 +1109,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.26';
+const APP_VERSION = '4.27';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1818,8 +1829,48 @@ function placeArmed(x,y){
 
 /* ---------- placed counts ---------- */
 function placedCount(key){let n=0;for(const layer of S.layers)for(const p of layer)if(p.key===key)n++;return n;}
-function totalPlaced(){let n=0;for(const layer of S.layers)n+=layer.length;return n;}
+/* THE PLACED COUNT MUST NOT BE ABLE TO LIE.
+   Zac 2026-09-03: "IT WAS SAYING 78/78 PLACED AND THEN I FOUND OUT IT WAS
+   WRONG.. THE HB WASN'T", then "NOW WITH NO DOORS PLACED IT SAYS 71/78".
+
+   It counted every OBJECT sitting in every layer and compared that to the sum
+   of manifest quantities. Two different populations. One part placed twice
+   cancels another placed not at all, and the readout says 78/78 while a
+   headboard is missing -- 71 where 70 is the truth is the same +1 showing
+   through once the doors left.
+
+   Counted per REQUIREMENT now: each manifest line contributes at most its own
+   qty, so a duplicate can never fill in for an absence. Anything placed beyond
+   a line's qty, or placed with no manifest line at all, is reported separately
+   by placementAnomalies() rather than quietly inflating the total. */
+function totalPlaced(){
+  let n=0;
+  for(const m of S.manifest) n += Math.min(placedCount(m.key), m.qty);
+  return n;
+}
 function totalRequired(){let n=0;for(const m of S.manifest)n+=m.qty;return n;}
+/** Placements the count deliberately refuses to credit: {over:[], orphan:[]}. */
+function placementAnomalies(){
+  const need=new Map(S.manifest.map(m=>[m.key,m]));
+  const seen=new Map();
+  for(const layer of (S.layers||[])) for(const p of (layer||[])){
+    seen.set(p.key,(seen.get(p.key)||0)+1);
+  }
+  const over=[], orphan=[];
+  for(const [key,n] of seen){
+    const m=need.get(key);
+    if(!m){ orphan.push({key,n}); continue; }
+    if(n>m.qty) over.push({partNum:m.partNum,name:m.name,qty:m.qty,placed:n});
+  }
+  return {over,orphan};
+}
+/** Manifest lines with pieces still to place, most-missing first. */
+function unplacedItems(){
+  return S.manifest
+    .map(m=>({m, missing:Math.max(0, m.qty - placedCount(m.key))}))
+    .filter(x=>x.missing>0)
+    .sort((a,b)=>b.missing-a.missing);
+}
 
 /* ---------- TRAY ---------- */
 /* v3.3: sort options. When sort='section' (default) keeps the section-
@@ -1971,10 +2022,34 @@ function renderTray(){
     $('trayCount').textContent='';return;}
   const q=($('traySearch').value||'').toLowerCase();
   const sort=S.traySort||'section';
-  const filtered=S.manifest.filter(m=>!q||(m.partNum+' '+m.name).toLowerCase().includes(q));
+  const onlyUnplaced=!!(($('trayUnplacedOnly')||{}).checked);
+  const filtered=S.manifest.filter(m=>{
+    if(q && !(m.partNum+' '+m.name).toLowerCase().includes(q)) return false;
+    if(onlyUnplaced && placedCount(m.key)>=m.qty) return false;
+    return true;
+  });
   if(sort==='section') _renderTraySectionMode_(body, filtered);
   else _renderTrayFlatMode_(body, filtered, sort);
-  $('trayCount').textContent=totalPlaced()+'/'+totalRequired()+' placed';
+  // The headline count, and then -- separately -- anything the count REFUSED to
+  // credit. A duplicate must never be able to stand in for a missing piece.
+  const anom=placementAnomalies();
+  const miss=unplacedItems();
+  const nMiss=miss.reduce((a,x)=>a+x.missing,0);
+  $('trayCount').textContent=totalPlaced()+'/'+totalRequired()+' placed'
+    +(nMiss?('  \u00b7 '+nMiss+' MISSING'):'');
+  $('trayCount').style.color = nMiss ? 'var(--bad)' : '';
+  const uc=$('trayUnplacedCount');
+  if(uc){
+    const bits=[];
+    if(nMiss) bits.push(nMiss+' piece(s) not placed: '+miss.slice(0,4).map(x=>x.m.partNum+'\u00d7'+x.missing).join(', ')+(miss.length>4?'\u2026':''));
+    if(anom.over.length) bits.push('OVER-PLACED: '+anom.over.map(o=>o.partNum+' '+o.placed+'/'+o.qty).join(', '));
+    if(anom.orphan.length) bits.push(anom.orphan.length+' placement(s) match no manifest line');
+    uc.textContent=bits.join('  \u00b7  ');
+    uc.style.color = bits.length ? 'var(--bad)' : '';
+  }
+  if(onlyUnplaced && !filtered.length && S.manifest.length){
+    body.innerHTML='<div class="emptytray">Every part is placed.<br>Untick <b>Show only NOT placed</b> to see them all.</div>';
+  }
   // Reflect toggle state in button styling.
   const gBtn = $('btnTrayGroup'); if(gBtn) gBtn.style.background = S.trayGroupByDim ? 'var(--accent-soft)' : '';
   const vBtn = $('btnTrayVisual'); if(vBtn) vBtn.style.background = S.trayVisual ? 'var(--accent-soft)' : '';
@@ -4104,7 +4179,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.26'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.27'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4319,7 +4394,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.26');
+    const M=await import('./js/materials.mjs?v=4.27');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4332,7 +4407,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.26'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.27'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4365,7 +4440,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.26');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.27');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -5505,7 +5580,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.26');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.27');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
@@ -5714,6 +5789,7 @@ $('refSel').onchange=()=>{S.ref=$('refSel').value;render();renderInspector();sch
     try{ localStorage.setItem('mbd_stacking_doors_policy', S.doorsPolicy); }catch(_){}
   };
 }}
+{const cb=$('trayUnplacedOnly'); if(cb) cb.onchange=()=>renderTray();}
 $('skuInput').onchange=()=>{
   const prev=S.sku;
   S.sku=$('skuInput').value.trim();
