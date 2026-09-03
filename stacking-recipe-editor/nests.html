@@ -195,17 +195,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.16';
+import { nestByLayer, partBox, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.17';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.16';
-import { APP_VERSION } from './js/version.mjs?v=4.16';
+         fromMM, toMM } from './js/materials.mjs?v=4.17';
+import { APP_VERSION } from './js/version.mjs?v=4.17';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.16';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.16';
-import { deriveNest } from './js/derive_nest.mjs?v=4.16';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.17';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.17';
+import { deriveNest } from './js/derive_nest.mjs?v=4.17';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1015,7 +1015,29 @@ function recomputeDice() {
     ? `${c.pieces} pieces · ${c.metres.toFixed(1)}m of cutting · ~${c.seconds}s added to this sheet`
     : 'nothing to dice on this sheet') + strip;
 }
-$('diceMax').onchange = $('diceMin').onchange = $('diceStrip').onchange = () => { recomputeDice(); draw(); };
+// THE SCRAP SETTINGS HAVE TO STICK. They were never persisted — the three
+// dropdowns reset to their HTML defaults (12in / 2 sq ft / 4in) on every page
+// load, so choosing "OFF - no remnants" lasted until you navigated away. Zac
+// 2026-09-02: "why are the nests still cutting a bunch of remnant parts?" —
+// because the OFF he set was gone by the time he exported. Same shape as the
+// layer-spread setting, which already persists.
+const DICE_KEYS = { diceMax: 'mbd_nest_dice_max', diceMin: 'mbd_nest_dice_min', diceStrip: 'mbd_nest_dice_strip' };
+function restoreDiceSettings() {
+  for (const [id, key] of Object.entries(DICE_KEYS)) {
+    const el = $(id); if (!el) continue;
+    let v = null;
+    try { v = localStorage.getItem(key); } catch (e) {}
+    // only adopt a value the dropdown still offers, so a removed choice cannot
+    // leave the control blank and silently fall back to a default nobody chose
+    if (v !== null && [...el.options].some((o) => o.value === v)) el.value = v;
+  }
+}
+restoreDiceSettings();
+$('diceMax').onchange = $('diceMin').onchange = $('diceStrip').onchange = (e) => {
+  const id = e && e.target && e.target.id;
+  if (id && DICE_KEYS[id]) { try { localStorage.setItem(DICE_KEYS[id], e.target.value); } catch (err) {} }
+  recomputeDice(); draw();
+};
 
 // Re-shuffle THIS sheet so the offcut lands in small pieces to begin with.
 // Zac 2026-08-20: "for each nest i hand-build i would like a button to have you

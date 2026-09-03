@@ -15822,11 +15822,24 @@ function _stockV2RenderSessionView_() {
   // v10.698 — sync pending-badge after paint (header has the badge).
   if (typeof _stockV2UpdatePendingBadges_ === 'function') _stockV2UpdatePendingBadges_();
 }
+// v10.1524 (2026-09-02 audit, severity 4) — the ONE place the counting
+// session reads the system figure. items.on_hand is rewritten only by
+// count/receive; every ship since the last count lives in the ledger,
+// and Runway shows on_hand + ledger-since-count. The session used raw
+// on_hand, so "✓ Confirm N" posted the pre-shipment number as a fresh
+// count and erased every shipment since (SBLM 562-vs-132, recreated by
+// one tap). Server now sends on_hand_live; raw on_hand is the fallback
+// only for a server that predates it.
+function _stockV2SysQty_(it) {
+  if (!it) return null;
+  return (it.on_hand_live != null ? it.on_hand_live : it.on_hand);
+}
 function _stockV2SessionItemHtml_(it) {
   const sku = it.item_sku || '';
   const name = it.name || '';
   const days = (typeof it.staleness_days === 'number') ? it.staleness_days : -1;
-  const onHand = (it.on_hand == null) ? '—' : String(it.on_hand);
+  const _sysQ = _stockV2SysQty_(it);   // v10.1524 — live, not raw
+  const onHand = (_sysQ == null) ? '—' : String(_sysQ);
   let dot = '#9AAAC0', tag = '?';
   if (days === -1) { dot = '#7C3AED'; tag = 'NEVER COUNTED'; }
   else if (days >= 14) { dot = '#FF5252'; tag = days + 'd ago'; }
@@ -15882,8 +15895,18 @@ async function _stockV2ConfirmItem_(sku) {
   // (b) "Confirm —" on a never-counted item silently wrote an
   //     authoritative on_hand=0 with a fresh count stamp. Physical
   //     count required instead.
-  if (it.on_hand == null) {
+  const _sysQ = _stockV2SysQty_(it);   // v10.1524 — live figure, raw fallback
+  if (_sysQ == null) {
     if (typeof showToast === 'function') showToast('⚠ ' + sku + ' has never been counted — enter a count with the keypad instead');
+    if (typeof _stockV2OpenInlineCount_ === 'function') _stockV2OpenInlineCount_(sku);
+    return;
+  }
+  // v10.1524 — the ledger can drive the live figure below zero (more
+  // shipped than the last count). recordInventoryCount rejects
+  // negatives, and a negative is never a shelf truth to rubber-stamp:
+  // physical count required.
+  if (Number(_sysQ) < 0) {
+    if (typeof showToast === 'function') showToast('⚠ ' + sku + ' system figure is ' + _sysQ + ' (below zero) — enter a physical count with the keypad');
     if (typeof _stockV2OpenInlineCount_ === 'function') _stockV2OpenInlineCount_(sku);
     return;
   }
@@ -15901,7 +15924,10 @@ async function _stockV2ConfirmItem_(sku) {
       if (fresh && fresh.ok && Array.isArray(fresh.items)) {
         fresh.items.forEach(fi => {
           const local = _stockV2SessionState_.items.find(x => x.item_sku === fi.item_sku);
-          if (local && (!local._status || local._status === 'open')) local.on_hand = fi.on_hand;
+          if (local && (!local._status || local._status === 'open')) {
+            local.on_hand = fi.on_hand;
+            local.on_hand_live = fi.on_hand_live;   // v10.1524 — refresh the LIVE figure too
+          }
         });
         _stockV2SessionState_._opened_at_ms = Date.now();
         _stockV2RenderSessionView_();
@@ -15913,9 +15939,13 @@ async function _stockV2ConfirmItem_(sku) {
   // then fire the server save in the background. Reuses the existing
   // recordInventoryCount endpoint which writes BOTH items.on_hand +
   // last_counted_at AND a CYCLE_COUNT row to inventory_transactions.
-  // Confirm-as-is = countedQty equals the system's current on_hand;
-  // delta will be 0 so no stock movement, but the audit row + last_
-  // counted_at refresh land.
+  // v10.1524 — what Confirm-as-is ACTUALLY does: it writes countedQty as
+  // the new items.on_hand and moves last_counted_at to now, which makes
+  // every ledger row before now invisible to the Runway math. So
+  // countedQty MUST be the live figure (on_hand + ledger since the last
+  // count) — sending raw items.on_hand re-adds every shipment since the
+  // last count. The CYCLE_COUNT row's delta is counted − raw on_hand,
+  // i.e. the consumption being folded in; it is not zero.
   it._status = 'confirmed';
   it._confirmed_at = new Date().toISOString();
   _stockV2RenderSessionView_();
@@ -15927,7 +15957,7 @@ async function _stockV2ConfirmItem_(sku) {
     if (nextOpen) nextOpen.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, 100);
   // Fire server save in the background.
-  const onHand = (it.on_hand == null) ? 0 : Number(it.on_hand);
+  const onHand = Number(_sysQ);   // v10.1524 — LIVE figure (guarded non-null, ≥0 above)
   const by = (function () {
     try { return localStorage.getItem('mbd_ground_packer') || ''; } catch (e) { return ''; }
   })();
@@ -15988,7 +16018,9 @@ function _stockV2AdjustItem_(sku) {
     : 1;
   _stockV2KeypadState_ = {
     sku: sku,
-    system_qty: (it.on_hand == null) ? 0 : Number(it.on_hand),
+    // v10.1524 — DELTA mode adds to the LIVE figure (raw fallback), so a
+    // "-3" keypad entry lands on what Runway shows, not on the stale count.
+    system_qty: (_stockV2SysQty_(it) == null) ? 0 : Number(_stockV2SysQty_(it)),
     mode: 'set', // 'set' or 'delta'
     buffer: '', // raw digit string
     sign: rememberedSign,
@@ -16132,9 +16164,11 @@ async function _stockV2KeypadSave_(newQty) {
   // _status, leaving the REJECTED qty displayed as "System says",
   // where a confirm-as-is retry would write the bad number.
   const _priorOnHand = it.on_hand;
+  const _priorOnHandLive = it.on_hand_live;   // v10.1524
   it._status = 'adjusted';
   it._confirmed_at = new Date().toISOString();
   it.on_hand = qty;
+  it.on_hand_live = qty;   // v10.1524 — just counted: nothing left to subtract
   it._server_error = null;
   _stockV2RenderSessionView_();
   // Auto-scroll to next ⚪.
@@ -16165,6 +16199,7 @@ async function _stockV2KeypadSave_(newQty) {
       // v10.1481 — restore the pre-edit system value too.
       it._status = 'open';
       it.on_hand = _priorOnHand;
+      it.on_hand_live = _priorOnHandLive;   // v10.1524
       it._server_error = (res && res.error) || 'save failed';
       _stockV2RenderSessionView_();
       if (typeof showToast === 'function') showToast('⚠ ' + sku + ' save failed — re-tap to retry');
@@ -38550,7 +38585,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1523"></script>
+<script src="./pack.js?v=10.1524"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38561,7 +38596,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1523<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1524<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
