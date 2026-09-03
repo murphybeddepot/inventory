@@ -176,6 +176,10 @@ export async function buildJobZip({
   // drilling comes from the ROOM PRODUCTS -- but the .opt marks their parts so
   // they are not labelled as a layer of the bed.
   salvageLayers = [], nest = null,
+  // Extra plain-text files dropped into the job folder, {name: text}. Used for
+  // ORDER-DOORS.txt so the parts we BUY rather than cut are named where the
+  // person opening the job will see them.
+  extraFiles = null,
   mathRandom = Math.random, dateNow = Date.now,
 }) {
   if (typeof JSZip === 'undefined') {
@@ -246,6 +250,7 @@ export async function buildJobZip({
   jf.file('Frameless V10-JobParms.dat', FRAMELESS_JOBPARMS_B64, { base64: true });
   jf.file('Frameless V12-JobCusParms.dat', FRAMELESS_CUSPARMS_B64, { base64: true });
   jf.file('MBD Library-JobCusParms.dat', JOBCUS);
+  for (const [name, text] of Object.entries(extraFiles || {})) jf.file(name, text);
   // v3.51 — the NEST rides along when one was made, so the optimizer opens
   // the job with the sheets already laid out instead of asking the operator
   // to re-optimize (which would throw the layer ordering away).

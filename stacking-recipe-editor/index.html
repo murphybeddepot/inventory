@@ -596,6 +596,8 @@
         <button id="dlMozJob" class="primary" title="Full Mozaik job zip: Room1 + N layer .moz + JobDat + JobParms + the nested sheets (.opt) ready to post.">Mozaik job zip</button>
         <button id="btnServerExport" title="Build a job on the SERVER from the audited product library — prompts for the order options (size, finish, doors, door style…). The download link lands in #claude_bedrock.">&#127981; Server job (options)&hellip;</button>
         <button id="btnNests" title="Nest these layers onto sheets — sheets fill in layer order, 16mm between parts. Opens the nest editor; come back with the sheets attached to this recipe.">&#129690; Nests&hellip;</button>
+        <button id="btnBought" title="Mark parts we BUY finished (foil doors) rather than cut. They come off the nest and out of the layer .moz, stay on the stack, and get listed in ORDER-DOORS.txt.">&#128230; Bought &mdash; not cut&hellip;</button>
+        <span id="boughtBadge" class="pill" style="display:none;align-self:center"></span>
       </div>
       <p class="hint" style="margin:-4px 0 12px">The PDF is a visual, shareable layout: a cover summary, an all-layers overview sheet, and one page per layer (parts labelled, support flagged) — for discussion, not for the robot.</p>
       <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px">
@@ -603,6 +605,25 @@
       </div>
     </div>
     <div class="mfoot"><button class="ghost" data-close>Close</button></div>
+  </div>
+</div>
+
+<!-- BOUGHT-NOT-CUT MODAL. A foil door is bought finished and drilled here: it
+     must leave the nest and the layer .moz but stay on the pallet stack. The
+     suggestion flag reuses the Nests page's door heuristic so the two agree,
+     but nothing is bought until a person ticks it — guessing wrong either cuts
+     a door we paid for or leaves a hole in the bed. -->
+<div class="modal-bg" id="boughtModal">
+  <div class="modal" style="max-width:680px">
+    <h2>Bought &mdash; not cut <span style="flex:1"></span><button data-close>&#10005;</button></h2>
+    <div class="mbody">
+      <p class="hint" style="margin:0 0 10px">Tick the parts we <b>buy finished</b> instead of cutting &mdash; foil doors from advdoor.com.
+      They come <b>off the nest</b> and out of the layer <code>.moz</code> so the machine never cuts them, <b>stay on the stack</b> because
+      they still get packed, and are listed in <code>ORDER-DOORS.txt</code> inside the job zip with their sizes.</p>
+      <p class="hint" style="margin:0 0 10px">This is saved <b>with this recipe</b>, not globally &mdash; 8A is a bought foil door on one order and a cut melamine door on the next.</p>
+      <div id="boughtRows" style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:0 10px"></div>
+    </div>
+    <div class="mfoot"><button class="ghost" data-close>Cancel</button><button id="boughtSave" class="primary">Save</button></div>
   </div>
 </div>
 
@@ -3984,13 +4005,92 @@ function _isDoorCandidate_(rec){
   // suggestion; the operator ticks the real set.
   return cups || /\b(door|trim|valance|toe|fascia|facia)\b/i.test(String(rec.name||''));
 }
+/* ============================================================
+   BOUGHT, NOT CUT  (Zac 2026-09-03: "how do i nest one that's
+   foil doors (no doors on nest)?")
+   ============================================================
+   A foil door is bought finished from advdoor.com and drilled here. It must
+   leave the NEST and the layer .moz -- anything in the cut job gets cut -- but
+   STAY on the stack, because a bought door is still packed on the pallet.
+
+   The editor had no way to say that. "Trim & doors last" (Nests page) only
+   moves doors to the final sheets; they were still cut. The server export
+   (export-job.mjs) has done this correctly all along, driven by door_style
+   1401/1002, which is why a server foil job cuts 70 parts and a hand-nested
+   one cut 78. This closes that gap so the in-browser export matches.
+
+   Stored per recipe, not globally: 8A is a bought foil door on one order and a
+   cut melamine door on the next, and the flag belongs to the order. */
+function boughtSet(){ return new Set(S.bought||[]); }
+function boughtParts(){
+  // One entry per PHYSICAL piece, so the door order says qty 8 and not qty 1.
+  const bought=boughtSet(); const out=[];
+  const byNum=new Map((S.importedParts||[]).map(p=>[p.partNum,p]));
+  (S.layers||[]).forEach(layer=>(layer||[]).forEach(p=>{
+    if(!bought.has(p.partNum)) return;
+    const rec=byNum.get(p.partNum);
+    out.push({partNum:p.partNum, name:(rec&&rec.name)||p.name||'', L:+p.L, W:+p.W});
+  }));
+  return out;
+}
+/* Every distinct code on the stack, with a suggestion flag. The suggestion is
+   the SAME heuristic the Nests page uses to pick trim/doors, so the two agree
+   about what a door is -- but it only ever pre-ticks a box. Nothing is bought
+   until a person says so: guessing wrong here either cuts a door we paid for
+   or leaves a hole in the bed. */
+function recipePartCodes(){
+  const byNum=new Map((S.importedParts||[]).map(p=>[p.partNum,p]));
+  const seen=new Map();
+  (S.layers||[]).forEach(layer=>(layer||[]).forEach(p=>{
+    const c=p.partNum; if(!c) return;
+    if(!seen.has(c)){
+      const rec=byNum.get(c);
+      seen.set(c,{code:c, name:(rec&&rec.name)||p.name||'', L:+p.L, W:+p.W, qty:0,
+                  guess:_isDoorCandidate_(rec)});
+    }
+    seen.get(c).qty++;
+  }));
+  return [...seen.values()].sort((a,b)=>a.code.localeCompare(b.code));
+}
+function renderBoughtBadge(){
+  const el=$('boughtBadge'); if(!el) return;
+  const n=boughtParts().length;
+  el.textContent=n?(n+' bought, not cut'):'';
+  el.style.display=n?'':'none';
+}
+$('btnBought') && ($('btnBought').onclick=()=>{
+  const codes=recipePartCodes();
+  if(!codes.length){toast('Nothing on the stack yet — place some parts first');return;}
+  const bought=boughtSet();
+  $('boughtRows').innerHTML=codes.map(c=>
+    '<label style="display:flex;gap:10px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--line)">'
+    +'<input type="checkbox" data-code="'+esc(c.code)+'"'+(bought.has(c.code)?' checked':'')+'>'
+    +'<b style="min-width:44px;font-family:var(--mono)">'+esc(c.code)+'</b>'
+    +'<span style="flex:1">'+esc(c.name)+'</span>'
+    +'<span class="hint">'+c.L+' &times; '+c.W+' mm &middot; qty '+c.qty+'</span>'
+    +(c.guess&&!bought.has(c.code)?'<span class="pill" style="font-size:11px">looks like a door</span>':'')
+    +'</label>').join('');
+  openModal('boughtModal');
+});
+$('boughtSave') && ($('boughtSave').onclick=()=>{
+  S.bought=[...document.querySelectorAll('#boughtRows input[type=checkbox]')]
+    .filter(x=>x.checked).map(x=>x.getAttribute('data-code'));
+  if(typeof doSave==='function') doSave();
+  renderBoughtBadge();
+  closeModal('boughtModal');
+  const n=boughtParts().length;
+  toast(n?(n+' piece(s) marked bought — off the nest, still on the stack'):'Nothing marked bought — every part will be cut');
+});
+
 function nestPartsFromRecipe(){
   const out=[];
   const byNum=new Map((S.importedParts||[]).map(p=>[p.partNum,p]));
+  const bought=boughtSet();
   (S.layers||[]).forEach((layer,i)=>{
     (layer||[]).forEach(p=>{
       const L=+p.L, W=+p.W;
       if(!(L>0&&W>0)) return;                     // unsized part cannot be nested
+      if(bought.has(p.partNum)) return;           // bought in finished — never cut
       const rec=byNum.get(p.partNum);
       out.push({name:p.partNum||p.name||('part'+out.length), key:p.key, layer:i+1, l:L, w:W,
         // the human name, so the confirm list reads "8A — BASE DOOR" rather
@@ -4126,6 +4226,14 @@ function bindingReport(){
   return {sources,blind,stale};
 }
 function exportPreflight(salv){
+  /* BOUGHT PARTS ARE A THING THE OPERATOR MUST KNOW BEFORE THE ZIP EXISTS.
+     They are missing from the nest and the layer files ON PURPOSE, and that is
+     indistinguishable from a bug at the machine unless it is said here. */
+  try{
+    const nb=boughtParts().length;
+    if(nb) toast(nb+' bought part(s) left out of the cut job — ORDER-DOORS.txt rides in the zip');
+  }catch(e){}
+
   /* A SAVED NEST THAT WAS NOT FOUND. Silently re-nesting throws away hand
      placement, and the operator has no way to tell — the zip looks normal. */
   try{
@@ -4844,6 +4952,14 @@ function snapshot(){
     // when the recipe was authored via paste-text; Mozaik export will
     // ask the user to re-import the source .moz files in that case.
     importedParts:(S.importedParts||[]).map(p=>({...p})),
+    // BOUGHT, NOT CUT. Part codes we buy in finished (foil doors from
+    // advdoor.com) rather than cut from sheet. They stay on the STACK -- a
+    // bought door still gets packed -- and leave the NEST and the layer .moz,
+    // because a part that is in the cut job is a part that gets cut. Zac
+    // 2026-09-03: "how do i nest one that's foil doors (no doors on nest)?"
+    // Before this the editor had no answer: "Trim & doors last" only moves
+    // doors to the final sheets, it does not take them off them.
+    bought:(S.bought||[]).slice(),
     sourceShell:S.sourceShell||null,
     /* v4.13 — the grain exceptions travel WITH the recipe. Saved as null when
        this product has never said, so an existing recipe round-trips byte-for
@@ -4872,6 +4988,11 @@ function restoreSnapshot(snap){
   S.layers=(snap.layers&&snap.layers.length?snap.layers:[[]]).map(l=>l.map(p=>{const id=++maxId;return {...p,id,key:p.key||mkey({partNum:p.partNum,name:p.name,Lmm:p.L,Wmm:p.W,thickness:p.thickness})};}));
   S.cartons=(snap.cartons||[]).map(c=>({...c}));
   S.placedCartons=(snap.placedCartons||[]).map(c=>({...c}));
+  // Older snapshots pre-date the bought set; absent means "nothing is bought",
+  // which is the melamine build and the safe reading -- a part wrongly kept in
+  // the nest is a wasted panel, a part wrongly dropped is a missing one.
+  S.bought=Array.isArray(snap.bought)?snap.bought.slice():[];
+  try{renderBoughtBadge();}catch(e){}
   // Phase-1 .moz round-trip. Older snapshots pre-date importedParts
   // and won't have this field; empty array is safe (Mozaik export
   // will error with a "re-import source .moz" message).

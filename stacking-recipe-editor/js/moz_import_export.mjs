@@ -177,9 +177,16 @@ function _snapshotToLayers(snapshot) {
   // unless user hand-edits), we skip with a warning.
   const layers = {};
   const missing = [];
+  // BOUGHT, NOT CUT. A foil door is bought finished and drilled here, so it
+  // must not appear in a layer product -- anything in the cut job gets cut.
+  // It stays in snapshot.layers (the pallet stack still packs it) and is
+  // listed in ORDER-DOORS.txt instead. This mirrors what export-job.mjs has
+  // always done server-side for door_style 1401/1002.
+  const bought = new Set(Array.isArray(snapshot.bought) ? snapshot.bought : []);
   (snapshot.layers || []).forEach((placedParts, layerIdx) => {
     const layerName = `L${layerIdx + 1}`;
     for (const placed of (placedParts || [])) {
+      if (bought.has(placed.partNum)) continue;
       const k = `${placed.partNum}|${placed.name}|${placed.L}x${placed.W}x${placed.thickness}`;
       const src = byIdentity.get(k);
       if (!src || !src.length) {
@@ -246,6 +253,53 @@ export function salvageLayerParts(nest) {
   return { parts, unlinked };
 }
 
+/**
+ * The order list for parts we buy finished. Same shape and the same warnings as
+ * the one export-job.mjs stages server-side, so a job built here and a job
+ * built there tell the door supplier the same thing. Pure ASCII: this gets
+ * printed, and a smart quote in a shop note is a support call.
+ */
+export function orderDoorsTxt(snapshot, jobName) {
+  const bought = new Set(Array.isArray(snapshot.bought) ? snapshot.bought : []);
+  if (!bought.size) return null;
+  const byNum = new Map((snapshot.importedParts || []).map((p) => [p.partNum, p]));
+  const tally = new Map();
+  for (const layer of (snapshot.layers || [])) {
+    for (const p of (layer || [])) {
+      if (!bought.has(p.partNum)) continue;
+      const k = `${p.partNum}|${p.L}x${p.W}`;
+      if (!tally.has(k)) {
+        const rec = byNum.get(p.partNum);
+        tally.set(k, { code: p.partNum, name: (rec && rec.name) || p.name || '', L: +p.L, W: +p.W, qty: 0 });
+      }
+      tally.get(k).qty++;
+    }
+  }
+  if (!tally.size) return null;
+  const inch = (mm) => (mm / 25.4).toFixed(2);
+  const rows = [...tally.values()].sort((a, b) => a.code.localeCompare(b.code));
+  return [
+    'PURCHASED PARTS - order these, do NOT cut them',
+    '='.repeat(52), '',
+    `JOB    : ${jobName}`,
+    'DRILLING: DO NOT ask for drilling - MBD drills these here',
+    '',
+    'WHAT TO DO',
+    '  1. Order the parts listed below - quantity and size are here.',
+    '  2. Sizes are in MILLIMETRES (inches alongside if the form wants them).',
+    '  3. Save the confirmation against this job.',
+    '',
+    'TO ORDER',
+    ...rows.map((r) => `${r.code}: qty ${r.qty} - ${r.L} x ${r.W} mm (${inch(r.L)} x ${inch(r.W)} in)`
+      + (r.name ? `   ${r.name}` : '')),
+    '',
+    'These parts are NOT in the sheet nest and NOT in the layer files - they were',
+    'left out on purpose. They ARE still on the stacking layers, because they get',
+    'packed with the job.',
+    '',
+  ].join('\r\n');
+}
+
 export async function exportJobZip(snapshot, { jobName, nest = null } = {}) {
   const layers = _snapshotToLayers(snapshot);
   const salv = salvageLayerParts(nest);
@@ -264,6 +318,12 @@ export async function exportJobZip(snapshot, { jobName, nest = null } = {}) {
     // (see nest_opt.mjs), so the operator opens the job and posts rather than
     // re-optimizing and losing the layer ordering.
     nest,
+    // Rides INTO the job folder next to the layer files, so the person who
+    // opens the job is the person who sees what still has to be ordered.
+    extraFiles: (() => {
+      const txt = orderDoorsTxt(snapshot, jobName || snapshot.sku || 'Order');
+      return txt ? { 'ORDER-DOORS.txt': txt } : null;
+    })(),
   });
 }
 
