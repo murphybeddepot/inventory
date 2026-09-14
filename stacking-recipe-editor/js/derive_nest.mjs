@@ -30,8 +30,18 @@
 const TOL = 0.01;
 
 // footprint on the sheet, honouring the placement's rotation
+//
+// 270 SWAPS, exactly like 90. This read `=== 90` until 2026-09-14, so a part
+// placed at 270 was measured as if it were unrotated — length and width the
+// wrong way round on the sheet, which is how derived nests overlap or
+// mis-count capacity without anything erroring. scrap.mjs had it right
+// (`rot === 90 || rot === 270`); this did not, and only six parts in
+// production sit at 270, which is exactly why it went unnoticed.
+//
+// Normalised first so -90 and 450 land on the same answer as 270 and 90.
 function foot(l, w, rotation) {
-  return (+rotation === 90) ? { fw: +w, fh: +l } : { fw: +l, fh: +w };
+  const rot = ((((+rotation || 0) % 360) + 360) % 360);
+  return (rot === 90 || rot === 270) ? { fw: +w, fh: +l } : { fw: +l, fh: +w };
 }
 const area = (o) => o.fw * o.fh;
 
