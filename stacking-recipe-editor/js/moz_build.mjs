@@ -20,9 +20,9 @@
 // browser). The exports do not import JSZip themselves so this module
 // stays plain ES with no bundler.
 
-import { buildOptFiles } from './nest_opt.mjs?v=4.29';
+import { buildOptFiles } from './nest_opt.mjs?v=4.30';
 export const BUILD_VERSION = '1.0.0';
-export const APP_VERSION = '4.29';
+export const APP_VERSION = '4.30';
 
 // ---- giant const templates (verbatim from source) ----
 

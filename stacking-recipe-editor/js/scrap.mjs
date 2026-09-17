@@ -16,7 +16,8 @@
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
-import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.29';
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.30';
+import { smallPartBuffer, partGap } from './nest.mjs?v=4.30';
 
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;
@@ -184,8 +185,12 @@ const box = (p) => {
 // at all?" — it was a 78in x 3.2in strip one millimetre under the floor).
 export const DEFAULT_MIN_DIM_MM = 100;
 
-export function freeRects(sheet, { sheetL, sheetW, edge = 3, gap = 16, minDimMM = DEFAULT_MIN_DIM_MM }) {
-  const parts = (sheet.placements || []).map(box);
+export function freeRects(sheet, opts) {
+  const { sheetL, sheetW, edge = 3, gap = 16, minDimMM = DEFAULT_MIN_DIM_MM } = opts;
+  const parts = (sheet.placements || []).map(p => {
+    const [x0,x1,y0,y1] = box(p), pad = smallPartBuffer(p, opts);
+    return [x0-pad,x1+pad,y0-pad,y1+pad];
+  });
   const xs = new Set([edge, sheetL - edge]);
   for (const [x0, x1] of parts) {
     if (x0 - gap > edge) xs.add(+(x0 - gap).toFixed(2));
@@ -239,12 +244,12 @@ export function skippedStrips(sheet, opts, minDimMM = DEFAULT_MIN_DIM_MM) {
     .filter(r => Math.min(r.w, r.h) >= 25 && r.w * r.h >= 20000);
 }
 
-function fitsClear(cand, placements, gap) {
+function fitsClear(cand, placements, gap, opts) {
   const A = [cand.x, cand.x + cand.w, cand.y, cand.y + cand.h];
   return !placements.some(p => {
     const B = box(p);
     const dx = Math.max(B[0] - A[1], A[0] - B[1]), dy = Math.max(B[2] - A[3], A[2] - B[3]);
-    return Math.max(dx, dy) < gap - 0.01;
+    return Math.max(dx, dy) < partGap({l:cand.w,w:cand.h}, p, gap, opts) - 0.01;
   });
 }
 
@@ -272,12 +277,13 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
       for (const fr of frees) {
         for (const rot of [0, 90]) {
           const w = rot ? c.w : c.l, h = rot ? c.l : c.w;
-          if (fr.x + w > sheetL - edge + 0.01 || fr.y + h > sheetW - edge + 0.01) continue;
-          const cand = { x: fr.x, y: fr.y, w, h };
-          if (!fitsClear(cand, placed, gap)) continue;
+          const pad = smallPartBuffer(c, opts), x = fr.x+pad, y = fr.y+pad;
+          if (x + w + pad > sheetL - edge + 0.01 || y + h + pad > sheetW - edge + 0.01) continue;
+          const cand = { x, y, w, h };
+          if (!fitsClear(cand, placed, gap, opts)) continue;
           const pl = { name: c.name, label: c.label, layer: 0, salvage: true,
             ...(c.src ? { src: c.src } : {}),
-            l: c.l, w: c.w, x: +fr.x.toFixed(2), y: +fr.y.toFixed(2), rotation: rot };
+            l: c.l, w: c.w, x: +x.toFixed(2), y: +y.toFixed(2), rotation: rot };
           placed.push(pl); got.push(pl); c.remaining--; progress = true;
           break;
         }

@@ -109,6 +109,20 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="matEdit">⚙ Materials…</button>
   <button id="catEdit">⚙ Scrap parts…</button>
 </div>
+<div class="bar" id="smallSpacingBar">
+  <label><input type="checkbox" id="smallSpacingOn"> Small-part spacing</label>
+  <label for="smallWidth">Short side under</label>
+  <input id="smallWidth" type="number" min="0" step="any" value="110" style="width:80px">
+  <span class="soft">or</span>
+  <label for="smallArea">area under</label>
+  <input id="smallArea" type="number" min="0" step="any" value="50" style="width:85px">
+  <select id="smallAreaUnit" aria-label="Area units"><option value="in2">in²</option><option value="mm2">mm²</option></select>
+  <label for="smallSpace">Minimum spacing</label>
+  <input id="smallSpace" type="number" min="0" step="any" value="32" style="width:80px">
+  <select id="smallLinearUnit" aria-label="Width and spacing units"><option value="mm">mm</option><option value="in">inches</option></select>
+  <button id="smallApply">Apply spacing &amp; re-nest</button>
+  <span class="soft" id="smallSpacingStatus">Off</span>
+</div>
 <div id="catModal" class="modalbg"><div class="modal">
   <h2>Scrap salvage parts <span style="flex:1"></span><button id="catClose">✕</button></h2>
   <p class="soft" style="margin:0 0 10px">What "Fill scrap" tries to recover from the offcut, biggest first.
@@ -195,17 +209,17 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.29';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.30';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.29';
-import { APP_VERSION } from './js/version.mjs?v=4.29';
+         fromMM, toMM } from './js/materials.mjs?v=4.30';
+import { APP_VERSION } from './js/version.mjs?v=4.30';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.29';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.29';
-import { deriveNest } from './js/derive_nest.mjs?v=4.29';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.30';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.30';
+import { deriveNest } from './js/derive_nest.mjs?v=4.30';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -284,7 +298,7 @@ function boot() {
   if (relink.unlinked.length) _relinkNote = (_relinkNote ? _relinkNote + ' ' : '')
     + `${relink.unlinked.length} salvaged part(s) match no crate panel (${[...new Set(relink.unlinked)].join(', ')}) `
     + '— those are cut to size only.';
-  refreshFoot();
+  refreshFoot(); syncSmallSpacing();
   const sp = $('spreadSel'); if (sp) sp.value = currentSpread();
   const dl = $('doorsLast'); if (dl) { dl.checked = doorsLastOn();
     $('doorsPick').style.display = doorsLastOn() ? '' : 'none'; }
@@ -332,7 +346,7 @@ function buildMatUI() {
     refreshGrainBtn();
     nest = savedNestFor(recipe.sku, matId) || compute();
     sheetIdx = 0; selected = null;
-    buildMatUI(); refreshGrainBtn(); refreshFoot(); buildTabs(); draw();
+    buildMatUI(); refreshGrainBtn(); refreshFoot(); syncSmallSpacing(); buildTabs(); draw();
   };
   $('matEdit').onclick = openMatEditor;
 }
@@ -342,9 +356,11 @@ function buildMatUI() {
 // boards, both plausible, and the wrong one printed under the picture.
 function refreshFoot() {
   const m = currentMat();
+  const small = nest.smallPartSpacingMM > nest.gap && (nest.smallPartWidthMM > 0 || nest.smallPartAreaMM2 > 0);
   $('foot').textContent = `Nesting on ${m.label} (${describeMat(m)}). Sheets fill in layer order — `
     + `a layer's leftovers spill onto the next sheet rather than holding one open. `
-    + `Parts keep ${nest.gap}mm between them and ${nest.edge}mm off the sheet edge; `
+    + (small ? `Qualifying small parts keep ${nest.smallPartSpacingMM}mm minimum spacing; other pairs keep ${nest.gap}mm. ` : `Parts keep ${nest.gap}mm between them. `)
+    + `Sheet margin is ${nest.edge}mm${small ? ' plus the small-part buffer' : ''}; `
     + `dragging snaps to exactly that and turns red if anything ends up tighter.`;
 }
 function escAttr(x) { return String(x).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
@@ -656,11 +672,40 @@ function saveCrossGrain(list) {
     localStorage.setItem(GRAIN_SET_KEY, JSON.stringify(all));
   } catch (e) {}
 }
-function compute() {
+function smallSpacingOptions(n = nest) {
+  return {smallPartAreaMM2:Number(n?.smallPartAreaMM2)||0,smallPartWidthMM:Number(n?.smallPartWidthMM)||0,smallPartSpacingMM:Number(n?.smallPartSpacingMM)||0};
+}
+function smallSpacingInputs() {
+  if (!$('smallSpacingOn').checked) return {smallPartAreaMM2:0,smallPartWidthMM:0,smallPartSpacingMM:0};
+  const unit=$('smallLinearUnit').value==='in'?25.4:1;
+  const area=Number($('smallArea').value)*($('smallAreaUnit').value==='in2'?25.4**2:1);
+  const width=Number($('smallWidth').value)*unit, spacing=Number($('smallSpace').value)*unit;
+  if (![area,width,spacing].every(Number.isFinite)||area<0||width<0||!(area>0||width>0)||!(spacing>0)) throw Error('Enter a width or area cutoff and a positive spacing.');
+  return {smallPartAreaMM2:area,smallPartWidthMM:width,smallPartSpacingMM:spacing};
+}
+function syncSmallSpacing() {
+  const o=smallSpacingOptions(), unit=$('smallLinearUnit').value==='in'?25.4:1;
+  $('smallSpacingOn').checked=o.smallPartSpacingMM>0&&(o.smallPartWidthMM>0||o.smallPartAreaMM2>0);
+  const enabled=$('smallSpacingOn').checked;
+  $('smallWidth').value=+((enabled?o.smallPartWidthMM:110)/unit).toFixed(5);
+  $('smallArea').value=+((enabled?o.smallPartAreaMM2:50*25.4**2)/($('smallAreaUnit').value==='in2'?25.4**2:1)).toFixed(5);
+  $('smallSpace').value=+((o.smallPartSpacingMM||32)/unit).toFixed(5);
+  $('smallSpacingStatus').textContent=$('smallSpacingOn').checked?`${o.smallPartSpacingMM}mm minimum around qualifying parts; normal gap ${nest.gap}mm`:'Off';
+}
+let smallLinearUnit='mm',smallAreaUnit='in2';
+$('smallLinearUnit').onchange=()=>{const next=$('smallLinearUnit').value;const f=(smallLinearUnit==='in'?25.4:1)/(next==='in'?25.4:1);for(const id of ['smallWidth','smallSpace'])$(id).value=+(Number($(id).value)*f).toFixed(5);smallLinearUnit=next;};
+$('smallAreaUnit').onchange=()=>{const next=$('smallAreaUnit').value;const f=(smallAreaUnit==='in2'?25.4**2:1)/(next==='in2'?25.4**2:1);$('smallArea').value=+(Number($('smallArea').value)*f).toFixed(5);smallAreaUnit=next;};
+$('smallApply').onclick=()=>{
+  let settings;try{settings=smallSpacingInputs();}catch(e){alert(e.message);return;}
+  if(!confirm('Re-nest using these small-part spacing settings? This replaces the layout on screen. Save for this material when you are satisfied.'))return;
+  const next=compute(settings);if(!next.sheets.length)return;
+  nest=next;sheetIdx=0;selected=null;syncSmallSpacing();refreshFoot();buildTabs();draw();refreshCopyFrom();
+};
+function compute(spacing = smallSpacingOptions()) {
   const mat = currentMat();
   const spread = Number(currentSpread()) || null;
   const r = nestByLayer(partsForNest(), {
-    ...nestOptsFor(mat),
+    ...nestOptsFor(mat), ...spacing,
     // which codes run cross-grain is a property of THIS product
     crossGrain: crossGrainFor(recipe.sku),
     crossGrain: new Set(crossGrainCodes()),
@@ -727,7 +772,7 @@ function draw() {
   }
   s.placements.forEach((p, i) => {
     const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0;
-    const cls = 'part' + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap) ? ' bad' : '')
+    const cls = 'part' + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap, nest) ? ' bad' : '')
       + (p._moved ? ' moved' : '');
     const fill = p.salvage ? 'var(--salvage)' : colorOf(p.layer);
     g += `<g class="${cls}" data-i="${i}"><rect x="${M + x0}" y="${M + (W - y1)}" width="${w}" height="${h}"
@@ -742,13 +787,14 @@ function draw() {
 function esc(s) { return String(s).replace(/[<&>]/g, c => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c])); }
 // ---- snap that keeps the spacing -------------------------------------------
 function snap(p, rawX, rawY, others) {
-  const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0, E = nest.edge, G = nest.gap;
+  const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0, E = nest.edge + smallPartBuffer(p, nest), G = nest.gap;
   let x = Math.max(E, Math.min(rawX, nest.sheetL - E - w));
   let y = Math.max(E, Math.min(rawY, nest.sheetW - E - h));
   const xc = [E, nest.sheetL - E - w], yc = [E, nest.sheetW - E - h];
   for (const o of others) { if (o === p) continue;
     const [ox0, ox1, oy0, oy1] = partBox(o);
-    xc.push(ox1 + G, ox0 - w - G, ox0, ox1 - w); yc.push(oy1 + G, oy0 - h - G, oy0, oy1 - h); }
+    const sep=partGap(p,o,G,nest);
+    xc.push(ox1 + sep, ox0 - w - sep, ox0, ox1 - w); yc.push(oy1 + sep, oy0 - h - sep, oy0, oy1 - h); }
   const near = (v, c) => { let b = v, d = 15; for (const k of c) { const dd = Math.abs(k - v); if (dd < d) { d = dd; b = k; } } return b; };
   x = Math.max(E, Math.min(near(x, xc), nest.sheetL - E - w));
   y = Math.max(E, Math.min(near(y, yc), nest.sheetW - E - h));
@@ -801,9 +847,10 @@ function renderPanel() {
     .map(p => p._from != null ? `${p.name}: sheet ${p._from + 1} → sheet ${i + 1} at (${p.x}, ${p.y})`
       : `${p.name} sheet ${i + 1}: moved to (${p.x}, ${p.y})`));
   $('moves').textContent = moved.length ? moved.join('\n') : '';
-  const dup = s.placements.filter(p => violates(p, s.placements, nest.gap)).length;
+  const dup = s.placements.filter(p => violates(p, s.placements, nest.gap, nest)).length;
   const savedNow = savedNestFor(recipe.sku, matId);
-  const isSaved = savedNow && JSON.stringify(savedNow.sheets) === JSON.stringify(nest.sheets);
+  const isSaved = savedNow && JSON.stringify(savedNow.sheets) === JSON.stringify(nest.sheets)
+    && JSON.stringify(smallSpacingOptions(savedNow)) === JSON.stringify(smallSpacingOptions());
   // Two INDEPENDENT facts, and the old wording ran them together as
   // "read-only · saved for this material", which reads as though the saved
   // layout were locked. Zac, 2026-08-24: "why does it say read-only · saved for
@@ -825,11 +872,12 @@ function sendTo(target) {
   if (p._from == null) p._from = from;
   const dest = nest.sheets[target];
   let spot = null;
-  for (let y = nest.edge; y <= nest.sheetW - nest.edge && !spot; y += 8)
-    for (let x = nest.edge; x <= nest.sheetL - nest.edge && !spot; x += 8) {
+  const inset=nest.edge+smallPartBuffer(p,nest);
+  for (let y = inset; y <= nest.sheetW - inset && !spot; y += 8)
+    for (let x = inset; x <= nest.sheetL - inset && !spot; x += 8) {
       const t = { ...p, x, y };
       const [, x1, , y1] = partBox(t);
-      if (x1 <= nest.sheetL - nest.edge && y1 <= nest.sheetW - nest.edge && !violates(t, dest.placements, nest.gap)) spot = [x, y];
+      if (x1 <= nest.sheetL - inset && y1 <= nest.sheetW - inset && !violates(t, dest.placements, nest.gap, nest)) spot = [x, y];
     }
   if (spot) { p.x = spot[0]; p.y = spot[1]; } else { p.x = nest.edge; p.y = nest.edge; alert(`No ${nest.gap}mm-clear spot on sheet ${target + 1} — parked in the corner, shown red.`); }
   dest.placements.push(p);
@@ -861,7 +909,7 @@ function rotateSelected() {
   selected.y = Math.max(nest.edge, Math.min(selected.y, nest.sheetW - nest.edge - h));
   const [nx, ny] = snap(selected, selected.x, selected.y, s.placements);
   selected.x = nx; selected.y = ny; selected._moved = true;
-  if (violates(selected, s.placements, nest.gap)) {
+  if (violates(selected, s.placements, nest.gap, nest)) {
     // leave it, but say so — red already shows it; undoing silently would hide
     // that the rotation does not fit where it sits
     $('hint').textContent = `${selected.name} rotated but is now closer than ${nest.gap}mm — move it or rotate back`;
@@ -902,7 +950,7 @@ addEventListener('keydown', e => {
 function catalog() { return loadCatalog(); }
 $('scrapBtn').onclick = () => {
   const s = nest.sheets[sheetIdx];
-  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge };
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge };
   // budget counts what is ALREADY salvaged on every sheet, so filling five
   // sheets cannot quietly produce five crates' worth
   const cat = catalog();
@@ -942,7 +990,7 @@ $('remnantBtn').onclick = () => {
     return;
   }
   const s = nest.sheets[sheetIdx];
-  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge,
     minDimMM: parseFloat($('diceStrip').value) || 100 };
   const got = fitRemnants(s, opts, {
     maxRemnantIn: parseFloat($('diceMax').value) || DEFAULT_MAX_REMNANT_IN,
@@ -975,7 +1023,7 @@ $('remnantBtn').onclick = () => {
 // nothing.
 $('seamBtn').onclick = () => {
   if (hasManualMoves() && !confirm('Shaping the scrap re-arranges parts on every sheet. Your manual moves are lost. Continue?')) return;
-  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge,
     minDimMM: parseFloat($('diceStrip').value) || 100 };
   const rep = shapeScrap(nest, opts, packSingleSheet, {
     catalog: catalog(),
@@ -1000,7 +1048,7 @@ $('diceBtn').onclick = () => {
 function recomputeDice() {
   if (!showDice) { dice = []; skipped = []; $('diceCost').textContent = ''; return; }
   const minDimMM = parseFloat($('diceStrip').value) || 100;
-  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge, minDimMM };
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge, minDimMM };
   const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
   const minIn2 = parseFloat($('diceMin').value) || 0;
   dice = dicePlan(nest.sheets[sheetIdx], opts, maxIn, minIn2);
@@ -1050,7 +1098,7 @@ $('tidyBtn').onclick = () => {
   const sheet = nest.sheets[sheetIdx];
   if (!sheet || (sheet.placements || []).length < 2) { alert('This sheet has nothing to re-arrange.'); return; }
   const minDimMM = parseFloat($('diceStrip').value) || 100;
-  const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge, minDimMM };
+  const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge, minDimMM };
   const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
   const minIn2 = parseFloat($('diceMin').value) || 0;
   const score = (sh) => scrapPenalty(sh, opts, maxIn);
@@ -1156,6 +1204,7 @@ $('revert') && ($('revert').onclick = () => {
   if (!confirm('Throw away the changes on screen and go back to the layout saved for '
     + currentMat().label + '?')) return;
   nest = JSON.parse(JSON.stringify(savedNow));
+  syncSmallSpacing();
   sheetIdx = 0; selected = null;
   buildTabs(); draw();
 });
@@ -1182,6 +1231,7 @@ $('copyBtn') && ($('copyBtn').onclick = () => {
     return;
   }
   nest.sheets = sheets;
+  Object.assign(nest,smallSpacingOptions(src));syncSmallSpacing();
   sheetIdx = 0; selected = null;
   buildTabs(); draw();
   alert(`Copied ${sheets.length} sheet(s) from ${srcMat.label}. Nothing is saved yet — `
@@ -1299,7 +1349,7 @@ function blockedByTooClose() {
   if (bad[0] && nest.sheets[bad[0].sheet - 1]) { sheetIdx = bad[0].sheet - 1; buildTabs(); draw(); }
   const lines = bad.slice(0, 8).map((v) => `  sheet ${v.sheet}: ${v.a} and ${v.b} `
     + (v.overlap ? 'OVERLAP' : `are ${v.mm}mm apart`) + ` (need ${v.gap}mm)`);
-  alert(`NOT SAVED — ${bad.length} pair(s) are closer than the ${nest.gap}mm corridor.\n\n`
+  alert(`NOT SAVED — ${bad.length} spacing violation(s) need attention.\n\n`
     + lines.join('\n') + (bad.length > 8 ? `\n  \u2026and ${bad.length - 8} more` : '')
     + `\n\nThe saw cuts a corridor between parts; inside the gap it cuts INTO them. `
     + `Move the parts apart (they are outlined red) or re-nest, then save.`);
@@ -1342,7 +1392,7 @@ function stash() {
   // — against the dice settings as they stand, the same verdict the dice
   // overlay shows, so the .opt can never promise a remnant the dice would cut.
   try {
-    const opts = { ...nestOptsFor(currentMat(), nest.gap), gap: nest.gap, edge: nest.edge,
+    const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge,
       minDimMM: parseFloat($('diceStrip').value) || 100 };
     const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
     const minIn2 = parseFloat($('diceMin').value) || 0;

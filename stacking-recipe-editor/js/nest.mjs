@@ -63,6 +63,25 @@ export const NEST_DEFAULTS = { gap: 16, edge: 3, sheetL: 2770, sheetW: 1550,
   // a skinny part may sit near ONE edge, never near two at once
   cornerMM: 300 };
 
+// Area is the unrotated blank's L x W. Remnants are waste; their cuts must
+// respect product buffers but do not reserve an extra buffer of their own.
+export function smallPartBuffer(p, opts = {}) {
+  const cutoff = Number(opts.smallPartAreaMM2), width = Number(opts.smallPartWidthMM);
+  const gap = Number(opts.gap) || NEST_DEFAULTS.gap;
+  const extra = Math.max(0, Number(opts.smallPartSpacingMM) - gap);
+  const area = Number(p.l) * Number(p.w), short = Math.min(Number(p.l), Number(p.w));
+  const qualifies = (Number.isFinite(cutoff) && cutoff > 0 && area > 0 && area < cutoff)
+    || (Number.isFinite(width) && width > 0 && short > 0 && short < width);
+  return !p.remnant && Number.isFinite(extra) && qualifies ? extra : 0;
+}
+export function partGap(a, b, gap = 16, opts = {}) {
+  return gap + Math.max(smallPartBuffer(a, {...opts,gap}), smallPartBuffer(b, {...opts,gap}));
+}
+function packingPart(p, gap, opts) {
+  const pad = smallPartBuffer(p, opts);
+  return { ...p, l0:p.l, w0:p.w, pad, w:p.l + gap + 2*pad, h:p.w + gap + 2*pad };
+}
+
 function mulberry(seed) {
   return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
     let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
@@ -210,7 +229,7 @@ export function nestByLayer(parts, opts = {}) {
   // message says how to change it rather than just reporting a dead end.
   if (hasGrain) {
     for (const p of parts) {
-      const it = { name: p.name, w: p.l + gap, h: p.w + gap };
+      const it = packingPart(p, gap, opts);
       const rot = grainRotations(it, crossGrain)[0];
       const bw = rot ? it.h : it.w, bh = rot ? it.w : it.h;
       if (bw <= BIN_L + 1e-9 && bh <= BIN_W + 1e-9) continue;
@@ -233,7 +252,7 @@ export function nestByLayer(parts, opts = {}) {
     // keep the part's own dims (l0/w0): the packing rect overwrites w/h with
     // the INFLATED size, and reading them back transposed length for width
     // (self-test caught it as 287% utilization).
-    let left = parts.map(p => ({ ...p, l0: p.l, w0: p.w, w: p.l + gap, h: p.w + gap }));
+    let left = parts.map(p => packingPart(p, gap, opts));
     const sheets = [];
     while (left.length) {
       if (sheets.length > 40) return null;
@@ -314,6 +333,9 @@ export function nestByLayer(parts, opts = {}) {
   const SHEET_AREA = sheetL * sheetW;
   return {
     gap, edge, sheetL, sheetW, cap: best.cap,
+    smallPartAreaMM2: Math.max(0, Number(opts.smallPartAreaMM2) || 0),
+    smallPartWidthMM: Math.max(0, Number(opts.smallPartWidthMM) || 0),
+    smallPartSpacingMM: Math.max(0, Number(opts.smallPartSpacingMM) || 0),
     // what each spread would have cost, so the page can show the trade rather
     // than the nester deciding it silently
     capsTried: costed.map((c) => ({
@@ -328,7 +350,7 @@ export function nestByLayer(parts, opts = {}) {
     sheets: best.sheets.map(({ bin, layers: lys }) => {
       const placements = bin.placed.map(({ it, x, y, rot }) => ({
         name: it.name, layer: it.layer, key: it.key,
-        l: it.l0, w: it.w0, x: +(x + edge).toFixed(2), y: +(y + edge).toFixed(2),
+        l: it.l0, w: it.w0, x: +(x + edge + it.pad).toFixed(2), y: +(y + edge + it.pad).toFixed(2),
         rotation: rot ? 90 : 0,
       })).sort((a, b) => a.layer - b.layer || String(a.name).localeCompare(String(b.name)));
       return { layers: lys, placements,
@@ -354,7 +376,7 @@ export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jit
     skinnyMM = 0, skinnyInset = 0, cornerMM = 0 } = { ...NEST_DEFAULTS, ...opts };
   const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset, cornerMM });
   const rnd = mulberry(seed);
-  let left = parts.map(p => ({ ...p, l0: p.l, w0: p.w, w: p.l + gap, h: p.w + gap }));
+  let left = parts.map(p => packingPart(p, gap, opts));
   while (left.length) {
     let pick = null;
     for (const it of left) {
@@ -367,7 +389,7 @@ export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jit
   }
   return bin.placed.map(({ it, x, y, rot }) => ({
     name: it.name, layer: it.layer, key: it.key,
-    l: it.l0, w: it.w0, x: +(x + edge).toFixed(2), y: +(y + edge).toFixed(2),
+    l: it.l0, w: it.w0, x: +(x + edge + it.pad).toFixed(2), y: +(y + edge + it.pad).toFixed(2),
     rotation: rot ? 90 : 0,
     ...(it.salvage ? { salvage: true, label: it.label } : {}),
   }));
@@ -380,13 +402,15 @@ export function partBox(p) {
   const w = sw ? p.w : p.l, h = sw ? p.l : p.w;
   return [p.x, p.x + w, p.y, p.y + h];
 }
-export function violates(p, others, gap) {
-  const A = partBox(p);
+export function violates(p, others, gap, opts = {}) {
+  const A = partBox(p), pad = smallPartBuffer(p, opts), edge = Number(opts.edge)||0;
+  if (pad > 0 && Number.isFinite(opts.sheetL) && Number.isFinite(opts.sheetW)
+    && Math.min(A[0]-edge,A[2]-edge,opts.sheetL-edge-A[1],opts.sheetW-edge-A[3]) < pad-0.01) return true;
   return others.some(o => {
     if (o === p) return false;
     const B = partBox(o);
     const dx = Math.max(B[0] - A[1], A[0] - B[1]), dy = Math.max(B[2] - A[3], A[2] - B[3]);
-    return Math.max(dx, dy) < gap - 0.01;
+    return Math.max(dx, dy) < partGap(p, o, gap, opts) - 0.01;
   });
 }
 
@@ -412,16 +436,24 @@ export function nestViolations(nest) {
   const gap = Number(nest && nest.gap) || NEST_DEFAULTS.gap;
   for (const [i, sh] of (nest && nest.sheets || []).entries()) {
     const pl = sh.placements || [];
+    for (const p of pl) {
+      const pad = smallPartBuffer(p, nest);
+      if (!(pad > 0)) continue;
+      const [x0,x1,y0,y1] = partBox(p), edge = Number(nest.edge) || 0;
+      const clearance = Math.min(x0-edge, y0-edge, nest.sheetL-edge-x1, nest.sheetW-edge-y1);
+      if (clearance < pad-0.01) out.push({sheet:i+1,a:p.name,b:'sheet trim',mm:+clearance.toFixed(1),gap:pad,overlap:clearance<0});
+    }
     for (let a = 0; a < pl.length; a++) {
       for (let b = a + 1; b < pl.length; b++) {
         const A = partBox(pl[a]), B = partBox(pl[b]);
         const dx = Math.max(B[0] - A[1], A[0] - B[1]);
         const dy = Math.max(B[2] - A[3], A[2] - B[3]);
         const sep = Math.max(dx, dy);
-        if (sep < gap - 0.01) {
+        const required = partGap(pl[a], pl[b], gap, nest);
+        if (sep < required - 0.01) {
           out.push({
             sheet: i + 1, a: pl[a].name, b: pl[b].name,
-            mm: +Math.max(0, sep).toFixed(1), gap,
+            mm: +Math.max(0, sep).toFixed(1), gap: required,
             overlap: sep < -0.01,
           });
         }
@@ -507,6 +539,7 @@ export function shuffleForScrap(sheet, opts = {}, scoreSheet, { tries = 400 } = 
       const pl = (fx === 1 && fy === 1) ? r : spreadOut(r, opts, fx, fy);
       if (!pl) continue;
       const cand = { ...sheet, placements: [...pl, ...keep] };
+      if (nestViolations({...opts,sheets:[cand]}).length) continue;
       const s = scoreSheet(cand);
       if (!best || s.cost < best.score.cost) best = { placements: cand.placements, score: s };
     }

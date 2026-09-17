@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.29';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.30';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -125,7 +125,8 @@ export function loadMaterials() {
       // migrate BEFORE reconcile: the retired board carries the old name too,
       // and moving it first means reconcile sees a row that already points at
       // the material it should have been on all along
-      return raw.map(m => normalize(reconcile(migrateRetiredBoard(m))));
+      const saved = raw.map(m => normalize(reconcile(migrateRetiredBoard(m))));
+      return saved.concat(missingFromSaved(saved).map(normalize));
     }
   } catch (e) { /* fall through to defaults */ }
   return DEFAULT_MATERIALS.map(normalize);
