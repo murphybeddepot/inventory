@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.28';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.28';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.28';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.28';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.29';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.29';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.29';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.29';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1109,7 +1109,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.28';
+const APP_VERSION = '4.29';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -4179,7 +4179,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.28'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.29'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4394,7 +4394,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.28');
+    const M=await import('./js/materials.mjs?v=4.29');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4407,7 +4407,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.28'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.29'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4440,7 +4440,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.28');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.29');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -5005,7 +5005,7 @@ function _emitPDF(pages){
 }
 
 function _pdfLayerFill(li){let u=0;for(const p of S.layers[li])u+=p.L*p.W;return Math.round(u/(S.foot.L*S.foot.W)*100);}
-function _pdfSections(){const seen={},out=[];for(const layer of S.layers)for(const p of layer){if(!(p.secIdx in seen)){seen[p.secIdx]={idx:p.secIdx,name:(p.name||('Section '+(p.secIdx+1))),count:0};out.push(seen[p.secIdx]);}seen[p.secIdx].count++;}return out;}
+function _pdfSections(){const seen={},out=[];for(const layer of S.layers)for(const p of layer){if(!(p.secIdx in seen)){seen[p.secIdx]={idx:p.secIdx,name:((S.manifest||[]).find(m=>m.secIdx===p.secIdx)?.section||p.name||('Section '+(p.secIdx+1))),count:0};out.push(seen[p.secIdx]);}seen[p.secIdx].count++;}return out;}
 
 /* draw one layer (pallet + footprint + parts + cartons) with ox,oy = footprint origin on the page */
 function _pdfDrawLayer(pg, li, ox, oy, scale, labels){
@@ -5077,9 +5077,20 @@ function _pdfDrawLayer(pg, li, ox, oy, scale, labels){
   }
 }
 
+function _pdfJobName(){return String(S.sku||'').trim()||'Untitled job';}
+function _pdfFilename(){
+  // Keep the job recognizable while removing characters forbidden in filenames.
+  const name=_pdfJobName().replace(/[<>:"/\\|?*\x00-\x1F]/g,'-').replace(/[. ]+$/g,'');
+  return (name||'Untitled job')+'.pdf';
+}
+function _pdfJobTitle(pg){
+  const name=_pdfJobName(), size=Math.min(26,(pg.W-72)/Math.max(1,_tw(name,1,true)));
+  pg.text(36,42,name,{size,bold:true});
+}
 function _pdfCover(pg, meta){
-  let y=56;
-  pg.text(36,y,'Pallet Stacking Recipe',{size:22,bold:true}); y+=22;
+  _pdfJobTitle(pg);
+  let y=66;
+  pg.text(36,y,'Pallet Stacking Recipe',{size:15,bold:true}); y+=20;
   pg.text(36,y,meta.title,{size:11,color:PDF_MUTE}); y+=14;
   pg.text(36,y,meta.date+'   |   v'+APP_VERSION,{size:9,color:PDF_FAINT}); y+=20;
   pg.line(36,y,pg.W-36,y,{stroke:[0.82,0.82,0.82],lw:0.8}); y+=24;
@@ -5125,9 +5136,10 @@ function _pdfCover(pg, meta){
 
 function _pdfContactSheet(pg){
   const N=S.layers.length;
-  pg.text(36,42,'All layers',{size:15,bold:true});
-  pg.text(36,56,N+' layers, L1 (bottom) to L'+N+' (top)',{size:8.5,color:PDF_MUTE});
-  const top=70,left=36,gridW=pg.W-72,gridH=pg.H-top-26;
+  _pdfJobTitle(pg);
+  pg.text(36,68,'All layers',{size:15,bold:true});
+  pg.text(36,82,N+' layers, L1 (bottom) to L'+N+' (top)',{size:8.5,color:PDF_MUTE});
+  const top=96,left=36,gridW=pg.W-72,gridH=pg.H-top-26;
   const cols = N<=6?3 : N<=12?4 : N<=20?5 : 6;
   const rows=Math.ceil(N/cols), cw=gridW/cols, ch=gridH/rows;
   for(let i=0;i<N;i++){
@@ -5147,16 +5159,17 @@ function _pdfContactSheet(pg){
 
 function _pdfLayerPage(pg, li){
   const N=S.layers.length, sc=layerSupportCounts(li), fill=_pdfLayerFill(li);
+  _pdfJobTitle(pg);
   /* The header is read from the same distance as the parts. The pallet is
      WIDTH-limited on every stack we build (2032x1092 into 720x516), so the
      vertical slack above it was dead paper -- it pays for a big layer number
      instead, and the drawing does not shrink. */
-  pg.text(36,54,'LAYER '+(li+1),{size:34,bold:true});
-  pg.text(36,74,'of '+N+'  \u00b7  '+(S.layers[li].length)+' parts',{size:14,color:PDF_MUTE});
+  pg.text(36,80,'LAYER '+(li+1),{size:28,bold:true});
+  pg.text(36,100,'of '+N+'  \u00b7  '+(S.layers[li].length)+' parts',{size:14,color:PDF_MUTE});
   let badge = sc.severe? (sc.severe+' severe (<70%)') : sc.mild? (sc.mild+' mild (70-90%)') : 'fully supported';
-  pg.text(pg.W-36,54,fill+'% fill',{size:22,align:'right',color:PDF_INK,bold:true});
-  pg.text(pg.W-36,74,badge,{size:14,align:'right',color: sc.severe?PDF_SEV:sc.mild?PDF_MILD:PDF_OK});
-  const top=92,left=36,aw=pg.W-72,ah=pg.H-top-24;
+  pg.text(pg.W-36,80,fill+'% fill',{size:22,align:'right',color:PDF_INK,bold:true});
+  pg.text(pg.W-36,100,badge,{size:14,align:'right',color: sc.severe?PDF_SEV:sc.mild?PDF_MILD:PDF_OK});
+  const top=118,left=36,aw=pg.W-72,ah=pg.H-top-24;
   const scale=Math.min(aw/S.pal.L, ah/S.pal.W);
   const drawW=S.pal.L*scale, drawH=S.pal.W*scale;
   const ox=left+(aw-drawW)/2+footOffset().x*scale, oy=top+(ah-drawH)/2+footOffset().y*scale;
@@ -5182,7 +5195,7 @@ function exportStackPDF(mono){
   const prev=PDF_MONO; PDF_MONO=!!mono;
   let r;
   try{ r=_stackPDFString(); } finally { PDF_MONO=prev; }
-  download('stack-recipe-v'+APP_VERSION+(mono?'-bw':'-color')+'.pdf', r.str, 'application/pdf');
+  download(_pdfFilename(), r.str, 'application/pdf');
   toast('Exported '+(mono?'B&W':'colour')+' PDF — '+r.pages+' pages');
 }
 function download(name,content,mime){const b=new Blob([content],{type:mime});const u=URL.createObjectURL(b);const a=el('a',{href:u,download:name});document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
@@ -5580,7 +5593,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.28');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.29');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
