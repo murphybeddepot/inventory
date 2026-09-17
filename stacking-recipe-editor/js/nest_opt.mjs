@@ -16,6 +16,8 @@
 // Pure strings in, pure strings out: no JSZip, no DOM, so it is testable
 // outside a browser.
 
+import { assertNestRotations } from './nest.mjs?v=4.33';
+
 const NL = '\r\n';
 const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"`)); return m ? m[1] : d; };
 
@@ -128,6 +130,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     M.textureId = '-1';
   }
   if (!nest || !Array.isArray(nest.sheets) || !nest.sheets.length) return null;
+  assertNestRotations(nest);
 
   // --- part pool, straight from the layer products -------------------------
   // Mozaik's cabinet registry. Every OptimizePart points at a cabinet through

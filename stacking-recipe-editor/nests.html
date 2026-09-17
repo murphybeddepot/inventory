@@ -212,18 +212,18 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.32';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations } from './js/nest.mjs?v=4.33';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.32';
-import { APP_VERSION } from './js/version.mjs?v=4.32';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.32';
+         fromMM, toMM } from './js/materials.mjs?v=4.33';
+import { APP_VERSION } from './js/version.mjs?v=4.33';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.33';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.32';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.32';
-import { deriveNest } from './js/derive_nest.mjs?v=4.32';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.33';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.33';
+import { deriveNest } from './js/derive_nest.mjs?v=4.33';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -936,7 +936,7 @@ function rotateSelected() {
   if (!selected) return;
   const s = nest.sheets[sheetIdx];
   const before = { rotation: selected.rotation, x: selected.x, y: selected.y };
-  selected.rotation = (((selected.rotation || 0) + 90) % 360);
+  selected.rotation = nextNestRotation(selected.rotation);
   // rotating changes the footprint, so pull it back inside the sheet and let
   // the same snap that governs dragging tidy the position. Footprint comes
   // from partBox — the one place that knows how rotation maps to extents.
@@ -1394,6 +1394,13 @@ function blockedByTooClose() {
 }
 
 $('apply').onclick = () => {
+  try { assertNestRotations(nest); }
+  catch (e) {
+    $('hint').textContent = 'NOT SAVED: ' + e.message;
+    $('apply').textContent = '⚠ NOT SAVED — rotation';
+    alert('NOT SAVED — ' + e.message);
+    return;
+  }
   if (blockedByTooClose()) return;
 
   stash();

@@ -45,6 +45,25 @@ export function crossGrainFor(sku) {
 }
 export const CROSS_GRAIN_CODES = new Set();   // default: none, until a family says otherwise
 
+// Shop rule, 2026-09-17: new nests may use only 0 and 90 degrees.
+// Keep legacy geometry readable; never silently turn an already-posted part.
+export const NEST_ROTATIONS = Object.freeze([0, 90]);
+export function nextNestRotation(rotation) {
+  return Number(rotation || 0) === 0 ? 90 : 0;
+}
+export function assertNestRotations(nest) {
+  const bad = [];
+  for (const [i, sheet] of (nest?.sheets || []).entries()) {
+    for (const p of sheet.placements || []) {
+      if (!NEST_ROTATIONS.includes(Number(p.rotation ?? 0)))
+        bad.push(`sheet ${i + 1}: ${p.name} at ${p.rotation}°`);
+    }
+  }
+  if (bad.length) throw Error('Only 0° and 90° nest rotations are allowed. '
+    + bad.slice(0, 8).join('; ') + (bad.length > 8 ? `; +${bad.length - 8} more` : '')
+    + '. Re-nest these parts before saving or exporting.');
+}
+
 // The one rotation a part may take on a grained sheet, in the bin's own frame
 // (bin w = the sheet's LENGTH = the grain axis).
 export function grainRotations(it, crossGrain = CROSS_GRAIN_CODES) {
@@ -114,7 +133,9 @@ class Bin {
     // no-job problem.
     const skinny = Math.min(it.w, it.h) < (this.skinnyMM || 0);
     for (const pass of (skinny ? [this.skinnyInset || 0, 0] : [0])) {
-    for (const fr of this.free) for (const rot of (this.grained ? grainRotations(it, this.crossGrain) : [0, 90])) {
+    const rotations = (this.grained ? grainRotations(it, this.crossGrain) : NEST_ROTATIONS)
+      .filter(r => !Array.isArray(it.allowedRotations) || it.allowedRotations.includes(r));
+    for (const fr of this.free) for (const rot of rotations) {
       const w = rot ? it.h : it.w, h = rot ? it.w : it.h;
       if (w > fr.w + 1e-9 || h > fr.h + 1e-9) continue;
       // On the inset pass, OFFSET within the free rect rather than rejecting it.
