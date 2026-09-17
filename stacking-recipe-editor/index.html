@@ -16,10 +16,10 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.30';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.30';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.30';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.30';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.31';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.31';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.31';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.31';
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
@@ -1109,7 +1109,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.30';
+const APP_VERSION = '4.31';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -4179,7 +4179,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.30'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.31'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4394,7 +4394,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.30');
+    const M=await import('./js/materials.mjs?v=4.31');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4407,7 +4407,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.30'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.31'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4440,7 +4440,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.30');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.31');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -5318,6 +5318,23 @@ function restoreNestsForSku(sku,nests){
   return n;
 }
 
+// An explicitly confirmed file import is a replacement. Ordinary cloud loads
+// still fill gaps only, preserving local nest edits as before.
+function consumeLibraryImport(sku, incoming, remote){
+  const snap={...incoming};delete snap._localImport;
+  snap._revision=remote?.revision||incoming._revision||null;
+  const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}')||{};
+  for(const [mid,nest] of Object.entries(snap.nests||{})){
+    if(nest?.sheets?.length) all[sku+'::'+mid]={...nest,sku};
+  }
+  localStorage.setItem('mbd_nests_by_material_v1',JSON.stringify(all));
+  const inFlight=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
+  if(inFlight?.sku===sku) sessionStorage.removeItem('mbd_nest_result');
+  const lib=loadLib();lib[sku]=snap;
+  if(!saveLib(lib)) throw Error('Browser storage could not save the imported recipe.');
+  return snap;
+}
+
 function snapshot(){
   return {
     sku:S.sku, savedAt:new Date().toISOString(), appVersion:APP_VERSION,
@@ -5562,6 +5579,10 @@ async function renderLibList(){
     // half-copy of this dance.
     const fetchSnap=async()=>{
       let snap=L;
+      if(L?._localImport){
+        try{return consumeLibraryImport(k,L,R);}
+        catch(err){toast('Import could not be loaded: '+err.message);return null;}
+      }
       if(isProvisioned() && R){
         try{
           const remoteFull=await remoteLoadRecipe(k);
@@ -5593,7 +5614,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.30');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.31');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
@@ -5655,8 +5676,9 @@ $('libExport').onclick=()=>{const lib=loadLib();download('stacking-recipes-'+new
 $('libImport').onclick=()=>$('libFile').click();
 $('libFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=()=>{try{const inc=JSON.parse(r.result);const lib=loadLib();let n=0;
-    for(const k in inc){if(lib[k]&&!confirm('"'+k+'" exists. Overwrite?'))continue;lib[k]=inc[k];n++;}
-    saveLib(lib);renderLibList();toast('Imported '+n+' recipe(s)');}catch(err){toast('Invalid library file');}};
+    for(const k in inc){if(lib[k]&&!confirm('"'+k+'" exists. Overwrite recipe and included saved nests?'))continue;lib[k]={...inc[k],_localImport:true,_revision:lib[k]?._revision||null};n++;}
+    if(!saveLib(lib))throw Error('Browser storage could not save the library.');
+    renderLibList();toast('Imported '+n+' recipe(s). Load, then Save recipe to sync.');}catch(err){toast('Library import failed: '+err.message);}};
   r.readAsText(f);e.target.value='';};
 
 /* ============================================================
