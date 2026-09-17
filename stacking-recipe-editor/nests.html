@@ -3,9 +3,9 @@
 <title>Nests — Stacking Recipe Editor</title>
 <style>
 :root{--bg:#F6F4EE;--ink:#26241F;--soft:#6B665C;--line:#D8D3C6;--board:#FDFCF8;
-  --edge:#C9C2B2;--accent:#C25A11;--chip:#ECE8DD;--corridor:#EFEBE0;--bad:#B02A18;--salvage:#9DBF9E}
+  --edge:#C9C2B2;--accent:#C25A11;--fence:#126293;--chip:#ECE8DD;--corridor:#EFEBE0;--bad:#B02A18;--salvage:#9DBF9E}
 @media (prefers-color-scheme:dark){:root{--bg:#1B1D21;--ink:#E6E3DC;--soft:#9B968B;--line:#3A3D44;
-  --board:#24262C;--edge:#4A4E58;--accent:#E8843C;--chip:#2C2F36;--corridor:#202228;--bad:#E5654F;--salvage:#3E6B45}}
+  --board:#24262C;--edge:#4A4E58;--accent:#E8843C;--fence:#83CDFA;--chip:#2C2F36;--corridor:#202228;--bad:#E5654F;--salvage:#3E6B45}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 header{padding:14px 20px 6px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:baseline}
@@ -23,9 +23,11 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 main{padding:4px 20px 10px;max-width:1200px}
 .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--corridor);padding:12px}
 svg{display:block;width:100%;height:auto;touch-action:none}
-.part.sel rect{stroke:var(--accent);stroke-width:5}
-.part.bad rect{stroke:var(--bad);stroke-width:5}
-.part.moved rect{stroke-dasharray:8 4}
+.part.sel .outline{stroke:var(--accent);stroke-width:5}
+.part.bad .outline{stroke:var(--bad);stroke-width:5}
+.part.moved .outline{stroke-dasharray:8 4}
+.part .ref-mark,.part .cut-edge,.part .fence-edge{pointer-events:none}
+.part.unknown .outline{stroke-dasharray:10 6;stroke:var(--bad)}
 .part text{pointer-events:none;user-select:none}
 #panel{margin:8px 20px;border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--chip);max-width:1160px}
 #tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);padding:5px 8px;border-radius:5px;
@@ -203,23 +205,25 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   </div>
 </div></div>
 <nav class="bar" id="tabs"></nav>
+<div class="bar soft" id="geometryLegend" role="status">REF marks the drill/label reference corner. Orange lines show cutout edges.</div>
 <main><div class="wrap"><svg id="board"></svg></div></main>
 <div id="panel"><div id="sel" class="soft">Click a part to select it.</div>
   <pre id="moves" class="mono" style="white-space:pre-wrap;margin:8px 0 0"></pre></div>
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.31';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations } from './js/nest.mjs?v=4.32';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.31';
-import { APP_VERSION } from './js/version.mjs?v=4.31';
+         fromMM, toMM } from './js/materials.mjs?v=4.32';
+import { APP_VERSION } from './js/version.mjs?v=4.32';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.32';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.31';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.31';
-import { deriveNest } from './js/derive_nest.mjs?v=4.31';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.32';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.32';
+import { deriveNest } from './js/derive_nest.mjs?v=4.32';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -745,9 +749,23 @@ function buildTabs() {
 const HUES = [210, 28, 95, 350, 265, 160, 45, 315, 190, 75, 230, 15];
 const dark = matchMedia('(prefers-color-scheme: dark)').matches;
 const colorOf = ly => `hsl(${HUES[(ly - 1) % HUES.length]} ${dark ? '42% 38%' : '48% 72%'})`;
+let drawnGeometry = new Map();
+const svgPath = (pts,M,W) => pts.map(([x,y],i)=>`${i?'L':'M'} ${M+x} ${M+W-y}`).join(' ');
+function geometryNote(p) {
+  const g=drawnGeometry.get(p);
+  return g?.error?'Outline / REF unavailable: '+g.error:g?.reference?`REF: ${g.corner} on this sheet · ${g.notch?(g.notch.atFence?'base notch against REF fence':'base notch AWAY FROM REF fence'):g.cutEdges.length?'shaped outline':'rectangular outline'}`:'Rectangular remnant';
+}
 function draw() {
   const s = nest.sheets[sheetIdx]; if (!s) return;
   const M = 20, L = nest.sheetL, W = nest.sheetW, svg = $('board');
+  const sources=resolveNestGeometry(nest,recipe.parts,p=>p.src?CRATE_BY_KEY.get(p.src):null);
+  drawnGeometry=new Map([...sources].map(([p,g])=>[p,geometryOnSheet(p,g)]));
+  const missing=[...drawnGeometry].filter(([,g])=>g.error).map(([p])=>p.name);
+  const away=[...drawnGeometry].filter(([,g])=>g.notch&&!g.notch.atFence).map(([p])=>p.name);
+  $('geometryLegend').textContent='REF = drill/label corner. Blue dashed = reference fence (long edge). Orange = cutout. Preferred base notch: against the REF fence.'
+    +(away.length?` ${away.length} base notch(es) away from that fence: ${[...new Set(away)].join(', ')}.`:'')
+    +(missing.length?` Outline / REF unavailable for ${missing.length} part(s): ${[...new Set(missing)].join(', ')}. Return to recipe and open Nests to reload the imported .moz geometry.`:'');
+  $('geometryLegend').style.color=missing.length?'var(--bad)':'';
   svg.setAttribute('viewBox', `0 0 ${L + 2 * M} ${W + 2 * M}`);
   let g = `<rect x="${M}" y="${M}" width="${L}" height="${W}" fill="var(--board)" stroke="var(--edge)" stroke-width="3"/>`
     + `<rect x="${M + nest.edge}" y="${M + nest.edge}" width="${L - 2 * nest.edge}" height="${W - 2 * nest.edge}"
@@ -772,14 +790,32 @@ function draw() {
   }
   s.placements.forEach((p, i) => {
     const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0;
-    const cls = 'part' + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap, nest) ? ' bad' : '')
+    const geo=drawnGeometry.get(p);
+    const cls = 'part' + (geo.error?' unknown':'') + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap, nest) ? ' bad' : '')
       + (p._moved ? ' moved' : '');
     const fill = p.salvage ? 'var(--salvage)' : colorOf(p.layer);
-    g += `<g class="${cls}" data-i="${i}"><rect x="${M + x0}" y="${M + (W - y1)}" width="${w}" height="${h}"
-      fill="${fill}" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1.6"/>
+    const path=geo.error?`M ${M+x0} ${M+W-y1} h ${w} v ${h} h ${-w} Z`:svgPath(geo.points,M,W)+' Z';
+    g += `<g class="${cls}" data-i="${i}" aria-label="${escAttr(p.name+' · '+geometryNote(p))}"><title>${esc(p.name+' · '+geometryNote(p))}</title>
+      <path class="outline" d="${path}" fill="${fill}" stroke="var(--ink)" stroke-opacity=".65" stroke-width="1.6"/>
       <text x="${M + x0 + w / 2}" y="${M + (W - y1) + h / 2}" font-size="${Math.max(22, Math.min(46, Math.min(w, h) * .4))}"
         text-anchor="middle" dominant-baseline="central" fill="var(--ink)"
-        font-family="ui-monospace,Consolas,monospace" font-weight="600">${esc(p.name)}</text></g>`;
+        font-family="ui-monospace,Consolas,monospace" font-weight="600">${esc(p.name)}${geo.error?' ?':''}</text>`;
+    if(!geo.error){
+      for(const edge of geo.cutEdges)g+=`<path class="cut-edge" d="${svgPath(edge,M,W)}" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>`;
+      if(geo.fence){
+        const [a,b]=geo.fence,vertical=Math.abs(a[0]-b[0])<.06;
+        const ox=vertical?(a[0]<x0+w/2?-7:7):0,oy=vertical?0:(a[1]<y0+h/2?-7:7);
+        g+=`<path class="fence-edge" d="${svgPath(geo.fence.map(([x,y])=>[x+ox,y+oy]),M,W)}" fill="none" stroke="var(--fence)" stroke-width="1.5" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/>`;
+      }
+      if(geo.reference){
+        const [rx,ry]=geo.reference,sx=M+rx,sy=M+W-ry,dx=rx<x0+w/2?1:-1,dy=ry<y0+h/2?-1:1;
+        g+=`<g class="ref-mark"><path d="M ${sx} ${sy+dy*32} L ${sx} ${sy} L ${sx+dx*32} ${sy}" fill="none" stroke="var(--board)" stroke-width="9"/>
+          <path d="M ${sx} ${sy+dy*32} L ${sx} ${sy} L ${sx+dx*32} ${sy}" fill="none" stroke="var(--ink)" stroke-width="4"/>
+          <circle cx="${sx}" cy="${sy}" r="6" fill="var(--ink)" stroke="var(--board)" stroke-width="2"/>
+          <text x="${sx+dx*14}" y="${sy+dy*21}" text-anchor="${dx>0?'start':'end'}" dominant-baseline="central" font-size="21" font-weight="750" fill="var(--ink)" stroke="var(--board)" stroke-width="5" paint-order="stroke">REF</text></g>`;
+      }
+    }
+    g+='</g>';
   });
   svg.innerHTML = g;
   renderPanel();
@@ -815,7 +851,7 @@ svg.addEventListener('pointermove', e => {
     const g = e.target.closest('.part'); if (!g) { tip.style.display = 'none'; return; }
     const p = nest.sheets[sheetIdx].placements[+g.dataset.i];
     tip.style.display = 'block';
-    tip.textContent = `${p.name} · ${p.l}×${p.w} · L${p.layer} · (${p.x}, ${p.y})`;
+    tip.textContent = `${p.name} · ${p.l}×${p.w} · L${p.layer} · (${p.x}, ${p.y}) · ${geometryNote(p)}`;
     tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
     return;
   }
@@ -843,6 +879,7 @@ function renderPanel() {
   } else if (selected) {
     $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · layer ${selected.layer} · (${selected.x}, ${selected.y})`;
   } else $('sel').textContent = 'Click a part to select it.';
+  if(selected)$('sel').insertAdjacentHTML('beforeend',`<div class="soft" style="margin-top:6px">${esc(geometryNote(selected))}</div>`);
   const moved = nest.sheets.flatMap((sh, i) => sh.placements.filter(p => p._moved || p._from != null)
     .map(p => p._from != null ? `${p.name}: sheet ${p._from + 1} → sheet ${i + 1} at (${p.x}, ${p.y})`
       : `${p.name} sheet ${i + 1}: moved to (${p.x}, ${p.y})`));
