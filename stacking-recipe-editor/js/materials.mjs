@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.33';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.34';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -255,7 +255,7 @@ export function nestOptsFor(mat, gap = 16) {
   const m = normalize(mat);
   // A nest respects the SMALLER of the two trims as its edge margin when they
   // differ, so no part can ever land inside a trim on either axis.
-  return { gap, edge: Math.min(m.lengthTrim, m.widthTrim), sheetL: m.length, sheetW: m.width,
+  return { vacuumProfile: '2026.09.18.1', gap, edge: Math.min(m.lengthTrim, m.widthTrim), sheetL: m.length, sheetW: m.width,
     trimL: m.lengthTrim, trimW: m.widthTrim, hasGrain: m.hasGrain === true };
 }
 export function describe(m) {

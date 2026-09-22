@@ -33,12 +33,16 @@ const poolKey = p => `${p.name}|${Math.round(p.l)}x${Math.round(p.w)}`;
 // mutate placements, their rotation, saved nests, or their source geometry.
 export function resolveNestGeometry(nest,parts=[],salvageSource=()=>null) {
   const pool=new Map(),result=new Map();
-  for(const p of parts){const k=poolKey(p);if(!pool.has(k))pool.set(k,[]);pool.get(k).push(p.geometry);}
+  for(const p of parts){const k=poolKey(p);if(!pool.has(k))pool.set(k,[]);pool.get(k).push(p);}
   for(const sh of nest.sheets||[])for(const p of sh.placements||[]){
     let g;
     if(p.remnant)g={l:p.l,w:p.w,outline:[[0,0],[p.l,0],[p.l,p.w],[0,p.w]],remnant:true};
     else if(p.salvage)g=readPartGeometry(salvageSource(p));
-    else g=pool.get(poolKey(p))?.shift();
+    else {
+      const candidates=pool.get(poolKey(p))||[];
+      const exact=candidates.findIndex(q=>Number(q.sourceLayer??q.layer)===Number(p.sourceLayer??p.layer));
+      g=(exact>=0?candidates.splice(exact,1)[0]:candidates.shift())?.geometry;
+    }
     result.set(p,g||{error:'No matching imported part outline'});
   }
   return result;
@@ -70,4 +74,22 @@ export function geometryOnSheet(p,source) {
     const corner=reference?(near(reference[1],p.y+height)?'top':'bottom')+'-'+(near(reference[0],p.x)?'left':'right'):null;
     return {points,cutEdges,reference,corner,fence,notch};
   }catch(err){return {error:err.message};}
+}
+
+// The drill needs a continuous long edge opposite REF. The router nest also
+// keeps material at its top-right corner. Translate positions freely, but
+// exclude rotations that put a corrected bottom-right notch at top-right.
+export function sensorRotations(g) {
+  if (!g?.outline || g.outline.length <= 4) return [0, 90];
+  const {l,w,outline} = g, L=Math.max(l,w), W=Math.min(l,w);
+  const drill=w>l?outline.map(([x,y])=>[w-y,x]):outline;
+  const spans=drill.flatMap((a,i)=>{
+    const b=drill[(i+1)%drill.length];
+    return near(a[1],W)&&near(b[1],W)?[[Math.min(a[0],b[0]),Math.max(a[0],b[0])]]:[];
+  }).sort((a,b)=>a[0]-b[0]);
+  let end=0;
+  for(const [a,b] of spans){if(a>end+.05)break;end=Math.max(end,b);}
+  if(end<L-.05) throw Error('Base notch is opposite REF. Correct the master and reimport it before nesting.');
+  return [0,90].filter(rotation=>outline.map(p=>turnOptPoint(p,l,w,rotation))
+    .some(([x,y])=>near(x,rotation?w:l)&&near(y,rotation?l:w)));
 }

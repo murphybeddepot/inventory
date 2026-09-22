@@ -212,18 +212,18 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations } from './js/nest.mjs?v=4.33';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.34';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.33';
-import { APP_VERSION } from './js/version.mjs?v=4.33';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.33';
+         fromMM, toMM } from './js/materials.mjs?v=4.34';
+import { APP_VERSION } from './js/version.mjs?v=4.34';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.34';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.33';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.33';
-import { deriveNest } from './js/derive_nest.mjs?v=4.33';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.34';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.34';
+import { deriveNest } from './js/derive_nest.mjs?v=4.34';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -644,7 +644,7 @@ function partsForNest() {
   const doors = new Set(doorSet());
   if (!doors.size) return recipe.parts;
   const top = Math.max(...recipe.parts.map((p) => +p.layer || 1));
-  return recipe.parts.map((p) => (doors.has(p.name) ? { ...p, layer: top + 1 } : p));
+  return recipe.parts.map((p) => (doors.has(p.name) ? { ...p, sourceLayer: p.layer, layer: top + 1 } : p));
 }
 
 // ---- grain exceptions, per RECIPE (v4.13) ---------------------------------
@@ -711,7 +711,6 @@ function compute(spacing = smallSpacingOptions()) {
   const r = nestByLayer(partsForNest(), {
     ...nestOptsFor(mat), ...spacing,
     // which codes run cross-grain is a property of THIS product
-    crossGrain: crossGrainFor(recipe.sku),
     crossGrain: new Set(crossGrainCodes()),
     ...(spread ? { maxLayersPerSheet: spread === 99 ? Number.MAX_SAFE_INTEGER : spread } : {}),
   });
@@ -1062,7 +1061,7 @@ $('seamBtn').onclick = () => {
   if (hasManualMoves() && !confirm('Shaping the scrap re-arranges parts on every sheet. Your manual moves are lost. Continue?')) return;
   const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge,
     minDimMM: parseFloat($('diceStrip').value) || 100 };
-  const rep = shapeScrap(nest, opts, packSingleSheet, {
+  const rep = shapeScrap(nest, opts, packForVacuum, {
     catalog: catalog(),
     maxPieceIn: parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN,
     minAreaIn2: parseFloat($('diceMin').value) || 0,
@@ -1384,7 +1383,7 @@ function blockedByTooClose() {
     + (v.overlap ? 'overlap' : v.mm + 'mm')).slice(0, 4).join(' \u00b7 ')
     + (bad.length > 4 ? ` \u00b7 +${bad.length - 4} more` : '') + '  \u2014 they are outlined red';
   if (bad[0] && nest.sheets[bad[0].sheet - 1]) { sheetIdx = bad[0].sheet - 1; buildTabs(); draw(); }
-  const lines = bad.slice(0, 8).map((v) => `  sheet ${v.sheet}: ${v.a} and ${v.b} `
+  const lines = bad.slice(0, 8).map((v) => v.reason ? `  sheet ${v.sheet}: ${v.a} — ${v.reason}` : `  sheet ${v.sheet}: ${v.a} and ${v.b} `
     + (v.overlap ? 'OVERLAP' : `are ${v.mm}mm apart`) + ` (need ${v.gap}mm)`);
   alert(`NOT SAVED — ${bad.length} spacing violation(s) need attention.\n\n`
     + lines.join('\n') + (bad.length > 8 ? `\n  \u2026and ${bad.length - 8} more` : '')

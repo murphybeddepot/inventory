@@ -16,7 +16,8 @@
 // Pure strings in, pure strings out: no JSZip, no DOM, so it is testable
 // outside a browser.
 
-import { assertNestRotations } from './nest.mjs?v=4.33';
+import { sensorRotations } from './nest_geometry.mjs?v=4.34';
+import { assertNestRotations, nestViolations } from './nest.mjs?v=4.34';
 
 const NL = '\r\n';
 const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"`)); return m ? m[1] : d; };
@@ -131,6 +132,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   }
   if (!nest || !Array.isArray(nest.sheets) || !nest.sheets.length) return null;
   assertNestRotations(nest);
+  if(nest.vacuumProfile){const bad=nestViolations(nest);if(bad.length)throw Error(`${bad[0].a}: ${bad[0].reason||'part spacing is invalid'}. Re-nest before export.`);}
 
   // --- part pool, straight from the layer products -------------------------
   // Mozaik's cabinet registry. Every OptimizePart points at a cabinet through
@@ -225,13 +227,18 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const sheetXml = nest.sheets.map((s, sheetIdx) => {
     const locs = (s.placements || []).map((pl) => {
       const k = `${pl.name}|${Math.round(pl.l)}x${Math.round(pl.w)}`;
-      let hit = (byKey.get(k) || []).shift();
+      const candidates = byKey.get(k) || [];
+      const exact = candidates.findIndex(p => Number(p.layer) === Number(pl.sourceLayer ?? pl.layer));
+      let hit = exact >= 0 ? candidates.splice(exact, 1)[0] : candidates.shift();
       if (!hit) {                              // fall back to dims alone, then give up
         const i = loose.findIndex(q => Math.round(q.l) === Math.round(pl.l) && Math.round(q.w) === Math.round(pl.w));
         hit = i >= 0 ? loose[i] : null;
         if (hit) loose.splice(i, 1);
       } else { const i = loose.indexOf(hit); if (i >= 0) loose.splice(i, 1); }
       if (!hit) { unmatched.push(pl.name); return null; }
+      const outline=[...hit.shape.matchAll(/<ShapePoint\b[^>]*>/g)].map(m=>[+attr(m[0],'X'),+attr(m[0],'Y')]);
+      if (!sensorRotations({l:hit.l,w:hit.w,outline}).includes(Number(pl.rotation||0)))
+        throw Error(`${pl.name}: nest rotation puts the notch at the sensor corner. Re-nest from the corrected master.`);
       return `    <OptimizePartLocation PartID="${hit.id}" PartNumber="${hit.id}" X="${pl.x}" Y="${pl.y}" `
         + `Rotation="${pl.rotation || 0}" Flipped="False" SentToRemakeBin="False" FromGroup="" `
         + `ExplodedFromGroup="" ExplodedFromGroupSuffix="" TakenFromRemakeBin="False" `

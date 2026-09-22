@@ -1,3 +1,6 @@
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.34';
+import { sensorRotations } from './nest_geometry.mjs?v=4.34';
+import { makePolicy } from './nest_policy.mjs?v=4.34';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
@@ -98,7 +101,8 @@ export function partGap(a, b, gap = 16, opts = {}) {
 }
 function packingPart(p, gap, opts) {
   const pad = smallPartBuffer(p, opts);
-  return { ...p, l0:p.l, w0:p.w, pad, w:p.l + gap + 2*pad, h:p.w + gap + 2*pad };
+  const allowedRotations = sensorRotations(p.geometry).filter(r => !p.allowedRotations || p.allowedRotations.includes(r));
+  return { ...p, allowedRotations, l0:p.l, w0:p.w, pad, w:p.l + gap + 2*pad, h:p.w + gap + 2*pad };
 }
 
 function mulberry(seed) {
@@ -127,15 +131,20 @@ class Bin {
     // holding on least at the exact moment the sever pass cuts its tabs away.
     // 3E on J023 sat flush on the trim line at 1538 of 1538 usable.
     //
-    // This is a PREFERENCE, not a refusal: a pass that cannot place a skinny
+    // Legacy nests retain a soft preference. The shop vacuum profile is hard.
+    // A legacy pass that cannot place a skinny
     // part inboard must still place it rather than fail the nest, so the second
     // pass drops the margin. Refusing outright would turn a hold problem into a
     // no-job problem.
-    const skinny = Math.min(it.w, it.h) < (this.skinnyMM || 0);
-    for (const pass of (skinny ? [this.skinnyInset || 0, 0] : [0])) {
+    const skinny = Math.min(it.l0, it.w0) < (this.skinnyMM || 0);
+    const shop = this.vacuumProfile === SHOP_VACUUM_PROFILE;
+    const product = {l:it.l0,w:it.w0};
+    const insets = shop ? [Math.max(0,vacuumInset(product)-this.edge-it.pad)] : (skinny ? (this.strictHoldDown ? [this.skinnyInset || 0] : [this.skinnyInset || 0, 0]) : [0]);
+    for (const pass of insets) {
     const rotations = (this.grained ? grainRotations(it, this.crossGrain) : NEST_ROTATIONS)
       .filter(r => !Array.isArray(it.allowedRotations) || it.allowedRotations.includes(r));
-    for (const fr of this.free) for (const rot of rotations) {
+    const anchors = shop ? (isSmallish(product) ? [[0,1],[0,0],[1,1],[1,0]] : [[1,0],[0,0],[1,1],[0,1]]) : [[0,0]];
+    for (const fr of this.free) for (const rot of rotations) for (const [ax,ay] of anchors) {
       const w = rot ? it.h : it.w, h = rot ? it.w : it.h;
       if (w > fr.w + 1e-9 || h > fr.h + 1e-9) continue;
       // On the inset pass, OFFSET within the free rect rather than rejecting it.
@@ -143,11 +152,16 @@ class Bin {
       // edge-touching rects placed nothing at all — the first parts onto an
       // empty sheet have no inboard corner to sit on. Sliding in is what
       // actually holds a skinny part off the table edge.
-      let px = fr.x, py = fr.y;
+      let px = fr.x + ax*(fr.w-w), py = fr.y + ay*(fr.h-h);
       if (pass) {
-        px = Math.max(fr.x, pass); py = Math.max(fr.y, pass);
+        px = Math.max(fr.x, Math.min(px,this.L-pass-w)); py = Math.max(fr.y, Math.min(py,this.W-pass-h));
+        px = Math.max(px,pass); py = Math.max(py,pass);
         if (px + w > fr.x + fr.w + 1e-9 || py + h > fr.y + fr.h + 1e-9) continue;
         if (px + w > this.L - pass || py + h > this.W - pass) continue;
+      }
+      if (shop && isSmallish(product) && px + this.edge + it.pad + w - this.gap - 2*it.pad > this.sheetL/2) {
+        py = Math.max(py, this.sheetW/2-this.edge-it.pad);
+        if(py+h>fr.y+fr.h+1e-9||py+h>this.W-pass)continue;
       }
       // CORNERS ARE WORSE THAN EDGES, and the inset pass alone did not stop
       // them (Zac 2026-09-02: "it doesn't keep smaller/skinnier parts away from
@@ -177,6 +191,7 @@ class Bin {
           }
         }
       }
+      if (shop && vacuumViolations([{...product,name:it.name,x:px+this.edge+it.pad,y:py+this.edge+it.pad,rotation:rot}],this).length) continue;
       const lh = fr.w - w, lv = fr.h - h;
       let s = heur === 'bssf' ? Math.min(lh, lv) : heur === 'blsf' ? Math.max(lh, lv)
         : heur === 'baf' ? fr.w * fr.h - w * h : fr.y * 4 + fr.x;
@@ -233,6 +248,10 @@ export function nestByLayer(parts, opts = {}) {
   const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES,
     skinnyMM = 0, skinnyInset = 0, cornerMM = 0 } = { ...NEST_DEFAULTS, ...opts };
   const BIN_L = sheetL - 2 * edge + gap, BIN_W = sheetW - 2 * edge + gap;
+  for (const p of parts) {
+    try { sensorRotations(p.geometry); }
+    catch (error) { return {error: `${p.name}: ${error.message}`}; }
+  }
   const layers = [...new Set(parts.map(p => p.layer))].sort((a, b) => a - b);
   const tooBig = parts.filter(p => Math.min(p.l, p.w) + gap > Math.max(BIN_L, BIN_W)
     || Math.max(p.l, p.w) + gap > Math.max(BIN_L, BIN_W));
@@ -268,7 +287,7 @@ export function nestByLayer(parts, opts = {}) {
     }
   }
 
-  function attempt(cap, heur, seed, jitter) {
+  function attempt(cap, heur, seed, jitter, maxParts = Infinity) {
     const rnd = mulberry(seed);
     // keep the part's own dims (l0/w0): the packing rect overwrites w/h with
     // the INFLATED size, and reading them back transposed length for width
@@ -277,8 +296,9 @@ export function nestByLayer(parts, opts = {}) {
     const sheets = [];
     while (left.length) {
       if (sheets.length > 40) return null;
-      const bin = Object.assign(new Bin(BIN_L, BIN_W), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset, cornerMM }), on = new Set();
+      const bin = Object.assign(new Bin(BIN_L, BIN_W), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset, cornerMM, strictHoldDown: !!opts.strictHoldDown, vacuumProfile:opts.vacuumProfile, edge, gap, sheetL, sheetW }), on = new Set();
       for (;;) {
+        if (bin.placed.length >= maxParts) break;
         const fits = [];
         for (const it of left) { const b = bin.best(it, heur, rnd, jitter); if (b) fits.push({ it, b }); }
         const openable = fits.filter(f => !on.has(f.it.layer)).map(f => f.it.layer).sort((a, b) => a - b)[0];
@@ -320,22 +340,24 @@ export function nestByLayer(parts, opts = {}) {
   const costed = [];
   for (const cap of tryCaps) {
     let b = null;
-    for (let t = 0; t < 240; t++) {
-      const r = attempt(cap, ['bssf', 'blsf', 'baf', 'bl'][t % 4], t * 2654435761 + cap, t === 0 ? 0 : (t % 120) * 0.8);
-      if (!r) continue;
-      const mixed = r.reduce((a, s) => a + s.layers.length, 0);
-      const sliv = r.reduce((a, s) => a + sliverArea(s.bin, sliverMin), 0);
-      // SHEETS still win outright — that is material, and no amount of tidy
-      // leftover is worth an extra board. Slivers come next because a ribbon of
-      // web is waste at best and something that breaks loose at worst. Layer
-      // mixing, which is only bench convenience, sorts the remaining ties.
-      // Slivers are compared in whole square-decimetres so that a few hundred
-      // mm2 of noise cannot outrank a genuinely tidier layout.
-      const dm2 = (x) => Math.round(x / 10000);
-      const better = !b || r.length < b.sheets.length
-        || (r.length === b.sheets.length && dm2(sliv) < dm2(b.sliver))
-        || (r.length === b.sheets.length && dm2(sliv) === dm2(b.sliver) && mixed < b.mixed);
-      if (better) b = { sheets: r, mixed, cap, sliver: sliv };
+    const counts = r => r.map(s=>s.bin.placed.length);
+    const spread = r => counts(r).reduce((sum,n)=>sum+n*n,0);
+    const consider = r => {
+      if (!r) return;
+      const mixed = r.reduce((a,s)=>a+s.layers.length,0);
+      const sliv = r.reduce((a,s)=>a+sliverArea(s.bin,sliverMin),0);
+      const risk = r.reduce((sum,s)=>sum+nestPolicy.holdRisk(s.bin.placed.map(({it,x,y,rot})=>({l:it.l0,w:it.w0,x:x+edge+it.pad,y:y+edge+it.pad,rotation:rot})),{...opts,gap,edge,sheetL,sheetW}),0);
+      const balance = spread(r), dm2 = x=>Math.round(x/10000);
+      if (!b || r.length < b.sheets.length || r.length === b.sheets.length &&
+        (risk < b.risk || risk === b.risk && (balance < b.balance || balance === b.balance &&
+        (dm2(sliv) < dm2(b.sliver) || dm2(sliv) === dm2(b.sliver) && mixed < b.mixed))))
+        b = {sheets:r,mixed,cap,sliver:sliv,balance,risk};
+    };
+    for (let t=0;t<240;t++) consider(attempt(cap,['bssf','blsf','baf','bl'][t%4],t*2654435761+cap,t===0?0:(t%120)*.8));
+    if (b) {
+      const ceiling = Math.max(...counts(b.sheets));
+      for (let maxParts=Math.ceil(parts.length/b.sheets.length);maxParts<ceiling;maxParts++)
+        for (let t=0;t<80;t++) consider(attempt(cap,['bssf','blsf','baf','bl'][t%4],t*2654435761+cap,(t%120)*.8,maxParts));
     }
     if (b) costed.push(b);
   }
@@ -352,8 +374,8 @@ export function nestByLayer(parts, opts = {}) {
     : (costed.find((c) => AUTO_SET.includes(c.cap)) || costed[0]);
 
   const SHEET_AREA = sheetL * sheetW;
-  return {
-    gap, edge, sheetL, sheetW, cap: best.cap,
+  const result = {
+    gap, edge, sheetL, sheetW, cap: best.cap, vacuumProfile:opts.vacuumProfile,
     smallPartAreaMM2: Math.max(0, Number(opts.smallPartAreaMM2) || 0),
     smallPartWidthMM: Math.max(0, Number(opts.smallPartWidthMM) || 0),
     smallPartSpacingMM: Math.max(0, Number(opts.smallPartSpacingMM) || 0),
@@ -371,6 +393,9 @@ export function nestByLayer(parts, opts = {}) {
     sheets: best.sheets.map(({ bin, layers: lys }) => {
       const placements = bin.placed.map(({ it, x, y, rot }) => ({
         name: it.name, layer: it.layer, key: it.key,
+        ...(it.geometry ? {geometry:it.geometry} : {}),
+        ...(it.sourceLayer ? {sourceLayer:it.sourceLayer} : {}),
+        allowedRotations: it.allowedRotations,
         l: it.l0, w: it.w0, x: +(x + edge + it.pad).toFixed(2), y: +(y + edge + it.pad).toFixed(2),
         rotation: rot ? 90 : 0,
       })).sort((a, b) => a.layer - b.layer || String(a.name).localeCompare(String(b.name)));
@@ -378,6 +403,7 @@ export function nestByLayer(parts, opts = {}) {
         utilization: +(placements.reduce((a, p) => a + p.l * p.w, 0) / SHEET_AREA).toFixed(3) };
     }),
   };
+  return nestPolicy.balance(result, opts);
 }
 
 // Repack ONE sheet's own parts into one bin, or say it cannot be done.
@@ -395,7 +421,7 @@ export function nestByLayer(parts, opts = {}) {
 export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jitter = 0 } = {}) {
   const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES,
     skinnyMM = 0, skinnyInset = 0, cornerMM = 0 } = { ...NEST_DEFAULTS, ...opts };
-  const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset, cornerMM });
+  const bin = Object.assign(new Bin(sheetL - 2 * edge + gap, sheetW - 2 * edge + gap), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset, cornerMM, strictHoldDown: !!opts.strictHoldDown, vacuumProfile:opts.vacuumProfile, edge, gap, sheetL, sheetW });
   const rnd = mulberry(seed);
   let left = parts.map(p => packingPart(p, gap, opts));
   while (left.length) {
@@ -410,6 +436,9 @@ export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jit
   }
   return bin.placed.map(({ it, x, y, rot }) => ({
     name: it.name, layer: it.layer, key: it.key,
+        ...(it.geometry ? {geometry:it.geometry} : {}),
+        ...(it.sourceLayer ? {sourceLayer:it.sourceLayer} : {}),
+        allowedRotations: it.allowedRotations,
     l: it.l0, w: it.w0, x: +(x + edge + it.pad).toFixed(2), y: +(y + edge + it.pad).toFixed(2),
     rotation: rot ? 90 : 0,
     ...(it.salvage ? { salvage: true, label: it.label } : {}),
@@ -457,6 +486,7 @@ export function nestViolations(nest) {
   const gap = Number(nest && nest.gap) || NEST_DEFAULTS.gap;
   for (const [i, sh] of (nest && nest.sheets || []).entries()) {
     const pl = sh.placements || [];
+    out.push(...vacuumViolations(pl,nest).map(v=>({...v,sheet:i+1})));
     for (const p of pl) {
       const pad = smallPartBuffer(p, nest);
       if (!(pad > 0)) continue;
@@ -545,6 +575,7 @@ export function shuffleForScrap(sheet, opts = {}, scoreSheet, { tries = 400 } = 
   if (parts.length < 2) return null;
 
   const base = scoreSheet({ ...sheet, placements: [...parts, ...keep] });
+  const baseRisk = holdDownRisk(parts, opts), baseVacuum = vacuumScore(parts, opts);
   let best = null;
   const HEUR = ['bssf', 'blsf', 'baf', 'bl'];
   for (let t = 0; t < tries; t++) {
@@ -557,8 +588,10 @@ export function shuffleForScrap(sheet, opts = {}, scoreSheet, { tries = 400 } = 
     // try the tight pack AND several spread-out versions of it: the spreading
     // is what turns one big void into many small ones
     for (const [fx, fy] of [[1, 1], [1.25, 1], [1, 1.25], [1.2, 1.2], [1.6, 1], [1, 1.6], [1.5, 1.5], [2.2, 2.2]]) {
-      const pl = (fx === 1 && fy === 1) ? r : spreadOut(r, opts, fx, fy);
-      if (!pl) continue;
+      const raw = (fx === 1 && fy === 1) ? r : spreadOut(r, opts, fx, fy);
+      if (!raw) continue;
+      const pl = arrangeForVacuum(raw, opts);
+      if (holdDownRisk(pl, opts) > baseRisk || vacuumScore(pl, opts) > baseVacuum + 1e-9) continue;
       const cand = { ...sheet, placements: [...pl, ...keep] };
       if (nestViolations({...opts,sheets:[cand]}).length) continue;
       const s = scoreSheet(cand);
@@ -567,4 +600,21 @@ export function shuffleForScrap(sheet, opts = {}, scoreSheet, { tries = 400 } = 
   }
   if (!best || best.score.cost >= base.cost) return { improved: false, before: base, after: base };
   return { improved: true, before: base, after: best.score, placements: best.placements };
+}
+
+const nestPolicy = makePolicy({partBox,smallPartBuffer,nestViolations,packSingleSheet,defaults:NEST_DEFAULTS});
+
+export const arrangeForVacuum = (placements, opts) => nestPolicy.arrange(placements, opts);
+export const vacuumScore = (placements, opts) => nestPolicy.vacuumScore(placements, opts);
+export const holdDownRisk = (placements, opts) => nestPolicy.holdRisk(placements, opts);
+export const balanceNest = (nest, opts) => nestPolicy.balance(nest, opts);
+
+// Used by the scrap-shaping button: a cheaper scrap plan cannot undo the
+// vacuum arrangement that the operator already has on screen.
+export function packForVacuum(parts, options, attempt) {
+  const packed = packSingleSheet(parts, options, attempt);
+  if (!packed) return null;
+  const arranged = arrangeForVacuum(packed, options);
+  return holdDownRisk(arranged, options) <= holdDownRisk(parts, options)
+    && vacuumScore(arranged, options) <= vacuumScore(parts, options) + 1e-9 ? arranged : null;
 }
