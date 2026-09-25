@@ -1,7 +1,9 @@
 // Shop rules proven on J054..J060 Boaz jobs, saved in PREPARED-v2026.09.18.1.json.
 // Millimetres from the physical sheet edge; y increases UP in the editor.
 export const SHOP_VACUUM_PROFILE = '2026.09.18.1';
-export const isSmallish = p => Math.min(p.l,p.w)<220 || p.l*p.w<140000;
+// Operator cutoff: under 7 inches on the short side, not the former 220mm.
+export const SMALL_PART_WIDTH_MM = 177.8;
+export const isSmallish = p => Math.min(p.l,p.w)<SMALL_PART_WIDTH_MM || p.l*p.w<140000;
 // Preferred auto-placement inset only. The operator permits manual placements
 // at the valid cutting boundary; 60/132mm are not save/export requirements.
 export const vacuumInset = p => Math.min(p.l,p.w)<120 ? 132 : isSmallish(p) ? 60 : 0;

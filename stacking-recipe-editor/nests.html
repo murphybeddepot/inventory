@@ -214,20 +214,20 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.36';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.37';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.36';
-import { APP_VERSION } from './js/version.mjs?v=4.36';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.36';
+         fromMM, toMM } from './js/materials.mjs?v=4.37';
+import { APP_VERSION } from './js/version.mjs?v=4.37';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.37';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.36';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.36';
-import { deriveNest } from './js/derive_nest.mjs?v=4.36';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.36';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.36';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.37';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.37';
+import { deriveNest } from './js/derive_nest.mjs?v=4.37';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.37';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.37';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -928,7 +928,7 @@ function renderPanel() {
   const group=selectedParts();
   if(group.length>1) {
     $('sel').innerHTML=`<b>${group.length} parts selected</b> · ${group.map(p=>esc(p.name)).join(', ')}<br>`
-      +(editing?'Drag any selected part to move the group. Shift+click adds or removes a part. Select one part to rotate, remove or send to another sheet.':'Press Edit to move the selected group.');
+      +(editing?'Drag any selected part to move the group. Arrows move 1mm; Shift+arrows move 10mm. Shift+click adds or removes a part. Select one part to rotate, remove or send to another sheet.':'Press Edit to move the selected group.');
   } else if (selected && editing) {
     const btns = nest.sheets.map((_, i) => i === sheetIdx ? '' :
       `<button data-to="${i}">→ Sheet ${i + 1}</button>`).join(' ');
@@ -959,7 +959,7 @@ function renderPanel() {
   // this material next to save for this material". First half is the Edit
   // toggle, second half is whether what you are looking at matches the stash.
   const mode = editing
-    ? `drag to move · Shift+click or drag empty space to select a group · snaps to ${nest.gap}mm / ${nest.edge}mm${dup ? ` · ${dup} too close` : ''}`
+    ? `drag to move · Shift+click or drag empty space to select a group · arrows 1mm / Shift+arrows 10mm · snaps to ${nest.gap}mm / ${nest.edge}mm${dup ? ` · ${dup} too close` : ''}`
     : 'viewing — press ✏️ Edit to move parts';
   const state = isSaved ? `this IS the layout saved for ${currentMat().label}`
     : savedNow ? `unsaved changes — differs from the layout saved for ${currentMat().label}`
@@ -1046,7 +1046,19 @@ function removeSelected() {
 addEventListener('keydown', e => {
   if(e.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
   if(e.key==='Escape'){finishDrag(true);selectParts([]);buildTabs();draw();return;}
-  if (!editing || !selected || selection.size!==1) return;
+  if (!editing || !selected || drag || e.ctrlKey || e.metaKey || e.altKey) return;
+  const step=e.shiftKey?10:1;
+  const directions={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,step],ArrowDown:[0,-step]};
+  if(directions[e.key]) {
+    e.preventDefault();
+    const parts=selectedParts(),[dx,dy]=selectionDelta(parts,...directions[e.key],nest);
+    if(dx||dy) {
+      for(const p of parts){p.x+=dx;p.y+=dy;p._moved=true;}
+      recomputeDice();buildTabs();draw();
+    }
+    return;
+  }
+  if(selection.size!==1)return;
   if (e.key === 'r' || e.key === 'R') { e.preventDefault(); rotateSelected(); }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSelected(); }
 });

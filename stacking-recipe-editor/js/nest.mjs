@@ -1,6 +1,6 @@
-import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.36';
-import { sensorRotations } from './nest_geometry.mjs?v=4.36';
-import { makePolicy } from './nest_policy.mjs?v=4.36';
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.37';
+import { sensorRotations } from './nest_geometry.mjs?v=4.37';
+import { makePolicy } from './nest_policy.mjs?v=4.37';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
