@@ -1,6 +1,6 @@
-import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.34';
-import { sensorRotations } from './nest_geometry.mjs?v=4.34';
-import { makePolicy } from './nest_policy.mjs?v=4.34';
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.35';
+import { sensorRotations } from './nest_geometry.mjs?v=4.35';
+import { makePolicy } from './nest_policy.mjs?v=4.35';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
@@ -131,7 +131,7 @@ class Bin {
     // holding on least at the exact moment the sever pass cuts its tabs away.
     // 3E on J023 sat flush on the trim line at 1538 of 1538 usable.
     //
-    // Legacy nests retain a soft preference. The shop vacuum profile is hard.
+    // Edge insets are preferences; the shop corner and quadrant rules remain hard.
     // A legacy pass that cannot place a skinny
     // part inboard must still place it rather than fail the nest, so the second
     // pass drops the margin. Refusing outright would turn a hold problem into a
@@ -139,7 +139,7 @@ class Bin {
     const skinny = Math.min(it.l0, it.w0) < (this.skinnyMM || 0);
     const shop = this.vacuumProfile === SHOP_VACUUM_PROFILE;
     const product = {l:it.l0,w:it.w0};
-    const insets = shop ? [Math.max(0,vacuumInset(product)-this.edge-it.pad)] : (skinny ? (this.strictHoldDown ? [this.skinnyInset || 0] : [this.skinnyInset || 0, 0]) : [0]);
+    const insets = shop ? [Math.max(0,vacuumInset(product)-this.edge-it.pad), 0] : (skinny ? (this.strictHoldDown ? [this.skinnyInset || 0] : [this.skinnyInset || 0, 0]) : [0]);
     for (const pass of insets) {
     const rotations = (this.grained ? grainRotations(it, this.crossGrain) : NEST_ROTATIONS)
       .filter(r => !Array.isArray(it.allowedRotations) || it.allowedRotations.includes(r));
@@ -453,9 +453,9 @@ export function partBox(p) {
   return [p.x, p.x + w, p.y, p.y + h];
 }
 export function violates(p, others, gap, opts = {}) {
-  const A = partBox(p), pad = smallPartBuffer(p, opts), edge = Number(opts.edge)||0;
-  if (pad > 0 && Number.isFinite(opts.sheetL) && Number.isFinite(opts.sheetW)
-    && Math.min(A[0]-edge,A[2]-edge,opts.sheetL-edge-A[1],opts.sheetW-edge-A[3]) < pad-0.01) return true;
+  const A = partBox(p), edge = Number(opts.edge)||0;
+  if (Number.isFinite(opts.sheetL) && Number.isFinite(opts.sheetW)
+    && Math.min(A[0]-edge,A[2]-edge,opts.sheetL-edge-A[1],opts.sheetW-edge-A[3]) < -0.01) return true;
   return others.some(o => {
     if (o === p) return false;
     const B = partBox(o);
@@ -488,11 +488,10 @@ export function nestViolations(nest) {
     const pl = sh.placements || [];
     out.push(...vacuumViolations(pl,nest).map(v=>({...v,sheet:i+1})));
     for (const p of pl) {
-      const pad = smallPartBuffer(p, nest);
-      if (!(pad > 0)) continue;
+      if (!Number.isFinite(nest.sheetL) || !Number.isFinite(nest.sheetW)) continue;
       const [x0,x1,y0,y1] = partBox(p), edge = Number(nest.edge) || 0;
       const clearance = Math.min(x0-edge, y0-edge, nest.sheetL-edge-x1, nest.sheetW-edge-y1);
-      if (clearance < pad-0.01) out.push({sheet:i+1,a:p.name,b:'sheet trim',mm:+clearance.toFixed(1),gap:pad,overlap:clearance<0});
+      if (clearance < -0.01) out.push({sheet:i+1,a:p.name,b:'sheet trim',mm:+clearance.toFixed(1),gap:0,overlap:true,reason:'part extends outside the valid cutting area'});
     }
     for (let a = 0; a < pl.length; a++) {
       for (let b = a + 1; b < pl.length; b++) {
