@@ -1,6 +1,6 @@
-import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.35';
-import { sensorRotations } from './nest_geometry.mjs?v=4.35';
-import { makePolicy } from './nest_policy.mjs?v=4.35';
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.36';
+import { sensorRotations } from './nest_geometry.mjs?v=4.36';
+import { makePolicy } from './nest_policy.mjs?v=4.36';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
@@ -82,8 +82,8 @@ export const NEST_DEFAULTS = { gap: 16, edge: 3, sheetL: 2770, sheetW: 1550,
   // Zac 2026-09-01: 3E and 5B both moved at the sever, both are narrow, and
   // 3E sat flush on the trim line. Narrow parts get held off the edges.
   skinnyMM: 120, skinnyInset: 120,
-  // a skinny part may sit near ONE edge, never near two at once
-  cornerMM: 300 };
+  // The former 300mm corner exclusion was removed by the operator, 2026-09-25.
+  cornerMM: 0 };
 
 // Area is the unrotated blank's L x W. Remnants are waste; their cuts must
 // respect product buffers but do not reserve an extra buffer of their own.
@@ -131,7 +131,7 @@ class Bin {
     // holding on least at the exact moment the sever pass cuts its tabs away.
     // 3E on J023 sat flush on the trim line at 1538 of 1538 usable.
     //
-    // Edge insets are preferences; the shop corner and quadrant rules remain hard.
+    // Edge insets are preferences; the large-panel quadrant rule remains hard.
     // A legacy pass that cannot place a skinny
     // part inboard must still place it rather than fail the nest, so the second
     // pass drops the margin. Refusing outright would turn a hold problem into a
@@ -162,34 +162,6 @@ class Bin {
       if (shop && isSmallish(product) && px + this.edge + it.pad + w - this.gap - 2*it.pad > this.sheetL/2) {
         py = Math.max(py, this.sheetW/2-this.edge-it.pad);
         if(py+h>fr.y+fr.h+1e-9||py+h>this.W-pass)continue;
-      }
-      // CORNERS ARE WORSE THAN EDGES, and the inset pass alone did not stop
-      // them (Zac 2026-09-02: "it doesn't keep smaller/skinnier parts away from
-      // the corners"). A part against one edge is weak on one axis; a part in a
-      // corner is weak on two at once, which is where 3E and 5B kept moving.
-      // A corner is only a corner if BOTH axes are near an edge, so this is
-      // checked as a pair rather than as a bigger single-axis margin — the
-      // latter would push parts needlessly far in from a long side.
-      // Only on the INSET pass. Enforcing it on the fallback too made a sheet
-      // of skinny parts unnestable — the corner rule has to yield the same way
-      // the edge inset does, or it turns a hold problem into a no-job problem.
-      if (pass && skinny && this.cornerMM > 0) {
-        const inCorner = (x, y) => (x < this.cornerMM || x + w > this.L - this.cornerMM)
-          && (y < this.cornerMM || y + h > this.W - this.cornerMM);
-        // OFFER AN ALTERNATIVE, do not merely refuse. Rejecting the corner and
-        // falling through put the part at the very corner instead — worse than
-        // no rule at all — because the fallback pass has no margin. Push it
-        // clear along the short axis first, and only give up if that will not
-        // fit inside the rect.
-        if (inCorner(px, py)) {
-          const py2 = Math.max(py, this.cornerMM);
-          if (py2 + h <= fr.y + fr.h + 1e-9 && py2 + h <= this.W - pass && !inCorner(px, py2)) py = py2;
-          else {
-            const px2 = Math.max(px, this.cornerMM);
-            if (px2 + w <= fr.x + fr.w + 1e-9 && px2 + w <= this.L - pass && !inCorner(px2, py)) px = px2;
-            else continue;
-          }
-        }
       }
       if (shop && vacuumViolations([{...product,name:it.name,x:px+this.edge+it.pad,y:py+this.edge+it.pad,rotation:rot}],this).length) continue;
       const lh = fr.w - w, lv = fr.h - h;

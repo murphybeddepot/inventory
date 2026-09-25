@@ -23,7 +23,9 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 main{padding:4px 20px 10px;max-width:1200px}
 .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--corridor);padding:12px}
 svg{display:block;width:100%;height:auto;touch-action:none}
-.part.sel .outline{stroke:var(--accent);stroke-width:5}
+.part.sel .outline{stroke:var(--accent);stroke-width:5;filter:drop-shadow(0 0 3px var(--accent))}
+.reserved-zone,.selection-marquee{pointer-events:none}
+.selection-marquee{fill:var(--fence);fill-opacity:.12;stroke:var(--fence);stroke-width:1.5;stroke-dasharray:6 4}
 .part.bad .outline{stroke:var(--bad);stroke-width:5}
 .part.moved .outline{stroke-dasharray:8 4}
 .part .ref-mark,.part .cut-edge,.part .fence-edge{pointer-events:none}
@@ -212,18 +214,20 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.35';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.36';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.35';
-import { APP_VERSION } from './js/version.mjs?v=4.35';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.35';
+         fromMM, toMM } from './js/materials.mjs?v=4.36';
+import { APP_VERSION } from './js/version.mjs?v=4.36';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.36';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.35';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.35';
-import { deriveNest } from './js/derive_nest.mjs?v=4.35';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.36';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.36';
+import { deriveNest } from './js/derive_nest.mjs?v=4.36';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.36';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.36';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -240,6 +244,9 @@ function saveNestFor(sku, mid, n) {
 const $ = id => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 let recipe = null, nest = null, sheetIdx = 0, editing = false, selected = null;
+let selection = new Set();
+function selectParts(parts) { selection=new Set(parts);selected=[...selection].at(-1)||null; }
+function selectedParts() { return nest.sheets[sheetIdx].placements.filter(p=>selection.has(p)); }
 // HAS ANYTHING BEEN DRAGGED? Asked before any re-nest, because a re-nest
 // throws manual moves away. Two of the four places that asked it read a bare
 // `edited` that is declared NOWHERE — an undeclared identifier in a module
@@ -364,7 +371,7 @@ function refreshFoot() {
   $('foot').textContent = `Nesting on ${m.label} (${describeMat(m)}). Sheets fill in layer order — `
     + `a layer's leftovers spill onto the next sheet rather than holding one open. `
     + (small ? `Qualifying small parts keep ${nest.smallPartSpacingMM}mm minimum spacing; other pairs keep ${nest.gap}mm. ` : `Parts keep ${nest.gap}mm between them. `)
-    + `Sheet margin is ${nest.edge}mm${small ? ' plus the small-part buffer' : ''}; `
+    + `Sheet margin is ${nest.edge}mm; `
     + `dragging snaps to exactly that and turns red if anything ends up tighter.`;
 }
 function escAttr(x) { return String(x).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
@@ -756,6 +763,8 @@ function geometryNote(p) {
 }
 function draw() {
   const s = nest.sheets[sheetIdx]; if (!s) return;
+  if(!selected)selection.clear();
+  else { selection=new Set([...selection].filter(p=>s.placements.includes(p)));if(s.placements.includes(selected))selection.add(selected);else selected=[...selection].at(-1)||null; }
   const M = 20, L = nest.sheetL, W = nest.sheetW, svg = $('board');
   const sources=resolveNestGeometry(nest,recipe.parts,p=>p.src?CRATE_BY_KEY.get(p.src):null);
   drawnGeometry=new Map([...sources].map(([p,g])=>[p,geometryOnSheet(p,g)]));
@@ -790,7 +799,7 @@ function draw() {
   s.placements.forEach((p, i) => {
     const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0;
     const geo=drawnGeometry.get(p);
-    const cls = 'part' + (geo.error?' unknown':'') + (p === selected ? ' sel' : '') + (violates(p, s.placements, nest.gap, nest) ? ' bad' : '')
+    const cls = 'part' + (geo.error?' unknown':'') + (selection.has(p) ? ' sel' : '') + (violates(p, s.placements, nest.gap, nest) ? ' bad' : '')
       + (p._moved ? ' moved' : '');
     const fill = p.salvage ? 'var(--salvage)' : colorOf(p.layer);
     const path=geo.error?`M ${M+x0} ${M+W-y1} h ${w} v ${h} h ${-w} Z`:svgPath(geo.points,M,W)+' Z';
@@ -816,13 +825,21 @@ function draw() {
     }
     g+='</g>';
   });
+  const reserved=largePanelArea(nest);
+  if(reserved)g+=`<g class="reserved-zone" aria-label="Large panels only: bottom-right quarter"><title>Large panels only — bottom-right quarter</title>
+    <rect x="${M+reserved.x}" y="${M+W-reserved.y-reserved.h}" width="${reserved.w}" height="${reserved.h}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="10 7" vector-effect="non-scaling-stroke"/>
+    <text x="${M+reserved.x+15}" y="${M+W-reserved.y-reserved.h+32}" font-size="26" font-weight="700" fill="var(--accent)" stroke="var(--board)" stroke-width="7" paint-order="stroke">LARGE PANELS ONLY</text></g>`;
+  if(drag?.kind==='marquee') {
+    const a=drag.start,b=drag.end;
+    g+=`<rect class="selection-marquee" x="${M+Math.min(a.x,b.x)}" y="${M+W-Math.max(a.y,b.y)}" width="${Math.abs(a.x-b.x)}" height="${Math.abs(a.y-b.y)}" vector-effect="non-scaling-stroke"/>`;
+  }
   svg.innerHTML = g;
   renderPanel();
 }
 function esc(s) { return String(s).replace(/[<&>]/g, c => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c])); }
 // ---- snap that keeps the spacing -------------------------------------------
 function snap(p, rawX, rawY, others) {
-  const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0, E = nest.edge + smallPartBuffer(p, nest), G = nest.gap;
+  const [x0, x1, y0, y1] = partBox(p), w = x1 - x0, h = y1 - y0, E = nest.edge, G = nest.gap;
   let x = Math.max(E, Math.min(rawX, nest.sheetL - E - w));
   let y = Math.max(E, Math.min(rawY, nest.sheetW - E - h));
   const xc = [E, nest.sheetL - E - w], yc = [E, nest.sheetW - E - h];
@@ -837,12 +854,42 @@ function snap(p, rawX, rawY, others) {
 }
 let drag = null;
 const svg = $('board'), tip = $('tip');
+function boardPoint(e) {
+  const p=new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+  return {x:p.x-20,y:nest.sheetW-(p.y-20)};
+}
+function finishDrag(cancel=false) {
+  if(!drag)return;
+  const d=drag;drag=null;
+  if(cancel) {
+    if(d.kind==='move')for(const o of d.origins) {
+      o.p.x=o.x;o.p.y=o.y;
+      if(o.moved===undefined)delete o.p._moved;else o.p._moved=o.moved;
+    }
+    selectParts(d.previous);
+  }
+  if(svg.hasPointerCapture(d.pointerId))svg.releasePointerCapture(d.pointerId);
+  recomputeDice();
+}
 if (svg) {
 svg.addEventListener('pointerdown', e => {
-  const g = e.target.closest('.part'); if (!g) { selected = null; draw(); return; }
-  selected = nest.sheets[sheetIdx].placements[+g.dataset.i];
-  if (editing) { drag = { p: selected, px: e.clientX, py: e.clientY, sx: selected.x, sy: selected.y };
-    svg.setPointerCapture(e.pointerId); e.preventDefault(); }
+  if(e.button!==0||drag)return;
+  tip.style.display='none';
+  const previous=selectedParts(),g=e.target.closest('.part'),start=boardPoint(e);
+  if(g) {
+    const p=nest.sheets[sheetIdx].placements[+g.dataset.i];
+    if(e.shiftKey) {
+      const next=new Set(selection);if(next.has(p))next.delete(p);else next.add(p);
+      selectParts([...next]);draw();return;
+    }
+    if(!selection.has(p))selectParts([p]);else selected=p;
+    if(editing)drag={kind:'move',start,clientX:e.clientX,clientY:e.clientY,
+      origins:selectedParts().map(p=>({p,x:p.x,y:p.y,moved:p._moved})),primary:p,previous,pointerId:e.pointerId};
+  } else if(editing) {
+    if(!e.shiftKey)selectParts([]);
+    drag={kind:'marquee',start,end:start,base:e.shiftKey?previous:[],previous,pointerId:e.pointerId};
+  } else if(!e.shiftKey)selectParts([]);
+  if(drag){svg.setPointerCapture(e.pointerId);e.preventDefault();}
   draw();
 });
 svg.addEventListener('pointermove', e => {
@@ -854,16 +901,35 @@ svg.addEventListener('pointermove', e => {
     tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
     return;
   }
-  const vb = svg.viewBox.baseVal, sc = vb.width / svg.getBoundingClientRect().width;
-  const [nx, ny] = snap(drag.p, drag.sx + (e.clientX - drag.px) * sc, drag.sy - (e.clientY - drag.py) * sc,
-    nest.sheets[sheetIdx].placements);
-  drag.p.x = nx; drag.p.y = ny; drag.p._moved = true; draw();
+  if(e.pointerId!==drag.pointerId)return;
+  const point=boardPoint(e);
+  if(drag.kind==='marquee') {
+    drag.end=point;
+    selectParts([...drag.base,...marqueeParts(nest.sheets[sheetIdx].placements,drag.start,point)]);
+  } else {
+    if(!drag.started&&Math.hypot(e.clientX-drag.clientX,e.clientY-drag.clientY)<3)return;
+    drag.started=true;
+    const originals=drag.origins.map(o=>({...o.p,x:o.x,y:o.y}));
+    let [dx,dy]=selectionDelta(originals,point.x-drag.start.x,point.y-drag.start.y,nest);
+    const origin=drag.origins.find(o=>o.p===drag.primary);
+    const others=nest.sheets[sheetIdx].placements.filter(p=>!selection.has(p));
+    const [nx,ny]=snap(origin.p,origin.x+dx,origin.y+dy,others);
+    [dx,dy]=selectionDelta(originals,nx-origin.x,ny-origin.y,nest);
+    for(const o of drag.origins){o.p.x=o.x+dx;o.p.y=o.y+dy;o.p._moved=true;}
+  }
+  draw();
 });
-svg.addEventListener('pointerup', () => { if (drag) { drag = null; recomputeDice(); buildTabs(); } draw(); });
+svg.addEventListener('pointerup', e => { if(drag&&e.pointerId===drag.pointerId){finishDrag();buildTabs();} draw(); });
+svg.addEventListener('pointercancel', e => { if(drag&&e.pointerId===drag.pointerId){finishDrag(true);buildTabs();draw();} });
+svg.addEventListener('lostpointercapture', () => { if(drag){finishDrag(true);buildTabs();draw();} });
 }
 function renderPanel() {
   const s = nest.sheets[sheetIdx];
-  if (selected && editing) {
+  const group=selectedParts();
+  if(group.length>1) {
+    $('sel').innerHTML=`<b>${group.length} parts selected</b> · ${group.map(p=>esc(p.name)).join(', ')}<br>`
+      +(editing?'Drag any selected part to move the group. Shift+click adds or removes a part. Select one part to rotate, remove or send to another sheet.':'Press Edit to move the selected group.');
+  } else if (selected && editing) {
     const btns = nest.sheets.map((_, i) => i === sheetIdx ? '' :
       `<button data-to="${i}">→ Sheet ${i + 1}</button>`).join(' ');
     $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · `
@@ -877,8 +943,8 @@ function renderPanel() {
     const xb = $('rmBtn'); if (xb) xb.onclick = removeSelected;
   } else if (selected) {
     $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · layer ${selected.layer} · (${selected.x}, ${selected.y})`;
-  } else $('sel').textContent = 'Click a part to select it.';
-  if(selected)$('sel').insertAdjacentHTML('beforeend',`<div class="soft" style="margin-top:6px">${esc(geometryNote(selected))}</div>`);
+  } else $('sel').textContent = 'Click a part, Shift+click to add or remove, or drag on empty sheet space to box-select in Edit mode.';
+  if(group.length===1)$('sel').insertAdjacentHTML('beforeend',`<div class="soft" style="margin-top:6px">${esc(geometryNote(selected))}</div>`);
   const moved = nest.sheets.flatMap((sh, i) => sh.placements.filter(p => p._moved || p._from != null)
     .map(p => p._from != null ? `${p.name}: sheet ${p._from + 1} → sheet ${i + 1} at (${p.x}, ${p.y})`
       : `${p.name} sheet ${i + 1}: moved to (${p.x}, ${p.y})`));
@@ -893,7 +959,7 @@ function renderPanel() {
   // this material next to save for this material". First half is the Edit
   // toggle, second half is whether what you are looking at matches the stash.
   const mode = editing
-    ? `drag to move · snaps to ${nest.gap}mm / ${nest.edge}mm${dup ? ` · ${dup} too close` : ''}`
+    ? `drag to move · Shift+click or drag empty space to select a group · snaps to ${nest.gap}mm / ${nest.edge}mm${dup ? ` · ${dup} too close` : ''}`
     : 'viewing — press ✏️ Edit to move parts';
   const state = isSaved ? `this IS the layout saved for ${currentMat().label}`
     : savedNow ? `unsaved changes — differs from the layout saved for ${currentMat().label}`
@@ -932,7 +998,7 @@ function sendTo(target) {
 }
 // ---- rotate a selected part (Zac 2026-08-18) --------------------------------
 function rotateSelected() {
-  if (!selected) return;
+  if (!selected || selection.size!==1) return;
   const s = nest.sheets[sheetIdx];
   const before = { rotation: selected.rotation, x: selected.x, y: selected.y };
   selected.rotation = nextNestRotation(selected.rotation);
@@ -962,7 +1028,7 @@ function rotateSelected() {
 // downstream counts placements against the recipe. So that case refuses and
 // says why rather than being silently disallowed.
 function removeSelected() {
-  if (!editing || !selected) return;
+  if (!editing || !selected || selection.size!==1) return;
   if (!selected.salvage) {
     alert(`${selected.name} is a part of the product, not salvage — the nest has to carry `
       + 'every recipe part or the order ships short. Use "Send to sheet" to move it instead.');
@@ -978,7 +1044,9 @@ function removeSelected() {
 }
 
 addEventListener('keydown', e => {
-  if (!editing || !selected) return;
+  if(e.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
+  if(e.key==='Escape'){finishDrag(true);selectParts([]);buildTabs();draw();return;}
+  if (!editing || !selected || selection.size!==1) return;
   if (e.key === 'r' || e.key === 'R') { e.preventDefault(); rotateSelected(); }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSelected(); }
 });

@@ -14,7 +14,7 @@ export function makePolicy({partBox, smallPartBuffer, nestViolations, packSingle
     return ps.filter(product).reduce((sum,p)=>{
       if(Math.min(p.l,p.w)>=o.skinnyMM)return sum;
       const [a,b,c,d]=partBox(p), x=Math.min(a-o.edge,o.sheetL-o.edge-b), y=Math.min(c-o.edge,o.sheetW-o.edge-d);
-      return sum+(Math.min(x,y)<o.skinnyInset-.01?1:0)+(x<o.cornerMM-.01&&y<o.cornerMM-.01?1:0);
+      return sum+(Math.min(x,y)<o.skinnyInset-.01?1:0);
     },0);
   }
   // Equal areas have equal target positions. Remnants do not affect the ranking.
