@@ -16,16 +16,18 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.37';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.37';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.37';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.37';
-  import { geometryForStack } from './js/nest_geometry.mjs?v=4.37';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.38';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.38';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.38';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.38';
+  import { geometryForStack } from './js/nest_geometry.mjs?v=4.38';
   window.NestGeometry = { geometryForStack };
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
   window.PackStore = { compress, decompress, storedBytes };
+  import { recipeLibrary } from './js/recipe_store.mjs?v=4.38';
+  window.RecipeLibrary = recipeLibrary();
 </script>
 <style>
   :root{
@@ -1111,7 +1113,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.37';
+const APP_VERSION = '4.38';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -4053,7 +4055,7 @@ $('mozMatchInput').onchange=async(e)=>{
           const remoteFull=await remoteLoadRecipe(first.sku);
           if(remoteFull && remoteFull.snapshot){
             snapToLoad={...remoteFull.snapshot, _revision:remoteFull.revision};
-            const LL=loadLib();LL[first.sku]=snapToLoad;saveLib(LL);
+            const LL=loadLib();LL[first.sku]=snapToLoad;if(!await saveLib(LL)) saveLibraryFailure();
           }
         }catch(err){ toast('Cloud fetch failed: '+err.message); return; }
       }
@@ -4181,7 +4183,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.37'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.38'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4397,7 +4399,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.37');
+    const M=await import('./js/materials.mjs?v=4.38');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4410,7 +4412,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.37'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.38'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4419,7 +4421,7 @@ async function nestForExport(){
   try{
     const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}');
     const hit=all[(S.sku||'')+'::'+(mat?mat.id:'')];
-    if(hit&&hit.sheets&&hit.sheets.length){ hit._source='saved'; return hit; }
+    if(hit&&hit.sheets&&hit.sheets.length){ hit._source='saved'; return M.materialForSavedNest(hit,mat); }
     // Nothing saved under THIS sku+material. Say which keys do exist, because
     // the difference is usually one stale material id and it is invisible
     // otherwise — the zip just quietly contains a freshly nested layout.
@@ -4435,15 +4437,15 @@ async function nestForExport(){
     window.__nestKeyMiss={want:_want,have:_have};
     // NO cross-material fallback: a nest saved for another finish is a nest for
     // another board. Re-nesting below is correct by construction instead.
-  }catch(err){/* fall through */}
+  }catch(err){if(err.message?.startsWith('Saved nest is '))throw err;}
   try{
     const stashed=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
-    if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')&&sameMat(stashed)){ stashed._source='in-flight'; return stashed; }
-  }catch(err){/* fall through to a fresh nest */}
+    if(stashed&&stashed.sheets&&stashed.sheets.length&&stashed.sku===(S.sku||'')&&sameMat(stashed)){ stashed._source='in-flight'; return M.materialForSavedNest(stashed,mat); }
+  }catch(err){if(err.message?.startsWith('Saved nest is '))throw err;}
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.37');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.38');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4480,7 +4482,7 @@ function bindingReport(){
   // in the library -- so once ONE recipe is rebound the others start warning
   let newest={};
   try{
-    const lib=JSON.parse(window.PackStore.decompress(localStorage.getItem('mbd_stacking_library_v1')||'')||'{}');
+    const lib=loadLib();
     for(const r of Object.values(lib)) for(const p of (r.importedParts||[])){
       const f=p._sourceFile||''; const m=f.match(/^v(\d+)-(\d+)\s+(.*?)\.moz$/i);
       if(!m) continue;
@@ -5204,39 +5206,17 @@ function exportStackPDF(mono){
 function download(name,content,mime){const b=new Blob([content],{type:mime});const u=URL.createObjectURL(b);const a=el('a',{href:u,download:name});document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
 
 /* ============================================================
-   LIBRARY (localStorage)
+   LIBRARY (IndexedDB; exact compressed snapshots, one record per SKU)
    ============================================================ */
-// The library JSON is COMPRESSED on the way to storage (js/packstore.mjs, ~93%
-// on a real recipe). A recipe keeps the verbatim CabProdPart XML of every part
-// so the Mozaik round-trip stays exact, which is ~0.8MB per recipe raw — five
-// or six of those fill the 5MB this origin gets and then every save fails
-// forever, which is exactly what happened to Zac on 2026-08-20.
-// Reads accept BOTH forms so a library written by an older build still opens.
-function loadLib(){
-  try{
-    const raw=localStorage.getItem(LS_LIB)||'{}';
-    const txt=(window.PackStore?window.PackStore.decompress(raw):raw);
-    return JSON.parse(txt||'{}');
-  }catch(e){ return {}; }
-}
-// Returns TRUE only if the library actually reached storage. It used to be a
-// bare setItem with no try/catch, called OUTSIDE the Save handler's try — so a
-// QuotaExceededError became an unhandled rejection and Save did nothing at all,
-// with no toast, no error, and the old recipe still sitting in the Library.
-// That is the silent-failure class this repo has a standing rule against
-// (2026-08-20: "save recipe doesn't seem to be saving my latest recipe").
-function saveLib(lib){
-  const json=JSON.stringify(lib);
-  const body=(window.PackStore?window.PackStore.compress(json):json);
-  try{ localStorage.setItem(LS_LIB,body); _libSaveError=null; return true; }
+// The store migrates and verifies legacy data before reclaiming localStorage.
+// Native machining and saved nests remain intact in every recipe snapshot.
+function loadLib(){ return window.RecipeLibrary.read(); }
+async function saveLib(lib){
+  try{ await window.RecipeLibrary.save(lib); _libSaveError=null; return true; }
   catch(e){ _libSaveError=e; return false; }
 }
 let _libSaveError=null;
-// How much room is left, in plain words, for the failure message.
-function libBytes(){
-  try{ let n=0; for(const k in localStorage) n+=(localStorage[k]||'').length+k.length; return n*2; }
-  catch(e){ return null; }
-}
+function saveLibraryFailure(){ toast('Library save failed: '+(_libSaveError?.message||'unknown error')); }
 // The nests belonging to ONE sku, out of the by-material store. Returns a
 // plain {materialId: nest} so the snapshot stays JSON and diffable.
 function nestsForSku(sku){
@@ -5323,7 +5303,7 @@ function restoreNestsForSku(sku,nests){
 
 // An explicitly confirmed file import is a replacement. Ordinary cloud loads
 // still fill gaps only, preserving local nest edits as before.
-function consumeLibraryImport(sku, incoming, remote){
+async function consumeLibraryImport(sku, incoming, remote){
   const snap={...incoming};delete snap._localImport;
   snap._revision=remote?.revision||incoming._revision||null;
   const all=JSON.parse(localStorage.getItem('mbd_nests_by_material_v1')||'{}')||{};
@@ -5334,7 +5314,7 @@ function consumeLibraryImport(sku, incoming, remote){
   const inFlight=JSON.parse(sessionStorage.getItem('mbd_nest_result')||'null');
   if(inFlight?.sku===sku) sessionStorage.removeItem('mbd_nest_result');
   const lib=loadLib();lib[sku]=snap;
-  if(!saveLib(lib)) throw Error('Browser storage could not save the imported recipe.');
+  if(!await saveLib(lib)) throw Error('Browser storage could not save the imported recipe.');
   return snap;
 }
 
@@ -5438,7 +5418,7 @@ $('btnSave').onclick=async()=>{
   const lib=loadLib();const exists=!!lib[S.sku];
   const snap=snapshot();
   try {
-    const {assertNestRotations}=await import('./js/nest.mjs?v=4.37');
+    const {assertNestRotations}=await import('./js/nest.mjs?v=4.38');
     for(const savedNest of Object.values(snap.nests||{})) assertNestRotations(savedNest);
   } catch(e) {
     toast('NOT SAVED — '+e.message);
@@ -5460,15 +5440,11 @@ $('btnSave').onclick=async()=>{
     try{ localStorage.removeItem('mbd_stacking_guide:'+S.sku); }catch(_){}
   }
   lib[S.sku]=snap;
-  if(!saveLib(lib)){
-    const mb=libBytes(); const size=mb?(' Browser storage holds about '+(mb/1048576).toFixed(1)+'MB and is full.'):'';
-    const lib_=localStorage.getItem(LS_LIB); const libMB=lib_?(lib_.length*2/1048576).toFixed(2):'?';
-    alert('SAVE FAILED \u2014 "'+S.sku+'" was NOT saved.'+size
-      +'\n\nNothing was written, and the copy in the Library is the OLD one.'
-      +'\n\nThe recipe library is using '+libMB+'MB of that (stored compressed).'
-      +'\n\nDelete a recipe you no longer need (Library \u2192 Delete) and save again.'
-      +(_libSaveError?('\n\n'+_libSaveError.name+': '+_libSaveError.message):''));
-    toast('\u274c SAVE FAILED \u2014 storage full. '+S.sku+' was NOT saved.');
+  if(!await saveLib(lib)){
+    // A complete importable backup includes native machining and saved nests.
+    download((S.sku||'recipe')+'-UNSAVED-backup.json',JSON.stringify({[S.sku]:snap},null,2),'application/json');
+    alert('SAVE FAILED — "'+S.sku+'" was NOT saved.\n\nYour edits are still on screen. A complete recipe backup has been downloaded; keep it before refreshing.\n\n'+(_libSaveError?.message||'Browser database unavailable.'));
+    toast('SAVE FAILED — backup downloaded. Keep this page open.');
     return;
   }
   // v3.8: if Library modal is open, refresh its list so the newly-saved
@@ -5493,7 +5469,7 @@ $('btnSave').onclick=async()=>{
       // If THIS write fails the recipe body is already saved but the revision
       // is lost, and every later save then reports a phantom CLOUD CONFLICT.
       // Say so plainly rather than blaming the cloud for a local failure.
-      if(!saveLib(lib)) toast('\u26a0 Saved, but the cloud revision could not be stored (storage full) \u2014 the next save may report a false conflict.');
+      if(!await saveLib(lib)){ toast('Saved locally and to cloud, but could not store the new revision: '+_libSaveError?.message); return; }
       toast('✓ Saved '+S.sku+' (local + cloud rev '+result.new_revision+placedNote+')');
     }else{
       toast('✓ Saved '+S.sku+' (local; cloud returned no revision'+placedNote+')');
@@ -5506,7 +5482,8 @@ $('btnSave').onclick=async()=>{
 };
 $('btnLibrary').onclick=async()=>{await renderLibList();openModal('libModal');};
 async function renderLibList(){
-  const local=loadLib();
+  let local;
+  try{ local=await window.RecipeLibrary.refresh(); }catch(err){toast('Cannot read recipe library: '+err.message);return;}
   const list=$('libList');
   list.innerHTML='<div class="hint" style="text-align:center;padding:20px">Loading…</div>';
   let remote=null; let remoteErr=null;
@@ -5591,7 +5568,7 @@ async function renderLibList(){
     const fetchSnap=async()=>{
       let snap=L;
       if(L?._localImport){
-        try{return consumeLibraryImport(k,L,R);}
+        try{return await consumeLibraryImport(k,L,R);}
         catch(err){toast('Import could not be loaded: '+err.message);return null;}
       }
       if(isProvisioned() && R){
@@ -5601,7 +5578,7 @@ async function renderLibList(){
             snap={...remoteFull.snapshot, _revision:remoteFull.revision};
             // Refresh localStorage with cloud copy so subsequent local edits
             // start from the freshest revision.
-            const LL=loadLib();LL[k]=snap;saveLib(LL);
+            const LL=loadLib();LL[k]=snap;if(!await saveLib(LL)) saveLibraryFailure();
           }
         }catch(err){ toast('Cloud fetch failed, using local: '+err.message); }
       }
@@ -5625,7 +5602,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.37');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.38');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
@@ -5663,18 +5640,18 @@ async function renderLibList(){
         if(confirm(msg)){
           try{
             const result=await remoteDeleteRecipe(k);
-            const LL=loadLib();delete LL[k];saveLib(LL);renderLibList();
+            const LL=loadLib();delete LL[k];if(!await saveLib(LL)){saveLibraryFailure();return;}await renderLibList();
             toast('Deleted '+k+' from cloud ('+result.deleted_count+' revision(s)) + local');
           }catch(err){ toast('Cloud delete failed: '+err.message+' (local still present)'); }
           return;
         }
         if(confirm('Delete LOCAL copy of "'+k+'" only? Cloud copy stays.')){
-          const LL=loadLib();delete LL[k];saveLib(LL);renderLibList();
+          const LL=loadLib();delete LL[k];if(!await saveLib(LL)){saveLibraryFailure();return;}await renderLibList();
           toast('Deleted local copy of '+k+' — cloud copy still there');
         }
       }else{
         if(confirm('Delete local copy of "'+k+'"?')){
-          const LL=loadLib();delete LL[k];saveLib(LL);renderLibList();
+          const LL=loadLib();delete LL[k];if(!await saveLib(LL)){saveLibraryFailure();return;}await renderLibList();
           toast('Deleted '+k);
         }
       }
@@ -5686,9 +5663,9 @@ async function renderLibList(){
 $('libExport').onclick=()=>{const lib=loadLib();download('stacking-recipes-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(lib,null,2),'application/json');};
 $('libImport').onclick=()=>$('libFile').click();
 $('libFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
-  r.onload=()=>{try{const inc=JSON.parse(r.result);const lib=loadLib();let n=0;
+  r.onload=async()=>{try{const inc=JSON.parse(r.result);const lib=loadLib();let n=0;
     for(const k in inc){if(lib[k]&&!confirm('"'+k+'" exists. Overwrite recipe and included saved nests?'))continue;lib[k]={...inc[k],_localImport:true,_revision:lib[k]?._revision||null};n++;}
-    if(!saveLib(lib))throw Error('Browser storage could not save the library.');
+    if(!await saveLib(lib))throw Error('Browser storage could not save the library.');
     renderLibList();toast('Imported '+n+' recipe(s). Load, then Save recipe to sync.');}catch(err){toast('Library import failed: '+err.message);}};
   r.readAsText(f);e.target.value='';};
 
@@ -6309,7 +6286,7 @@ function doSave(){try{
   // silently reverts to an older state on every reload — which is how a save
   // that DID work still looks like "it lost my latest recipe".
   if(!_workSaveFailed){ _workSaveFailed=true;
-    try{ toast('\u26a0 Auto-save stopped \u2014 browser storage is full. Save your recipe and delete an old one.'); }catch(_){}
+    try{ toast('\u26a0 Auto-save stopped \u2014 working-copy storage is full. Save recipe to protect these edits in the library before leaving.'); }catch(_){}
   }
 }}
 let _workSaveFailed=false;
@@ -6361,9 +6338,20 @@ window.addEventListener('resize',()=>{render();});
 // compressed session could not be decompressed, and the editor came up empty —
 // the same "it forgot my parts list" symptom, now caused by load order instead
 // of caching. DOMContentLoaded is after modules, so boot there.
-function boot(){
+async function boot(){
+  try{ await window.RecipeLibrary.init(); }
+  catch(err){
+    document.body.inert=false;
+    alert('Recipe library could not open. Existing data has been preserved. Keep this page open.\n\n'+err.message);
+    return;
+  }
+  document.body.inert=false;
   const vt=document.getElementById('verTag'); if(vt)vt.textContent='v'+APP_VERSION;
   syncSettingControls();
+  // The old tab's autosave may have failed before its explicit Save succeeded.
+  // Recover that post-upgrade Save even if its SKU differs from the stale draft.
+  const recovered=window.RecipeLibrary.recoveryAfter(Number(localStorage.getItem('mbd_recipe_upgrade_after')||0));
+  if(recovered){restoreSnapshot(recovered);localStorage.removeItem('mbd_recipe_upgrade_after');updateSig();return;}
   if(!restoreWork()){
     // Loading the SAMPLE list over somebody's real work is the worst possible
     // recovery, and it looks like the app lost the job. Only do it on a genuine
@@ -6379,6 +6367,7 @@ function boot(){
   }
   updateSig();
 }
+document.body.inert=true;
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
 else boot();
 </script>

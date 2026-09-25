@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.37';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.38';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -171,7 +171,9 @@ const RETIRED_IDS = new Set(['mel19-black', 'mel19-monaco']);
 function migrateRetiredBoard(m) {
   if (!RETIRED_IDS.has(String(m.id || ''))) return m;
   const near = (a, b) => Math.abs(Number(a) - b) < 0.05;
-  if (!near(m.length, RETIRED_GUESS.length) || !near(m.width, RETIRED_GUESS.width)) return m;
+  const oldGuess = near(m.length, RETIRED_GUESS.length) && near(m.width, RETIRED_GUESS.width);
+  const shortBoard = near(m.length, 2460) && near(m.width, 1550);
+  if (!oldGuess && !shortBoard) return m;
   const finish = String(m.textureName || '').trim()
     || (String(m.displayName || '').match(/(Black|Monaco|White|Gray|Chocolate)$/i) || [])[1] || '';
   if (!finish) return m;
@@ -179,10 +181,11 @@ function migrateRetiredBoard(m) {
     && String(d.textureName || '').toLowerCase() === finish.toLowerCase());
   if (!real) return m;                       // no real short board yet — leave it alone
   return { ...m,
-    displayName: real.displayName, label: real.label,
+    displayName: real.displayName, label: real.label, abbr: real.abbr,
     materialId: real.materialId, textureId: real.textureId, textureName: real.textureName,
     length: real.length, width: real.width,
-    lengthTrim: real.lengthTrim, widthTrim: real.widthTrim,
+    lengthTrim: oldGuess ? real.lengthTrim : m.lengthTrim,
+    widthTrim: oldGuess ? real.widthTrim : m.widthTrim,
     mozaikLength: real.mozaikLength, mozaikWidth: real.mozaikWidth,
     additionalSheetSizes: real.additionalSheetSizes };
 }
@@ -205,8 +208,9 @@ function reconcile(m) {
     hasGrain: Object.prototype.hasOwnProperty.call(m, 'hasGrain') ? m.hasGrain : hit.hasGrain,
     // the name Mozaik answers to TODAY — a stale one binds to nothing
     displayName: hit.displayName,
-    materialId: blank(m.materialId) ? hit.materialId : m.materialId,
-    textureId: blank(m.textureId) ? hit.textureId : m.textureId,
+    abbr: hit.abbr,
+    materialId: hit.materialId,
+    textureId: hit.textureId,
     mozaikLength: hit.mozaikLength, mozaikWidth: hit.mozaikWidth,
     additionalSheetSizes: hit.additionalSheetSizes };
 }
@@ -279,4 +283,16 @@ export function materialWarnings(mat) {
       + (m.additionalSheetSizes ? '' : ', and that material has additional sheet sizes turned OFF'));
   }
   return out;
+}
+
+// A saved layout keeps its geometry, but must not export obsolete 5x9 identity
+// underneath a 5x8 picker. Refuse real size changes instead of scaling/re-nesting.
+export function materialForSavedNest(nest, selected) {
+  const length = Number(nest.sheetL ?? nest.material?.length);
+  const width = Number(nest.sheetW ?? nest.material?.width);
+  if (!Number.isFinite(length) || !Number.isFinite(width)
+      || Math.abs(length - selected.length) > 0.5 || Math.abs(width - selected.width) > 0.5) {
+    throw Error(`Saved nest is ${length}×${width} mm; selected ${selected.label} is ${selected.length}×${selected.width} mm. Open Nests to check the sheet size before exporting.`);
+  }
+  return {...nest, material:{...selected}};
 }
