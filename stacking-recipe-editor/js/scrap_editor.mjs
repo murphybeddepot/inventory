@@ -1,7 +1,7 @@
-import { partBox } from './nest.mjs?v=4.39';
-import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.39';
+import { partBox } from './nest.mjs?v=4.40';
+import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.40';
 
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.39';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.40';
 
 export const SCRAP_DEFAULTS={bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 const rounded=n=>Math.round(n*1000)/1000;
@@ -75,6 +75,12 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS) {
     if(v-u<settings.minPieceMM)continue;
     tiny(axis===0?[lo[2]+D,u,hi[0]-D,v]:[u,lo[3]+D,v,hi[1]-D]);
   }
+  // Exact strip checks also cover hand-drawn cuts: the raster can erase a
+  // sub-2mm ribbon between a cut and a native contour (or another cut).
+  for(const [i,line] of lines.entries())if(createsNarrowStrip(line,post,settings,lines.filter((_,j)=>j!==i))){
+    const box=[Math.min(line[0],line[2])-post.radius,Math.min(line[1],line[3])-post.radius,Math.max(line[0],line[2])+post.radius,Math.max(line[1],line[3])+post.radius];
+    slivers.push({box,width:box[2]-box[0],height:box[3]-box[1],area:0,cutWarning:true,reason:`Cut ${i+1} can leave a narrow strip beside a part, sheet edge or other cut.`});
+  }
   return {errors,pieces,oversize,slivers,cutLength:lines.reduce((n,s)=>n+Math.hypot(s[2]-s[0],s[3]-s[1]),0),rapid:rapidTravel(lines,[0,0])};
 }
 export function normalizeCuts(lines,post=null,settings=SCRAP_DEFAULTS) {
@@ -111,9 +117,114 @@ export function suggestCuts(sheet,nest,settings=SCRAP_DEFAULTS) {
   // Leave narrow waste intact and report it below. Never make dust to hide it.
   let lines=[];
   try{lines=planScrap(post,{skin:settings.skinMM,maxInches:(settings.maxPieceMM-4)/25.4,ribbonInches:2,narrowInches:2,clearance:settings.clearanceMM}).lines;}
-  catch(e){if(!e.message.startsWith('Nothing to cut'))throw e;}
-  lines=normalizeCuts(lines,post,settings);
-  return {version:1,settings:{...settings},layout:layoutStamp(sheet,nest),lines};
+  catch(e){if(!/^(Nothing to cut|\d+ piece\(s\) still over|A scrap cut comes within)/.test(e.message))throw e;}
+  const repair=improveSuggestion(lines,post,settings);
+  return {version:1,settings:{...settings},layout:layoutStamp(sheet,nest),lines:repair.lines,
+    suggestion:repair.summary};
+}
+// Inspect actual local strips, not just an offcut's broad bounding box.
+// A cut parallel to a finished edge must either merge with the native kerf
+// or retain at least two inches of waste. More crosscuts cannot fix its width.
+export function createsNarrowStrip(line,post,settings=SCRAP_DEFAULTS,other=[]){
+  const axis=Math.abs(line[0]-line[2])<.003?0:1,t=1-axis,r=post.radius,D=2*r;
+  const fixed=line[axis],lo=Math.min(line[t],line[t+2]),hi=Math.max(line[t],line[t+2]);
+  const narrow=v=>v>.01&&v<settings.minPieceMM+2;
+  if(narrow(fixed-r)||narrow((axis?post.height:post.width)-fixed-r))return true;
+  for(const {box:b} of post.parts){
+    if(Math.min(hi,b[t+2])-Math.max(lo,b[t])<D)continue;
+    const gap=fixed<b[axis]?b[axis]-fixed-D-r:fixed>b[axis+2]?fixed-b[axis+2]-D-r:0;
+    if(narrow(gap))return true;
+  }
+  for(const s of other){
+    if((Math.abs(s[0]-s[2])<.003?0:1)!==axis)continue;
+    if(Math.min(hi,Math.max(s[t],s[t+2]))-Math.max(lo,Math.min(s[t],s[t+2]))>=D&&narrow(Math.abs(s[axis]-fixed)-D))return true;
+  }
+  return false;
+}
+function wasteGrid(lines,post){
+  const raster=new Raster(post.width,post.height);
+  for(const {box} of post.parts)raster.clear(...box);
+  for(const l of post.contours.flat())raster.sweep(l,post.radius);
+  for(const l of lines)raster.sweep(l,post.radius);
+  return raster;
+}
+export function narrowMask(lines,post,settings=SCRAP_DEFAULTS){
+  const r=wasteGrid(lines,post),opened=r.opened(r.material,settings.minPieceMM+1.2);
+  return r.material.map((v,i)=>v&&!opened[i]?1:0);
+}
+export function introducedNarrowCells(before,after){let count=0;for(let i=0;i<after.length;i++)if(after[i]&&!before[i])count++;return count;}
+export function layoutWasteIssues(post,settings=SCRAP_DEFAULTS){
+  const issues=[],seen=new Set(),D=2*post.radius;
+  for(let i=0;i<post.parts.length;i++)for(let j=i+1;j<post.parts.length;j++)for(const axis of [0,1]){
+    const a=post.parts[i],b=post.parts[j],t=1-axis;
+    const [lo,hi]=a.box[axis]<=b.box[axis]?[a,b]:[b,a];
+    if(Math.min(lo.box[t+2],hi.box[t+2])-Math.max(lo.box[t],hi.box[t])<settings.minPieceMM)continue;
+    const width=hi.box[axis]-lo.box[axis+2]-2*D;
+    if(width<=.01||width>=settings.minPieceMM)continue;
+    const key=[lo.id,hi.id,width.toFixed(1)].join('/');if(seen.has(key))continue;seen.add(key);
+    issues.push({a:lo.id,b:hi.id,width:rounded(width)});
+  }
+  return issues;
+}
+export function improveSuggestion(seed,post,settings=SCRAP_DEFAULTS){
+  const baseNarrow=narrowMask([],post,settings),r=post.radius;
+  let lines=[],rejected=0;
+  const safe=candidate=>!cutProblems(candidate,post,settings).length
+    &&candidate.every((l,i)=>!createsNarrowStrip(l,post,settings,candidate.filter((_,j)=>i!==j)))
+    &&!introducedNarrowCells(baseNarrow,narrowMask(candidate,post,settings));
+  for(const l of seed){if(safe([...lines,l]))lines.push(l);else rejected++;}
+  const measure=ls=>wasteGrid(ls,post).islands().map(p=>({...p,cells:undefined}));
+  const over=p=>Math.max(p.box[2]-p.box[0],p.box[3]-p.box[1])+2*r>settings.maxPieceMM;
+  const score=ps=>ps.reduce((n,p)=>n+(over(p)?p.area:0),0);
+  // Split along a real free corridor, clipped around every part keepout.
+  // Try the midpoint first, then offsets that leave a full 2in beside parts.
+  const spans=(axis,fixed,box)=>{
+    const t=1-axis,pad=r+settings.clearanceMM;
+    let ranges=[[Math.max(-r,box[t]-r),Math.min((t?post.height:post.width)+r,box[t+2]+r)]];
+    for(const {box:b} of post.parts){
+      if(fixed<b[axis]-pad||fixed>b[axis+2]+pad)continue;
+      ranges=ranges.flatMap(([lo,hi])=>b[t+2]+pad<=lo||b[t]-pad>=hi?[[lo,hi]]:[[lo,Math.min(hi,b[t]-pad)],[Math.max(lo,b[t+2]+pad),hi]].filter(([a,b])=>b>a));
+    }
+    return ranges.filter(([lo,hi])=>hi-lo>=settings.minPieceMM+2*r).map(([lo,hi])=>(axis?[lo,fixed,hi,fixed]:[fixed,lo,fixed,hi]).map(rounded));
+  };
+  let pieces=measure(lines),budget=90;
+  for(let round=0;round<24&&budget>0;round++){
+    const oldScore=score(pieces);if(!oldScore)break;let best=null;
+    for(const p of pieces.filter(over).sort((a,b)=>b.area-a.area)){
+      const b=p.box;if(Math.min(b[2]-b[0],b[3]-b[1])<settings.minPieceMM)continue;
+      const axes=[0,1].sort((a,c)=>(b[c+2]-b[c])-(b[a+2]-b[a]));
+      for(const axis of axes){
+        const center=(b[axis]+b[axis+2])/2,offset=settings.minPieceMM+3*r+4;
+        const candidates=[center,...post.parts.flatMap(p=>[p.box[axis]-offset,p.box[axis+2]+offset])]
+          .filter(v=>v>b[axis]+settings.minPieceMM+r&&v<b[axis+2]-settings.minPieceMM-r)
+          .sort((a,c)=>Math.abs(a-center)-Math.abs(c-center));
+        for(const fixed of [...new Set(candidates.map(rounded))].slice(0,5)){
+          const added=spans(axis,fixed,b);if(!added.length)continue;
+          const proposal=[...lines,...added];
+          if(added.some(l=>createsNarrowStrip(l,post,settings,lines))||cutProblems(proposal,post,settings).length)continue;
+          if(--budget<0)break;
+          const ps=measure(proposal),gain=oldScore-score(ps);if(gain<=0||!safe(proposal))continue;
+          const cost=added.length*2000+added.reduce((n,s)=>n+Math.hypot(s[2]-s[0],s[3]-s[1]),0);
+          if(!best||gain/cost>best.value)best={lines:proposal,pieces:ps,value:gain/cost};
+        }
+      }
+      if(best||budget<=0)break;
+    }
+    if(!best)break;lines=best.lines;pieces=best.pieces;
+  }
+  const normalized=normalizeCuts(lines,post,settings);if(safe(normalized))lines=normalized;
+  const report=analyzeCuts(lines,post,settings);
+  return {lines,summary:{rejectedCuts:rejected,oversize:report.oversize.length,slivers:report.slivers.length,
+    layoutIssues:layoutWasteIssues(post,settings),needsLayoutChanges:baseNarrow.some(Boolean),complete:!report.errors.length&&!report.oversize.length&&!report.slivers.length}};
+}
+const geometryKey=lines=>JSON.stringify(normalizeCuts(lines).map(l=>{
+  const a=l.slice(0,2),b=l.slice(2);return JSON.stringify(a)<JSON.stringify(b)?l:[...b,...a];
+}).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
+export function plannedRoutes(edit){
+  if(!edit.routes)return cutRoutes(normalizeCuts(edit.lines));
+  if(!Array.isArray(edit.routes)||edit.routes.some(p=>!Array.isArray(p)||p.length<2||p.some(v=>!Array.isArray(v)||v.length!==2||!v.every(Number.isFinite))))throw Error('Cut order is unreadable. Use Auto order again.');
+  if(geometryKey(routeLines(edit.routes))!==geometryKey(edit.lines))throw Error('Cut order no longer matches the cuts. Use Auto order again.');
+  return structuredClone(edit.routes);
 }
 export function exportCutPlans(nest) {
   return nest.sheets.flatMap((sheet,i)=>{
@@ -123,6 +234,7 @@ export function exportCutPlans(nest) {
     const report=analyzeCuts(edit.lines,post,settings);
     if(report.errors.length)throw Error(`Sheet ${i+1}: ${report.errors[0]}`);
     if(report.oversize.length||report.slivers.length)throw Error(`Sheet ${i+1}: scrap plan still has ${report.oversize.length} oversized piece(s) and ${report.slivers.length} narrow piece(s). Edit cuts or spacing before exporting this plan.`);
-    return [{sheet:i+1,frame:'nest-xy',width:post.width,height:post.height,parts:post.parts,settings,lines:routeLines(cutRoutes(normalizeCuts(edit.lines)))}];
+    const routes=plannedRoutes(edit);
+    return [{sheet:i+1,frame:'nest-xy',width:post.width,height:post.height,parts:post.parts,settings,lines:routeLines(routes),routes}];
   });
 }

@@ -16,8 +16,8 @@
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
-import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.39';
-import { smallPartBuffer, partGap } from './nest.mjs?v=4.39';
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.40';
+import { smallPartBuffer, partGap } from './nest.mjs?v=4.40';
 
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;
@@ -284,6 +284,7 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
           const pl = { name: c.name, label: c.label, layer: 0, salvage: true,
             ...(c.src ? { src: c.src } : {}),
             l: c.l, w: c.w, x: +x.toFixed(2), y: +y.toFixed(2), rotation: rot };
+          if(opts.acceptCandidate&&!opts.acceptCandidate(pl,placed))continue;
           placed.push(pl); got.push(pl); c.remaining--; progress = true;
           break;
         }

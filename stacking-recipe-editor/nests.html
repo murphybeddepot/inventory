@@ -60,7 +60,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="back">← Back to recipe</button>
   <button id="renest">↻ Re-nest from recipe</button>
   <button id="edit" aria-pressed="false">✏️ Edit</button>
-  <span class="btngroup" style="border-left:3px solid #c98b2e;padding-left:8px;margin-left:4px">
+  <div hidden style="display:none" aria-hidden="true">
+  <span class="btngroup">
     <button id="scrapBtn" title="ADDS PARTS. Fits crate panels from the ⚙ Scrap parts catalogue into this sheet's leftover, up to the quantities set there, then dices whatever is still left.">♻ ADD crate parts from scrap</button>
     <button id="remnantBtn" title="ADDS PARTS. Cuts this sheet's leftover into labeled rectangle remnants no bigger than 'max piece', so Mozaik's own scrap feature has nothing to add and the posted layout stays exactly this nest. Salvage crate parts first — remnants take whatever is left.">▤ CUT leftover into remnants</button>
   </span>
@@ -80,6 +81,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <select id="diceStrip"><option value="50">2in</option><option value="75">3in</option>
       <option value="100" selected>4in</option><option value="150">6in</option></select></label>
   <span class="soft" id="diceCost"></span>
+  </div>
   <button id="addSheet">+ Sheet</button>
   <button id="delSheet">✕ Remove sheet</button>
   <button id="apply" class="primary">Save for this material →</button>
@@ -112,7 +114,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="doorsPick" style="display:none">Which parts are trim/doors…</button>
   <button id="grainPick" style="display:none">↕ Grain exceptions…</button>
   <button id="matEdit">⚙ Materials…</button>
-  <button id="catEdit">⚙ Scrap parts…</button>
+  <button id="catEdit">⚙ Crate catalogue…</button>
 </div>
 <div class="bar" id="smallSpacingBar">
   <label><input type="checkbox" id="smallSpacingOn"> Small-part spacing</label>
@@ -138,9 +140,9 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 </div>
 <div class="bar soft" id="spaceMessage" role="status" aria-live="polite"></div>
 <div class="bar" id="scrapEditorBar">
-  <b>Scrap cuts</b><button id="cutMode" aria-pressed="false">Edit scrap cuts</button>
-  <button id="cutDraw" aria-pressed="false">Draw cut</button><button id="cutSuggest">Suggest cuts</button>
-  <button id="cutOptimize">Join &amp; order paths</button><button id="cutRecheck">Recheck</button>
+  <b>This sheet</b><button id="cutSuggest">Suggest scrap cuts</button><button id="crateSuggest">Suggest crate parts</button><button id="bothSuggest">Suggest both</button>
+  <button id="cutMode" aria-pressed="false">Edit scrap cuts</button><button id="cutDraw" aria-pressed="false">＋ Add cut</button>
+  <button id="cutRecheck">Recheck</button>
   <label>Remaining skin <input id="cutSkin" type="number" min=".2" max="2" step=".1" value=".3" style="width:70px"> mm</label>
   <button id="cutDelete" disabled>Delete cut</button><button id="cutUndo" disabled>Undo</button><button id="cutClear">Remove cut plan</button>
   <span class="soft">12″ max X/Y · 2″ minimum scrap width · 6 mm clearance from parts</span>
@@ -149,8 +151,12 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <label><input id="cutShow" type="checkbox" checked> Show scrap cuts</label>
   <label><input id="cutFlags" type="checkbox" checked> Show waste flags</label>
   <label><input id="cutTravel" type="checkbox"> Show lifted travel</label>
-  <span class="soft">Drag a cut or either endpoint. Parts stay put while editing cuts. Recheck after moving parts.</span>
+  <label><input id="cutNumbers" type="checkbox" checked> Number paths &amp; show direction</label>
+  <label>Drag <select id="cutMoveAxis"><option value="auto">Lock to first direction</option><option value="x">Horizontal only</option><option value="y">Vertical only</option></select></label>
+  <span class="soft">Add cut: drag start → end. Drag line to move; endpoints to trim. Arrows: 1 mm; Shift+arrows: 10 mm.</span>
 </div>
+<div class="bar soft" id="cutSuggestionMessage" role="status" aria-live="polite">Suggestions preserve existing bed parts. Crate quantities apply across the whole job. Undo restores the previous sheet.</div>
+<div class="bar"><b>Cut order</b><select id="cutPath" aria-label="Continuous path"></select><button id="cutEarlier">← Earlier</button><button id="cutLater">Later →</button><button id="cutReverse">Reverse direction</button><button id="cutOptimize">Auto join &amp; order</button><span class="soft">Numbers mark path starts. Order is saved and used after posting. Editing geometry recalculates paths.</span></div>
 <div class="bar soft" id="cutMessage" role="status" aria-live="polite"></div>
 <details class="bar soft"><summary>How saved cuts reach the router</summary>
   <p>Save this nest, then export the Mozaik job. Keep <code>scrap-plan.json</code> in the extracted job folder.
@@ -161,8 +167,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   Drill XML conversion and final label checks remain separate.</p>
 </details>
 <div id="catModal" class="modalbg"><div class="modal">
-  <h2>Scrap salvage parts <span style="flex:1"></span><button id="catClose">✕</button></h2>
-  <p class="soft" style="margin:0 0 10px">What "Fill scrap" tries to recover from the offcut, biggest first.
+  <h2>Crate parts to suggest <span style="flex:1"></span><button id="catClose">✕</button></h2>
+  <p class="soft" style="margin:0 0 10px">What "Suggest crate parts" tries to recover from the offcut, biggest first.
     Crates are cut from the same 19mm melamine, so these come off the sheet you are already cutting —
     and <b>every job can place any crate size</b>: this is using up leftover, not a parts list for the
     job on the bench. <b>Qty is how many you want in total across this nest</b>, not per sheet;
@@ -247,21 +253,21 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.39';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.40';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.39';
-import { APP_VERSION } from './js/version.mjs?v=4.39';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.39';
+         fromMM, toMM } from './js/materials.mjs?v=4.40';
+import { APP_VERSION } from './js/version.mjs?v=4.40';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.40';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.39';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.39';
-import { deriveNest } from './js/derive_nest.mjs?v=4.39';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.39';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.39';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.39';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.40';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.40';
+import { deriveNest } from './js/derive_nest.mjs?v=4.40';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.40';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.40';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.40';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1529,47 +1535,32 @@ $('apply').onclick = () => {
     : 'Could not save (browser storage full?) — the job export will still use this nest for now.');
   location.href = './index.html';
 };
-// The scrap settings ride WITH the nest. They are not geometry — the actual
-// dicing is computed at cut time by quarry/scripts/cut-scrap.mjs against the
-// posted NC, because Mozaik has no way to express a scrap cut and the posted
-// file is the only artifact that can carry one. What travels is the INTENT:
-// the piece size and strip floor chosen here, so the machine cut is the one
-// that was planned instead of whatever the cutter's defaults happen to be.
+// Explicit per-sheet cuts carry their geometry, skin and path order. Keep
+// summary limits independent of the retired legacy dice controls.
 function scrapSettings() {
   return {
-    maxPieceIn: parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN,
-    minStripMM: parseFloat($('diceStrip').value) || 100,
-    minAreaIn2: parseFloat($('diceMin').value) || 0,
+    maxPieceIn: 12,
+    minStripMM: 50.8,
+    minAreaIn2: 0,
     salvageParts: nest.sheets.reduce((a, sh) => a + (sh.placements || []).filter(p => p.salvage).length, 0),
     plannedBy: 'nests ' + APP_VERSION,
   };
 }
 function stash() {
   try { nest.scrap = scrapSettings(); } catch (e) { /* toolbar not built yet */ }
-  // Planned remnants ride ON each sheet so the job export writes them into
-  // the .opt as OptimizeRemnantLocation records. Computed here — at handover
-  // — against the dice settings as they stand, the same verdict the dice
-  // overlay shows, so the .opt can never promise a remnant the dice would cut.
+  // Retire automatic remnant generation. Explicit placed crate/remnant
+  // parts stay in placements; saving never invents additional waste parts.
   try {
-    const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge,
-      minDimMM: parseFloat($('diceStrip').value) || 100 };
-    const maxIn = parseFloat($('diceMax').value) || DEFAULT_MAX_PIECE_IN;
-    const minIn2 = parseFloat($('diceMin').value) || 0;
     for (const sh of nest.sheets) {
-      // OFF means OFF. Zac 2026-09-01: "it's making a bunch of little remnant
-      // cuts i don't need also.. how do i stop that in the future?" There was
-      // no way to: every export planned remnants and wrote them into the .opt
-      // as OptimizeRemnantLocation, and the only controls made them BIGGER or
-      // SMALLER, never absent. Leftover left alone is a legitimate choice —
-      // often the right one when the offcuts are not worth the saw time.
-      sh.remnants = (maxIn > 0 && !sh.scrapCuts && (sh.placements || []).length)
-        ? plannedRemnants(sh, opts, maxIn, minIn2) : [];
+      sh.remnants = []; // Explicit scrap cuts replace automatic remnant parts.
     }
   } catch (e) { /* toolbar not built yet */ }
   try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {}
 }
 const scrapControls=installScrapControls({document,window,getNest:()=>nest,getSheet:()=>nest?.sheets[sheetIdx],
-  getSelection:selectedParts,selectParts,changed:()=>{recomputeDice();buildTabs();},draw});
+  getSelection:selectedParts,selectParts,changed:()=>{recomputeDice();buildTabs();},draw,
+  getCrateOptions:()=>({opts:{...nestOptsFor(currentMat(),nest.gap),...smallSpacingOptions(),gap:nest.gap,edge:nest.edge},
+    catalog:catalog(),budget:remainingBudget(nest.sheets,catalog())})});
 addEventListener('beforeunload', stash);
 
 // ---- start ------------------------------------------------------------------
