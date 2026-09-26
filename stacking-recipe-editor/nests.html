@@ -47,6 +47,7 @@ footer{padding:6px 20px 22px;color:var(--soft);font-size:12.5px;max-width:76ch}
   border:1px solid var(--line);border-radius:5px;background:var(--board);color:var(--ink)}
 .matrow .hd{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--soft)}
 .matrow .warn{color:var(--bad);font-size:11px}
+input[type="number"]{background:var(--board);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:5px;}
 select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;
   background:var(--chip);color:var(--ink)}
 </style></head><body>
@@ -127,6 +128,38 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="smallApply">Apply spacing &amp; re-nest</button>
   <span class="soft" id="smallSpacingStatus">Off</span>
 </div>
+<div class="bar" id="distributionBar">
+  <b>Evenly space selected parts</b>
+  <label>Span <select id="spaceSpan"><option value="selection">Keep outer parts in place</option><option value="sheet">Fill valid sheet span</option></select></label>
+  <label>Max gap <input id="spaceMax" type="number" min="10.025" max="18.99" step=".1" value="18.5" style="width:85px"> mm</label>
+  <select id="spacePreset" aria-label="Spacing presets"><option value="18.5">Under 2× bit · 18.5 mm</option><option value="12.7">½″ · 12.7 mm</option><option value="15.875">⅝″ · 15.875 mm</option></select>
+  <button id="spaceRow">↔ Evenly space row</button><button id="spaceColumn">↕ Evenly space column</button>
+  <span class="soft">3/8″ bit · Shift+click or drag a box to select. Arrows: 1 mm; Shift+arrows: 10 mm.</span>
+</div>
+<div class="bar soft" id="spaceMessage" role="status" aria-live="polite"></div>
+<div class="bar" id="scrapEditorBar">
+  <b>Scrap cuts</b><button id="cutMode" aria-pressed="false">Edit scrap cuts</button>
+  <button id="cutDraw" aria-pressed="false">Draw cut</button><button id="cutSuggest">Suggest cuts</button>
+  <button id="cutOptimize">Join &amp; order paths</button><button id="cutRecheck">Recheck</button>
+  <label>Remaining skin <input id="cutSkin" type="number" min=".2" max="2" step=".1" value=".3" style="width:70px"> mm</label>
+  <button id="cutDelete" disabled>Delete cut</button><button id="cutUndo" disabled>Undo</button><button id="cutClear">Remove cut plan</button>
+  <span class="soft">12″ max X/Y · 2″ minimum scrap width · 6 mm clearance from parts</span>
+</div>
+<div class="bar">
+  <label><input id="cutShow" type="checkbox" checked> Show scrap cuts</label>
+  <label><input id="cutFlags" type="checkbox" checked> Show waste flags</label>
+  <label><input id="cutTravel" type="checkbox"> Show lifted travel</label>
+  <span class="soft">Drag a cut or either endpoint. Parts stay put while editing cuts. Recheck after moving parts.</span>
+</div>
+<div class="bar soft" id="cutMessage" role="status" aria-live="polite"></div>
+<details class="bar soft"><summary>How saved cuts reach the router</summary>
+  <p>Save this nest, then export the Mozaik job. Keep <code>scrap-plan.json</code> in the extracted job folder.
+  In Optimizer, post with <b>Create CNC Labels</b> enabled, then save and close.
+  Drag the posted job folder (or one original sheet NC) onto <b>Apply Nest Scrap Plan.cmd</b> on the Mozaik PC.</p>
+  <p>The launcher applies these saved cuts and remaining skin to matching posted sheets. New files go into
+  <b>Scrap Editor Outputs</b>; preview the final NC before release. If parts change in Optimizer, update the editor plan and repost.
+  Drill XML conversion and final label checks remain separate.</p>
+</details>
 <div id="catModal" class="modalbg"><div class="modal">
   <h2>Scrap salvage parts <span style="flex:1"></span><button id="catClose">✕</button></h2>
   <p class="soft" style="margin:0 0 10px">What "Fill scrap" tries to recover from the offcut, biggest first.
@@ -214,20 +247,21 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.38';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.39';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.38';
-import { APP_VERSION } from './js/version.mjs?v=4.38';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.38';
+         fromMM, toMM } from './js/materials.mjs?v=4.39';
+import { APP_VERSION } from './js/version.mjs?v=4.39';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.39';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.38';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.38';
-import { deriveNest } from './js/derive_nest.mjs?v=4.38';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.38';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.38';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.39';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.39';
+import { deriveNest } from './js/derive_nest.mjs?v=4.39';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.39';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.39';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.39';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -256,6 +290,7 @@ function selectedParts() { return nest.sheets[sheetIdx].placements.filter(p=>sel
 // sheets you were trying to save never appear. One helper now, so the four
 // call sites cannot drift apart again.
 function hasManualMoves() {
+  if(nest?.sheets?.some(sh=>sh.scrapCuts))return true;
   return !!(nest && nest.sheets && nest.sheets.some(
     (sh) => (sh.placements || []).some((p) => p._moved || p._from != null)));
 }
@@ -833,6 +868,7 @@ function draw() {
     const a=drag.start,b=drag.end;
     g+=`<rect class="selection-marquee" x="${M+Math.min(a.x,b.x)}" y="${M+W-Math.max(a.y,b.y)}" width="${Math.abs(a.x-b.x)}" height="${Math.abs(a.y-b.y)}" vector-effect="non-scaling-stroke"/>`;
   }
+  g += scrapControls.overlay();
   svg.innerHTML = g;
   renderPanel();
 }
@@ -1440,7 +1476,7 @@ $('derApply') && ($('derApply').onclick = () => {
     + `then press "Save for this material →".`);
 });
 
-$('edit').onclick = () => { editing = !editing; $('edit').setAttribute('aria-pressed', editing); draw(); };
+$('edit').onclick = () => { scrapControls.partMode(); editing = !editing; $('edit').setAttribute('aria-pressed', editing); draw(); };
 $('renest').onclick = () => { if (!confirm('Re-nest from the recipe? Your manual moves on these sheets are lost.')) return;
   nest = compute(); sheetIdx = 0; selected = null; buildTabs(); draw(); };
 $('back').onclick = () => { stash(); location.href = './index.html'; };
@@ -1526,12 +1562,14 @@ function stash() {
       // as OptimizeRemnantLocation, and the only controls made them BIGGER or
       // SMALLER, never absent. Leftover left alone is a legitimate choice —
       // often the right one when the offcuts are not worth the saw time.
-      sh.remnants = (maxIn > 0 && (sh.placements || []).length)
+      sh.remnants = (maxIn > 0 && !sh.scrapCuts && (sh.placements || []).length)
         ? plannedRemnants(sh, opts, maxIn, minIn2) : [];
     }
   } catch (e) { /* toolbar not built yet */ }
   try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {}
 }
+const scrapControls=installScrapControls({document,window,getNest:()=>nest,getSheet:()=>nest?.sheets[sheetIdx],
+  getSelection:selectedParts,selectParts,changed:()=>{recomputeDice();buildTabs();},draw});
 addEventListener('beforeunload', stash);
 
 // ---- start ------------------------------------------------------------------

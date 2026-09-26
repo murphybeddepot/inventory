@@ -1,6 +1,6 @@
-import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.38';
-import { sensorRotations } from './nest_geometry.mjs?v=4.38';
-import { makePolicy } from './nest_policy.mjs?v=4.38';
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.39';
+import { sensorRotations } from './nest_geometry.mjs?v=4.39';
+import { makePolicy } from './nest_policy.mjs?v=4.39';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
@@ -97,6 +97,13 @@ export function smallPartBuffer(p, opts = {}) {
   return !p.remnant && Number.isFinite(extra) && qualifies ? extra : 0;
 }
 export function partGap(a, b, gap = 16, opts = {}) {
+  const A=a.spacingGroup,B=b.spacingGroup;
+  if(A?.id && A.id===B?.id && Number.isFinite(A.bitDiameterMM) && A.bitDiameterMM>0
+      && A.bitDiameterMM===B.bitDiameterMM && A.minGapMM===B.minGapMM
+      && A.minGapMM>=A.bitDiameterMM+.5) {
+    const hold=Math.max(smallPartBuffer(a,{...opts,gap}),smallPartBuffer(b,{...opts,gap}));
+    return Math.max(A.minGapMM,hold>0?Number(opts.smallPartSpacingMM):0);
+  }
   return gap + Math.max(smallPartBuffer(a, {...opts,gap}), smallPartBuffer(b, {...opts,gap}));
 }
 function packingPart(p, gap, opts) {
