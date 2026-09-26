@@ -1,7 +1,8 @@
-import { partBox } from './nest.mjs?v=4.40';
-import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.40';
+import { partBox } from './nest.mjs?v=4.41';
+import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.41';
 
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.40';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.41';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase} from './scrap_after.mjs?v=4.41';
 
 export const SCRAP_DEFAULTS={bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 const rounded=n=>Math.round(n*1000)/1000;
@@ -220,7 +221,12 @@ export function improveSuggestion(seed,post,settings=SCRAP_DEFAULTS){
 const geometryKey=lines=>JSON.stringify(normalizeCuts(lines).map(l=>{
   const a=l.slice(0,2),b=l.slice(2);return JSON.stringify(a)<JSON.stringify(b)?l:[...b,...a];
 }).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
-export function plannedRoutes(edit){
+export function plannedRoutes(edit,post=null){
+  const phase=checkScrapPhase(edit);
+  if(post&&phase==='after-outlines'){
+    if(edit.routes){validateGrooveRoutes(edit.routes,edit.lines,post);return structuredClone(edit.routes);}
+    return afterOutlineRoutes(normalizeCuts(edit.lines),post,{skin:edit.settings?.skinMM??.3,finish:[0,post.height/2]});
+  }
   if(!edit.routes)return cutRoutes(normalizeCuts(edit.lines));
   if(!Array.isArray(edit.routes)||edit.routes.some(p=>!Array.isArray(p)||p.length<2||p.some(v=>!Array.isArray(v)||v.length!==2||!v.every(Number.isFinite))))throw Error('Cut order is unreadable. Use Auto order again.');
   if(geometryKey(routeLines(edit.routes))!==geometryKey(edit.lines))throw Error('Cut order no longer matches the cuts. Use Auto order again.');
@@ -234,7 +240,7 @@ export function exportCutPlans(nest) {
     const report=analyzeCuts(edit.lines,post,settings);
     if(report.errors.length)throw Error(`Sheet ${i+1}: ${report.errors[0]}`);
     if(report.oversize.length||report.slivers.length)throw Error(`Sheet ${i+1}: scrap plan still has ${report.oversize.length} oversized piece(s) and ${report.slivers.length} narrow piece(s). Edit cuts or spacing before exporting this plan.`);
-    const routes=plannedRoutes(edit);
-    return [{sheet:i+1,frame:'nest-xy',width:post.width,height:post.height,parts:post.parts,settings,lines:routeLines(routes),routes}];
+    const routes=plannedRoutes(edit,post),phase=checkScrapPhase(edit);
+    return [{sheet:i+1,frame:'nest-xy',width:post.width,height:post.height,parts:post.parts,settings,phase,finishTarget:'left-middle',orderMode:edit.routes?'manual':'automatic',lines:normalizeCuts(edit.lines),routes}];
   });
 }
