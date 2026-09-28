@@ -1,23 +1,21 @@
-import {exportCutPlans} from './scrap_editor.mjs?v=4.44';
+import {exportCutPlans,reviewScrapSheet} from './scrap_editor.mjs?v=4.45';
 
-// An editable Mozaik source job can be downloaded for review even when its
-// scrap plan cannot be released. Never serialize failed cuts as machine plans.
-export function prepareScrapExport(nest, {allowReviewOnly=false}={}) {
-  try { return {manualSheets:exportCutPlans(nest),review:null,draft:null}; }
-  catch (cause) {
-    if (!allowReviewOnly) {
-      const error=new Error(cause.message,{cause});
-      error.code='SCRAP_PLAN_REVIEW_REQUIRED';
+export function prepareScrapExport(nest,{allowReviewOnly=false,overrideWarnings=false}={}) {
+  const issues=nest.sheets.flatMap((sheet,i)=>reviewScrapSheet(sheet,nest,i).issues);
+  const warnings=issues.filter(x=>x.severity==='warning'),errors=issues.filter(x=>x.severity==='error');
+  const describe=items=>items.map(x=>`Sheet ${x.sheet}: ${x.message}`).join('\n');
+  try {
+    const manualSheets=exportCutPlans(nest,{overrideWarnings});
+    return {manualSheets,review:overrideWarnings&&warnings.length?'EXPORTED WITH OPERATOR-ACCEPTED WARNINGS\n\n'+describe(warnings)
+      +'\n\nYour scrap cuts are included. Accepted warnings travel with each plan and are recorded in the final machining report.\n':null,draft:null};
+  } catch(cause) {
+    if(!allowReviewOnly){
+      const error=new Error(describe(issues)||cause.message,{cause});
+      error.code=errors.length?'SCRAP_PLAN_REVIEW_REQUIRED':'SCRAP_WARNINGS_OVERRIDE';
       throw error;
     }
-    return {
-      manualSheets:[],
-      review:'MOZAIK SOURCE FOR REVIEW ONLY — NOT PRODUCTION READY.\n\n'
-        +cause.message+'\n\n'
-        +'Your part positions and drawn scrap cuts are preserved. No executable scrap plans are included.\n'
-        +'Correct the flagged scrap plan in the nest editor, recheck every sheet, then export again.\n'
-        +'The automatic production ZIP remains blocked until all sheets pass.\n',
-      draft:{schemaVersion:1,purpose:'editor-review-only',nest:structuredClone(nest)}
-    };
+    return {manualSheets:[],review:'MOZAIK SOURCE FOR REVIEW ONLY — NOT PRODUCTION READY.\n\n'+describe(issues)
+      +'\n\nCorrect the listed machining errors in the editor. Draft cuts are preserved separately; no executable scrap plan is included.\n',
+      draft:{schemaVersion:1,purpose:'editor-review-only',nest:structuredClone(nest)}};
   }
 }

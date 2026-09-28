@@ -116,6 +116,11 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="matEdit">⚙ Materials…</button>
   <button id="catEdit">⚙ Crate catalogue…</button>
 </div>
+<section id="cutReviewPanel" style="margin:12px 0;padding:12px 16px;border:2px solid var(--accent);border-radius:8px;color:var(--ink);background:var(--board)">
+  <div class="bar" style="margin:0"><b id="cutReviewSummary" role="status">Checking nest…</b><button id="cutReviewRecheck">Recheck all sheets</button></div>
+  <p style="margin:6px 0">Click an issue to open its sheet and highlight the cut or waste. Fix it, then recheck. You may <b>override warnings when exporting</b>; accepted warnings and your cuts stay in the job. Machining errors are listed separately.</p>
+  <ul id="cutReviewList" style="margin:8px 0;max-height:220px;overflow:auto;line-height:1.65"></ul>
+</section>
 <div class="bar" id="smallSpacingBar">
   <label><input type="checkbox" id="smallSpacingOn"> Small-part spacing</label>
   <label for="smallWidth">Short side under</label>
@@ -254,21 +259,21 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.44';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.45';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.44';
-import { APP_VERSION } from './js/version.mjs?v=4.44';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.44';
+         fromMM, toMM } from './js/materials.mjs?v=4.45';
+import { APP_VERSION } from './js/version.mjs?v=4.45';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.45';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.44';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.44';
-import { deriveNest } from './js/derive_nest.mjs?v=4.44';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.44';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.44';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.44';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.45';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.45';
+import { deriveNest } from './js/derive_nest.mjs?v=4.45';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.45';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.45';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.45';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1559,6 +1564,7 @@ function stash() {
   try { sessionStorage.setItem(KEY_OUT, JSON.stringify(nest)); } catch (e) {}
 }
 const scrapControls=installScrapControls({document,window,getNest:()=>nest,getSheet:()=>nest?.sheets[sheetIdx],
+  showSheet:i=>{sheetIdx=i;selected=null;selectParts([]);recomputeDice();buildTabs();draw();},
   getSelection:selectedParts,selectParts,changed:()=>{recomputeDice();buildTabs();},draw,
   getCrateOptions:()=>({opts:{...nestOptsFor(currentMat(),nest.gap),...smallSpacingOptions(),gap:nest.gap,edge:nest.edge},
     catalog:catalog(),budget:remainingBudget(nest.sheets,catalog())})});

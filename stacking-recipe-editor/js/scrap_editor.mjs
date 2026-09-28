@@ -1,8 +1,8 @@
-import { partBox } from './nest.mjs?v=4.44';
-import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.44';
+import { partBox } from './nest.mjs?v=4.45';
+import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.45';
 
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.44';
-import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase} from './scrap_after.mjs?v=4.44';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.45';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase} from './scrap_after.mjs?v=4.45';
 
 export const SCRAP_DEFAULTS={bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 const rounded=n=>Math.round(n*1000)/1000;
@@ -15,7 +15,7 @@ export function editorPost(sheet,nest,settings=SCRAP_DEFAULTS) {
   const contours=parts.map(({box:[a,b,c,d]})=>[[a-r,b-r,c+r,b-r],[c+r,b-r,c+r,d+r],[c+r,d+r,a-r,d+r],[a-r,d+r,a-r,b-r]]);
   return {parts,contours,radius:r,width:nest.sheetL,height:nest.sheetW};
 }
-export function cutProblems(lines,post,settings=SCRAP_DEFAULTS) {
+export function cutProblems(lines,post,settings=SCRAP_DEFAULTS,{allowClearanceWarnings=false}={}) {
   const out=[],r=post.radius,clear=settings.clearanceMM;
   if(settings.maxPieceMM!==304.8||settings.minPieceMM!==50.8)return ['Scrap limits are 12 inches maximum X/Y and 2 inches minimum width.'];
   if(!(r>0)||!Number.isFinite(clear)||clear<3||clear>25||!Number.isFinite(settings.skinMM)||settings.skinMM<.2||settings.skinMM>2)return ['Skin must be 0.2-2 mm and part clearance 3-25 mm.'];
@@ -28,13 +28,13 @@ export function cutProblems(lines,post,settings=SCRAP_DEFAULTS) {
     if(Math.min(x,a)<-r-.01||Math.max(x,a)>post.width+r+.01||Math.min(y,b)<-r-.01||Math.max(y,b)>post.height+r+.01)out.push(`Cut ${i+1}: outside the sheet cutting envelope.`);
     const box=[Math.min(x,a)-r,Math.min(y,b)-r,Math.max(x,a)+r,Math.max(y,b)+r];
     for(const p of post.parts){const [u,v,c,d]=p.box;
-      if(Math.max(u-box[2],box[0]-c,v-box[3],box[1]-d)<clear-.01){out.push(`Cut ${i+1}: too close to ${p.id}.`);break;}
+      if(Math.max(u-box[2],box[0]-c,v-box[3],box[1]-d)<(allowClearanceWarnings?0:clear)-.003){out.push(allowClearanceWarnings?`Cut ${i+1}: cutter overlaps finished part ${p.id}.`:`Cut ${i+1}: too close to ${p.id}.`);break;}
     }
   }
   return out;
 }
-export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS) {
-  const errors=cutProblems(lines,post,settings);
+export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
+  const errors=cutProblems(lines,post,settings,options);
   if(errors.length)return {errors,pieces:[],oversize:[],slivers:[],cutLength:0,rapid:0};
   const raster=new Raster(post.width,post.height);
   for(const {box} of post.parts)raster.clear(...box);
@@ -232,15 +232,39 @@ export function plannedRoutes(edit,post=null){
   if(geometryKey(routeLines(edit.routes))!==geometryKey(edit.lines))throw Error('Cut order no longer matches the cuts. Use Auto order again.');
   return structuredClone(edit.routes);
 }
-export function exportCutPlans(nest) {
+// One review powers the nest-page list and export. Advisory warnings may be
+// explicitly accepted; cutter/part collisions and unreadable paths remain errors.
+export function reviewScrapSheet(sheet,nest,index=0) {
+  const edit=sheet.scrapCuts,issues=[],number=index+1;
+  const add=(severity,code,message,extra={})=>issues.push({sheet:number,severity,code,message,...extra});
+  if(!edit){add('error','missing-plan','No scrap plan saved. Suggest cuts or add cuts for this sheet.');return {issues,report:null};}
+  const settings={...SCRAP_DEFAULTS,...edit.settings},post=editorPost(sheet,nest,settings);
+  if(edit.layout!==layoutStamp(sheet,nest))add('warning','stale','Parts changed after the last review. Recheck this sheet.');
+  const hard=cutProblems(edit.lines,post,settings,{allowClearanceWarnings:true});
+  const locate=message=>{const m=message.match(/^Cut (\d+)\b/),cut=m?Number(m[1])-1:null,l=edit.lines?.[cut];return cut===null?{}:{cut,box:Array.isArray(l)&&l.every(Number.isFinite)?[Math.min(l[0],l[2]),Math.min(l[1],l[3]),Math.max(l[0],l[2]),Math.max(l[1],l[3])]:null};};
+  for(const message of hard)add('error','geometry',message,locate(message));
+  if(!hard.length)for(const message of cutProblems(edit.lines,post,settings))add('warning','clearance',message+' Preferred clearance is '+settings.clearanceMM+' mm; cutter does not overlap the part.',locate(message));
+  const report=analyzeCuts(edit.lines,post,settings,{allowClearanceWarnings:true});
+  for(const [code,pieces,rule] of [['oversize',report.oversize,'over 12 inches in X or Y'],['narrow',report.slivers,'under 2 inches wide']])
+    for(const p of pieces)add('warning',code,(p.reason||(code==='narrow'&&Math.min(p.width,p.height)>=settings.minPieceMM?`Scrap region ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches contains a narrow corridor under 2 inches.`:`Scrap ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches: ${rule}.`)),{...locate(p.reason||''),box:p.box});
+  if(!hard.length)try{plannedRoutes(edit,post);}catch(e){add('error','routes',e.message);}
+  return {issues,report};
+}
+export function scrapPlanStamp(plan){return JSON.stringify([plan.sheet,plan.frame,plan.width,plan.height,plan.parts,plan.settings,plan.phase,plan.finishTarget,plan.orderMode,plan.lines,plan.routes]);}
+export function hasWarningOverride(plan){return plan.warningOverride?.version===1&&plan.warningOverride?.action==='export-with-warnings'&&plan.warningOverride?.stamp===scrapPlanStamp(plan);}
+export function exportCutPlans(nest,{overrideWarnings=false}={}) {
   return nest.sheets.flatMap((sheet,i)=>{
     const edit=sheet.scrapCuts;if(!edit)return [];
-    if(edit.layout!==layoutStamp(sheet,nest))throw Error(`Sheet ${i+1}: parts changed after its scrap cuts were checked. Open Scrap cuts and recheck them.`);
+    const {issues}=reviewScrapSheet(sheet,nest,i),errors=issues.filter(x=>x.severity==='error'),warnings=issues.filter(x=>x.severity==='warning');
+    if(errors.length)throw Error(`Sheet ${i+1}: ${errors[0].message}`);
+    if(warnings.length&&!overrideWarnings){
+      if(warnings[0].code==='stale')throw Error(`Sheet ${i+1}: parts changed after its scrap cuts were checked. Open Scrap cuts and recheck them.`);
+      throw Error(`Sheet ${i+1}: ${warnings[0].message} Review or override warnings when exporting.`);
+    }
     const settings={...SCRAP_DEFAULTS,...edit.settings},post=editorPost(sheet,nest,settings);
-    const report=analyzeCuts(edit.lines,post,settings);
-    if(report.errors.length)throw Error(`Sheet ${i+1}: ${report.errors[0]}`);
-    if(report.oversize.length||report.slivers.length)throw Error(`Sheet ${i+1}: scrap plan still has ${report.oversize.length} oversized piece(s) and ${report.slivers.length} narrow piece(s). Edit cuts or spacing before exporting this plan.`);
     const routes=plannedRoutes(edit,post),phase=checkScrapPhase(edit);
-    return [{sheet:i+1,frame:'nest-xy',width:post.width,height:post.height,parts:post.parts,settings,phase,finishTarget:'left-middle',orderMode:edit.routes?'manual':'automatic',lines:normalizeCuts(edit.lines),routes}];
+    const plan={sheet:i+1,frame:'nest-xy',width:post.width,height:post.height,parts:post.parts,settings,phase,finishTarget:'left-middle',orderMode:edit.routes?'manual':'automatic',lines:normalizeCuts(edit.lines),routes};
+    if(overrideWarnings&&warnings.length)plan.warningOverride={version:1,action:'export-with-warnings',acceptedAt:new Date().toISOString(),warnings,stamp:scrapPlanStamp(plan)};
+    return [plan];
   });
 }
