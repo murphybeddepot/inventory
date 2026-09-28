@@ -34,9 +34,9 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.43';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.43';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.43';
+import { parseMoz } from './moz_parse.mjs?v=4.44';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.44';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.44';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -300,13 +300,14 @@ export function orderDoorsTxt(snapshot, jobName) {
   ].join('\r\n');
 }
 
-export async function exportJobZip(snapshot, { jobName, nest = null } = {}) {
+export async function exportJobZip(snapshot, { jobName, nest = null, allowUnverifiedScrap = false, onScrapReview = null } = {}) {
   const layers = _snapshotToLayers(snapshot);
   const salv = salvageLayerParts(nest);
   const salvageLayers = [];
   if (salv.parts.length) { layers[SALVAGE_LAYER] = salv.parts; salvageLayers.push(SALVAGE_LAYER); }
   return buildJobZip({
     layers,
+    allowUnverifiedScrap, onScrapReview,
     jobName: jobName || snapshot.sku || 'Order',
     dims: DEFAULT_DIMS,
     prodPat: `${snapshot.sku || 'Layer'} {layer}`,

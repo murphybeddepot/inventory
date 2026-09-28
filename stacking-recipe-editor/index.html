@@ -16,17 +16,17 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.43';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.43';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.43';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.43';
-  import { geometryForStack } from './js/nest_geometry.mjs?v=4.43';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.44';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.44';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.44';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.44';
+  import { geometryForStack } from './js/nest_geometry.mjs?v=4.44';
   window.NestGeometry = { geometryForStack };
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
   window.PackStore = { compress, decompress, storedBytes };
-  import { recipeLibrary } from './js/recipe_store.mjs?v=4.43';
+  import { recipeLibrary } from './js/recipe_store.mjs?v=4.44';
   window.RecipeLibrary = recipeLibrary();
 </script>
 <style>
@@ -657,6 +657,7 @@
   <div class="modal" style="width:560px">
     <h2>✅ Exported — what's next <span class="spacer"></span><button class="ghost" data-close>✕</button></h2>
     <div class="mbody" style="font-size:15px;line-height:1.55">
+      <pre id="exportScrapReview" hidden style="white-space:pre-wrap;color:var(--text);background:var(--bg);border:2px solid #b45309;padding:12px"></pre>
       <ol style="margin:0 0 10px;padding-left:22px">
         <li><b>Automatic production ZIP:</b> nested exports carry an automatic-build request. Save a scrap plan for every sheet. After posting and saving in Optimizer, <a href="http://127.0.0.1:17841/" target="_blank" rel="noreferrer">open Production ZIPs on the Mozaik PC</a> to download the checked router, drill and label packet. Requires the local production worker. Native posting still happens in Mozaik.</li>
         <li><b>Router gcode:</b> unzip the download, drop the job folder into
@@ -1115,7 +1116,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.43';
+const APP_VERSION = '4.44';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -4185,7 +4186,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.43'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.44'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4401,7 +4402,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.43');
+    const M=await import('./js/materials.mjs?v=4.44');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4414,7 +4415,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.43'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.44'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4447,7 +4448,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.43');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.44');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4677,7 +4678,20 @@ $('dlMozJob').onclick=async()=>{
     if(!exportPreflight(salv,nest)) return;  // named the problem; user chose to stop
     const jobName=askJobName(S.sku);
     if(jobName===null) return;                 // cancelled — nothing downloaded
-    const blob=await window.MozIO.exportJobZip(snap,{jobName,nest});
+    let scrapReview='';
+    const exportOptions={jobName,nest,onScrapReview:message=>{scrapReview=message;}};
+    let blob;
+    try { blob=await window.MozIO.exportJobZip(snap,exportOptions); }
+    catch(error){
+      if(error.code!=='SCRAP_PLAN_REVIEW_REQUIRED')throw error;
+      if(!confirm('The scrap plan needs review:\n\n'+error.message
+        +'\n\nDownload the Mozaik source job for REVIEW ONLY?'
+        +'\nYour nests and drawn cuts will be preserved. The ZIP will include the problem report, '
+        +'but no executable scrap plans. The finished production ZIP stays blocked until the checks pass.'))return;
+      blob=await window.MozIO.exportJobZip(snap,{...exportOptions,allowUnverifiedScrap:true});
+    }
+    $('exportScrapReview').textContent=scrapReview;
+    $('exportScrapReview').hidden=!scrapReview;
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
     a.download=jobName+'.zip';
@@ -4700,7 +4714,7 @@ $('dlMozJob').onclick=async()=>{
       +(nest.sheets.length===1?'':'s')+(nest._source==='saved'?' (your saved layout)':nest._source==='re-nested'?' (RE-NESTED)':' (unsaved edits)'))
       :(jobName+'.zip (no nest \u2014 open Nests to add sheets)'));
     openModal('nextStepsModal');   // the workflow, spelled out (v3.95)
-  }catch(err){toast('Export failed: '+err.message);}
+  }catch(err){alert('Export failed: '+err.message+'\n\nYour layout has not been changed.');}
 };
 
 /* Nest Label Station registration (v3.92, layout payload v3.93). Reads the just-built job zip's
@@ -5420,7 +5434,7 @@ $('btnSave').onclick=async()=>{
   const lib=loadLib();const exists=!!lib[S.sku];
   const snap=snapshot();
   try {
-    const {assertNestRotations}=await import('./js/nest.mjs?v=4.43');
+    const {assertNestRotations}=await import('./js/nest.mjs?v=4.44');
     for(const savedNest of Object.values(snap.nests||{})) assertNestRotations(savedNest);
   } catch(e) {
     toast('NOT SAVED — '+e.message);
@@ -5604,7 +5618,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.43');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.44');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'

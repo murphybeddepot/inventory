@@ -1,8 +1,8 @@
-import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes} from './scrap_editor.mjs?v=4.43';
-import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.43';
-import {suggestSheet} from './scrap_suggestions.mjs?v=4.43';
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.43';
-import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.43';
+import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes} from './scrap_editor.mjs?v=4.44';
+import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.44';
+import {suggestSheet} from './scrap_suggestions.mjs?v=4.44';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.44';
+import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.44';
 
 // The editor owns intent; native posting rechecks against the actual tool and
 // part contours. Capture-phase handlers keep scrap gestures out of part moves.
@@ -54,7 +54,7 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
     };
     const input={sheet:target,nest:{sheetL:n.sheetL,sheetW:n.sheetW,gap:n.gap,edge:n.edge},settings:config,mode,crate:getCrateOptions()};
     if(typeof window.Worker!=='function'){apply(suggestSheet(input));return;}
-    const worker=new window.Worker(new URL('./scrap_worker.mjs?v=4.43',import.meta.url),{type:'module'});
+    const worker=new window.Worker(new URL('./scrap_worker.mjs?v=4.44',import.meta.url),{type:'module'});
     suggestion={worker};draw();message(`Calculating ${mode==='crates'?'crate placements':mode==='both'?'crate placements and scrap cuts':'scrap cuts'}. You can keep editing or cancel the suggestion.`);
     worker.onmessage=({data})=>{if(suggestion?.worker!==worker)return;worker.terminate();suggestion=null;if(data.error){draw();message(data.error,true);}else apply(data);};
     worker.onerror=()=>{if(suggestion?.worker!==worker)return;worker.terminate();suggestion=null;draw();message('Suggestion could not run. Existing cuts preserved; draw or edit cuts manually.',true);};

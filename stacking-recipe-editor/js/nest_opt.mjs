@@ -16,8 +16,8 @@
 // Pure strings in, pure strings out: no JSZip, no DOM, so it is testable
 // outside a browser.
 
-import { sensorRotations } from './nest_geometry.mjs?v=4.43';
-import { assertNestRotations, nestViolations } from './nest.mjs?v=4.43';
+import { sensorRotations } from './nest_geometry.mjs?v=4.44';
+import { assertNestRotations, nestViolations } from './nest.mjs?v=4.44';
 
 const NL = '\r\n';
 const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"`)); return m ? m[1] : d; };
