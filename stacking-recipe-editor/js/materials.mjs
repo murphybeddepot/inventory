@@ -16,7 +16,7 @@
 // is known-good; anything you add needs its ids checked against Mozaik's
 // material library or the optimizer will not bind it to the right stock.
 
-import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.42';
+import { MOZAIK_CATALOG } from './mozaik-catalog.mjs?v=4.43';
 
 const KEY = 'mbd_materials_v1';
 export const MM_PER_IN = 25.4;
@@ -125,7 +125,7 @@ export function loadMaterials() {
       // migrate BEFORE reconcile: the retired board carries the old name too,
       // and moving it first means reconcile sees a row that already points at
       // the material it should have been on all along
-      const saved = raw.map(m => normalize(reconcile(migrateRetiredBoard(m))));
+      const saved = uniqueMaterialIds(raw.map(m => normalize(reconcile(migrateRetiredBoard(m)))));
       return saved.concat(missingFromSaved(saved).map(normalize));
     }
   } catch (e) { /* fall through to defaults */ }
@@ -217,12 +217,28 @@ function reconcile(m) {
 
 // Finishes Mozaik knows about that this browser has never seen — offered so a
 // new finish added in Mozaik does not stay invisible here forever.
+// A migrated 5x8 keeps its legacy key so saved nests remain reachable. Adding
+// the missing 5x9 catalogue row used to reuse that key: HTML selected the LAST
+// option while currentMat()/export used the FIRST matching row. Preserve the
+// first row (the established lookup target) and give later collisions unique,
+// deterministic picker keys. Native Mozaik material/texture IDs are untouched.
+function uniqueMaterialIds(list) {
+  const reserved = new Set(list.map(m => m.id)), seen = new Set();
+  return list.map(m => {
+    if (!seen.has(m.id)) { seen.add(m.id); return m; }
+    const base = SLUG(m.displayName || m.label) || 'material';
+    let id = base, suffix = 2;
+    while (reserved.has(id)) id = `${base}-${suffix++}`;
+    reserved.add(id); seen.add(id);
+    return {...m, id};
+  });
+}
 export function missingFromSaved(list) {
   const have = new Set((list || []).map(m => m.displayName));
-  return DEFAULT_MATERIALS.filter(d => !have.has(d.displayName));
+  return uniqueMaterialIds([...(list || []), ...DEFAULT_MATERIALS.filter(d => !have.has(d.displayName))]).slice((list || []).length);
 }
 export function saveMaterials(list) {
-  const clean = (list || []).filter(m => m && m.label).map(normalize);
+  const clean = uniqueMaterialIds((list || []).filter(m => m && m.label).map(normalize));
   localStorage.setItem(KEY, JSON.stringify(clean));
   return clean;
 }
