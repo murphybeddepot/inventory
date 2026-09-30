@@ -181,6 +181,9 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     set one to 0 to leave it out.</p>
   <p class="soft" style="margin:0 0 10px">🔗 rows come from the real crate product, so they are cut
     <b>with their grooves</b>. A row with no link is only cut to size — the panel comes off blank.</p>
+  <p class="soft" style="margin:0 0 10px">85-inch crates are available with 9-inch or 12-inch sides,
+    for <b>KRY</b> or <b>Penn1659</b> clips. Set the quantities you want; these new rows start at 0.
+    Keep the height and clip type together, especially the 9-inch KRY top and bottom.</p>
   <div id="catRows"></div>
   <div style="display:flex;gap:8px;margin-top:10px">
     <button id="catAdd">+ Add part</button>
@@ -259,21 +262,21 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="tip"></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.45';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.46';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.45';
-import { APP_VERSION } from './js/version.mjs?v=4.45';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.45';
+         fromMM, toMM } from './js/materials.mjs?v=4.46';
+import { APP_VERSION } from './js/version.mjs?v=4.46';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.46';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.45';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.45';
-import { deriveNest } from './js/derive_nest.mjs?v=4.45';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.45';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.45';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.45';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.46';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.46';
+import { deriveNest } from './js/derive_nest.mjs?v=4.46';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.46';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.46';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.46';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the

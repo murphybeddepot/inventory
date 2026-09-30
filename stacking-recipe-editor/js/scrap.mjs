@@ -16,8 +16,8 @@
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
-import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.45';
-import { smallPartBuffer, partGap } from './nest.mjs?v=4.45';
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.46';
+import { smallPartBuffer, partGap } from './nest.mjs?v=4.46';
 
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;
@@ -41,13 +41,25 @@ export const DEFAULT_MAX_PIECE_IN = 11.9;
 // only a rectangle to write, which is exactly how every crate part Zac has
 // nested so far got cut blind (2026-08-24). Hand-added rows have no src and
 // still work -- they are just cut to size, same as before.
-const CAT_KEY = 'mbd_scrap_catalog_v2';
+const CAT_KEY = 'mbd_scrap_catalog_v3';
+const CAT_KEY_V2 = 'mbd_scrap_catalog_v2';
 const CAT_KEY_V1 = 'mbd_scrap_catalog_v1';
 export function loadCatalog() {
   try {
     const raw = JSON.parse(localStorage.getItem(CAT_KEY) || 'null');
-    if (Array.isArray(raw) && raw.length) return raw.map(normalizeCat);
+    if (Array.isArray(raw)) return raw.map(normalizeCat);
   } catch (e) { /* defaults */ }
+  // Add the new linked choices once without resetting existing quantities,
+  // custom rows, or previously removed 80-inch rows. Saving to v3 also means
+  // a new row the user later deletes will stay deleted.
+  try {
+    const v2 = JSON.parse(localStorage.getItem(CAT_KEY_V2) || 'null');
+    if (Array.isArray(v2)) {
+      const seen = new Set(v2.map(c => c.src || c.key));
+      const added = DEFAULT_CATALOG.filter(c => CRATE_BY_KEY.get(c.src)?.lengthIn === 85 && !seen.has(c.src));
+      return v2.concat(added).map(normalizeCat);
+    }
+  } catch (e) { /* Malformed/unavailable optional local cache: recover from v1/defaults below. */ }
   // A v1 catalogue is a list of bare rectangles the user tuned by hand. Carry
   // their QUANTITIES onto the linked panels rather than throwing the tuning
   // away, and keep any row that is not a crate panel as-is.
@@ -131,6 +143,13 @@ export function matchCratePart(name, l, w) {
   // then dimensions alone -- each step only accepts an UNAMBIGUOUS answer.
   const exact = CRATE_PARTS.filter(p => p.code.toUpperCase() === code && fits(p));
   if (exact.length === 1) return exact[0];
+  // Bare legacy codes predate the 85-inch variants. Their 12-inch ends now
+  // have the same outside dimensions as several different clip systems;
+  // keep an old unlinked E1 on its original 80-inch machining.
+  if (['BOT', 'TOP', 'S1', 'E1'].includes(code)) {
+    const legacy = CRATE_PARTS.filter(p => p.lengthIn !== 85 && p.code.split('-')[0] === code && fits(p));
+    if (legacy.length === 1) return legacy[0];
+  }
   const fam = CRATE_PARTS.filter(p => p.code.toUpperCase().split('-')[0] === code.split('-')[0] && fits(p));
   if (fam.length === 1) return fam[0];
   const any = CRATE_PARTS.filter(fits);

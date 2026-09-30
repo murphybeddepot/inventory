@@ -1,8 +1,8 @@
-import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet} from './scrap_editor.mjs?v=4.45';
-import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.45';
-import {suggestSheet} from './scrap_suggestions.mjs?v=4.45';
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.45';
-import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.45';
+import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet} from './scrap_editor.mjs?v=4.46';
+import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.46';
+import {suggestSheet} from './scrap_suggestions.mjs?v=4.46';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.46';
+import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.46';
 
 // The editor owns intent; native posting rechecks against the actual tool and
 // part contours. Capture-phase handlers keep scrap gestures out of part moves.
