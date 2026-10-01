@@ -151,7 +151,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 </div>
 <div class="bar soft" id="spaceMessage" role="status" aria-live="polite"></div>
 <div class="bar" id="scrapEditorBar">
-  <b>This sheet</b><button id="cutSuggest">Suggest scrap cuts</button><button id="crateSuggest">Suggest crate parts</button><button id="bothSuggest">Suggest both</button>
+  <b>This sheet</b><button id="cutSuggest">Suggest scrap cuts</button><button id="crateSuggest">Suggest crate parts</button><button id="crateChoose">Choose crate parts…</button><button id="bothSuggest">Suggest both</button>
   <button id="cutMode" aria-pressed="false">Edit scrap cuts</button><button id="cutDraw" aria-pressed="false">＋ Add cut</button>
   <button id="cutRecheck">Recheck</button>
   <label>Sequence <select id="cutPhase"><option value="after-outlines">After outlines, using perimeter grooves</option><option value="before-outlines">Before outlines</option></select></label><button id="cutPhaseAll">Use sequence on all cut plans</button>
@@ -196,6 +196,14 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
     <button id="catReset">↺ Standard crate quantities</button><span style="flex:1"></span>
     <button id="catSave" class="primary">Save parts</button>
   </div>
+</div></div>
+<div id="crateChooseModal" class="modalbg"><div class="modal">
+  <h2>Choose crate parts <span style="flex:1"></span><button id="crateChooseClose" aria-label="Close crate picker">✕</button></h2>
+  <p class="soft" style="margin:0 0 10px">Enter how many of each linked crate panel to add <b>now</b>. Quantities are independent of the suggestion catalogue and have no preset maximum. Actual sheet space determines how many can be placed. Parts keep their native grooves and holes.</p>
+  <label>Place on <select id="crateChooseScope"><option value="current">This sheet only</option><option value="existing">This sheet, then other existing sheets</option><option value="extend">Existing sheets, then add sheets as needed</option></select></label>
+  <div id="crateChooseRows" style="max-height:50vh;overflow:auto;margin:12px 0"></div>
+  <div id="crateChooseStatus" role="status" aria-live="polite" class="soft"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button id="crateChooseAdd" class="primary">Add selected parts</button></div>
 </div></div>
 <div id="deriveModal" class="modalbg"><div class="modal">
   <h2>Derive this layout from another product <span style="flex:1"></span><button id="derClose">✕</button></h2>
@@ -272,21 +280,22 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="moveMore" title="Choose any sheet (M)">Move… M</button></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.48';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.49';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.48';
-import { APP_VERSION } from './js/version.mjs?v=4.48';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.48';
+         fromMM, toMM } from './js/materials.mjs?v=4.49';
+import { APP_VERSION } from './js/version.mjs?v=4.49';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.49';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.48';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.48';
-import { deriveNest } from './js/derive_nest.mjs?v=4.48';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.48';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.48';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.48';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.49';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.49';
+import { addChosenCrates } from './js/manual_crates.mjs?v=4.49';
+import { deriveNest } from './js/derive_nest.mjs?v=4.49';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.49';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.49';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.49';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -534,6 +543,40 @@ $('catReset').onclick = () => {
 };
 $('catSave').onclick = () => { saveCatalog(collectCatRows()); $('catModal').classList.remove('on');
   alert('Saved. "Fill scrap" will use these from now on.'); };
+$('crateChoose').onclick = () => {
+  const counts = salvagedSoFar(nest.sheets);
+  $('crateChooseRows').innerHTML = `<div class="matrow" style="grid-template-columns:2fr 1fr .6fr .6fr"><b>Crate panel</b><b>Size</b><b>Already in nest</b><b>Add qty</b></div>`
+    + CRATE_PARTS.map((part, i) => `<div class="matrow" style="grid-template-columns:2fr 1fr .6fr .6fr">
+      <label for="crateQty${i}">${escAttr(part.label)}</label>
+      <span class="soft">${part.L} × ${part.W} mm</span>
+      <span>${counts[part.key] || 0}</span>
+      <input id="crateQty${i}" data-crate-key="${escAttr(part.key)}" type="number" min="0" step="1" value="0" style="width:85px" aria-label="Quantity of ${escAttr(part.label)} to add">
+    </div>`).join('');
+  $('crateChooseScope').value = 'current';
+  $('crateChooseStatus').textContent = '';
+  $('crateChooseModal').classList.add('on');
+};
+$('crateChooseClose').onclick = () => $('crateChooseModal').classList.remove('on');
+$('crateChooseAdd').onclick = () => {
+  const status = $('crateChooseStatus');
+  try {
+    const rows = [...$('crateChooseRows').querySelectorAll('[data-crate-key]')].map(input => ({
+      src: input.dataset.crateKey, qty: input.value,
+    }));
+    if (!rows.some(row => Number(row.qty) > 0)) throw new Error('Enter a quantity for at least one crate part.');
+    const opts = { ...nestOptsFor(currentMat(), nest.gap), ...smallSpacingOptions(), gap: nest.gap, edge: nest.edge };
+    const result = addChosenCrates(nest, sheetIdx, rows, opts, $('crateChooseScope').value);
+    recomputeDice(); buildTabs(); draw(); stash();
+    const left = Object.entries(result.remaining).filter(([, qty]) => qty > 0);
+    const summary = `Added ${result.placed} of ${result.requested} crate parts${result.addedSheets ? ` on ${result.addedSheets} new sheet(s)` : ''}.`
+      + (left.length ? ` Unplaced: ${left.map(([key, qty]) => `${qty} ${CRATE_BY_KEY.get(key)?.label || key}`).join(', ')}. Move parts or allow more sheets, then try again.` : ' Recheck any saved scrap cuts before export.');
+    $('cutSuggestionMessage').textContent = summary;
+    if (left.length) {
+      status.textContent = summary;
+      $('crateChooseRows').querySelectorAll('[data-crate-key]').forEach(input => { input.value = result.remaining[input.dataset.crateKey] || 0; });
+    } else $('crateChooseModal').classList.remove('on');
+  } catch (e) { status.textContent = e.message; }
+};
 $('matSave').onclick = () => {
   const list = collectMatRows($('matUnit').value).filter(m => m.label);
   if (!list.length) { alert('Keep at least one material.'); return; }
