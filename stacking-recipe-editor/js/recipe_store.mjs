@@ -1,6 +1,6 @@
 // Recipes outgrow localStorage's small, origin-wide quota. Keep exact snapshots
 // in IndexedDB, one record per SKU. A save succeeds only after transaction commit.
-import { compress, decompress } from './packstore.mjs?v=4.49';
+import { compress, decompress } from './packstore.mjs?v=4.50';
 
 export const LEGACY_LIBRARY = 'mbd_stacking_library_v1';
 const DB_NAME = 'mbd-stacking-recipes';

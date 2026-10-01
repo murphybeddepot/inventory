@@ -1,5 +1,29 @@
-import { fitSalvage } from './scrap.mjs?v=4.49';
-import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.49';
+import { fitSalvage } from './scrap.mjs?v=4.50';
+import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.50';
+import { violates } from './nest.mjs?v=4.50';
+
+// Click-to-place fallback for openings the automatic free-rectangle search
+// misses. A failed click leaves the nest unchanged.
+export function placeChosenCrateAt(sheet, key, center, opts) {
+  const part = CRATE_BY_KEY.get(key);
+  if (!part) throw new Error('This crate panel has no linked native machining.');
+  if (!Number.isFinite(center.x) || !Number.isFinite(center.y)) throw new Error('Click inside the sheet.');
+  const placements = sheet.placements || (sheet.placements = []);
+  for (const rotation of opts.hasGrain ? [0] : [0, 90]) {
+    const w = rotation ? part.W : part.L, h = rotation ? part.L : part.W;
+    const edge = Number(opts.edge) || 0;
+    const candidate = { name:part.code, label:part.label, layer:0, salvage:true, src:part.key,
+      l:part.L, w:part.W, rotation,
+      x: Math.max(edge, Math.min(center.x - w/2, opts.sheetL - edge - w)),
+      y: Math.max(edge, Math.min(center.y - h/2, opts.sheetW - edge - h)) };
+    if (!violates(candidate, placements, opts.gap, opts)) {
+      candidate.x = +candidate.x.toFixed(2); candidate.y = +candidate.y.toFixed(2);
+      placements.push(candidate);
+      return candidate;
+    }
+  }
+  return null;
+}
 
 // Add exactly the crate parts the operator requests. Catalogue standing quantities
 // do not apply; the only limit is actual space on the chosen sheets.
