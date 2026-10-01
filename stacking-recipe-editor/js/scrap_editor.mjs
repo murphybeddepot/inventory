@@ -1,8 +1,8 @@
-import { partBox } from './nest.mjs?v=4.46';
-import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.46';
+import { partBox } from './nest.mjs?v=4.47';
+import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.47';
 
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.46';
-import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase} from './scrap_after.mjs?v=4.46';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.47';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase} from './scrap_after.mjs?v=4.47';
 
 export const SCRAP_DEFAULTS={bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 const rounded=n=>Math.round(n*1000)/1000;
@@ -37,7 +37,7 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
   const errors=cutProblems(lines,post,settings,options);
   if(errors.length)return {errors,pieces:[],oversize:[],slivers:[],cutLength:0,rapid:0};
   const raster=new Raster(post.width,post.height);
-  for(const {box} of post.parts)raster.clear(...box);
+  for(const {box,outline} of post.parts)outline?raster.clearOutline(outline):raster.clear(...box);
   for(const line of post.contours.flat())raster.sweep(line,post.radius);
   for(const line of lines)raster.sweep(line,post.radius);
   // No morphological opening / ribbon exemption here. Narrow standing waste
@@ -167,7 +167,7 @@ export function layoutWasteIssues(post,settings=SCRAP_DEFAULTS){
   }
   return issues;
 }
-export function improveSuggestion(seed,post,settings=SCRAP_DEFAULTS){
+export function improveSuggestion(seed,post,settings=SCRAP_DEFAULTS,focusBox=null){
   const baseNarrow=narrowMask([],post,settings),r=post.radius;
   let lines=[],rejected=0;
   const safe=candidate=>!cutProblems(candidate,post,settings).length
@@ -191,7 +191,8 @@ export function improveSuggestion(seed,post,settings=SCRAP_DEFAULTS){
   let pieces=measure(lines),budget=90;
   for(let round=0;round<24&&budget>0;round++){
     const oldScore=score(pieces);if(!oldScore)break;let best=null;
-    for(const p of pieces.filter(over).sort((a,b)=>b.area-a.area)){
+    const overlapsFocus=p=>!focusBox||!(p.box[2]<=focusBox[0]||p.box[0]>=focusBox[2]||p.box[3]<=focusBox[1]||p.box[1]>=focusBox[3]);
+    for(const p of pieces.filter(p=>over(p)&&overlapsFocus(p)).sort((a,b)=>b.area-a.area)){
       const b=p.box;if(Math.min(b[2]-b[0],b[3]-b[1])<settings.minPieceMM)continue;
       const axes=[0,1].sort((a,c)=>(b[c+2]-b[c])-(b[a+2]-b[a]));
       for(const axis of axes){
@@ -237,7 +238,13 @@ export function plannedRoutes(edit,post=null){
 export function reviewScrapSheet(sheet,nest,index=0) {
   const edit=sheet.scrapCuts,issues=[],number=index+1;
   const add=(severity,code,message,extra={})=>issues.push({sheet:number,severity,code,message,...extra});
-  if(!edit){add('error','missing-plan','No scrap plan saved. Suggest cuts or add cuts for this sheet.');return {issues,report:null};}
+  if(!edit){
+    add('error','missing-plan','No scrap plan saved. Suggest cuts or add cuts for this sheet.');
+    const settings={...SCRAP_DEFAULTS},report=analyzeCuts([],editorPost(sheet,nest,settings),settings,{allowClearanceWarnings:true});
+    for(const p of report.oversize)add('warning','oversize',`Uncut scrap ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches exceeds 12 inches.`,{box:p.box});
+    for(const p of report.slivers)add('warning','narrow',`Uncut scrap ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches contains waste under 2 inches wide. Move nearby parts.`,{box:p.box});
+    return {issues,report};
+  }
   const settings={...SCRAP_DEFAULTS,...edit.settings},post=editorPost(sheet,nest,settings);
   if(edit.layout!==layoutStamp(sheet,nest))add('warning','stale','Parts changed after the last review. Recheck this sheet.');
   const hard=cutProblems(edit.lines,post,settings,{allowClearanceWarnings:true});

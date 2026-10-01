@@ -16,17 +16,17 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.46';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.46';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.46';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.46';
-  import { geometryForStack } from './js/nest_geometry.mjs?v=4.46';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.47';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.47';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.47';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.47';
+  import { geometryForStack } from './js/nest_geometry.mjs?v=4.47';
   window.NestGeometry = { geometryForStack };
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
   window.PackStore = { compress, decompress, storedBytes };
-  import { recipeLibrary } from './js/recipe_store.mjs?v=4.46';
+  import { recipeLibrary } from './js/recipe_store.mjs?v=4.47';
   window.RecipeLibrary = recipeLibrary();
 </script>
 <style>
@@ -578,6 +578,33 @@
         <span class="spacer" style="flex:1"></span>
         <span id="libCount" class="hint"></span>
       </div>
+      <div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:12px">
+        <b>Find a bed</b>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <label>Family <select id="libFamilyFilter"><option value="">All families</option><option>Library bed</option><option>Boaz bed</option><option>Panel bed</option></select></label>
+          <label>Size <select id="libSizeFilter"><option value="">All sizes</option><option>Twin</option><option>Twin XL</option><option>Full</option><option>Queen</option><option>King</option></select></label>
+          <label>Panel depth <select id="libDepthFilter"><option value="">Both depths</option><option value="15">15″</option><option value="21">21″ · pillow storage</option></select></label>
+          <label>Variant <select id="libVariantFilter"><option value="">All variants</option><option value="Suite Dreams">Suite Dreams</option></select></label>
+          <label>Find <input id="libTextFilter" type="search" placeholder="SKU, finish, feature…" style="width:160px"></label>
+        </div>
+        <div class="hint" style="margin-top:5px">Uncategorized cloud recipes appear under All until loaded and saved with details. A saved recipe is not a verified production packet.</div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:12px">
+        <b>Describe the open recipe</b> <span id="libCatalogSku" class="hint"></span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <label>Family <select id="libCatalogFamily"><option value="">Choose family</option><option>Library bed</option><option>Boaz bed</option><option>Panel bed</option></select></label>
+          <label>Size <select id="libCatalogSize"><option value="">Choose size</option><option>Twin</option><option>Twin XL</option><option>Full</option><option>Queen</option><option>King</option></select></label>
+          <label>Depth <select id="libCatalogDepth"><option value="">—</option><option value="15">15″</option><option value="21">21″ · pillow storage</option></select></label>
+          <label>Finish/color <input id="libCatalogFinish" placeholder="e.g. white melamine" style="width:130px"></label>
+          <label>Doors <input id="libCatalogDoors" type="number" min="0" max="8" placeholder="?" style="width:60px"></label>
+          <label>Version <input id="libCatalogVersion" placeholder="e.g. 1.5" style="width:65px"></label>
+          <label>Panel variant <select id="libCatalogVariant"><option value="">Standard</option><option value="Suite Dreams">Suite Dreams · 2 × 15″ B cabinets</option></select></label>
+        </div>
+        <div id="libPanelOptions" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
+          <label><input type="checkbox" id="libLeftCab"> Left cabinet</label><label><input type="checkbox" id="libRightCab"> Right cabinet</label><label><input type="checkbox" id="libFluting"> Fluting</label><label><input type="checkbox" id="libFlipDesk"> Flip desk</label>
+        </div>
+        <button id="libSaveCatalog" style="margin-top:9px">Save these details with recipe</button>
+      </div>
       <div id="libList" class="reclist"></div>
     </div>
     <div class="mfoot"><button class="ghost" data-close>Close</button></div>
@@ -1116,7 +1143,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.46';
+const APP_VERSION = '4.47';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1179,6 +1206,7 @@ Adjustable Shelves
 /* ---------- state ---------- */
 const S = {
   sku:'',
+  catalog:{},
   manifest:[],            // [{partNum,name,section,secIdx,Lmm,Wmm,Lin,Win,qty,thickness,key}]
   importedParts:[],       // Phase-1 .moz round-trip: full parsed CabProdPart records w/ ops+bands+pos
   sourceShell:null,       // v3.46: source .moz minus parts — layer products rebuild inside it (parm table rides verbatim)
@@ -4186,7 +4214,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.46'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.47'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4402,7 +4430,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.46');
+    const M=await import('./js/materials.mjs?v=4.47');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4415,7 +4443,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.46'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.47'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4448,7 +4476,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.46');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.47');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -5342,6 +5370,7 @@ async function consumeLibraryImport(sku, incoming, remote){
 function snapshot(){
   return {
     sku:S.sku, savedAt:new Date().toISOString(), appVersion:APP_VERSION,
+    catalog:catalogForSave(S.catalog),
     foot:S.foot, pal:S.pal, footPos:S.footPos, origin:S.origin, datum:S.datum, ref:S.ref,
     manifest:S.manifest.map(m=>({partNum:m.partNum,name:m.name,section:m.section,secIdx:m.secIdx,Lmm:m.Lmm,Wmm:m.Wmm,Lin:m.Lin,Win:m.Win,qty:m.qty,thickness:m.thickness})),
     layers:S.layers.map(l=>l.map(p=>({key:p.key,partNum:p.partNum,name:p.name,secIdx:p.secIdx,L:p.L,W:p.W,thickness:p.thickness,cx:p.cx,cy:p.cy,angle:p.angle}))),
@@ -5380,6 +5409,7 @@ function snapshot(){
 }
 function restoreSnapshot(snap){
   S.sku=snap.sku||'';$('skuInput').value=S.sku;
+  S.catalog=catalogForSave(snap.catalog);
   const _n=restoreNestsForSku(S.sku,snap.nests);
   if(_n) _dbg('restored '+_n+' nest(s) from the recipe snapshot');
   S.foot=snap.foot||S.foot;S.pal=snap.pal||S.pal;S.footPos=snap.footPos||'center';
@@ -5439,7 +5469,7 @@ $('btnSave').onclick=async()=>{
   const lib=loadLib();const exists=!!lib[S.sku];
   const snap=snapshot();
   try {
-    const {assertNestRotations}=await import('./js/nest.mjs?v=4.46');
+    const {assertNestRotations}=await import('./js/nest.mjs?v=4.47');
     for(const savedNest of Object.values(snap.nests||{})) assertNestRotations(savedNest);
   } catch(e) {
     toast('NOT SAVED — '+e.message);
@@ -5501,7 +5531,47 @@ $('btnSave').onclick=async()=>{
     if(libOpen) renderLibList();
   }
 };
-$('btnLibrary').onclick=async()=>{await renderLibList();openModal('libModal');};
+const CATALOG_FAMILIES=['Library bed','Boaz bed','Panel bed'];
+const CATALOG_SIZES=['Twin','Twin XL','Full','Queen','King'];
+function catalogForSave(raw){
+  const c=raw&&typeof raw==='object'?raw:{};
+  const family=CATALOG_FAMILIES.includes(c.family)?c.family:'';
+  const size=CATALOG_SIZES.includes(c.size) && (family==='Panel bed'||!['Twin XL','King'].includes(c.size))?c.size:'';
+  const panel=family==='Panel bed';
+  return {family,size,depth:panel&&['15','21'].includes(String(c.depth))?String(c.depth):'',
+    finish:String(c.finish||'').trim().slice(0,80),doors:c.doors===''||c.doors==null?'':Math.max(0,Math.min(8,Number(c.doors)||0)),
+    version:String(c.version||'').trim().slice(0,20),variant:panel&&c.variant==='Suite Dreams'?'Suite Dreams':'',
+    leftCab:panel&&(!!c.leftCab||c.variant==='Suite Dreams'),rightCab:panel&&(!!c.rightCab||c.variant==='Suite Dreams'),
+    cabinetStyle:panel&&c.variant==='Suite Dreams'?'B':'',cabinetWidthIn:panel&&c.variant==='Suite Dreams'?15:null,
+    fluting:panel&&!!c.fluting,flipDesk:panel&&!!c.flipDesk};
+}
+function syncCatalogForm(){
+  const c=catalogForSave(S.catalog);
+  $('libCatalogSku').textContent=S.sku||'(enter SKU above first)';
+  $('libCatalogFamily').value=c.family;$('libCatalogSize').value=c.size;$('libCatalogDepth').value=c.depth;
+  $('libCatalogFinish').value=c.finish;$('libCatalogDoors').value=c.doors;$('libCatalogVersion').value=c.version;
+  $('libCatalogVariant').value=c.variant;$('libCatalogVariant').disabled=c.family!=='Panel bed';
+  for(const [id,key] of [['libLeftCab','leftCab'],['libRightCab','rightCab'],['libFluting','fluting'],['libFlipDesk','flipDesk']]) $(id).checked=c[key];
+  const panel=c.family==='Panel bed';$('libCatalogDepth').disabled=!panel;$('libPanelOptions').style.opacity=panel?'1':'.45';
+  for(const id of ['libLeftCab','libRightCab','libFluting','libFlipDesk']) $(id).disabled=!panel;
+  for(const opt of $('libCatalogSize').options) opt.disabled=!!opt.value && !panel && ['Twin XL','King'].includes(opt.value);
+}
+$('libCatalogFamily').onchange=()=>{
+  S.catalog.family=$('libCatalogFamily').value;
+  S.catalog=catalogForSave({...S.catalog,family:S.catalog.family});syncCatalogForm();
+};
+$('libCatalogVariant').onchange=()=>{if($('libCatalogVariant').value==='Suite Dreams'){$('libLeftCab').checked=true;$('libRightCab').checked=true;}};
+$('libSaveCatalog').onclick=()=>{
+  const v=id=>$(id).value;
+  S.catalog=catalogForSave({family:v('libCatalogFamily'),size:v('libCatalogSize'),depth:v('libCatalogDepth'),
+    finish:v('libCatalogFinish'),doors:v('libCatalogDoors'),version:v('libCatalogVersion'),variant:v('libCatalogVariant'),
+    leftCab:$('libLeftCab').checked,rightCab:$('libRightCab').checked,fluting:$('libFluting').checked,flipDesk:$('libFlipDesk').checked});
+  if(!S.sku && !$('skuInput').value.trim()){toast('Enter a SKU before saving its category.');$('skuInput').focus();return;}
+  $('btnSave').click();
+};
+for(const id of ['libFamilyFilter','libSizeFilter','libDepthFilter','libVariantFilter']) $(id).onchange=()=>renderLibList();
+$('libTextFilter').oninput=()=>renderLibList();
+$('btnLibrary').onclick=async()=>{syncCatalogForm();await renderLibList();openModal('libModal');};
 async function renderLibList(){
   let local;
   try{ local=await window.RecipeLibrary.refresh(); }catch(err){toast('Cannot read recipe library: '+err.message);return;}
@@ -5560,9 +5630,15 @@ async function renderLibList(){
   }
   if(!keys.length){list.innerHTML='<div class="hint" style="text-align:center;padding:20px">No saved recipes yet. Build a layout and click <b>Save recipe</b>.</div>';return;}
   list.innerHTML='';
+  let shown=0;
   for(const k of keys){
     const {local:L, remote:R}=union.get(k);
     const src=L||{};
+    const cat=catalogForSave(src.catalog);
+    if($('libFamilyFilter').value && cat.family!==$('libFamilyFilter').value)continue;
+    if($('libSizeFilter').value && cat.size!==$('libSizeFilter').value)continue;
+    if($('libDepthFilter').value && cat.depth!==$('libDepthFilter').value)continue;
+    if($('libVariantFilter').value && cat.variant!==$('libVariantFilter').value)continue;
     const layers=src.layers||[];
     const np=layers.reduce((s,l)=>s+(l||[]).length,0);
     let badgeHtml='';
@@ -5577,8 +5653,12 @@ async function renderLibList(){
     const dateStr=L&&L.savedAt?new Date(L.savedAt).toLocaleDateString():R&&R.updated_at?new Date(R.updated_at).toLocaleDateString():'';
     const sigStr=L?sigShort((L.signature||'').split('|').filter(Boolean)):R?sigShort((R.signature||'').split('|').filter(Boolean)):'';
     const card=el('div',{class:'reccard'});
+    const catLabel=[cat.family,cat.size,cat.depth?cat.depth+'″':'',cat.variant,cat.finish,cat.doors!==''?cat.doors+' doors':'',cat.version?'v'+cat.version:'',
+      cat.leftCab?'left cabinet':'',cat.rightCab?'right cabinet':'',cat.fluting?'fluting':'',cat.flipDesk?'flip desk':''].filter(Boolean).join(' · ');
+    if($('libTextFilter').value.trim() && !(k+' '+catLabel).toLowerCase().includes($('libTextFilter').value.trim().toLowerCase()))continue;
+    shown++;
     card.innerHTML=`<div class="info"><div class="nm">${esc(k)} ${badgeHtml}</div>
-      <div class="sub">${L?np+' parts · '+layers.length+' layers · ':'(cloud snapshot — click Load to fetch) · '}sig ${sigStr}${dateStr?' · '+dateStr:''}</div></div>`;
+      <div class="sub">${esc(catLabel||'Uncategorized')} · ${L?np+' parts · '+layers.length+' layers · ':'(cloud snapshot — click Load to fetch) · '}sig ${sigStr}${dateStr?' · '+dateStr:''}</div></div>`;
     // v3.7: 🎯 Guide — opens the full-screen Stacker Guide (guide.html)
     // for this SKU, which the shop iPad/TV uses at the stacking station.
     const bGuide=el('button',{title:'Open Stacker Guide (full-screen view for iPad/TV)',text:'🎯 Guide'});
@@ -5623,7 +5703,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.46');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.47');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'
@@ -5680,6 +5760,7 @@ async function renderLibList(){
     card.appendChild(bGuide);card.appendChild(bLoad);card.appendChild(bDer);card.appendChild(bDel);
     list.appendChild(card);
   }
+  if(!shown)list.innerHTML='<div class="hint" style="padding:20px;text-align:center">No recipes match those filters. Cloud-only recipes need to be loaded and categorized first.</div>';
 }
 $('libExport').onclick=()=>{const lib=loadLib();download('stacking-recipes-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(lib,null,2),'application/json');};
 $('libImport').onclick=()=>$('libFile').click();
@@ -5837,6 +5918,7 @@ $('refSel').onchange=()=>{S.ref=$('refSel').value;render();renderInspector();sch
 $('skuInput').onchange=()=>{
   const prev=S.sku;
   S.sku=$('skuInput').value.trim();
+  if(prev!==S.sku)S.catalog={};
   const moved=carryNestsToSku(prev,S.sku);
   if(moved) toast(moved+' saved nest'+(moved===1?'':'s')+' carried over to "'+S.sku+'"');
   scheduleSave();

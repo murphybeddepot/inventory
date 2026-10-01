@@ -34,6 +34,12 @@ svg{display:block;width:100%;height:auto;touch-action:none}
 #panel{margin:8px 20px;border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--chip);max-width:1160px}
 #tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);padding:5px 8px;border-radius:5px;
   font:12px ui-monospace,Consolas,monospace;display:none;z-index:9}
+#moveBar{position:fixed;right:18px;bottom:18px;z-index:15;display:none;align-items:center;gap:5px;
+  background:var(--bg);border:2px solid var(--accent);border-radius:10px;padding:8px;box-shadow:0 3px 15px #0003}
+#moveBar.on{display:flex}#moveBar button{white-space:nowrap}#moveBar b{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#moveChoices{display:none;position:absolute;right:8px;bottom:calc(100% + 5px);max-height:45vh;overflow:auto;
+  background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px;box-shadow:0 3px 15px #0003}
+#moveChoices.on{display:grid;gap:4px}
 footer{padding:6px 20px 22px;color:var(--soft);font-size:12.5px;max-width:76ch}
 .err{margin:20px;padding:14px;border:1px solid var(--bad);border-radius:8px;color:var(--bad)}
 .modalbg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;padding:24px;overflow:auto}
@@ -117,7 +123,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="catEdit">⚙ Crate catalogue…</button>
 </div>
 <section id="cutReviewPanel" style="margin:12px 0;padding:12px 16px;border:2px solid var(--accent);border-radius:8px;color:var(--ink);background:var(--board)">
-  <div class="bar" style="margin:0"><b id="cutReviewSummary" role="status">Checking nest…</b><button id="cutReviewRecheck">Recheck all sheets</button></div>
+  <div class="bar" style="margin:0"><b id="cutReviewSummary" role="status">Checking nest…</b><button id="cutShowSlivers" aria-pressed="false">Show all slivers</button><button id="cutReviewRecheck">Recheck all sheets</button></div>
   <p style="margin:6px 0">Click an issue to open its sheet and highlight the cut or waste. Fix it, then recheck. You may <b>override warnings when exporting</b>; accepted warnings and your cuts stay in the job. Machining errors are listed separately.</p>
   <ul id="cutReviewList" style="margin:8px 0;max-height:220px;overflow:auto;line-height:1.65"></ul>
 </section>
@@ -260,23 +266,27 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div id="panel"><div id="sel" class="soft">Click a part to select it.</div>
   <pre id="moves" class="mono" style="white-space:pre-wrap;margin:8px 0 0"></pre></div>
 <div id="tip"></div>
+<div id="moveBar" aria-label="Move selected part to another sheet"><div id="moveChoices"></div>
+  <b id="moveName"></b><button id="movePrev" title="Move to previous sheet and follow">← Sheet</button>
+  <button id="moveNext" title="Move to next sheet and follow">Sheet →</button>
+  <button id="moveMore" title="Choose any sheet (M)">Move… M</button></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.46';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.47';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.46';
-import { APP_VERSION } from './js/version.mjs?v=4.46';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.46';
+         fromMM, toMM } from './js/materials.mjs?v=4.47';
+import { APP_VERSION } from './js/version.mjs?v=4.47';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.47';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.46';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.46';
-import { deriveNest } from './js/derive_nest.mjs?v=4.46';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.46';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.46';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.46';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.47';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.47';
+import { deriveNest } from './js/derive_nest.mjs?v=4.47';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.47';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.47';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.47';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -977,6 +987,15 @@ svg.addEventListener('lostpointercapture', () => { if(drag){finishDrag(true);bui
 function renderPanel() {
   const s = nest.sheets[sheetIdx];
   const group=selectedParts();
+  const moveBar=$('moveBar'),movable=editing&&group.length===1;
+  moveBar.classList.toggle('on',movable);
+  if(movable){
+    $('moveName').textContent=selected.name;
+    $('movePrev').disabled=sheetIdx===0;
+    $('moveNext').disabled=sheetIdx===nest.sheets.length-1;
+    $('moveChoices').innerHTML=nest.sheets.map((_,i)=>i===sheetIdx?'':`<button data-move-to="${i}">Sheet ${i+1}</button>`).join('');
+    $('moveChoices').querySelectorAll('[data-move-to]').forEach(b=>b.onclick=()=>sendTo(+b.dataset.moveTo));
+  }else $('moveChoices').classList.remove('on');
   if(group.length>1) {
     $('sel').innerHTML=`<b>${group.length} parts selected</b> · ${group.map(p=>esc(p.name)).join(', ')}<br>`
       +(editing?'Drag any selected part to move the group. Arrows move 1mm; Shift+arrows move 10mm. Shift+click adds or removes a part. Select one part to rotate, remove or send to another sheet.':'Press Edit to move the selected group.');
@@ -1020,9 +1039,8 @@ function renderPanel() {
   if (rv) rv.style.display = (savedNow && !isSaved) ? '' : 'none';
 }
 function sendTo(target) {
+  if(!editing||!selected||selection.size!==1||target===sheetIdx||!nest.sheets[target])return;
   const p = selected, from = sheetIdx;
-  nest.sheets[from].placements = nest.sheets[from].placements.filter(q2 => q2 !== p);
-  if (p._from == null) p._from = from;
   const dest = nest.sheets[target];
   let spot = null;
   const inset=nest.edge+smallPartBuffer(p,nest);
@@ -1032,11 +1050,14 @@ function sendTo(target) {
       const [, x1, , y1] = partBox(t);
       if (x1 <= nest.sheetL - inset && y1 <= nest.sheetW - inset && !violates(t, dest.placements, nest.gap, nest)) spot = [x, y];
     }
-  if (spot) { p.x = spot[0]; p.y = spot[1]; } else { p.x = nest.edge; p.y = nest.edge; alert(`No ${nest.gap}mm-clear spot on sheet ${target + 1} — parked in the corner, shown red.`); }
+  if(!spot){$('hint').textContent=`No valid ${nest.gap} mm-clear spot on sheet ${target+1}; ${p.name} stayed on sheet ${from+1}.`;return;}
+  nest.sheets[from].placements = nest.sheets[from].placements.filter(q2 => q2 !== p);
+  if (p._from == null) p._from = from;
+  p.x = spot[0];p.y = spot[1];p._moved=true;
   dest.placements.push(p);
   if (!dest.layers.includes(p.layer)) dest.layers.push(p.layer), dest.layers.sort((a, b) => a - b);
   const wasFrom = nest.sheets[from];
-  sheetIdx = target; recomputeDice(); buildTabs(); draw();
+  sheetIdx = target;selectParts([p]);$('moveChoices').classList.remove('on');recomputeDice(); buildTabs(); draw();
   // A sheet emptied by that move is dead weight in the job — offer to drop it.
   if (wasFrom && !wasFrom.placements.length && nest.sheets.length > 1) {
     if (confirm(`Sheet ${from + 1} is now empty. Remove it?`)) {
@@ -1047,6 +1068,12 @@ function sendTo(target) {
     }
   }
 }
+$('movePrev').onclick=()=>sendTo(sheetIdx-1);
+$('moveNext').onclick=()=>sendTo(sheetIdx+1);
+$('moveMore').onclick=()=>$('moveChoices').classList.toggle('on');
+svg.addEventListener('contextmenu',e=>{const hit=e.target.closest('.part');if(!editing||!hit)return;
+  e.preventDefault();const p=nest.sheets[sheetIdx].placements[+hit.dataset.i];selectParts([p]);draw();$('moveChoices').classList.add('on');
+});
 // ---- rotate a selected part (Zac 2026-08-18) --------------------------------
 function rotateSelected() {
   if (!selected || selection.size!==1) return;
@@ -1110,6 +1137,7 @@ addEventListener('keydown', e => {
     return;
   }
   if(selection.size!==1)return;
+  if(e.key==='m'||e.key==='M'){e.preventDefault();$('moveChoices').classList.toggle('on');return;}
   if (e.key === 'r' || e.key === 'R') { e.preventDefault(); rotateSelected(); }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSelected(); }
 });

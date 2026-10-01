@@ -1,7 +1,7 @@
 // Connections through verified, already-cut native outline grooves. Scrap
 // geometry stays separate from travel geometry so connectors cannot mask a
 // missing waste cut or bypass the original no-sliver/12-inch checks.
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.46';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.47';
 const EPS=.003,dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
 const key=p=>p.map(v=>Math.round(v*1000)/1000).join(',');
 const pt=k=>k.split(',').map(Number);
