@@ -1,8 +1,8 @@
-import { partBox } from './nest.mjs?v=4.52';
-import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.52';
+import { partBox } from './nest.mjs?v=4.53';
+import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.53';
 
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.52';
-import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.52';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.53';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.53';
 
 export const SCRAP_DEFAULTS={bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 const rounded=n=>Math.round(n*1000)/1000;
@@ -46,13 +46,22 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
     const [a,b,c,d]=k.box,r=post.radius;
     return {box:k.box,area:k.area,width:Math.min(post.width,c+r)-Math.max(0,a-r),height:Math.min(post.height,d+r)-Math.max(0,b-r)};
   };
-  const pieces=raster.islands().map(describe);
+  const wholeIslands=raster.islands(),pieces=wholeIslands.map(describe);
   const oversize=pieces.filter(p=>Math.max(p.width,p.height)>settings.maxPieceMM);
   const opened=raster.opened(raster.material,settings.minPieceMM+1.2);
   const narrow=raster.material.map((v,i)=>v&&!opened[i]?1:0);
   // Measure narrow arms/corridors as well as wholly narrow islands. A broad
   // bounding box cannot conceal a one-inch tail attached to a large offcut.
-  const slivers=raster.islands(narrow).map(describe);
+  const slivers=raster.islands(narrow).filter(piece=>{
+    const [a,b,c,d]=piece.box;
+    // The 2 mm grid can leave one- or two-cell corner nibs at crossing kerfs.
+    // They are attached to a larger waste island, not independent offcuts or
+    // a continuous narrow corridor. Keep equally tiny ISOLATED chips flagged.
+    if(piece.area>16||c-a>4||d-b>4)return true;
+    const first=piece.cells.values().next().value;
+    const parent=wholeIslands.find(island=>island.cells.has(first));
+    return !parent||parent.area<=400;
+  }).map(describe);
   // A 2 mm raster can erase a 1.95 mm ribbon (21 mm between finished edges
   // with a 9.525 mm bit). Conservatively flag sub-grid corridors and edge
   // strips analytically. Crosscutting such a ribbon is not a width fix.
@@ -143,6 +152,40 @@ export function consolidateSuggestedCuts(input,post,settings=SCRAP_DEFAULTS,isSa
     if(!changed)break;
   }
   return lines;
+}
+// Explicit operator action for a long, already-narrow waste band. It divides
+// length for conveyor handling; it does NOT cure the under-2-inch width, so
+// the warning and export override remain mandatory.
+export function divideNarrowWaste(box,post,settings=SCRAP_DEFAULTS,existing=[]) {
+  if(!Array.isArray(box)||box.length!==4||!box.every(Number.isFinite))throw Error('Select a narrow waste region first.');
+  const [a,b,c,d]=box,horizontal=c-a>=d-b,along=horizontal?c-a:d-b;
+  if(along<=settings.maxPieceMM)throw Error('This narrow waste is already under 12 inches long.');
+  const across=horizontal?d-b:c-a;
+  if(across>=settings.minPieceMM)throw Error('This is not a narrow waste strip.');
+  const major=horizontal?0:1,minor=1-major,pad=post.radius+settings.clearanceMM;
+  const lo=box[major],hi=box[major+2],mid=(box[minor]+box[minor+2])/2;
+  // Allow two raster cells of measurement tolerance at both ends; otherwise
+  // the last section can read a few millimetres over 12 inches.
+  const n=Math.ceil((along+2*post.radius+4)/settings.maxPieceMM),added=[];
+  for(let i=1;i<n;i++){
+    const fixed=rounded(lo+(hi-lo)*i/n);
+    let from=Math.max(-post.radius,box[minor]-post.radius);
+    let to=Math.min((minor?post.height:post.width)+post.radius,box[minor+2]+post.radius);
+    for(const {box:p} of post.parts){
+      if(fixed<p[major]-pad||fixed>p[major+2]+pad)continue;
+      if(p[minor+2]<=mid)from=Math.max(from,p[minor+2]+pad);
+      else if(p[minor]>=mid)to=Math.min(to,p[minor]-pad);
+      else {from=to;break;}
+    }
+    const line=horizontal?[fixed,from,fixed,to]:[from,fixed,to,fixed];
+    if(to-from<2*post.radius||cutProblems([line],post,settings).length)continue;
+    if(existing.some(s=>Math.abs(s[major]-s[major+2])<.003&&
+      Math.abs(s[major]-fixed)<2*post.radius&&
+      Math.min(Math.max(s[minor],s[minor+2]),to)>Math.max(Math.min(s[minor],s[minor+2]),from)))continue;
+    added.push(line.map(rounded));
+  }
+  if(!added.length)throw Error('No clear crosscuts fit this strip. Move parts or revise the nest.');
+  return added;
 }
 export function suggestCuts(sheet,nest,settings=SCRAP_DEFAULTS) {
   const post=editorPost(sheet,nest,settings);

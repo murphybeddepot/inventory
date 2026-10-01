@@ -1,10 +1,10 @@
-import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion} from './scrap_editor.mjs?v=4.52';
-import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.52';
-import {suggestSheet} from './scrap_suggestions.mjs?v=4.52';
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.52';
-import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.52';
-import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.52';
-import {snapCutEndpoint,snapCutIntersection,snapCutTranslation} from './scrap_drag.mjs?v=4.52';
+import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion,divideNarrowWaste} from './scrap_editor.mjs?v=4.53';
+import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.53';
+import {suggestSheet} from './scrap_suggestions.mjs?v=4.53';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.53';
+import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.53';
+import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.53';
+import {snapCutEndpoint,snapCutIntersection,snapCutTranslation} from './scrap_drag.mjs?v=4.53';
 
 // The editor owns intent; native posting rechecks against the actual tool and
 // part contours. Capture-phase handlers keep scrap gestures out of part moves.
@@ -26,7 +26,7 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
     const shown=issues.map((x,i)=>({x,i})).filter(({x})=>!sliversOnly||x.code==='narrow');
     $('cutShowSlivers').setAttribute('aria-pressed',String(sliversOnly));
     $('cutShowSlivers').textContent=sliversOnly?'Show all issues':`Show all slivers (${issues.filter(x=>x.code==='narrow').length})`;
-    const list=$('cutReviewList'),html=shown.length?shown.map(({x,i})=>`<li><button data-review-issue="${i}">Show sheet ${x.sheet}${x.cut===undefined?'':`, cut ${x.cut+1}`}</button> <b>${x.severity==='error'?'Error':'Warning'}:</b> ${escape(x.message)}${x.code==='oversize'?` <button data-cut-gap="${i}">Cut this gap up</button>`:x.code==='narrow'?` <button data-fix-sliver="${i}">Move parts to fix</button>`:''}</li>`).join(''):sliversOnly?'<li>No slivers modeled in saved cut plans. Recheck after moving parts.</li>':'<li>No scrap-plan warnings. Native post checks still run after posting.</li>';
+    const list=$('cutReviewList'),html=shown.length?shown.map(({x,i})=>`<li><button data-review-issue="${i}">Show sheet ${x.sheet}${x.cut===undefined?'':`, cut ${x.cut+1}`}</button> <b>${x.severity==='error'?'Error':'Warning'}:</b> ${escape(x.message)}${x.code==='oversize'?` <button data-cut-gap="${i}">Cut this gap up</button>`:x.code==='narrow'?` <button data-fix-sliver="${i}">Move parts to fix</button>${x.box&&Math.max(x.box[2]-x.box[0],x.box[3]-x.box[1])>SCRAP_DEFAULTS.maxPieceMM?` <button data-divide-narrow="${i}" title="Shorten this strip; its under-2-inch width remains an exception">Divide length (width remains under 2″)</button>`:''}`:''}</li>`).join(''):sliversOnly?'<li>No slivers modeled in saved cut plans. Recheck after moving parts.</li>':'<li>No scrap-plan warnings. Native post checks still run after posting.</li>';
     if(list.innerHTML!==html)list.innerHTML=html;
   }
   $('cutShowSlivers').onclick=()=>{sliversOnly=!sliversOnly;renderReview();$('cutReviewPanel').scrollIntoView?.({block:'start',behavior:'smooth'});};
@@ -34,10 +34,16 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
     showSheet(issue.sheet-1);reviewFocus=issue;selected=issue.cut??-1;active=issue.cut!==undefined;drawing=false;$('cutShow').checked=$('cutFlags').checked=true;draw();svg.scrollIntoView?.({block:'center',behavior:'smooth'});
   }
   $('cutReviewList').onclick=e=>{
-    const hit=e.target.closest?.('[data-review-issue],[data-cut-gap],[data-fix-sliver]');if(!hit)return;
-    const issue=reviewAll()[Number(hit.dataset.reviewIssue??hit.dataset.cutGap??hit.dataset.fixSliver)];if(!issue)return;
+    const hit=e.target.closest?.('[data-review-issue],[data-cut-gap],[data-fix-sliver],[data-divide-narrow]');if(!hit)return;
+    const issue=reviewAll()[Number(hit.dataset.reviewIssue??hit.dataset.cutGap??hit.dataset.fixSliver??hit.dataset.divideNarrow)];if(!issue)return;
     focusIssue(issue);
     if(hit.dataset.fixSliver!==undefined){message('This waste is under 2 inches wide. Move or regroup adjacent parts; extra cuts cannot widen it.',true);return;}
+    if(hit.dataset.divideNarrow!==undefined){action(()=>{
+      const before=serial(),sh=getSheet(),ed=ensure(),post=editorPost(sh,getNest(),settings());
+      const added=divideNarrowWaste(issue.box,post,settings(),ed.lines);
+      ed.lines.push(...added);delete ed.routes;record(before);
+      message(`Added ${added.length} crosscut(s). This waste remains under 2 inches wide and still needs a layout change or explicit exception before export.`,true);
+    });return;}
     if(hit.dataset.cutGap===undefined)return;
     action(()=>{
       if(issue.code!=='oversize'||!issue.box)throw Error('Select an oversized waste region first.');
