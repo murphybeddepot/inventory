@@ -1,6 +1,6 @@
-import { fitSalvage } from './scrap.mjs?v=4.50';
-import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.50';
-import { violates } from './nest.mjs?v=4.50';
+import { fitSalvage } from './scrap.mjs?v=4.52';
+import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.52';
+import { violates } from './nest.mjs?v=4.52';
 
 // Click-to-place fallback for openings the automatic free-rectangle search
 // misses. A failed click leaves the nest unchanged.

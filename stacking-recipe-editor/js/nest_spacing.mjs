@@ -1,4 +1,4 @@
-import { partBox, nestViolations, smallPartBuffer } from './nest.mjs?v=4.50';
+import { partBox, nestViolations, smallPartBuffer } from './nest.mjs?v=4.52';
 
 // Translate only: keep order, geometry, rotation, machining, grain and layers.
 export function spacingPreview(sheet, selected, nest, axis, maxGapMM, bitDiameterMM=9.525, span='sheet') {

@@ -1,4 +1,4 @@
-import {exportCutPlans,reviewScrapSheet} from './scrap_editor.mjs?v=4.50';
+import {exportCutPlans,reviewScrapSheet} from './scrap_editor.mjs?v=4.52';
 
 export function prepareScrapExport(nest,{allowReviewOnly=false,overrideWarnings=false}={}) {
   const issues=nest.sheets.flatMap((sheet,i)=>reviewScrapSheet(sheet,nest,i).issues);

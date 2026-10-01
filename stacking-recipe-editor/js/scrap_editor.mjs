@@ -1,8 +1,8 @@
-import { partBox } from './nest.mjs?v=4.50';
-import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.50';
+import { partBox } from './nest.mjs?v=4.52';
+import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.52';
 
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.50';
-import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase} from './scrap_after.mjs?v=4.50';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.52';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.52';
 
 export const SCRAP_DEFAULTS={bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 const rounded=n=>Math.round(n*1000)/1000;
@@ -113,6 +113,37 @@ export function normalizeCuts(lines,post=null,settings=SCRAP_DEFAULTS) {
   }
   return orderForTravel(pending,[0,0]);
 }
+// The pocket planner can leave separate collinear segments across a clear
+// waste corridor. Join them only when the added sweep clears every part,
+// creates no new narrow waste, and does not make the modeled cycle slower.
+export function consolidateSuggestedCuts(input,post,settings=SCRAP_DEFAULTS,isSafe=()=>true) {
+  let lines=input.map(l=>[...l]);
+  const time=ls=>estimateRouteTime(cutRoutes(ls),{skin:settings.skinMM,finish:[0,post.height/2]});
+  for(let joined=0,attempts=0;joined<16&&attempts<80;){
+    const pairs=[];
+    for(let i=0;i<lines.length;i++)for(let j=i+1;j<lines.length;j++){
+      const a=lines[i],b=lines[j],va=Math.abs(a[0]-a[2])<.003,vb=Math.abs(b[0]-b[2])<.003;
+      if(va!==vb)continue;
+      const f=va?0:1,t=1-f;if(Math.abs(a[f]-b[f])>.1)continue;
+      const alo=Math.min(a[t],a[t+2]),ahi=Math.max(a[t],a[t+2]);
+      const blo=Math.min(b[t],b[t+2]),bhi=Math.max(b[t],b[t+2]);
+      const gap=Math.max(alo,blo)-Math.min(ahi,bhi);
+      if(gap<0||gap>500)continue;
+      const lo=Math.min(alo,blo),hi=Math.max(ahi,bhi),fixed=a[f];
+      pairs.push({i,j,gap,line:va?[fixed,lo,fixed,hi]:[lo,fixed,hi,fixed]});
+    }
+    pairs.sort((a,b)=>a.gap-b.gap);
+    let changed=false;const oldTime=time(lines);
+    for(const p of pairs){if(++attempts>80)break;
+      if(cutProblems([p.line],post,settings).length)continue;
+      const candidate=lines.filter((_,i)=>i!==p.i&&i!==p.j).concat([p.line]);
+      if(time(candidate)>oldTime+.05||!isSafe(candidate))continue;
+      lines=candidate;joined++;changed=true;break;
+    }
+    if(!changed)break;
+  }
+  return lines;
+}
 export function suggestCuts(sheet,nest,settings=SCRAP_DEFAULTS) {
   const post=editorPost(sheet,nest,settings);
   // Leave narrow waste intact and report it below. Never make dust to hide it.
@@ -215,6 +246,7 @@ export function improveSuggestion(seed,post,settings=SCRAP_DEFAULTS,focusBox=nul
     if(!best)break;lines=best.lines;pieces=best.pieces;
   }
   const normalized=normalizeCuts(lines,post,settings);if(safe(normalized))lines=normalized;
+  lines=consolidateSuggestedCuts(lines,post,settings,safe);
   const report=analyzeCuts(lines,post,settings);
   return {lines,summary:{rejectedCuts:rejected,oversize:report.oversize.length,slivers:report.slivers.length,
     layoutIssues:layoutWasteIssues(post,settings),needsLayoutChanges:baseNarrow.some(Boolean),complete:!report.errors.length&&!report.oversize.length&&!report.slivers.length}};

@@ -1,4 +1,4 @@
-import {suggestSheet} from './scrap_suggestions.mjs?v=4.50';
+import {suggestSheet} from './scrap_suggestions.mjs?v=4.52';
 
 // Planning can be expensive on nearly empty sheets. Keep dragging, scrolling
 // and cancellation responsive while this isolated worker finds a suggestion.

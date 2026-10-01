@@ -1,9 +1,10 @@
-import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion} from './scrap_editor.mjs?v=4.50';
-import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.50';
-import {suggestSheet} from './scrap_suggestions.mjs?v=4.50';
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.50';
-import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.50';
-import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.50';
+import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion} from './scrap_editor.mjs?v=4.52';
+import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.52';
+import {suggestSheet} from './scrap_suggestions.mjs?v=4.52';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.52';
+import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.52';
+import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.52';
+import {snapCutEndpoint,snapCutIntersection,snapCutTranslation} from './scrap_drag.mjs?v=4.52';
 
 // The editor owns intent; native posting rechecks against the actual tool and
 // part contours. Capture-phase handlers keep scrap gestures out of part moves.
@@ -136,13 +137,24 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
     if(gesture)svg.setPointerCapture(e.pointerId);draw();
   },true);
   svg.addEventListener('pointermove',e=>{if(!active)return;e.stopImmediatePropagation();if(!gesture)return;e.preventDefault();
-    const p=point(e),g=gesture,l=[...g.line];
-    if(g.handle==='new'){l.splice(2,2,...snapped(g.start,p));}
-    else if(g.handle==='0'||g.handle==='1'){const i=Number(g.handle)*2,j=2-i,vertical=Math.abs(l[0]-l[2])<.003;l[i]=vertical?l[j]:p[0];l[i+1]=vertical?p[1]:l[j+1];}
+    const p=point(e),g=gesture;let l=[...g.line];
+    if(g.handle==='new'){
+      l.splice(2,2,...snapped(g.start,p));
+      const vertical=Math.abs(l[0]-l[2])<.003,others=ensure().lines.filter((_,i)=>i!==selected);
+      l=snapCutIntersection(l,1,vertical?l[3]:l[2],
+        editorPost(getSheet(),getNest(),settings()),settings(),others)||l;
+    }
+    else if(g.handle==='0'||g.handle==='1'){
+      const vertical=Math.abs(l[0]-l[2])<.003,others=ensure().lines.filter((_,i)=>i!==selected);
+      const fitted=snapCutEndpoint(g.line,Number(g.handle),vertical?p[1]:p[0],
+        editorPost(getSheet(),getNest(),settings()),settings(),others);
+      if(fitted)l=fitted;
+    }
     else {
       const dx=p[0]-g.start[0],dy=p[1]-g.start[1],mode=$('cutMoveAxis').value||'auto';
       if(g.axis===undefined){if(mode==='x'||mode==='y')g.axis=mode==='x'?0:1;else if(Math.max(Math.abs(dx),Math.abs(dy))>=2)g.axis=Math.abs(dx)>=Math.abs(dy)?0:1;}
-      if(g.axis!==undefined)for(const i of [g.axis,g.axis+2])l[i]=Math.round((l[i]+(g.axis?dy:dx))*1000)/1000;
+      if(g.axis!==undefined)l=snapCutTranslation(g.line,g.axis?dy:dx,g.axis,
+        editorPost(getSheet(),getNest(),settings()),settings())||l;
     }
     ensure().lines[selected]=l;cache=null;draw();
   },true);
