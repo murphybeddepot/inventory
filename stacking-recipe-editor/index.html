@@ -16,17 +16,17 @@
      .moz or a full Mozaik job zip. Module exports are stashed on window
      so the (non-module) main script below can call them. -->
 <script type="module">
-  import { parseMoz } from './js/moz_parse.mjs?v=4.47';
-  import { buildJobZip } from './js/moz_build.mjs?v=4.47';
-  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.47';
-  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.47';
-  import { geometryForStack } from './js/nest_geometry.mjs?v=4.47';
+  import { parseMoz } from './js/moz_parse.mjs?v=4.48';
+  import { buildJobZip } from './js/moz_build.mjs?v=4.48';
+  import { importMozFiles, exportJobZip, exportPerLayerMoz } from './js/moz_import_export.mjs?v=4.48';
+  import { compress, decompress, storedBytes } from './js/packstore.mjs?v=4.48';
+  import { geometryForStack } from './js/nest_geometry.mjs?v=4.48';
   window.NestGeometry = { geometryForStack };
   window.MozIO = { parseMoz, buildJobZip, importMozFiles, exportJobZip, exportPerLayerMoz };
   // The library is stored compressed; see js/packstore.mjs for why. Exposed on
   // window because the app itself is a classic script, not a module.
   window.PackStore = { compress, decompress, storedBytes };
-  import { recipeLibrary } from './js/recipe_store.mjs?v=4.47';
+  import { recipeLibrary } from './js/recipe_store.mjs?v=4.48';
   window.RecipeLibrary = recipeLibrary();
 </script>
 <style>
@@ -1143,7 +1143,7 @@ async function remoteSaveRecipe(sku, snap, expectedRev){
   return (rows && rows[0]) ? rows[0] : null;
 }
 
-const APP_VERSION = '4.47';
+const APP_VERSION = '4.48';
 
 const SECTION_COLORS = [
   '#6c8ebf','#b08968','#7d9a6f','#bf6c8e','#8e6cbf',
@@ -1210,6 +1210,7 @@ const S = {
   manifest:[],            // [{partNum,name,section,secIdx,Lmm,Wmm,Lin,Win,qty,thickness,key}]
   importedParts:[],       // Phase-1 .moz round-trip: full parsed CabProdPart records w/ ops+bands+pos
   sourceShell:null,       // v3.46: source .moz minus parts — layer products rebuild inside it (parm table rides verbatim)
+  sourceShells:{},        // native parameter shell for each imported .moz source
   /* v4.13 — WHICH PART CODES RUN CROSS-GRAIN, for THIS product.
      null = "this recipe has never said", and the nester keeps its own default
      (the four Boaz codes). An array — including an EMPTY one — is this
@@ -3827,7 +3828,7 @@ $('mozFileInput').onchange=async(e)=>{
     if(!res.rows.length){toast('No parts parsed from '+files.length+' file(s)');return;}
     loadManifest(res.rows,true);
     // Stash the full parsed records so exportJobZip has ops+bands later.
-    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
+    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;S.sourceShells=res.sourceShells||{};
     scheduleSave();
     toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts from '+files.length+' .moz file(s)'+(res.warnings.length?' — '+res.warnings.length+' warning(s)':''));
   }catch(err){toast('Import failed: '+err.message);}
@@ -3901,7 +3902,7 @@ function _rbApply(res,mapPairs,removes,skips){
   }
   const rows=res.rows.filter(r=>!skips.has(_rbSig(r)));
   loadManifest(rows,false);                // replace=false: the layout survives
-  S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;        // exports now carry the new ops/banding
+  S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;S.sourceShells=res.sourceShells||{}; // exports keep each native parm shell
   scheduleSave();
   const total=rows.reduce((s2,r)=>s2+r.qty,0);
   toast('✓ Rebound '+total+' parts — layout kept'
@@ -4061,7 +4062,7 @@ $('mozMatchInput').onchange=async(e)=>{
     const matches=[...bySku.values()].sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));
     if(!matches.length){
       loadManifest(res.rows,true);
-      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
+      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;S.sourceShells=res.sourceShells||{};
       scheduleSave();
       const provTag=isProvisioned()?' (searched local + cloud)':' (local only — device not provisioned)';
       toast('No matching recipe'+provTag+' — imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
@@ -4092,7 +4093,7 @@ $('mozMatchInput').onchange=async(e)=>{
       }
       if(!snapToLoad){ toast('No snapshot available for '+first.sku); return; }
       restoreSnapshot(snapToLoad);
-      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
+      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;S.sourceShells=res.sourceShells||{};
       scheduleSave();
       toast('Loaded '+first.sku+' ['+sourceLabel+']');
       return;
@@ -4116,14 +4117,14 @@ $('mozMatchInput').onchange=async(e)=>{
       // cloud row (rev 1) instead of trying to overwrite V1's history.
       const forked={...JSON.parse(JSON.stringify(snapToFork)), sku:suggestedFork, _revision:null};
       restoreSnapshot(forked);
-      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
+      S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;S.sourceShells=res.sourceShells||{};
       scheduleSave();
       toast('Forked '+first.sku+' → '+suggestedFork+' (layout copied — Save when ready)');
       return;
     }
     // === Fall through: blank new manifest
     loadManifest(res.rows,true);
-    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;
+    S.importedParts=res.importedParts;S.sourceShell=res.sourceShell||null;S.sourceShells=res.sourceShells||{};
     scheduleSave();
     toast('Imported '+res.rows.reduce((s,r)=>s+r.qty,0)+' parts as new manifest');
   }catch(err){toast('Match failed: '+err.message);}
@@ -4214,7 +4215,7 @@ async function renderExportMaterial(){
   const sel=$('expMat'),desc=$('expMatDesc'),nestEl=$('expMatNest'),warnEl=$('expMatWarn');
   if(!sel)return;
   let M,list;
-  try{ M=await import('./js/materials.mjs?v=4.47'); list=M.loadMaterials(); }
+  try{ M=await import('./js/materials.mjs?v=4.48'); list=M.loadMaterials(); }
   catch(err){ desc.textContent='material list failed to load: '+err.message; return; }
   if(!list.length){ desc.textContent='no materials defined — open Nests to add one'; return; }
   let mid=localStorage.getItem('mbd_last_material')||'';
@@ -4259,7 +4260,7 @@ $('dlMozFiles').onclick=async()=>{
   if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
   try{
     const snap=snapshot();
-    snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;
+    snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;snap.sourceShells=S.sourceShells||{};
     const files=await window.MozIO.exportPerLayerMoz(snap);
     for(const f of files) download(f.name,f.text,'application/octet-stream');
     toast('Downloaded '+files.length+' per-layer .moz file(s)');
@@ -4430,7 +4431,7 @@ $('btnNestsTop').onclick=$('btnNests').onclick=()=>{
    every path is stamped with the selected material or refuses. */
 async function selectedMaterial(){
   try{
-    const M=await import('./js/materials.mjs?v=4.47');
+    const M=await import('./js/materials.mjs?v=4.48');
     const list=M.loadMaterials();
     const mid=localStorage.getItem('mbd_last_material')||'';
     return {mat:(list.find(m=>m.id===mid)||list[0]||null),M};
@@ -4443,7 +4444,7 @@ async function selectedMaterial(){
    until it is off the machine. */
 async function relinkNestSalvage(nest){
   if(!nest||!nest.sheets) return {linked:0,unlinked:[]};
-  try{ const S=await import('./js/scrap.mjs?v=4.47'); return S.relinkSalvage(nest.sheets); }
+  try{ const S=await import('./js/scrap.mjs?v=4.48'); return S.relinkSalvage(nest.sheets); }
   catch(err){ _dbg('salvage relink failed: '+err.message); return {linked:0,unlinked:[]}; }
 }
 async function nestForExport(){
@@ -4476,7 +4477,7 @@ async function nestForExport(){
   try{
     const parts=nestPartsFromRecipe();
     if(!parts.length) return null;
-    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.47');
+    const {nestByLayer,nestViolations}=await import('./js/nest.mjs?v=4.48');
     window.__nestViolations=nestViolations;
     const opts=(M&&mat)?M.nestOptsFor(mat):{};
     const r=nestByLayer(parts,opts);
@@ -4683,7 +4684,7 @@ $('dlMozJob').onclick=async()=>{
   if(!window.MozIO){toast('.moz export not loaded (module error)');return;}
   try{
     const snap=snapshot();
-    snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;
+    snap.importedParts=S.importedParts;snap.sourceShell=S.sourceShell||null;snap.sourceShells=S.sourceShells||{};
     const nest=await nestForExport();
     const salv=await relinkNestSalvage(nest);
     const {mat,M}=await selectedMaterial();
@@ -5390,7 +5391,7 @@ function snapshot(){
     // Before this the editor had no answer: "Trim & doors last" only moves
     // doors to the final sheets, it does not take them off them.
     bought:(S.bought||[]).slice(),
-    sourceShell:S.sourceShell||null,
+    sourceShell:S.sourceShell||null,sourceShells:S.sourceShells||{},
     /* v4.13 — the grain exceptions travel WITH the recipe. Saved as null when
        this product has never said, so an existing recipe round-trips byte-for
        byte and keeps the nester's default. */
@@ -5428,7 +5429,7 @@ function restoreSnapshot(snap){
   // and won't have this field; empty array is safe (Mozaik export
   // will error with a "re-import source .moz" message).
   S.importedParts=(snap.importedParts||[]).map(p=>({...p}));
-  S.sourceShell=snap.sourceShell||null;
+  S.sourceShell=snap.sourceShell||null;S.sourceShells=snap.sourceShells||{};
   // v4.13 — an ARRAY (even empty) is this product's own grain-exception list;
   // anything else means it has never said, so the nester's default stands.
   S.crossGrain=Array.isArray(snap.crossGrain)?snap.crossGrain.slice():null;
@@ -5469,7 +5470,7 @@ $('btnSave').onclick=async()=>{
   const lib=loadLib();const exists=!!lib[S.sku];
   const snap=snapshot();
   try {
-    const {assertNestRotations}=await import('./js/nest.mjs?v=4.47');
+    const {assertNestRotations}=await import('./js/nest.mjs?v=4.48');
     for(const savedNest of Object.values(snap.nests||{})) assertNestRotations(savedNest);
   } catch(e) {
     toast('NOT SAVED — '+e.message);
@@ -5703,7 +5704,7 @@ async function renderLibList(){
       if(!(S.manifest||[]).length){ toast('Load or import this product\'s parts first.'); return; }
       const snap=await fetchSnap();
       if(!snap||!(snap.layers||[]).length){ toast('No layout available for '+k); return; }
-      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.47');
+      const {deriveStack}=await import('./js/derive_nest.mjs?v=4.48');
       const r=deriveStack(snap.layers, S.manifest, {});
       if(!r.ok){
         alert('Not applied. '+r.report.errors.length+' problem(s) deriving from '+k+':\n\n'

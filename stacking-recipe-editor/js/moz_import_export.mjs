@@ -34,9 +34,9 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.47';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.47';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.47';
+import { parseMoz } from './moz_parse.mjs?v=4.48';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.48';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.48';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -54,6 +54,7 @@ export async function importMozFiles(files) {
   const rows = [];
   const importedParts = [];
   let sourceShell = null;
+  const sourceShells = {};
   const warnings = [];
   const errors = [];
   // Aggregate identical parts across files so the manifest has one row
@@ -66,7 +67,12 @@ export async function importMozFiles(files) {
     const f = arr[i];
     const text = await f.text();
     const parsed = parseMoz(text, f.name);
-    if (parsed.ok && parsed.shell) sourceShell = parsed.shell;
+    if (parsed.ok && parsed.shell) {
+      if (sourceShells[f.name] && sourceShells[f.name] !== parsed.shell)
+        errors.push(`${f.name}: two different native product shells have the same filename; rename one source before import`);
+      sourceShells[f.name] = parsed.shell;
+      sourceShell = parsed.shell;
+    }
     for (const w of parsed.warnings) warnings.push(w);
     for (const e of parsed.errors) errors.push(e);
     if (!parsed.ok) continue;
@@ -146,7 +152,7 @@ export async function importMozFiles(files) {
     }
   }
 
-  return { rows, importedParts, sourceShell, warnings, errors };
+  return { rows, importedParts, sourceShell, sourceShells, warnings, errors };
 }
 
 /**
@@ -302,6 +308,20 @@ export function orderDoorsTxt(snapshot, jobName) {
 
 export async function exportJobZip(snapshot, { jobName, nest = null, allowUnverifiedScrap = false, overrideScrapWarnings = false, onScrapReview = null } = {}) {
   const layers = _snapshotToLayers(snapshot);
+  // Combined products can depend on different CabProdParms tables. Retain
+  // the native wrapper for each layer and refuse legacy multi-source recipes
+  // that only kept the last imported wrapper.
+  const savedShells=snapshot.sourceShells&&typeof snapshot.sourceShells==='object'?snapshot.sourceShells:{};
+  const sourceNames=new Set(Object.values(layers).flat().map(p=>p._sourceFile).filter(Boolean));
+  if(sourceNames.size>1 && [...sourceNames].some(name=>!savedShells[name]))
+    throw new Error('Multiple native products need their own parameter shells. Re-import every source .moz file, then save the recipe.');
+  const shellByLayer={};
+  for(const [layer,parts] of Object.entries(layers)){
+    const names=[...new Set(parts.map(p=>p._sourceFile).filter(Boolean))];
+    const distinct=[...new Set(names.map(name=>savedShells[name]).filter(Boolean))];
+    if(distinct.length>1)throw new Error(`${layer} mixes parts from different native product shells. Move them to separate stacking layers before export.`);
+    if(distinct.length===1)shellByLayer[layer]=distinct[0];
+  }
   const salv = salvageLayerParts(nest);
   const salvageLayers = [];
   if (salv.parts.length) { layers[SALVAGE_LAYER] = salv.parts; salvageLayers.push(SALVAGE_LAYER); }
@@ -313,7 +333,7 @@ export async function exportJobZip(snapshot, { jobName, nest = null, allowUnveri
     prodPat: `${snapshot.sku || 'Layer'} {layer}`,
     shell: snapshot.sourceShell || null,
     // the crate panels go into the CRATE's product wrapper, not the bed's
-    shellByLayer: salvageLayers.length ? { [SALVAGE_LAYER]: CRATE_SHELL } : null,
+    shellByLayer: {...shellByLayer,...(salvageLayers.length ? { [SALVAGE_LAYER]: CRATE_SHELL } : {})},
     salvageLayers,
     // v3.51 — when a nest exists it ships inside the job as optimizer state
     // (see nest_opt.mjs), so the operator opens the job and posts rather than
