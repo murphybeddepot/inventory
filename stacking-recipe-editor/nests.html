@@ -281,22 +281,22 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="moveMore" title="Choose any sheet (M)">Move… M</button></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.53';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.54';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.53';
-import { APP_VERSION } from './js/version.mjs?v=4.53';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.53';
+         fromMM, toMM } from './js/materials.mjs?v=4.54';
+import { APP_VERSION } from './js/version.mjs?v=4.54';
+import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.54';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.53';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.53';
-import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.53';
-import { deriveNest } from './js/derive_nest.mjs?v=4.53';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.53';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.53';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.53';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.54';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.54';
+import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.54';
+import { deriveNest } from './js/derive_nest.mjs?v=4.54';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.54';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.54';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.54';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1129,7 +1129,18 @@ function sendTo(target) {
       const [, x1, , y1] = partBox(t);
       if (x1 <= nest.sheetL - inset && y1 <= nest.sheetW - inset && !violates(t, dest.placements, nest.gap, nest)) spot = [x, y];
     }
-  if(!spot){$('hint').textContent=`No valid ${nest.gap} mm-clear spot on sheet ${target+1}; ${p.name} stayed on sheet ${from+1}.`;return;}
+  // A full destination sheet is still editable: transfer the part and let the
+  // operator arrange it there. Keep its position where possible so it is easy
+  // to find, and clamp only enough to keep its outline visible on the sheet.
+  const needsPlacement = !spot;
+  if (!spot) {
+    const [x0, x1, y0, y1] = partBox(p);
+    const width = x1 - x0, height = y1 - y0;
+    spot = [
+      Math.max(nest.edge, Math.min(p.x, nest.sheetL - nest.edge - width)),
+      Math.max(nest.edge, Math.min(p.y, nest.sheetW - nest.edge - height)),
+    ];
+  }
   nest.sheets[from].placements = nest.sheets[from].placements.filter(q2 => q2 !== p);
   if (p._from == null) p._from = from;
   p.x = spot[0];p.y = spot[1];p._moved=true;
@@ -1146,6 +1157,7 @@ function sendTo(target) {
       buildTabs(); draw();
     }
   }
+  if (needsPlacement) $('hint').textContent = `Warning: ${p.name} moved to sheet ${sheetIdx+1}, but no clear spot was found automatically. Drag it into place and resolve the red spacing or boundary warnings before export.`;
 }
 $('movePrev').onclick=()=>sendTo(sheetIdx-1);
 $('moveNext').onclick=()=>sendTo(sheetIdx+1);

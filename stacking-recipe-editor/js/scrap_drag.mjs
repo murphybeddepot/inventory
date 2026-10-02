@@ -1,4 +1,4 @@
-import { cutProblems } from './scrap_editor.mjs?v=4.53';
+import { cutProblems } from './scrap_editor.mjs?v=4.55';
 
 // Magnetize a drawn or edited endpoint to a crossing cut only when that
 // exact intersection remains clear of finished parts.

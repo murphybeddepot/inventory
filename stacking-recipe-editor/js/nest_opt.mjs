@@ -16,8 +16,8 @@
 // Pure strings in, pure strings out: no JSZip, no DOM, so it is testable
 // outside a browser.
 
-import { sensorRotations } from './nest_geometry.mjs?v=4.53';
-import { assertNestRotations, nestViolations } from './nest.mjs?v=4.53';
+import { sensorRotations } from './nest_geometry.mjs?v=4.55';
+import { assertNestRotations, nestViolations } from './nest.mjs?v=4.55';
 
 const NL = '\r\n';
 const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"`)); return m ? m[1] : d; };
@@ -157,7 +157,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const cabKeyOf = new Map(cabs.map(c => [c.layer, c.key]));
 
   const pool = [];
-  for (const { layer, text, salvage: fromSalvageLayer } of layerTexts) {
+  for (const [cabIndex, { layer, text, salvage: fromSalvageLayer }] of layerTexts.entries()) {
     const blocks = text.match(/<CabProdPart\b[^>]*>[\s\S]*?<\/CabProdPart>/g) || [];
     for (const b of blocks) {
       const head = b.slice(0, b.indexOf('>'));
@@ -165,7 +165,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
         .replace(/^<PartShapeXml/, '<Shape').replace(/<\/PartShapeXml>$/, '</Shape>');
       const ops = extractOps(b);
       pool.push({
-        id: pool.length + 1, layer,
+        id: pool.length + 1, layer, cab: String(cabIndex + 1),
         name: attr(head, 'ReportName') || attr(head, 'Name') || ('P' + (pool.length + 1)),
         l: +attr(head, 'L', '0'), w: +attr(head, 'W', '0'),
         shape, ops, band: bandOf(shape),

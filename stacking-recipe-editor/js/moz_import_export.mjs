@@ -34,9 +34,9 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.53';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.53';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.53';
+import { parseMoz } from './moz_parse.mjs?v=4.55';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.55';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.55';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -315,18 +315,30 @@ export async function exportJobZip(snapshot, { jobName, nest = null, allowUnveri
   const sourceNames=new Set(Object.values(layers).flat().map(p=>p._sourceFile).filter(Boolean));
   if(sourceNames.size>1 && [...sourceNames].some(name=>!savedShells[name]))
     throw new Error('Multiple native products need their own parameter shells. Re-import every source .moz file, then save the recipe.');
+  // A stacking layer may mix bed and desk parts. Mozaik still needs one
+  // product per native parameter shell. Split emitted products only; each
+  // part keeps its original L# Comment and its saved sheet placement.
+  const emitLayers={};
   const shellByLayer={};
   for(const [layer,parts] of Object.entries(layers)){
-    const names=[...new Set(parts.map(p=>p._sourceFile).filter(Boolean))];
-    const distinct=[...new Set(names.map(name=>savedShells[name]).filter(Boolean))];
-    if(distinct.length>1)throw new Error(`${layer} mixes parts from different native product shells. Move them to separate stacking layers before export.`);
-    if(distinct.length===1)shellByLayer[layer]=distinct[0];
+    const groups=[];
+    for(const part of parts){
+      const nativeShell=savedShells[part._sourceFile]||snapshot.sourceShell||null;
+      let group=groups.find(g=>g.shell===nativeShell);
+      if(!group){group={shell:nativeShell,parts:[]};groups.push(group);}
+      group.parts.push(part);
+    }
+    groups.forEach((group,index)=>{
+      const key=groups.length===1?layer:`${layer}-${String.fromCharCode(65+index)}`;
+      emitLayers[key]=group.parts;
+      if(group.shell)shellByLayer[key]=group.shell;
+    });
   }
   const salv = salvageLayerParts(nest);
   const salvageLayers = [];
-  if (salv.parts.length) { layers[SALVAGE_LAYER] = salv.parts; salvageLayers.push(SALVAGE_LAYER); }
+  if (salv.parts.length) { emitLayers[SALVAGE_LAYER] = salv.parts; salvageLayers.push(SALVAGE_LAYER); }
   return buildJobZip({
-    layers,
+    layers:emitLayers,
     allowUnverifiedScrap, overrideScrapWarnings, onScrapReview,
     jobName: jobName || snapshot.sku || 'Order',
     dims: DEFAULT_DIMS,
