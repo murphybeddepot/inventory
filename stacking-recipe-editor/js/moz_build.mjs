@@ -23,7 +23,7 @@ import {prepareScrapExport} from './scrap_export.mjs?v=4.55';
 
 import { buildOptFiles } from './nest_opt.mjs?v=4.55';
 export const BUILD_VERSION = '1.0.0';
-export const APP_VERSION = '4.53';
+export const APP_VERSION = '4.55';
 
 // ---- giant const templates (verbatim from source) ----
 
