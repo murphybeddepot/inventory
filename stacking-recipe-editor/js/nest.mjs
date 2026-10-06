@@ -1,6 +1,6 @@
-import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.55';
-import { sensorRotations } from './nest_geometry.mjs?v=4.55';
-import { makePolicy } from './nest_policy.mjs?v=4.55';
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.56';
+import { sensorRotations } from './nest_geometry.mjs?v=4.56';
+import { makePolicy } from './nest_policy.mjs?v=4.56';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
@@ -266,7 +266,7 @@ export function nestByLayer(parts, opts = {}) {
     }
   }
 
-  function attempt(cap, heur, seed, jitter, maxParts = Infinity) {
+  function attempt(cap, heur, seed, jitter) {
     const rnd = mulberry(seed);
     // keep the part's own dims (l0/w0): the packing rect overwrites w/h with
     // the INFLATED size, and reading them back transposed length for width
@@ -276,16 +276,23 @@ export function nestByLayer(parts, opts = {}) {
     while (left.length) {
       if (sheets.length > 40) return null;
       const bin = Object.assign(new Bin(BIN_L, BIN_W), { grained: !!hasGrain, crossGrain, skinnyMM, skinnyInset, cornerMM, strictHoldDown: !!opts.strictHoldDown, vacuumProfile:opts.vacuumProfile, edge, gap, sheetL, sheetW }), on = new Set();
+      // Reserve room for large panels from the next permitted layers before
+      // filling corners with small parts from the first layer.
+      const firstLayer=Math.min(...left.map(p=>p.layer));
+      const window = new Set(left.filter(p=>p.layer<firstLayer+cap).map(p=>p.layer));
+      const majorArea = Math.max(...left.filter(p=>window.has(p.layer)).map(p=>p.l0*p.w0))/2;
       for (;;) {
-        if (bin.placed.length >= maxParts) break;
         const fits = [];
         for (const it of left) { const b = bin.best(it, heur, rnd, jitter); if (b) fits.push({ it, b }); }
-        const openable = fits.filter(f => !on.has(f.it.layer)).map(f => f.it.layer).sort((a, b) => a - b)[0];
         let pick = null;
         for (const { it, b } of fits) {
-          const isNew = !on.has(it.layer);
-          if (isNew && (on.size >= cap || it.layer !== openable)) continue;
-          const score = b.s + (isNew ? 1e7 : 0) + it.layer * 1e3;
+          if (!window.has(it.layer)) continue;
+          // Seat major panels first across this consecutive layer window,
+          // then finish earlier layers before filling with later small parts.
+          // The half-largest threshold keeps tiny fit scores from winning
+          // before a full panel while allowing earlier shelves to finish.
+          const area=it.l0*it.w0;
+          const score = (area>=majorArea?-1e12:0) + it.layer*1e9 - area*100 + b.s;
           if (!pick || score < pick.score) pick = { score, b, it };
         }
         if (!pick) break;
@@ -319,25 +326,22 @@ export function nestByLayer(parts, opts = {}) {
   const costed = [];
   for (const cap of tryCaps) {
     let b = null;
-    const counts = r => r.map(s=>s.bin.placed.length);
-    const spread = r => counts(r).reduce((sum,n)=>sum+n*n,0);
+    const filled = r => r.reduce((sum,s,i)=>sum+s.bin.placed.reduce((a,p)=>a+p.it.l0*p.it.w0,0)*(r.length-i),0);
     const consider = r => {
       if (!r) return;
       const mixed = r.reduce((a,s)=>a+s.layers.length,0);
       const sliv = r.reduce((a,s)=>a+sliverArea(s.bin,sliverMin),0);
       const risk = r.reduce((sum,s)=>sum+nestPolicy.holdRisk(s.bin.placed.map(({it,x,y,rot})=>({l:it.l0,w:it.w0,x:x+edge+it.pad,y:y+edge+it.pad,rotation:rot})),{...opts,gap,edge,sheetL,sheetW}),0);
-      const balance = spread(r), dm2 = x=>Math.round(x/10000);
+      const density = filled(r), dm2 = x=>Math.round(x/10000);
       if (!b || r.length < b.sheets.length || r.length === b.sheets.length &&
-        (risk < b.risk || risk === b.risk && (balance < b.balance || balance === b.balance &&
-        (dm2(sliv) < dm2(b.sliver) || dm2(sliv) === dm2(b.sliver) && mixed < b.mixed))))
-        b = {sheets:r,mixed,cap,sliver:sliv,balance,risk};
+        (risk < b.risk || risk === b.risk &&
+        (dm2(sliv) < dm2(b.sliver) || dm2(sliv) === dm2(b.sliver) &&
+        (density > b.density || density === b.density && mixed < b.mixed))))
+        b = {sheets:r,mixed,cap,sliver:sliv,density,risk};
     };
     for (let t=0;t<240;t++) consider(attempt(cap,['bssf','blsf','baf','bl'][t%4],t*2654435761+cap,t===0?0:(t%120)*.8));
-    if (b) {
-      const ceiling = Math.max(...counts(b.sheets));
-      for (let maxParts=Math.ceil(parts.length/b.sheets.length);maxParts<ceiling;maxParts++)
-        for (let t=0;t<80;t++) consider(attempt(cap,['bssf','blsf','baf','bl'][t%4],t*2654435761+cap,(t%120)*.8,maxParts));
-    }
+    // Never stop filling a sheet to equalize piece counts. One large panel
+    // and one tiny shelf do not represent equal yield or router cycle time.
     if (b) costed.push(b);
   }
   if (!costed.length) return { error: 'could not nest these parts at this spacing' };
@@ -407,7 +411,8 @@ export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jit
     let pick = null;
     for (const it of left) {
       const b = bin.best(it, heur, rnd, jitter);
-      if (b && (!pick || b.s < pick.b.s)) pick = { it, b };
+      if (b && (!pick || it.l0*it.w0 > pick.it.l0*pick.it.w0 ||
+          it.l0*it.w0 === pick.it.l0*pick.it.w0 && b.s < pick.b.s)) pick = { it, b };
     }
     if (!pick) return null;                    // an arrangement that drops a part is no arrangement
     bin.put(pick.b, pick.it);

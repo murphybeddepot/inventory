@@ -62,16 +62,32 @@ export function makePolicy({partBox, smallPartBuffer, nestViolations, packSingle
     // Pinned salvage/remnants retain their positions. A shuffle must not
     // turn a saved remnant into an unrecorded machining move.
     if(ps.some(p=>!product(p)))return ps;
-    let best=ps, risk=holdRisk(ps,o), score=vacuumScore(ps,o);
+    const large=ps.filter(p=>product(p)&&Math.min(p.l,p.w)>=177.8&&p.l*p.w>=140000);
+    const largest=Math.max(0,...large.map(p=>p.l*p.w));
+    const anchor=c=>{
+      if(o.vacuumProfile!=='2026.09.18.1'||!largest)return 0;
+      return Math.min(...c.filter(p=>product(p)&&p.l*p.w===largest).map(p=>{
+        const [,right,bottom]=partBox(p);
+        return (o.sheetL-o.edge-right)**2+(bottom-o.edge)**2;
+      }));
+    };
+    let best=ps, risk=holdRisk(ps,o), score=vacuumScore(ps,o), anchoring=anchor(ps);
     const consider=c=>{
       if(!c||!legal(c,o))return;
-      const r=holdRisk(c,o), s=vacuumScore(c,o);
-      if(r<risk||r===risk&&s<score-1e-10){best=c;risk=r;score=s;}
+      const r=holdRisk(c,o), s=vacuumScore(c,o), a=anchor(c);
+      if(r<risk||r===risk&&(a<anchoring-.01||Math.abs(a-anchoring)<.01&&s<score-1e-10)){best=c;risk=r;score=s;anchoring=a;}
     };
     for(const flipX of [false,true])for(const flipY of [false,true])consider(ps.map(p=>{
       const [a,b,c,d]=partBox(p);return {...p,x:flipX?o.sheetL-b:a,y:flipY?o.sheetW-d:c};
     }));
     consider(skyline(ps,o,true));consider(skyline(ps,o,false));
+    // The whole-group arrangement may improve small-part positions while
+    // leaving a large bottom panel short of the right edge. Close that margin
+    // by translating the panel alone only if every actual clearance is legal.
+    for(const p of [...best].filter(p=>product(p)&&p.l*p.w===largest)){
+      const [left,right,bottom,top]=partBox(p);
+      consider(best.map(q=>q===p?{...q,x:o.sheetL-o.edge-(right-left),y:o.edge}:q));
+    }
     return best;
   }
   function balance(nest,opts={}){
@@ -94,7 +110,9 @@ export function makePolicy({partBox, smallPartBuffer, nestViolations, packSingle
     };
     // Transfers only cross a shared sheet boundary. Keep monotone layer ranges
     // and the user's layer cap; never add a sheet for more even labels.
-    let moves=0,changed=true;
+    // Piece-count balancing is available only when explicitly requested.
+    // Automatic nesting fills sheets; count is not a cycle-time estimate.
+    let moves=0,changed=opts.balanceByCount===true;
     while(changed){
       changed=false;
       const pairs=[];
