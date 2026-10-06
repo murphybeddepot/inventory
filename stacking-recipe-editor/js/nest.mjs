@@ -1,6 +1,6 @@
-import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.56';
-import { sensorRotations } from './nest_geometry.mjs?v=4.56';
-import { makePolicy } from './nest_policy.mjs?v=4.56';
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.57';
+import { sensorRotations } from './nest_geometry.mjs?v=4.57';
+import { makePolicy } from './nest_policy.mjs?v=4.57';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
@@ -224,6 +224,8 @@ function sliverArea(bin, minDim = SLIVER_MIN_MM) {
 
 // parts: [{ name, layer, l, w }] — layer is 1-based
 export function nestByLayer(parts, opts = {}) {
+  // Import/rebind order must not change the optimizer's seeded search.
+  parts=[...parts].sort((a,b)=>a.layer-b.layer||String(a.name).localeCompare(String(b.name))||a.l-b.l||a.w-b.w||String(a.key).localeCompare(String(b.key)));
   const { gap, edge, sheetL, sheetW, hasGrain = false, crossGrain = CROSS_GRAIN_CODES,
     skinnyMM = 0, skinnyInset = 0, cornerMM = 0 } = { ...NEST_DEFAULTS, ...opts };
   const BIN_L = sheetL - 2 * edge + gap, BIN_W = sheetW - 2 * edge + gap;
@@ -266,12 +268,12 @@ export function nestByLayer(parts, opts = {}) {
     }
   }
 
-  function attempt(cap, heur, seed, jitter) {
+  function attempt(cap, heur, seed, jitter, order = parts) {
     const rnd = mulberry(seed);
     // keep the part's own dims (l0/w0): the packing rect overwrites w/h with
     // the INFLATED size, and reading them back transposed length for width
     // (self-test caught it as 287% utilization).
-    let left = parts.map(p => packingPart(p, gap, opts));
+    let left = order.map(p => packingPart(p, gap, opts));
     const sheets = [];
     while (left.length) {
       if (sheets.length > 40) return null;
@@ -339,7 +341,20 @@ export function nestByLayer(parts, opts = {}) {
         (density > b.density || density === b.density && mixed < b.mixed))))
         b = {sheets:r,mixed,cap,sliver:sliv,density,risk};
     };
-    for (let t=0;t<240;t++) consider(attempt(cap,['bssf','blsf','baf','bl'][t%4],t*2654435761+cap,t===0?0:(t%120)*.8));
+    const orders=Array.from({length:16},(_,i)=>{
+      let state=i+1;
+      const random=()=>{state=(Math.imul(state,1664525)+1013904223)|0;return(state>>>0)/4294967296;};
+      return parts.map(p=>({p,r:random()})).sort((a,b)=>a.r-b.r).map(q=>q.p);
+    });
+    // Small manifests benefit from searching tie orders; on a large manifest
+    // keep the normal interactive search budget rather than multiplying it.
+    for (const order of orders.slice(0,parts.length<=40?16:1)) {
+      for(let t=0;t<240;t++)
+        consider(attempt(cap,['bssf','blsf','baf','bl'][t%4],t*2654435761+cap,t===0?0:(t%120)*.8,order));
+      // A tie order can strand a whole panel on a nearly empty extra sheet.
+      // Try other deterministic orders while such a sparse sheet remains.
+      if(b&&b.sheets.every(s=>s.bin.placed.reduce((a,p)=>a+p.it.l0*p.it.w0,0)>=sheetL*sheetW*.35))break;
+    }
     // Never stop filling a sheet to equalize piece counts. One large panel
     // and one tiny shelf do not represent equal yield or router cycle time.
     if (b) costed.push(b);

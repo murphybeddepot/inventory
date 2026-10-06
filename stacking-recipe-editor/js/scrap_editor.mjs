@@ -1,8 +1,8 @@
-import { partBox } from './nest.mjs?v=4.56';
-import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.56';
+import { partBox } from './nest.mjs?v=4.57';
+import { Raster, planScrap, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.57';
 
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.56';
-import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.56';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.57';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.57';
 
 export const SCRAP_DEFAULTS={bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 const rounded=n=>Math.round(n*1000)/1000;
