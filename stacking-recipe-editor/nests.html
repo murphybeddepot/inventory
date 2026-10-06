@@ -155,7 +155,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <b>This sheet</b><button id="cutSuggest">Suggest scrap cuts</button><button id="crateSuggest">Suggest crate parts</button><button id="crateChoose">Choose crate parts…</button><button id="bothSuggest">Suggest both</button>
   <button id="cutMode" aria-pressed="false">Edit scrap cuts</button><button id="cutDraw" aria-pressed="false">＋ Add cut</button>
   <button id="cutRecheck">Recheck</button>
-  <label>Sequence <select id="cutPhase"><option value="after-outlines">After outlines, using perimeter grooves</option><option value="before-outlines">Before outlines</option></select></label><button id="cutPhaseAll">Use sequence on all cut plans</button>
+  <label>Sequence <select id="cutPhase"><option value="before-outlines">Before outlines — separate straight cuts</option><option value="after-outlines">After outlines, using perimeter grooves (legacy)</option></select></label><button id="cutPhaseAll">Use sequence on all cut plans</button>
   <label>Remaining skin <input id="cutSkin" type="number" min=".2" max="2" step=".1" value=".3" style="width:70px"> mm</label>
   <button id="cutDelete" disabled>Delete cut</button><button id="cutUndo" disabled>Undo</button><button id="cutClear">Remove cut plan</button>
   <span class="soft">12″ max X/Y · 2″ minimum scrap width · 6 mm clearance for new cuts · perimeter connections after outlines only</span>
@@ -168,8 +168,8 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <label>Drag <select id="cutMoveAxis"><option value="auto">Lock to first direction</option><option value="x">Horizontal only</option><option value="y">Vertical only</option></select></label>
   <span class="soft">Add cut: drag start → end. Drag line to move; endpoints to trim. Arrows: 1 mm; Shift+arrows: 10 mm.</span>
 </div>
-<div class="bar soft" id="cutSuggestionMessage" role="status" aria-live="polite">Suggestions preserve existing bed parts. Crate quantities apply across the whole job. Undo restores the previous sheet.</div>
-<div class="bar"><b>Cut order</b><select id="cutPath" aria-label="Continuous path"></select><button id="cutEarlier">← Earlier</button><button id="cutLater">Later →</button><button id="cutReverse">Reverse direction</button><button id="cutOptimize">Auto join &amp; order</button><span class="soft">Numbers mark path starts. Finish toward left-middle unload. Manual order is preserved; automatic routing uses the native starting position after posting. Editing geometry recalculates paths.</span></div>
+<div class="bar soft" id="cutSuggestionMessage" role="status" aria-live="polite">Suggestions use an 11″ grid per broad waste area. Clear spans merge into straight cuts; placement slivers stay flagged. Existing bed parts stay put. Undo restores the previous sheet.</div>
+<div class="bar"><b>Cut order</b><select id="cutPath" aria-label="Scrap cut path"></select><button id="cutEarlier">← Earlier</button><button id="cutLater">Later →</button><button id="cutReverse">Reverse direction</button><button id="cutOptimize">Auto order straight cuts</button><span class="soft">Numbers mark path starts. Finish toward left-middle unload. Manual order is preserved; automatic routing uses the native starting position after posting. Editing geometry recalculates paths.</span></div>
 <div class="bar soft" id="cutMessage" role="status" aria-live="polite"></div>
 <details class="bar soft"><summary>How saved cuts reach the router</summary>
   <p>Save this nest, then export the Mozaik job. Keep <code>scrap-plan.json</code> in the extracted job folder.
@@ -282,22 +282,22 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="moveMore" title="Choose any sheet (M)">Move… M</button></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.58';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.59';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.58';
-import { APP_VERSION } from './js/version.mjs?v=4.58';
-import { resolveNestGeometry, geometryOnSheet, sensorRotations, drillFrameRotations, clockwiseDrillRotation } from './js/nest_geometry.mjs?v=4.58';
+         fromMM, toMM } from './js/materials.mjs?v=4.59';
+import { APP_VERSION } from './js/version.mjs?v=4.59';
+import { resolveNestGeometry, geometryOnSheet, sensorRotations, drillFrameRotations, clockwiseDrillRotation } from './js/nest_geometry.mjs?v=4.59';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.58';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.58';
-import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.58';
-import { deriveNest } from './js/derive_nest.mjs?v=4.58';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.58';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.58';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.58';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.59';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.59';
+import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.59';
+import { deriveNest } from './js/derive_nest.mjs?v=4.59';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.59';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.59';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.59';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the

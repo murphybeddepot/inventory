@@ -75,3 +75,22 @@ export function cutRoutes(lines,{joinWithinMM=19.05}={}) {
   return result;
 }
 export const routeLines=routes=>routes.flatMap(p=>p.slice(1).map((b,i)=>[...p[i],...b]));
+
+// Separate straight paths; intersections do not create turns or retraces.
+// Optimize direction/order, including the trip to left-middle unload.
+export function straightCutRoutes(lines,{start=[0,0],finish=[0,0]}={}){
+  const distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  const todo=lines.map(l=>[l.slice(0,2),l.slice(2)]),out=[];let at=start;
+  while(todo.length){let best=0,reverse=false,value=Infinity;
+    todo.forEach((p,i)=>{for(const rev of [false,true]){const d=distance(at,rev?p[1]:p[0]);if(d<value){value=d;best=i;reverse=rev;}}});
+    const p=todo.splice(best,1)[0];if(reverse)p.reverse();out.push(p);at=p[1];
+  }
+  const cost=routes=>{let n=0,at=start;for(const p of routes){n+=distance(at,p[0]);at=p[1];}return n+distance(at,finish);};
+  let best=out,score=cost(best);
+  if(best.length<=60)for(let round=0;round<6;round++){let next=null;
+    for(let i=0;i<best.length;i++)for(let j=i;j<best.length;j++){
+      const trial=[...best.slice(0,i),...best.slice(i,j+1).reverse().map(p=>[...p].reverse()),...best.slice(j+1)],v=cost(trial);
+      if(v<score-.001){score=v;next=trial;}
+    }if(!next)break;best=next;
+  }return best;
+}

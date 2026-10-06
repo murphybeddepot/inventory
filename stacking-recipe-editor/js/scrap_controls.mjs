@@ -1,10 +1,10 @@
-import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion,divideNarrowWaste} from './scrap_editor.mjs?v=4.58';
-import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.58';
-import {suggestSheet} from './scrap_suggestions.mjs?v=4.58';
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.58';
-import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.58';
-import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.58';
-import {snapCutEndpoint,snapCutIntersection,snapCutTranslation} from './scrap_drag.mjs?v=4.58';
+import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion,divideNarrowWaste} from './scrap_editor.mjs?v=4.59';
+import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.59';
+import {suggestSheet} from './scrap_suggestions.mjs?v=4.59';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.59';
+import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.59';
+import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.59';
+import {snapCutEndpoint,snapCutIntersection,snapCutTranslation} from './scrap_drag.mjs?v=4.59';
 
 // The editor owns intent; native posting rechecks against the actual tool and
 // part contours. Capture-phase handlers keep scrap gestures out of part moves.
@@ -63,7 +63,7 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
   });
   function routesFor(ed){const post=editorPost(getSheet(),getNest(),settings()),key=JSON.stringify([ed,post]);if(routeCache?.key===key)return routeCache.routes;const routes=plannedRoutes(ed,post);routeCache={key,routes};return routes;}
   const history=[];
-  const settings=()=>({...SCRAP_DEFAULTS,phase:'after-outlines',...getSheet()?.scrapCuts?.settings});
+  const settings=()=>({...SCRAP_DEFAULTS,phase:'before-outlines',...getSheet()?.scrapCuts?.settings});
   const message=(s,bad=false)=>{const el=$('cutMessage');el.textContent=s;el.style.color=bad?'var(--bad)':'var(--soft)';};
   function ensure(){const s=getSheet();return s.scrapCuts ||= {version:1,settings:settings(),layout:layoutStamp(s,getNest()),lines:[]};}
   const serial=()=>JSON.stringify(getNest().sheets);
@@ -100,19 +100,19 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
       active=true;drawing=false;$('cutShow').checked=true;selected=-1;selectParts([]);record(before);
       const added=result.summary?.added?.length||0;
       $('cutSuggestionMessage').textContent=(mode==='cuts'?'':`${added} crate part(s) added to this sheet. `)
-        +(mode==='crates'?'Existing bed parts stayed put. Recheck existing cuts after adding parts.':result.plan?.suggestion?.complete?'Suggestion passes the drawing checks; verify the actual post before release.':'Draft suggestion: unresolved waste is marked in red. Narrow gaps need part spacing changes; extra little cuts cannot fix them.')
+        +(mode==='crates'?'Existing bed parts stayed put. Recheck existing cuts after adding parts.':result.plan?.suggestion?.complete?'11-inch grid passes the drawing checks; verify the actual post before release.':'11-inch grid draft: unresolved waste is marked in red. Move parts where the grid cannot leave usable scraps; no local patchwork cuts were added.')
         +(result.plan?.suggestion?.layoutIssues?.length?' Change spacing: '+result.plan.suggestion.layoutIssues.slice(0,4).map(p=>`${p.a} / ${p.b}: ${p.width.toFixed(1)} mm waste`).join('; ')+'.':'');
     };
     const input={sheet:target,nest:{sheetL:n.sheetL,sheetW:n.sheetW,gap:n.gap,edge:n.edge},settings:config,mode,crate:getCrateOptions()};
     if(typeof window.Worker!=='function'){apply(suggestSheet(input));return;}
-    const worker=new window.Worker(new URL('./scrap_worker.mjs?v=4.48',import.meta.url),{type:'module'});
+    const worker=new window.Worker(new URL('./scrap_worker.mjs?v=4.59',import.meta.url),{type:'module'});
     suggestion={worker};draw();message(`Calculating ${mode==='crates'?'crate placements':mode==='both'?'crate placements and scrap cuts':'scrap cuts'}. You can keep editing or cancel the suggestion.`);
     worker.onmessage=({data})=>{if(suggestion?.worker!==worker)return;worker.terminate();suggestion=null;if(data.error){draw();message(data.error,true);}else apply(data);};
     worker.onerror=()=>{if(suggestion?.worker!==worker)return;worker.terminate();suggestion=null;draw();message('Suggestion could not run. Existing cuts preserved; draw or edit cuts manually.',true);};
     worker.postMessage(input);
   });}
   $('cutSuggest').onclick=()=>suggest('cuts');$('crateSuggest').onclick=()=>suggest('crates');$('bothSuggest').onclick=()=>suggest('both');
-  $('cutOptimize').onclick=()=>action(()=>{const before=serial(),ed=ensure();ed.lines=normalizeCuts(ed.lines,editorPost(getSheet(),getNest(),settings()),settings());delete ed.routes;routeIndex=0;selected=-1;record(before);});
+  $('cutOptimize').onclick=()=>action(()=>{const before=serial(),ed=ensure();ed.lines=normalizeCuts(ed.lines);delete ed.routes;routeIndex=0;selected=-1;record(before);});
   $('cutPath').onchange=()=>{routeIndex=Number($('cutPath').value)||0;$('cutNumbers').checked=true;draw();};
   for(const [id,delta] of [['cutEarlier',-1],['cutLater',1],['cutReverse',0]])$(id).onclick=()=>action(()=>{
     const before=serial(),ed=ensure(),routes=routesFor(ed);if(!routes[routeIndex])return;
@@ -205,7 +205,7 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
       if(reviewFocus?.box&&n.sheets[reviewFocus.sheet-1]===s){const [a,b,c,d]=reviewFocus.box,pad=12;g+=`<rect x="${20+a-pad}" y="${20+n.sheetW-d-pad}" width="${c-a+2*pad}" height="${d-b+2*pad}" fill="#e56a001c" stroke="#c65300" stroke-width="4" vector-effect="non-scaling-stroke" pointer-events="none"/><text x="${20+a}" y="${20+n.sheetW-d-pad-8}" font-size="22" fill="var(--ink)">Selected ${reviewFocus.severity}</text>`;}
       if(!ed){message(drawing?'Drag from the start to the end of a new cut. It snaps horizontal or vertical.':'Suggest scrap cuts, add crate parts, or use + Add cut and drag across empty waste.');return g;}
       if(!gesture){const r=report(),stale=ed.layout!==layoutStamp(s,n);
-        message(`${drawing?'ADD CUT: drag start → end. ':''}${settings().phase==='after-outlines'?'AFTER outlines → left-middle unload. ':''}${routeError?routeError+' ':''}${stale?'PARTS MOVED — recheck. ':''}${routes.length} continuous paths · ~${estimateRouteTime(routes,{skin:settings().skinMM,finish:[0,n.sheetW/2]}).toFixed(1)} s modeled (assumed motion) · ${(routeLines(routes).reduce((v,l)=>v+Math.hypot(l[2]-l[0],l[3]-l[1]),0)/1000).toFixed(2)} m down-feed · ${(routeLines(routes).reduce((o,l)=>({at:l.slice(2),v:o.v+Math.hypot(o.at[0]-l[0],o.at[1]-l[1])}),{at:[0,0],v:0}).v/1000).toFixed(2)} m travel · ${settings().skinMM} mm skin. ${r.errors[0]||`${r.oversize.length} over 12″; ${r.slivers.length} under 2″. ${r.oversize.length||r.slivers.length?'Warnings — review the list above; export can override warnings.':'Drawing checks pass; native post must also pass.'}`}`,!!routeError||stale||r.errors.length>0||r.oversize.length>0||r.slivers.length>0);
+        message(`${drawing?'ADD CUT: drag start → end. ':''}${settings().phase==='after-outlines'?'AFTER outlines → left-middle unload. ':''}${routeError?routeError+' ':''}${stale?'PARTS MOVED — recheck. ':''}${routes.length} ${settings().phase==='before-outlines'?'separate straight cuts':'continuous paths'} · ~${estimateRouteTime(routes,{skin:settings().skinMM,finish:[0,n.sheetW/2]}).toFixed(1)} s modeled (assumed motion) · ${(routeLines(routes).reduce((v,l)=>v+Math.hypot(l[2]-l[0],l[3]-l[1]),0)/1000).toFixed(2)} m down-feed · ${(routeLines(routes).reduce((o,l)=>({at:l.slice(2),v:o.v+Math.hypot(o.at[0]-l[0],o.at[1]-l[1])}),{at:[0,0],v:0}).v/1000).toFixed(2)} m travel · ${settings().skinMM} mm skin. ${r.errors[0]||`${r.oversize.length} over 12″; ${r.slivers.length} under 2″. ${r.oversize.length||r.slivers.length?'Warnings — review the list above; export can override warnings.':'Drawing checks pass; native post must also pass.'}`}`,!!routeError||stale||r.errors.length>0||r.oversize.length>0||r.slivers.length>0);
         if($('cutFlags').checked!==false)for(const p of [...new Set([...r.oversize,...r.slivers])]){const [a,b,c,d]=p.box;g+=`<rect x="${20+a}" y="${20+n.sheetW-d}" width="${c-a}" height="${d-b}" fill="none" stroke="var(--bad)" stroke-width="1" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" pointer-events="none"><title>${p.reason||`Modeled scrap ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches`}</title></rect>`;}
       }
       let at=[0,0];if($('cutTravel').checked===true)for(const route of routes){g+=`<path d="M${xy(at)} L${xy(route[0])}" stroke="var(--soft)" opacity=".5" stroke-dasharray="4 5" fill="none" vector-effect="non-scaling-stroke" pointer-events="none"/>`;at=route.at(-1);}

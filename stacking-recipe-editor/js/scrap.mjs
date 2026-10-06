@@ -1,4 +1,4 @@
-import { drillFrameRotations } from './nest_geometry.mjs?v=4.58';
+import { drillFrameRotations } from './nest_geometry.mjs?v=4.59';
 // scrap.mjs — what to do with the sheet AFTER the job's parts are placed.
 //
 // Zac 2026-08-18: "can your nest editor now cut the rest of the scrap into
@@ -17,8 +17,8 @@ import { drillFrameRotations } from './nest_geometry.mjs?v=4.58';
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
-import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.58';
-import { smallPartBuffer, partGap } from './nest.mjs?v=4.58';
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.59';
+import { smallPartBuffer, partGap } from './nest.mjs?v=4.59';
 
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;
