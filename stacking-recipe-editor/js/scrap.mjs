@@ -1,3 +1,4 @@
+import { drillFrameRotations } from './nest_geometry.mjs?v=4.58';
 // scrap.mjs — what to do with the sheet AFTER the job's parts are placed.
 //
 // Zac 2026-08-18: "can your nest editor now cut the rest of the scrap into
@@ -16,8 +17,8 @@
 // 2026-08-06). Same number in both places on purpose — this planner shows what
 // that pass will do, it does not replace it.
 
-import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.57';
-import { smallPartBuffer, partGap } from './nest.mjs?v=4.57';
+import { CRATE_PARTS, CRATE_BY_KEY } from './crate_parts.mjs?v=4.58';
+import { smallPartBuffer, partGap } from './nest.mjs?v=4.58';
 
 export const IN = 25.4;
 export const DEFAULT_MAX_PIECE_IN = 11.9;
@@ -294,7 +295,7 @@ export function fitSalvage(sheet, opts, catalog = DEFAULT_CATALOG, budget = null
     for (const c of left) {
       if (c.remaining <= 0) continue;
       for (const fr of frees) {
-        for (const rot of [0, 90]) {
+        for (const rot of drillFrameRotations(c)) {
           const w = rot ? c.w : c.l, h = rot ? c.l : c.w;
           const pad = smallPartBuffer(c, opts), x = fr.x+pad, y = fr.y+pad;
           if (x + w + pad > sheetL - edge + 0.01 || y + h + pad > sheetW - edge + 0.01) continue;

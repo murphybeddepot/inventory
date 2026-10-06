@@ -79,8 +79,17 @@ export function geometryOnSheet(p,source) {
 // The drill needs a continuous long edge opposite REF. The router nest also
 // keeps material at its top-right corner. Translate positions freely, but
 // exclude rotations that put a corrected bottom-right notch at top-right.
+// Native OPT is CCW; the operator sees CW relative to the normalized drill datum.
+export function drillFrameRotations(p) {
+  const l=Number(p?.l ?? p?.L),w=Number(p?.w ?? p?.W);
+  return w>l ? [90,0] : [0,270];
+}
+export function clockwiseDrillRotation(p,rotation=p.rotation||0) {
+  const zero=drillFrameRotations(p)[0];
+  return ((zero-Number(rotation))%360+360)%360;
+}
 export function sensorRotations(g) {
-  if (!g?.outline || g.outline.length <= 4) return [0, 90];
+  if (!g?.outline || g.outline.length <= 4) return drillFrameRotations(g);
   const {l,w,outline} = g, L=Math.max(l,w), W=Math.min(l,w);
   const drill=w>l?outline.map(([x,y])=>[w-y,x]):outline;
   const spans=drill.flatMap((a,i)=>{
@@ -90,6 +99,6 @@ export function sensorRotations(g) {
   let end=0;
   for(const [a,b] of spans){if(a>end+.05)break;end=Math.max(end,b);}
   if(end<L-.05) throw Error('Base notch is opposite REF. Correct the master and reimport it before nesting.');
-  return [0,90].filter(rotation=>outline.map(p=>turnOptPoint(p,l,w,rotation))
+  return drillFrameRotations(g).filter(rotation=>outline.map(p=>turnOptPoint(p,l,w,rotation))
     .some(([x,y])=>near(x,rotation?w:l)&&near(y,rotation?l:w)));
 }

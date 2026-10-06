@@ -1,6 +1,6 @@
-import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.57';
-import { sensorRotations } from './nest_geometry.mjs?v=4.57';
-import { makePolicy } from './nest_policy.mjs?v=4.57';
+import { SHOP_VACUUM_PROFILE, isSmallish, vacuumInset, vacuumViolations } from './nest_vacuum.mjs?v=4.58';
+import { sensorRotations, drillFrameRotations, clockwiseDrillRotation } from './nest_geometry.mjs?v=4.58';
+import { makePolicy } from './nest_policy.mjs?v=4.58';
 // nest.mjs — layer-ordered sheet nesting, shared by the nest editor page and
 // the Mozaik job export. Same rules as quarry/scripts/nest-by-layer.mjs:
 //
@@ -51,15 +51,16 @@ export const CROSS_GRAIN_CODES = new Set();   // default: none, until a family s
 // Shop rule, 2026-09-17: new nests may use only 0 and 90 degrees.
 // Keep legacy geometry readable; never silently turn an already-posted part.
 export const NEST_ROTATIONS = Object.freeze([0, 90]);
-export function nextNestRotation(rotation) {
-  return Number(rotation || 0) === 0 ? 90 : 0;
+export function nextNestRotation(rotation,part) {
+  const angles=drillFrameRotations(part);
+  return angles[(angles.indexOf(Number(rotation))+1)%angles.length];
 }
 export function assertNestRotations(nest) {
   const bad = [];
   for (const [i, sheet] of (nest?.sheets || []).entries()) {
     for (const p of sheet.placements || []) {
-      if (!NEST_ROTATIONS.includes(Number(p.rotation ?? 0)))
-        bad.push(`sheet ${i + 1}: ${p.name} at ${p.rotation}°`);
+      if (!drillFrameRotations(p).includes(Number(p.rotation ?? 0)))
+        bad.push(`sheet ${i + 1}: ${p.name} at ${clockwiseDrillRotation(p)}° clockwise (OPT ${p.rotation}°)`);
     }
   }
   if (bad.length) throw Error('Only 0° and 90° nest rotations are allowed. '
@@ -108,7 +109,7 @@ export function partGap(a, b, gap = 16, opts = {}) {
 }
 function packingPart(p, gap, opts) {
   const pad = smallPartBuffer(p, opts);
-  const allowedRotations = sensorRotations(p.geometry).filter(r => !p.allowedRotations || p.allowedRotations.includes(r));
+  const allowedRotations = sensorRotations(p.geometry || {l:p.l,w:p.w}).filter(r => !p.allowedRotations || p.allowedRotations.includes(r));
   return { ...p, allowedRotations, l0:p.l, w0:p.w, pad, w:p.l + gap + 2*pad, h:p.w + gap + 2*pad };
 }
 
@@ -148,8 +149,8 @@ class Bin {
     const product = {l:it.l0,w:it.w0};
     const insets = shop ? [Math.max(0,vacuumInset(product)-this.edge-it.pad), 0] : (skinny ? (this.strictHoldDown ? [this.skinnyInset || 0] : [this.skinnyInset || 0, 0]) : [0]);
     for (const pass of insets) {
-    const rotations = (this.grained ? grainRotations(it, this.crossGrain) : NEST_ROTATIONS)
-      .filter(r => !Array.isArray(it.allowedRotations) || it.allowedRotations.includes(r));
+    const rotations = it.allowedRotations
+      .filter(r => !this.grained || grainRotations(it,this.crossGrain).some(g=>g%180===r%180));
     const anchors = shop ? (isSmallish(product) ? [[0,1],[0,0],[1,1],[1,0]] : [[1,0],[0,0],[1,1],[0,1]]) : [[0,0]];
     for (const fr of this.free) for (const rot of rotations) for (const [ax,ay] of anchors) {
       const w = rot ? it.h : it.w, h = rot ? it.w : it.h;
@@ -395,7 +396,7 @@ export function nestByLayer(parts, opts = {}) {
         ...(it.sourceLayer ? {sourceLayer:it.sourceLayer} : {}),
         allowedRotations: it.allowedRotations,
         l: it.l0, w: it.w0, x: +(x + edge + it.pad).toFixed(2), y: +(y + edge + it.pad).toFixed(2),
-        rotation: rot ? 90 : 0,
+        rotation: rot,
       })).sort((a, b) => a.layer - b.layer || String(a.name).localeCompare(String(b.name)));
       return { layers: lys, placements,
         utilization: +(placements.reduce((a, p) => a + p.l * p.w, 0) / SHEET_AREA).toFixed(3) };
@@ -439,7 +440,7 @@ export function packSingleSheet(parts, opts = {}, { heur = 'bssf', seed = 1, jit
         ...(it.sourceLayer ? {sourceLayer:it.sourceLayer} : {}),
         allowedRotations: it.allowedRotations,
     l: it.l0, w: it.w0, x: +(x + edge + it.pad).toFixed(2), y: +(y + edge + it.pad).toFixed(2),
-    rotation: rot ? 90 : 0,
+    rotation: rot,
     ...(it.salvage ? { salvage: true, label: it.label } : {}),
   }));
 }

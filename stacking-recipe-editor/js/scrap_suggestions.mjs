@@ -1,6 +1,6 @@
-import {fitSalvage} from './scrap.mjs?v=4.57';
-import {grainRotations,nestViolations} from './nest.mjs?v=4.57';
-import {SCRAP_DEFAULTS,editorPost,narrowMask,introducedNarrowCells,analyzeCuts,suggestCuts} from './scrap_editor.mjs?v=4.57';
+import {fitSalvage} from './scrap.mjs?v=4.58';
+import {grainRotations,nestViolations} from './nest.mjs?v=4.58';
+import {SCRAP_DEFAULTS,editorPost,narrowMask,introducedNarrowCells,analyzeCuts,suggestCuts} from './scrap_editor.mjs?v=4.58';
 
 export function suggestSheet({sheet,nest,settings=SCRAP_DEFAULTS,mode='cuts',crate={}}){
   const target=structuredClone(sheet);let added=[];

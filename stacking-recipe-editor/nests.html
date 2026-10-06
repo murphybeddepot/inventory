@@ -65,6 +65,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
 <div class="bar">
   <button id="back">← Back to recipe</button>
   <button id="renest">↻ Re-nest from recipe</button>
+  <button id="fixRefRotations" title="Correct rectangular parts with a right-side REF; keep every part footprint and sheet">Fix REF rotations</button>
   <button id="edit" aria-pressed="false">✏️ Edit</button>
   <div hidden style="display:none" aria-hidden="true">
   <span class="btngroup">
@@ -281,22 +282,22 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="moveMore" title="Choose any sheet (M)">Move… M</button></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.57';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.58';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.57';
-import { APP_VERSION } from './js/version.mjs?v=4.57';
-import { resolveNestGeometry, geometryOnSheet } from './js/nest_geometry.mjs?v=4.57';
+         fromMM, toMM } from './js/materials.mjs?v=4.58';
+import { APP_VERSION } from './js/version.mjs?v=4.58';
+import { resolveNestGeometry, geometryOnSheet, sensorRotations, drillFrameRotations, clockwiseDrillRotation } from './js/nest_geometry.mjs?v=4.58';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.57';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.57';
-import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.57';
-import { deriveNest } from './js/derive_nest.mjs?v=4.57';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.57';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.57';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.57';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.58';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.58';
+import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.58';
+import { deriveNest } from './js/derive_nest.mjs?v=4.58';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.58';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.58';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.58';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -1083,7 +1084,7 @@ function renderPanel() {
       `<button data-to="${i}">→ Sheet ${i + 1}</button>`).join(' ');
     $('sel').innerHTML = `<b>${esc(selected.name)}</b> · ${selected.l}×${selected.w} · `
       + `${selected.salvage ? 'salvage' : 'layer ' + selected.layer} · (${selected.x}, ${selected.y})`
-      + `${selected.rotation ? ' · rot ' + selected.rotation + '°' : ''}`
+      + `${' · ' + clockwiseDrillRotation(selected) + '° clockwise'}`
       + ` &nbsp; <button id="rotBtn">↻ Rotate 90° (R)</button>`
       + (selected.salvage ? ` &nbsp; <button id="rmBtn" title="Take this salvaged part off the sheet. Recipe parts cannot be removed — the nest has to carry every part of the product.">🗑 Remove (Del)</button>` : '')
       + ` &nbsp; Send to: ${btns}`;
@@ -1165,12 +1166,30 @@ $('moveMore').onclick=()=>$('moveChoices').classList.toggle('on');
 svg.addEventListener('contextmenu',e=>{const hit=e.target.closest('.part');if(!editing||!hit)return;
   e.preventDefault();const p=nest.sheets[sheetIdx].placements[+hit.dataset.i];selectParts([p]);draw();$('moveChoices').classList.add('on');
 });
+
+$('fixRefRotations').onclick=()=>{
+ const sources=resolveNestGeometry(nest,recipe.parts,p=>p.src?CRATE_BY_KEY.get(p.src):null),fixed=[],held=[];
+ for(const sh of nest.sheets)for(const p of sh.placements){
+  if(p.remnant||drillFrameRotations(p).includes(Number(p.rotation||0)))continue;
+  const g=sources.get(p);
+  if(g?.error||g?.outline?.length!==4){held.push(p.name);continue;}
+  const replacement=sensorRotations(g).find(r=>r%180===Number(p.rotation)%180);
+  if(replacement===undefined){held.push(p.name);continue;}
+  p.rotation=replacement;p.allowedRotations=sensorRotations(g);p._moved=true;fixed.push(p.name);
+ }
+ buildTabs();draw();
+ $('hint').textContent='Corrected REF rotations: '+(fixed.join(', ')||'none')+'. Same sheets and footprints; save, export and repost labels/drill/router.'+(held.length?' Needs native-source review: '+held.join(', '):'');
+};
+
 // ---- rotate a selected part (Zac 2026-08-18) --------------------------------
 function rotateSelected() {
   if (!selected || selection.size!==1) return;
   const s = nest.sheets[sheetIdx];
   const before = { rotation: selected.rotation, x: selected.x, y: selected.y };
-  selected.rotation = nextNestRotation(selected.rotation);
+  const source=resolveNestGeometry(nest,recipe.parts,p=>p.src?CRATE_BY_KEY.get(p.src):null).get(selected);
+  const allowed=sensorRotations(source);
+  if(!allowed.length){$('hint').textContent='No verified legal rotation for this source.';return;}
+  selected.rotation=allowed[(allowed.indexOf(Number(selected.rotation))+1)%allowed.length];
   // rotating changes the footprint, so pull it back inside the sheet and let
   // the same snap that governs dragging tidy the position. Footprint comes
   // from partBox — the one place that knows how rotation maps to extents.

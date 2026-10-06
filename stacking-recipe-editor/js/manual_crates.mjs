@@ -1,6 +1,7 @@
-import { fitSalvage } from './scrap.mjs?v=4.57';
-import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.57';
-import { violates } from './nest.mjs?v=4.57';
+import { drillFrameRotations } from './nest_geometry.mjs?v=4.58';
+import { fitSalvage } from './scrap.mjs?v=4.58';
+import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.58';
+import { violates } from './nest.mjs?v=4.58';
 
 // Click-to-place fallback for openings the automatic free-rectangle search
 // misses. A failed click leaves the nest unchanged.
@@ -9,7 +10,7 @@ export function placeChosenCrateAt(sheet, key, center, opts) {
   if (!part) throw new Error('This crate panel has no linked native machining.');
   if (!Number.isFinite(center.x) || !Number.isFinite(center.y)) throw new Error('Click inside the sheet.');
   const placements = sheet.placements || (sheet.placements = []);
-  for (const rotation of opts.hasGrain ? [0] : [0, 90]) {
+  for (const rotation of drillFrameRotations(part).filter(r=>!opts.hasGrain || (r%180===0 ? part.L : part.W)>=Math.max(part.L,part.W))) {
     const w = rotation ? part.W : part.L, h = rotation ? part.L : part.W;
     const edge = Number(opts.edge) || 0;
     const candidate = { name:part.code, label:part.label, layer:0, salvage:true, src:part.key,
@@ -48,7 +49,7 @@ export function addChosenCrates(nest, sheetIndex, requests, opts, scope = 'curre
     : [sheetIndex, ...nest.sheets.map((_, i) => i).filter(i => i !== sheetIndex)];
   const addToSheet = sheet => {
     const fitOptions = { ...opts, acceptCandidate: (part, placed) =>
-      (!opts.hasGrain || part.rotation === 0) && (!opts.acceptCandidate || opts.acceptCandidate(part, placed)) };
+      (!opts.hasGrain || (part.rotation%180===0 ? part.l : part.w)>=Math.max(part.l,part.w)) && (!opts.acceptCandidate || opts.acceptCandidate(part, placed)) };
     const got = fitSalvage(sheet, fitOptions, rows, remaining);
     sheet.placements.push(...got);
     for (const p of got) { placed[p.src]++; remaining[p.src]--; }
