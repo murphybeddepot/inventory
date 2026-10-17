@@ -1,20 +1,68 @@
-import { partBox } from './nest.mjs?v=4.59';
-import { Raster, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.59';
+import {nestCutterDiameterMM} from './native_router_profile.mjs?v=4.63';
+import { partBox } from './nest.mjs?v=4.63';
+import {modelNativePlacement,segmentOutlineDistance} from './scrap_native_geometry.mjs?v=4.63';
+import {retainedNarrowCorridors,hasWasteSquare,nativeTipConnected} from './scrap_waste_width.mjs?v=4.63';
+import { Raster, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.63';
 
-import {planAlignedWaste} from './scrap_grid.mjs?v=4.59';
-import {cutRoutes,straightCutRoutes,routeLines} from './scrap_routes.mjs?v=4.59';
-import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.59';
+import {planAlignedWaste} from './scrap_grid.mjs?v=4.63';
+import {cutRoutes,straightCutRoutes,routeLines} from './scrap_routes.mjs?v=4.63';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.63';
 
 export const SCRAP_DEFAULTS={phase:'before-outlines',bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
+export function scrapSettingsFor(sheet,nest){
+  const diameter=nestCutterDiameterMM(nest);
+  return {...SCRAP_DEFAULTS,...sheet?.scrapCuts?.settings,...(diameter?{bitDiameterMM:diameter}:{})};
+}
+
 const rounded=n=>Math.round(n*1000)/1000;
 export function layoutStamp(sheet,nest) {
-  return JSON.stringify([nest.sheetL,nest.sheetW,(sheet.placements||[]).map(p=>[p.name,p.layer,p.x,p.y,p.l,p.w,p.rotation||0])]);
+  return JSON.stringify([nest.sheetL,nest.sheetW,(sheet.placements||[]).map(p=>[p.name,p.layer,p.x,p.y,p.l,p.w,p.rotation||0,p.geometry||null])]);
 }
-export function editorPost(sheet,nest,settings=SCRAP_DEFAULTS) {
+// A native review can accept particular microscopic corner remnants. Keep that
+// decision tied to the complete geometry and cutter plan, not a global toggle.
+export function nativeWasteScope(sheet,nest) {
+  const e=sheet.scrapCuts;
+  const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])):value;
+  return JSON.stringify(canonical([String(nest.sku||nest.jobName||nest.job||''),JSON.parse(layoutStamp(sheet,nest)),e?.lines,e?.settings,e?.operations||[],nest.nativeRouterProfile||null]));
+}
+function acceptedNativeCrumb(issue,sheet,nest) {
+  const a=sheet.scrapCuts?.nativeWasteAcceptance;
+  if(issue.severity!=='warning'||!['resolution','native-crumb'].includes(issue.code)||a?.version!==1||a.action!=='accept-native-corner-crumbs'||a.decision!=='accepted'||!a.receipt?.reference||!a.acceptedAt||a.scope!==nativeWasteScope(sheet,nest))return false;
+  if(!a.nativeEvidence?.sha256||!Array.isArray(a.fragments)||!a.fragments.length||!Array.isArray(a.warnings))return false;
+  // This path is only for independently measured sub-two-millimetre crumbs.
+  // Genuine strips, oversized pieces, clearance warnings and errors still
+  // require their own review or the existing explicit warning override.
+  if(a.fragments.some(p=>!Array.isArray(p.bounds)||p.bounds.length!==4||!p.bounds.every(Number.isFinite)||!(p.areaMM2>0)||p.areaMM2>4||p.bounds[2]<=p.bounds[0]||p.bounds[3]<=p.bounds[1]||p.bounds[2]-p.bounds[0]>=2||p.bounds[3]-p.bounds[1]>=2))return false;
+  return a.warnings.some(w=>w.code===issue.code&&JSON.stringify(w.box)===JSON.stringify(issue.box));
+}
+export function recordNativeCrumbAcceptance(sheet,nest,receipt) {
+  const e=sheet.scrapCuts,review=e?.nativeWasteReview;
+  if(receipt?.approvedByHuman!==true||!receipt.humanAnswer||!receipt.sourceQuestionOrMessage||receipt.omitOnlyReviewedBoundaryPaths!==true||receipt.doesNotCoverLargerWaste!==true)throw Error('A specific human acceptance receipt is required.');
+  if(!review?.fragments?.length||review.scope!==nativeWasteScope(sheet,nest)||!review.nativeEvidence?.sha256)throw Error('No unchanged measured native corner review is available.');
+  const max=Number(receipt.maximumDimensionMm),area=Number(receipt.maximumAreaMm2);
+  if(!(max>0&&max<2&&area>0&&area<=4)||review.fragments.some(p=>Math.max(p.bounds[2]-p.bounds[0],p.bounds[3]-p.bounds[1])>max+1e-8||p.areaMM2>area+1e-8))throw Error('Measured corner waste exceeds the specifically accepted limits.');
+  const warnings=reviewScrapSheet(sheet,nest).issues.filter(p=>p.code==='native-crumb');
+  e.nativeWasteAcceptance={version:1,action:'accept-native-corner-crumbs',decision:'accepted',acceptedAt:receipt.acceptedAt||new Date().toISOString(),
+    receipt:{reference:receipt.sourceQuestionOrMessage,humanAnswer:receipt.humanAnswer,approvedByHuman:true,maximumDimensionMm:max,maximumAreaMm2:area},
+    scope:nativeWasteScope(sheet,nest),nativeEvidence:structuredClone(review.nativeEvidence),fragments:structuredClone(review.fragments),warnings:warnings.map(p=>({code:p.code,box:p.box}))};
+  return e.nativeWasteAcceptance;
+}
+export function editorPost(sheet,nest,settings=null) {
+  settings ||= scrapSettingsFor(sheet,nest);
   const r=settings.bitDiameterMM/2;
-  const parts=sheet.placements.map(p=>{const [a,c,b,d]=partBox(p);return {id:p.name,box:[a,b,c,d]};});
-  const contours=parts.map(({box:[a,b,c,d]})=>[[a-r,b-r,c+r,b-r],[c+r,b-r,c+r,d+r],[c+r,d+r,a-r,d+r],[a-r,d+r,a-r,b-r]]);
-  return {parts,contours,radius:r,width:nest.sheetL,height:nest.sheetW};
+  const parts=sheet.placements.map(p=>{const [a,c,b,d]=partBox(p);return modelNativePlacement(p,r,{id:p.name,box:[a,b,c,d]});});
+  const contours=parts.map(p=>{const [a,b,c,d]=p.box;return p.contour||[[a-r,b-r,c+r,b-r],[c+r,b-r,c+r,d+r],[c+r,d+r,a-r,d+r],[a-r,d+r,a-r,b-r]]});
+  return {parts,contours,radius:r,width:nest.sheetL,height:nest.sheetW,operations:sheet.scrapCuts?.operations||[],geometryWarnings:parts.flatMap(p=>p.geometryWarning?[p.geometryWarning]:[])};
+}
+// A named internal strip-clear stroke is permitted to be shorter than the
+// cutter: its round end sweeps still remove real material. Never extend this
+// to arbitrary crosscuts or a stroke whose cutter reaches the stock border.
+function internalStripStroke(line,post){
+  const same=(a,b)=>a?.length===4&&b?.length===4&&a.every((v,i)=>Math.abs(v-b[i])<.003);
+  const op=post.operations?.find(p=>p.kind==='strip-pocket'&&(same(p.line,line)||same(p.line,[...line.slice(2),...line.slice(0,2)])));
+  if(!op)return false;
+  const r=post.radius,[x,y,a,b]=line;
+  return Math.hypot(a-x,b-y)>.003&&Math.min(x,a)-r>.003&&Math.min(y,b)-r>.003&&Math.max(x,a)+r<post.width-.003&&Math.max(y,b)+r<post.height-.003;
 }
 export function cutProblems(lines,post,settings=SCRAP_DEFAULTS,{allowClearanceWarnings=false}={}) {
   const out=[],r=post.radius,clear=settings.clearanceMM;
@@ -25,11 +73,13 @@ export function cutProblems(lines,post,settings=SCRAP_DEFAULTS,{allowClearanceWa
     if(!Array.isArray(s)||s.length!==4||!s.every(Number.isFinite)){out.push(`Cut ${i+1}: invalid coordinates.`);continue;}
     const [x,y,a,b]=s;
     if(Math.abs(x-a)>.003&&Math.abs(y-b)>.003)out.push(`Cut ${i+1}: use a horizontal or vertical line.`);
-    if(Math.hypot(a-x,b-y)<2*r-.01)out.push(`Cut ${i+1}: shorter than the bit diameter.`);
+    const internalStrip=internalStripStroke(s,post);
+    if(Math.hypot(a-x,b-y)<2*r-.01&&!internalStrip)out.push(`Cut ${i+1}: shorter than the bit diameter; only an explicit internal strip-clear stroke may be shorter.`);
     if(Math.min(x,a)<-r-.01||Math.max(x,a)>post.width+r+.01||Math.min(y,b)<-r-.01||Math.max(y,b)>post.height+r+.01)out.push(`Cut ${i+1}: outside the sheet cutting envelope.`);
     const box=[Math.min(x,a)-r,Math.min(y,b)-r,Math.max(x,a)+r,Math.max(y,b)+r];
     for(const p of post.parts){const [u,v,c,d]=p.box;
-      if(Math.max(u-box[2],box[0]-c,v-box[3],box[1]-d)<(allowClearanceWarnings?0:clear)-.003){out.push(allowClearanceWarnings?`Cut ${i+1}: cutter overlaps finished part ${p.id}.`:`Cut ${i+1}: too close to ${p.id}.`);break;}
+      const distance=p.outline?segmentOutlineDistance(s,p.outline)-r:Math.max(u-box[2],box[0]-c,v-box[3],box[1]-d);
+      if(distance<(allowClearanceWarnings ? 0 : internalStrip ? .25 : clear)-.003){out.push(allowClearanceWarnings?`Cut ${i+1}: cutter overlaps finished part ${p.id}.`:`Cut ${i+1}: too close to ${p.id}.`);break;}
     }
   }
   return out;
@@ -44,8 +94,11 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
   // No morphological opening / ribbon exemption here. Narrow standing waste
   // remains visible; cutting it into many small pieces is not a passing result.
   const describe=k=>{
-    const [a,b,c,d]=k.box,r=post.radius;
-    return {box:k.box,area:k.area,width:Math.min(post.width,c+r)-Math.max(0,a-r),height:Math.min(post.height,d+r)-Math.max(0,b-r)};
+    const [a,b,c,d]=k.box;
+    // The kerf has already been removed. Adding it again inflated dimensions
+    // and contradicted the remaining-waste measurements in the native audit.
+    const width=Math.min(post.width,c)-Math.max(0,a),height=Math.min(post.height,d)-Math.max(0,b);
+    return {box:k.box,area:k.area,width,height,rasterToleranceMM:2,conservativeSkinAllowanceMM:2*post.radius,maxDimensionWithSkinAllowanceMM:Math.max(width,height)+2*post.radius};
   };
   const wholeIslands=raster.islands(),pieces=wholeIslands.map(describe);
   const oversize=pieces.filter(p=>Math.max(p.width,p.height)>settings.maxPieceMM);
@@ -53,7 +106,7 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
   const narrow=raster.material.map((v,i)=>v&&!opened[i]?1:0);
   // Measure narrow arms/corridors as well as wholly narrow islands. A broad
   // bounding box cannot conceal a one-inch tail attached to a large offcut.
-  const slivers=raster.islands(narrow).filter(piece=>{
+  let slivers=raster.islands(narrow).filter(piece=>{
     const [a,b,c,d]=piece.box;
     // The 2 mm grid can leave one- or two-cell corner nibs at crossing kerfs.
     // They are attached to a larger waste island, not independent offcuts or
@@ -63,6 +116,12 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
     const parent=wholeIslands.find(island=>island.cells.has(first));
     return !parent||parent.area<=400;
   }).map(describe);
+  const nativeGeometry=post.parts.every(p=>p.nativeOutline);
+  if(nativeGeometry){
+    // A morphological mesh fringe is not a measured narrow corridor. Check
+    // real scan-line widths and prove a minimum-width square in each island.
+    slivers=[...retainedNarrowCorridors(post,lines,settings.minPieceMM),...wholeIslands.filter(p=>p.area>16&&!hasWasteSquare(post,lines,p,settings.minPieceMM)).map(describe)];
+  }
   // A 2 mm raster can erase a 1.95 mm ribbon (21 mm between finished edges
   // with a 9.525 mm bit). Conservatively flag sub-grid corridors and edge
   // strips analytically. Crosscutting such a ribbon is not a width fix.
@@ -73,11 +132,11 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
     if(Math.min(width,height)>.001&&Math.min(width,height)<2&&Math.max(width,height)>=settings.minPieceMM)
       slivers.push({box,area:width*height,width,height,subGrid:true});
   };
-  for(const p of post.parts){const [a,b,c,d]=p.box;
+  if(!nativeGeometry)for(const p of post.parts){const [a,b,c,d]=p.box;
     tiny([0,b,a-D,d]);tiny([c+D,b,post.width,d]);
     tiny([a,0,c,b-D]);tiny([a,d+D,c,post.height]);
   }
-  for(let i=0;i<post.parts.length;i++)for(let j=i+1;j<post.parts.length;j++)for(const axis of [0,1]){
+  if(!nativeGeometry)for(let i=0;i<post.parts.length;i++)for(let j=i+1;j<post.parts.length;j++)for(const axis of [0,1]){
     const A=post.parts[i].box,B=post.parts[j].box,cross=1-axis;
     const [lo,hi]=A[axis]<=B[axis]?[A,B]:[B,A];
     const gap=hi[axis]-lo[axis+2]-2*D;
@@ -88,11 +147,16 @@ export function analyzeCuts(lines,post,settings=SCRAP_DEFAULTS,options={}) {
   }
   // Exact strip checks also cover hand-drawn cuts: the raster can erase a
   // sub-2mm ribbon between a cut and a native contour (or another cut).
-  for(const [i,line] of lines.entries())if(createsNarrowStrip(line,post,settings,lines.filter((_,j)=>j!==i))){
+  if(!nativeGeometry)for(const [i,line] of lines.entries())if(createsNarrowStrip(line,post,settings,lines.filter((_,j)=>j!==i))){
     const box=[Math.min(line[0],line[2])-post.radius,Math.min(line[1],line[3])-post.radius,Math.max(line[0],line[2])+post.radius,Math.max(line[1],line[3])+post.radius];
     slivers.push({box,width:box[2]-box[0],height:box[3]-box[1],area:0,cutWarning:true,reason:`Cut ${i+1} can leave a narrow strip beside a part, sheet edge or other cut.`});
   }
-  return {errors,pieces,oversize,slivers,cutLength:lines.reduce((n,s)=>n+Math.hypot(s[2]-s[0],s[3]-s[1]),0),rapid:rapidTravel(lines,[0,0])};
+  const resolution= nativeGeometry?wholeIslands.filter(p=>p.area<=16&&!hasWasteSquare(post,lines,p,settings.minPieceMM)&&!nativeTipConnected(post,lines,p,raster,wholeIslands)).map(describe):[];
+  // Keep the preview's geometric measurements distinct from a conservative
+  // skin-break envelope. The actual native-post audit verifies that envelope;
+  // a raster estimate must not silently redefine the measured offcut width.
+  const skinEnvelopeOversize=pieces.filter(p=>p.maxDimensionWithSkinAllowanceMM>settings.maxPieceMM);
+  return {errors,pieces,oversize,slivers,resolution,skinEnvelopeOversize,cutLength:lines.reduce((n,s)=>n+Math.hypot(s[2]-s[0],s[3]-s[1]),0),rapid:rapidTravel(lines,[0,0])};
 }
 export function normalizeCuts(lines,post=null,settings=SCRAP_DEFAULTS) {
   const pending=lines.map(s=>s.map(rounded));
@@ -167,7 +231,11 @@ export function divideNarrowWaste(box,post,settings=SCRAP_DEFAULTS,existing=[]) 
   const lo=box[major],hi=box[major+2],mid=(box[minor]+box[minor+2])/2;
   // Allow two raster cells of measurement tolerance at both ends; otherwise
   // the last section can read a few millimetres over 12 inches.
-  const n=Math.ceil((along+2*post.radius+4)/settings.maxPieceMM),added=[];
+  // End sections keep half a kerf less than the interior sections. Reserve
+  // that endpoint fringe (plus two preview cells) in each equal pitch; adding
+  // one diameter to the whole band underestimates the required divisions.
+  const pitchLimit=settings.maxPieceMM-post.radius-4;
+  const n=Math.ceil(along/pitchLimit),added=[];
   for(let i=1;i<n;i++){
     const fixed=rounded(lo+(hi-lo)*i/n);
     let from=Math.max(-post.radius,box[minor]-post.radius);
@@ -188,7 +256,8 @@ export function divideNarrowWaste(box,post,settings=SCRAP_DEFAULTS,existing=[]) 
   if(!added.length)throw Error('No clear crosscuts fit this strip. Move parts or revise the nest.');
   return added;
 }
-export function suggestCuts(sheet,nest,settings=SCRAP_DEFAULTS) {
+export function suggestCuts(sheet,nest,settings=null) {
+  settings ||= scrapSettingsFor(null,nest);
   const post=editorPost(sheet,nest,settings);
   const repair=improveSuggestion([],post,settings);
   return {version:1,settings:{...settings},layout:layoutStamp(sheet,nest),lines:repair.lines,
@@ -202,10 +271,10 @@ export function createsNarrowStrip(line,post,settings=SCRAP_DEFAULTS,other=[]){
   const fixed=line[axis],lo=Math.min(line[t],line[t+2]),hi=Math.max(line[t],line[t+2]);
   const narrow=v=>v>.01&&v<settings.minPieceMM+2;
   if(narrow(fixed-r)||narrow((axis?post.height:post.width)-fixed-r))return true;
-  for(const {box:b} of post.parts){
-    if(Math.min(hi,b[t+2])-Math.max(lo,b[t])<D)continue;
-    const gap=fixed<b[axis]?b[axis]-fixed-D-r:fixed>b[axis+2]?fixed-b[axis+2]-D-r:0;
-    if(narrow(gap))return true;
+  for(const edge of post.contours.flat()){
+    if(Math.abs(edge[axis]-edge[axis+2])>.003)continue;
+    if(Math.min(hi,Math.max(edge[t],edge[t+2]))-Math.max(lo,Math.min(edge[t],edge[t+2]))<D)continue;
+    if(narrow(Math.abs(fixed-edge[axis])-D))return true;
   }
   for(const s of other){
     if((Math.abs(s[0]-s[2])<.003?0:1)!==axis)continue;
@@ -215,7 +284,7 @@ export function createsNarrowStrip(line,post,settings=SCRAP_DEFAULTS,other=[]){
 }
 function wasteGrid(lines,post){
   const raster=new Raster(post.width,post.height);
-  for(const {box} of post.parts)raster.clear(...box);
+  for(const {box,outline} of post.parts)outline?raster.clearOutline(outline):raster.clear(...box);
   for(const l of post.contours.flat())raster.sweep(l,post.radius);
   for(const l of lines)raster.sweep(l,post.radius);
   return raster;
@@ -247,9 +316,9 @@ export function improveSuggestion(seed,post,settings=SCRAP_DEFAULTS,focusBox=nul
   // Grid spans already end at their intended boundary. Do not extend a tip
   // toward an unrelated crossing after the width check has passed.
   const lines=normalizeCuts(repair.lines),report=analyzeCuts(lines,post,settings);
-  return {lines,summary:{method:repair.method,gridInches:11,regions:repair.regions,
+  return {lines,summary:{method:repair.method,divisionStrategy:'minimum-even-divisions',maximumPieceInches:12,conservativeSkinAllowanceMM:2*post.radius,regions:repair.regions,
     oversize:report.oversize.length,slivers:report.slivers.length,layoutIssues:layoutWasteIssues(post,settings),
-    needsLayoutChanges:report.slivers.length>0,complete:!report.errors.length&&!report.oversize.length&&!report.slivers.length}};
+    skinEnvelopeOversize:report.skinEnvelopeOversize?.length||0,needsLayoutChanges:report.slivers.length>0,complete:!report.errors.length&&!report.oversize.length&&!report.skinEnvelopeOversize?.length&&!report.slivers.length}};
 }
 
 const geometryKey=lines=>JSON.stringify(normalizeCuts(lines).map(l=>{
@@ -273,22 +342,37 @@ export function reviewScrapSheet(sheet,nest,index=0) {
   const edit=sheet.scrapCuts,issues=[],number=index+1;
   const add=(severity,code,message,extra={})=>issues.push({sheet:number,severity,code,message,...extra});
   if(!edit){
-    add('error','missing-plan','No scrap plan saved. Suggest cuts or add cuts for this sheet.');
-    const settings={...SCRAP_DEFAULTS},report=analyzeCuts([],editorPost(sheet,nest,settings),settings,{allowClearanceWarnings:true});
-    for(const p of report.oversize)add('warning','oversize',`Uncut scrap ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches exceeds 12 inches.`,{box:p.box});
+    add(sheet.scrapCutsPendingActualNativePost?'warning':'error','missing-plan',sheet.scrapCutsPendingActualNativePost?'Scrap plan pending a fresh native post. No added scrap cuts are saved for this draft.':'No scrap plan saved. Suggest cuts or add cuts for this sheet.');
+    const settings=scrapSettingsFor(sheet,nest),post=editorPost(sheet,nest,settings),report=analyzeCuts([],post,settings,{allowClearanceWarnings:true});
+    for(const warning of post.geometryWarnings)add('warning','unverified-outline',warning);
+    for(const p of report.oversize)add('warning','oversize',`Connected uncut waste spans ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches (bounding extent; parts excluded), ${(p.area/25.4**2).toFixed(1)} square inches. It still needs breakup to meet the 12-inch limit.`,{box:p.box});
     for(const p of report.slivers)add('warning','narrow',`Uncut scrap ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches contains waste under 2 inches wide. Move nearby parts.`,{box:p.box});
     return {issues,report};
   }
-  const settings={...SCRAP_DEFAULTS,...edit.settings},post=editorPost(sheet,nest,settings);
+  const settings=scrapSettingsFor(sheet,nest),post=editorPost(sheet,nest,settings);
+  if(edit.settings?.bitDiameterMM!==undefined&&Math.abs(Number(edit.settings.bitDiameterMM)-settings.bitDiameterMM)>.001)add('error','cutter-mismatch','Saved scrap cuts use a different cutter diameter than this nest. Recheck the actual cutter and recreate/review those cuts before export.');
+  for(const warning of post.geometryWarnings)add('warning','unverified-outline',warning);
   if(edit.layout!==layoutStamp(sheet,nest))add('warning','stale','Parts changed after the last review. Recheck this sheet.');
   const hard=cutProblems(edit.lines,post,settings,{allowClearanceWarnings:true});
   const locate=message=>{const m=message.match(/^Cut (\d+)\b/),cut=m?Number(m[1])-1:null,l=edit.lines?.[cut];return cut===null?{}:{cut,box:Array.isArray(l)&&l.every(Number.isFinite)?[Math.min(l[0],l[2]),Math.min(l[1],l[3]),Math.max(l[0],l[2]),Math.max(l[1],l[3])]:null};};
   for(const message of hard)add('error','geometry',message,locate(message));
   if(!hard.length)for(const message of cutProblems(edit.lines,post,settings))add('warning','clearance',message+' Preferred clearance is '+settings.clearanceMM+' mm; cutter does not overlap the part.',locate(message));
   const report=analyzeCuts(edit.lines,post,settings,{allowClearanceWarnings:true});
+  const nativeReview=edit.nativeWasteReview,measured=nativeReview?.version===1&&nativeReview.scope===nativeWasteScope(sheet,nest)&&nativeReview.nativeEvidence?.sha256&&Array.isArray(nativeReview.fragments)?nativeReview.fragments:[];
+  if(nativeReview&&nativeReview.scope!==nativeWasteScope(sheet,nest))add('warning','native-review-stale','The reviewed native waste changed. Recheck its measured exceptions.');
+  const intersects=(a,b)=>a[0]<=b[2]&&b[0]<=a[2]&&a[1]<=b[3]&&b[1]<=a[3];
+  for(const p of report.resolution||[])if(!measured.some(f=>intersects(f.bounds,p.box)))add('warning','resolution','A tiny region is below the 2 mm preview resolution. Verify the native post; this is not a measured under-2-inch scrap.',{box:p.box});
+  for(const p of measured){
+    const[a,b,c,d]=p.bounds||[];
+    if(![a,b,c,d,p.areaMM2].every(Number.isFinite)||c<=a||d<=b||p.areaMM2<=0){add('warning','native-review-invalid','The measured native waste record is invalid.');continue;}
+    add('warning','native-crumb',`Measured native corner crumb ${(c-a).toFixed(3)} × ${(d-b).toFixed(3)} mm; ${p.areaMM2.toFixed(3)} mm². Review the specific exception.`,{box:p.bounds,areaMM2:p.areaMM2});
+  }
   for(const [code,pieces,rule] of [['oversize',report.oversize,'over 12 inches in X or Y'],['narrow',report.slivers,'under 2 inches wide']])
     for(const p of pieces)add('warning',code,(p.reason||(code==='narrow'&&Math.min(p.width,p.height)>=settings.minPieceMM?`Scrap region ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches contains a narrow corridor under 2 inches.`:`Scrap ${(p.width/25.4).toFixed(2)} × ${(p.height/25.4).toFixed(2)} inches: ${rule}.`)),{...locate(p.reason||''),box:p.box});
   if(!hard.length)try{plannedRoutes(edit,post);}catch(e){add('error','routes',e.message);}
+  for(const issue of issues)if(acceptedNativeCrumb(issue,sheet,nest)){
+    issue.accepted=true;issue.acceptance='Reviewed native corner crumb; acceptance is scoped to this unchanged geometry and cut plan.';issue.message+=' Accepted for this unchanged native geometry and cut plan.';
+  }
   return {issues,report};
 }
 export function scrapPlanStamp(plan){return JSON.stringify([plan.sheet,plan.frame,plan.width,plan.height,plan.parts,plan.settings,plan.phase,plan.finishTarget,plan.orderMode,plan.lines,plan.routes]);}
@@ -296,15 +380,16 @@ export function hasWarningOverride(plan){return plan.warningOverride?.version===
 export function exportCutPlans(nest,{overrideWarnings=false}={}) {
   return nest.sheets.flatMap((sheet,i)=>{
     const edit=sheet.scrapCuts;if(!edit)return [];
-    const {issues}=reviewScrapSheet(sheet,nest,i),errors=issues.filter(x=>x.severity==='error'),warnings=issues.filter(x=>x.severity==='warning');
+    const {issues}=reviewScrapSheet(sheet,nest,i),errors=issues.filter(x=>x.severity==='error'),warnings=issues.filter(x=>x.severity==='warning'&&!x.accepted);
     if(errors.length)throw Error(`Sheet ${i+1}: ${errors[0].message}`);
     if(warnings.length&&!overrideWarnings){
       if(warnings[0].code==='stale')throw Error(`Sheet ${i+1}: parts changed after its scrap cuts were checked. Open Scrap cuts and recheck them.`);
       throw Error(`Sheet ${i+1}: ${warnings[0].message} Review or override warnings when exporting.`);
     }
-    const settings={...SCRAP_DEFAULTS,...edit.settings},post=editorPost(sheet,nest,settings);
+    const settings=scrapSettingsFor(sheet,nest),post=editorPost(sheet,nest,settings);
     const routes=plannedRoutes(edit,post),phase=checkScrapPhase(edit);
     const plan={sheet:i+1,frame:'nest-xy',width:post.width,height:post.height,parts:post.parts,settings,phase,finishTarget:'left-middle',orderMode:edit.routes?'manual':'automatic',lines:normalizeCuts(edit.lines),routes};
+    if(issues.some(x=>x.accepted))plan.nativeWasteAcceptance=structuredClone(edit.nativeWasteAcceptance);
     if(overrideWarnings&&warnings.length)plan.warningOverride={version:1,action:'export-with-warnings',acceptedAt:new Date().toISOString(),warnings,stamp:scrapPlanStamp(plan)};
     return [plan];
   });

@@ -34,9 +34,10 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.59';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.59';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.59';
+import { parseMoz } from './moz_parse.mjs?v=4.63';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.63';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.63';
+import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.63';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -307,6 +308,23 @@ export function orderDoorsTxt(snapshot, jobName) {
 }
 
 export async function exportJobZip(snapshot, { jobName, nest = null, allowUnverifiedScrap = false, overrideScrapWarnings = false, onScrapReview = null } = {}) {
+  const protectedNests=nest?[nest]:Object.values(snapshot.nests||{});
+  const protectedPost=protectedNests.find(n=>n?.nativeReexportPolicy?.genericFullJobExport===false);
+  if(protectedPost)throw Error(protectedPost.nativeReexportPolicy.reason||'This job contains an already-cut sheet whose native post must be preserved. Use its verified native job and replace only uncut sheets; generic full-job export is disabled.');
+  // Resolve the verified source/feed datum by exact occurrence and layer, just
+  // as the source exporter does. Do not trust a stale placement's frame or
+  // change its physical rotation to make validation pass.
+  if(nest){
+    const geometry=geometryForStack(snapshot),pool=(snapshot.layers||[]).flatMap((row,i)=>row.map((p,j)=>({p,layer:i+1,geometry:geometry[i]?.[j]})));
+    nest={...nest,sku:jobName||snapshot.sku||nest.sku,sheets:nest.sheets.map(sh=>({...sh,placements:(sh.placements||[]).map(p=>{
+      if(p.salvage||p.remnant){const rec=p.src?CRATE_BY_KEY.get(p.src):null;return {...p,...(rec?{geometry:readPartGeometry(rec)}:{})};}
+      const i=pool.findIndex(q=>q.p.partNum===p.name&&Math.abs(q.p.L-p.l)<.01&&Math.abs(q.p.W-p.w)<.01&&q.layer===Number(p.sourceLayer??p.layer));
+      if(i<0)return {...p};
+      const q=pool.splice(i,1)[0],cw=explicitDrillFrameCW(q.geometry),existing=explicitDrillFrameCW(p);
+      if(existing!==undefined&&existing!==cw)throw Error(`${p.name}: saved nest and verified source drill frames disagree. Re-import its verified source frame.`);
+      return {...p,geometry:q.geometry,...(cw===undefined?{}:{drillFrameCW:cw})};
+    })}))};
+  }
   const layers = _snapshotToLayers(snapshot);
   // Combined products can depend on different CabProdParms tables. Retain
   // the native wrapper for each layer and refuse legacy multi-source recipes
@@ -355,7 +373,15 @@ export async function exportJobZip(snapshot, { jobName, nest = null, allowUnveri
     // opens the job is the person who sees what still has to be ordered.
     extraFiles: (() => {
       const txt = orderDoorsTxt(snapshot, jobName || snapshot.sku || 'Order');
-      return txt ? { 'ORDER-DOORS.txt': txt } : null;
+      const files=txt?{'ORDER-DOORS.txt':txt}:{};
+      const frames=(snapshot.importedParts||[]).flatMap(p=>{
+        const drillFrameCW=explicitDrillFrameCW(p);
+        return drillFrameCW===undefined?[]:[{partNum:p.partNum,name:p.name,L:p.L,W:p.W,thickness:p.thickness,drillFrameCW}];
+      });
+      if(frames.length)files['SOURCE-DRILL-FRAMES.json']=JSON.stringify({version:1,physicalFaceFlip:false,parts:frames},null,2);
+      if(snapshot.drillFramePolicy)files['DRILL-FRAME-POLICY.json']=JSON.stringify(snapshot.drillFramePolicy,null,2);
+      if(nest?.nativeRouterProfile)files['NATIVE-ROUTER-PROFILE.json']=JSON.stringify(nest.nativeRouterProfile,null,2);
+      return Object.keys(files).length?files:null;
     })(),
   });
 }

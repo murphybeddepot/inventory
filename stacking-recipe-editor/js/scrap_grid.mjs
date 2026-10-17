@@ -2,14 +2,17 @@
 // individual oversize box with its own offset crosscuts. Narrow native waste
 // is omitted from the search, but remains visible in the final actual-waste
 // check: a grid cannot cure a placement sliver.
-import {Raster,orderForTravel} from './scrap_geometry.mjs?v=4.59';
+import {Raster,orderForTravel} from './scrap_geometry.mjs?v=4.63';
 const round=n=>Math.round(n*1000)/1000;
 export function planAlignedWaste(post,settings,{unsafe=()=>false,valid=()=>true,safe=()=>true,seed=[],focusBox=null}={}){
-  const r=post.radius,min=settings.minPieceMM,max=settings.maxPieceMM-4,pad=r+settings.clearanceMM;
+  // Reserve the cutter diameter for possible skin/fracture fringe, plus two
+  // preview cells. This changes planning pitch only; measured residual offcut
+  // dimensions remain separate from the conservative conveyor envelope.
+  const r=post.radius,min=settings.minPieceMM,max=settings.maxPieceMM-2*r-4,pad=r+settings.clearanceMM;
   const base=new Raster(post.width,post.height);
-  // Conservatively protect each complete part envelope. Native contours are
-  // checked separately; an unverified notch is never reclaimed as free space.
-  for(const p of post.parts)base.clear(...p.box);
+  // Use the same native shape as drawing, collision checks and waste review.
+  // A missing source remains a conservative rectangle with an explicit warning.
+  for(const p of post.parts)p.outline?base.clearOutline(p.outline):base.clear(...p.box);
   for(const l of post.contours.flat())base.sweep(l,r);
   const broad=base.opened(base.material,min+1.2),regions=base.islands(broad).filter(p=>p.area>400);
   const lines=seed.map(l=>[...l]),details=[];
@@ -33,15 +36,12 @@ export function planAlignedWaste(post,settings,{unsafe=()=>false,valid=()=>true,
     }).map(([lo,hi])=>(axis?[lo,fixed,hi,fixed]:[fixed,lo,fixed,hi]).map(round));
   };
   const coords=(box,axis,phase)=>{
-    const lo=box[axis],hi=box[axis+2],length=hi-lo,n=Math.max(1,Math.ceil((length+2*r)/max));
+    const lo=box[axis],hi=box[axis+2],length=hi-lo,D=2*r,n=Math.max(1,Math.ceil((length+D)/(max+D)));
     if(n===1)return [];
-    // Prefer an 11-inch overlay while retaining the least number of cuts.
-    // Two end sections share the excess. If that would exceed 12 inches,
-    // widen the common pitch just enough; never make an undersized end chip.
-    const pitch=n>2?Math.max(279.4,(length-2*(max-2*r))/(n-2)):0;
-    const end=(length-(n-2)*pitch)/2;
-    const room=Math.max(0,Math.min(max-end-2*r,end-min-2*r)-2);
-    return Array.from({length:n-1},(_,i)=>round(lo+end+i*pitch+phase*room));
+    // Least divisions of the remaining material, accounting for each removed
+    // kerf once. Phase trials can shift the grid to satisfy nearby geometry.
+    const section=(length-(n-1)*D)/n,room=Math.max(0,Math.min(max-section,section-min)-2);
+    return Array.from({length:n-1},(_,i)=>round(lo+section+r+i*(section+D)+phase*room));
   };
   const measure=(cuts,region)=>{
     const grid=broad.slice();for(const line of cuts)base.sweep(line,r,grid);
@@ -51,7 +51,7 @@ export function planAlignedWaste(post,settings,{unsafe=()=>false,valid=()=>true,
   for(const region of regions){
     if(focusBox&&!(region.box[2]>focusBox[0]&&region.box[0]<focusBox[2]&&region.box[3]>focusBox[1]&&region.box[1]<focusBox[3]))continue;
     let best=null;
-    for(const px of [-1,0,1])for(const py of [-1,0,1]){
+    for(const px of [0,-1,1])for(const py of [0,-1,1]){
       let trial=[...coords(region.box,0,px).flatMap(x=>spans(0,x,region.box)),...coords(region.box,1,py).flatMap(y=>spans(1,y,region.box))];
       // Evaluate against the whole grid, not the order it happened to be built.
       trial=trial.filter((l,i)=>valid(l)&&!unsafe(l,[...lines,...trial.filter((_,j)=>i!==j)]));

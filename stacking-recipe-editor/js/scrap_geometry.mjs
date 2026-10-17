@@ -1,4 +1,5 @@
 // Shared dicing geometry used by the editor and native-post tooling.
+import {pointInOutline,pointSegmentDistance} from './scrap_native_geometry.mjs?v=4.63';
 const IN=25.4, EPS=0.003, CELL=2;
 const fail=(ok,message)=>{if(!ok)throw Error(message);};
 const near=(a,b)=>Math.abs(a-b)<=EPS;
@@ -14,11 +15,16 @@ export class Raster {
     const j0 = Math.max(0, Math.floor(y0 / CELL)), j1 = Math.min(this.ny - 1, Math.ceil(y1 / CELL) - 1);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) grid[i + j * this.nx] = 0;
   }
+  clearOutline(points,grid=this.material){
+    const x0=Math.max(0,Math.floor(Math.min(...points.map(p=>p[0]))/CELL)),x1=Math.min(this.nx-1,Math.ceil(Math.max(...points.map(p=>p[0]))/CELL));
+    const y0=Math.max(0,Math.floor(Math.min(...points.map(p=>p[1]))/CELL)),y1=Math.min(this.ny-1,Math.ceil(Math.max(...points.map(p=>p[1]))/CELL));
+    for(let j=y0;j<=y1;j++)for(let i=x0;i<=x1;i++)if(pointInOutline([(i+.5)*CELL,(j+.5)*CELL],points))grid[i+j*this.nx]=0;
+  }
   sweep(seg, r, grid = this.material) {
-    const [x, y, a, b] = seg, q = r / Math.SQRT2;
-    if (near(y, b)) this.clear(Math.min(x, a), y - r, Math.max(x, a), y + r, grid);
-    else this.clear(x - r, Math.min(y, b), x + r, Math.max(y, b), grid);
-    for (const [u, v] of [[x, y], [a, b]]) this.clear(u - q, v - q, u + q, v + q, grid);
+    const [x,y,a,b]=seg,loX=Math.max(0,Math.floor((Math.min(x,a)-r)/CELL)),hiX=Math.min(this.nx-1,Math.ceil((Math.max(x,a)+r)/CELL)),loY=Math.max(0,Math.floor((Math.min(y,b)-r)/CELL)),hiY=Math.min(this.ny-1,Math.ceil((Math.max(y,b)+r)/CELL));
+    // Include the mathematical cutter boundary. Floating-point cancellation at
+    // an exactly tangent cell must not leave a fictitious one-cell-long ribbon.
+    for(let j=loY;j<=hiY;j++)for(let i=loX;i<=hiX;i++)if(pointSegmentDistance([(i+.5)*CELL,(j+.5)*CELL],[x,y],[a,b])<=r+1e-8)grid[i+j*this.nx]=0;
   }
   /**
    * The material with every ribbon narrower than `width` removed: a cell
@@ -400,3 +406,4 @@ export function rapidTravel(cuts, start) {
 }
 
 // ---------------------------------------------------------------------------
+

@@ -146,9 +146,9 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <b>Evenly space selected parts</b>
   <label>Span <select id="spaceSpan"><option value="selection">Keep outer parts in place</option><option value="sheet">Fill valid sheet span</option></select></label>
   <label>Max gap <input id="spaceMax" type="number" min="10.025" max="18.99" step=".1" value="18.5" style="width:85px"> mm</label>
-  <select id="spacePreset" aria-label="Spacing presets"><option value="18.5">Under 2× bit · 18.5 mm</option><option value="12.7">½″ · 12.7 mm</option><option value="15.875">⅝″ · 15.875 mm</option></select>
+  <select id="spacePreset" aria-label="Spacing presets"><option id="spaceTwoBit" value="18.5">Under 2× bit · 18.5 mm</option><option value="12.7">½″ · 12.7 mm</option><option value="15.875">⅝″ · 15.875 mm</option></select>
   <button id="spaceRow">↔ Evenly space row</button><button id="spaceColumn">↕ Evenly space column</button>
-  <span class="soft">3/8″ bit · Shift+click or drag a box to select. Arrows: 1 mm; Shift+arrows: 10 mm.</span>
+  <span id="spaceBitNote" class="soft">3/8″ bit · Shift+click or drag a box to select. Arrows: 1 mm; Shift+arrows: 10 mm.</span>
 </div>
 <div class="bar soft" id="spaceMessage" role="status" aria-live="polite"></div>
 <div class="bar" id="scrapEditorBar">
@@ -282,22 +282,23 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="moveMore" title="Choose any sheet (M)">Move… M</button></div>
 <footer id="foot"></footer>
 <script type="module">
-import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.59';
+import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.63';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
-         fromMM, toMM } from './js/materials.mjs?v=4.59';
-import { APP_VERSION } from './js/version.mjs?v=4.59';
-import { resolveNestGeometry, geometryOnSheet, sensorRotations, drillFrameRotations, clockwiseDrillRotation } from './js/nest_geometry.mjs?v=4.59';
+         fromMM, toMM } from './js/materials.mjs?v=4.63';
+import { nestCutterDiameterMM } from './js/native_router_profile.mjs?v=4.63';
+import { APP_VERSION } from './js/version.mjs?v=4.63';
+import { resolveNestGeometry, geometryOnSheet, sensorRotations, drillFrameRotations, clockwiseDrillRotation } from './js/nest_geometry.mjs?v=4.63';
 import { fitSalvage, dicePlan, diceCost, scrapSummary, skippedStrips, DEFAULT_CATALOG, DEFAULT_MAX_PIECE_IN, IN,
          fitRemnants, remnantsSoFar, DEFAULT_MAX_REMNANT_IN,
          loadCatalog, saveCatalog, normalizeCat, remainingBudget, salvagedSoFar, catKey,
          relinkSalvage, matchCratePart,
-         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.59';
-import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.59';
-import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.59';
-import { deriveNest } from './js/derive_nest.mjs?v=4.59';
-import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.59';
-import { installScrapControls } from './js/scrap_controls.mjs?v=4.59';
-import { largePanelArea } from './js/nest_vacuum.mjs?v=4.59';
+         shapeScrap, plannedRemnants, scrapPenalty } from './js/scrap.mjs?v=4.63';
+import { CRATE_PARTS, CRATE_BY_KEY } from './js/crate_parts.mjs?v=4.63';
+import { addChosenCrates, placeChosenCrateAt } from './js/manual_crates.mjs?v=4.63';
+import { deriveNest } from './js/derive_nest.mjs?v=4.63';
+import { marqueeParts, selectionDelta } from './js/nest_selection.mjs?v=4.63';
+import { installScrapControls } from './js/scrap_controls.mjs?v=4.63';
+import { largePanelArea } from './js/nest_vacuum.mjs?v=4.63';
 const KEY_IN = 'mbd_nest_input', KEY_OUT = 'mbd_nest_result';
 // Nests are saved PER MATERIAL (Zac 2026-08-18: "use these nests when
 // choosing this material") — a layout packed for 1550x2770 white is not the
@@ -842,9 +843,12 @@ $('smallApply').onclick=()=>{
 };
 function compute(spacing = smallSpacingOptions()) {
   const mat = currentMat();
+  const profile=nest?.nativeRouterProfile?structuredClone(nest.nativeRouterProfile):null;
+  const cutter=profile?nestCutterDiameterMM(nest):null;
   const spread = Number(currentSpread()) || null;
   const r = nestByLayer(partsForNest(), {
     ...nestOptsFor(mat), ...spacing,
+    ...(profile?{gap:nest.gap,toolDiameterMM:cutter}:{}),
     // which codes run cross-grain is a property of THIS product
     crossGrain: new Set(crossGrainCodes()),
     ...(spread ? { maxLayersPerSheet: spread === 99 ? Number.MAX_SAFE_INTEGER : spread } : {}),
@@ -856,7 +860,7 @@ function compute(spacing = smallSpacingOptions()) {
   }
   // the material rides WITH the nest so the job export stamps the right
   // identity into the .opt instead of assuming white 1550x2770
-  return { ...r, sku: recipe.sku, material: mat };
+  return { ...r, sku: recipe.sku, material: mat, ...(profile?{nativeRouterProfile:profile,toolDiameterMM:cutter}:{}) };
 }
 // Layers and fill are DERIVED from what is on the sheet right now, so moving
 // a part updates its label immediately instead of showing the numbers from

@@ -16,8 +16,9 @@
 // Pure strings in, pure strings out: no JSZip, no DOM, so it is testable
 // outside a browser.
 
-import { sensorRotations } from './nest_geometry.mjs?v=4.59';
-import { assertNestRotations, nestViolations } from './nest.mjs?v=4.59';
+import { sensorRotations, explicitDrillFrameCW } from './nest_geometry.mjs?v=4.63';
+import { assertNestRotations, nestViolations } from './nest.mjs?v=4.63';
+import { verifiedNativeRouterProfile } from './native_router_profile.mjs?v=4.63';
 
 const NL = '\r\n';
 const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"`)); return m ? m[1] : d; };
@@ -131,6 +132,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     M.textureId = '-1';
   }
   if (!nest || !Array.isArray(nest.sheets) || !nest.sheets.length) return null;
+  const routerProfile=verifiedNativeRouterProfile(nest,machine);
   assertNestRotations(nest);
   if(nest.vacuumProfile){const bad=nestViolations(nest);if(bad.length)throw Error(`${bad[0].a}: ${bad[0].reason||'part spacing is invalid'}. Re-nest before export.`);}
 
@@ -237,7 +239,9 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
       } else { const i = loose.indexOf(hit); if (i >= 0) loose.splice(i, 1); }
       if (!hit) { unmatched.push(pl.name); return null; }
       const outline=[...hit.shape.matchAll(/<ShapePoint\b[^>]*>/g)].map(m=>[+attr(m[0],'X'),+attr(m[0],'Y')]);
-      if (!sensorRotations({l:hit.l,w:hit.w,outline}).includes(Number(pl.rotation||0)))
+      const drillFrameCW=explicitDrillFrameCW(pl);
+      if(drillFrameCW!==undefined)hit.drillFrameCW=drillFrameCW;
+      if (!sensorRotations({l:hit.l,w:hit.w,outline,...(drillFrameCW===undefined?{}:{drillFrameCW})}).includes(Number(pl.rotation||0)))
         throw Error(`${pl.name}: nest rotation puts the notch at the sensor corner. Re-nest from the corrected master.`);
       return `    <OptimizePartLocation PartID="${hit.id}" PartNumber="${hit.id}" X="${pl.x}" Y="${pl.y}" `
         + `Rotation="${pl.rotation || 0}" Flipped="False" SentToRemakeBin="False" FromGroup="" `
@@ -300,8 +304,11 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     + `    <RoomNotes />${NL}  </RoomInfo>${NL}`
     + `  <RoomInfo Number="1" Name="Room 1" WallCabString="" BaseCabString="${esc(baseCabString)}" `
     + `CabNames="${esc(cabNames)}">${NL}    <RoomNotes />${NL}  </RoomInfo>${NL}`
+    + (routerProfile?`  <ToolsetByMachine Machine="${esc(routerProfile.machine)}" Toolset="${esc(routerProfile.toolset)}" />${NL}`:'')
     + `  <ToolsetByMachine Machine="NewCNC-VCNC" Toolset="KDT-612" />${NL}`
     + `  <KerfByMachine Machine="${machine}" Kerf="14.2875" />`;
+  const drillFrames=pool.filter(p=>p.drillFrameCW!==undefined).map(p=>`${p.id}:${p.drillFrameCW}`).join(',');
+  const frameComment=drillFrames?`MBD_DRILL_FRAMES=${drillFrames}`:'';
   const optXml = `8${NL}<?xml version="1.0" encoding="utf-8" standalone="yes"?>${NL}`
     + `<OptimizeMaterial RunId="1" DisplayName="${M.displayName}" Abbr="${M.abbr}" MaterialId="${M.materialId}" `
     + `TextureId="${M.textureId}" Thickness="${M.thickness}" Width="${M.width}" Length="${M.length}" `
@@ -310,7 +317,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     // HasGrain was hardcoded False, so a grained board told Mozaik it could
     // turn parts freely on re-optimise. It rides from the material now.
     + `HasGrain="${M.hasGrain ? 'True' : 'False'}" WidthTrim="${M.widthTrim ?? 3}" LengthTrim="${M.lengthTrim ?? 3}" `
-    + `FeedRate="100" Comment="" `
+    + `FeedRate="100" Comment="${esc(frameComment)}" `
     + `CustomerName="" Timestamp="${(now() / 1000).toFixed(5)}" OptParamSpeed="2" `
     // SeqByCabN orders the run by cabinet number. 111 of 111 real files say
     // False; we were the only True in the tree. OptParamMachineName="" is NOT a
@@ -328,7 +335,7 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const optFile = `${M.displayName}_Run1.opt`;
   const runsXml = `1${NL}<?xml version="1.0" encoding="utf-8" standalone="yes"?>${NL}`
     + `<OptimizeRuns DefaultRunMachineTemplateId="-1">${NL}`
-    + `  <OptimizeRun Id="1" Name="RUN1" Timestamp="${(now() / 1000).toFixed(3)}" MachineTemplateId="7" `
+    + `  <OptimizeRun Id="1" Name="RUN1" Timestamp="${(now() / 1000).toFixed(3)}" MachineTemplateId="${routerProfile?.machineTemplateId??7}" `
     + `UserId="2" CabFilter="All" RoomString="R0-1">${NL}`
     + `    <RoomUniqueId Id="5" />${NL}`
     + `    <RoomUniqueId Id="6" />${NL}`
@@ -340,6 +347,6 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
 
   return { optName: optFile, optXml, runsXml, blindSalvage: blind,
     poolCount: pool.length, placedCount: nest.sheets.reduce((a, s) => a + (s.placements || []).length, 0),
-    unmatched };
+    unmatched,nativeRouterProfile:routerProfile };
 }
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }

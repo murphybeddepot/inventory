@@ -1,13 +1,13 @@
-import {exportCutPlans,reviewScrapSheet} from './scrap_editor.mjs?v=4.59';
+import {exportCutPlans,reviewScrapSheet} from './scrap_editor.mjs?v=4.63';
 
 export function prepareScrapExport(nest,{allowReviewOnly=false,overrideWarnings=false}={}) {
   const issues=nest.sheets.flatMap((sheet,i)=>reviewScrapSheet(sheet,nest,i).issues);
-  const warnings=issues.filter(x=>x.severity==='warning'),errors=issues.filter(x=>x.severity==='error');
+  const warnings=issues.filter(x=>x.severity==='warning'&&!x.accepted),accepted=issues.filter(x=>x.accepted),errors=issues.filter(x=>x.severity==='error');
   const describe=items=>items.map(x=>`Sheet ${x.sheet}: ${x.message}`).join('\n');
   try {
     const manualSheets=exportCutPlans(nest,{overrideWarnings});
     return {manualSheets,review:overrideWarnings&&warnings.length?'EXPORTED WITH OPERATOR-ACCEPTED WARNINGS\n\n'+describe(warnings)
-      +'\n\nYour scrap cuts are included. Accepted warnings travel with each plan and are recorded in the final machining report.\n':null,draft:null};
+      +'\n\nYour scrap cuts are included. Accepted warnings travel with each plan and are recorded in the final machining report.\n':accepted.length?'SPECIFIC REVIEWED NATIVE CORNER-CRUMB ACCEPTANCE\n\n'+describe(accepted)+'\n\nOnly these measured native crumbs are accepted. A changed layout, cut, cutter or skin invalidates the saved acceptance. The exact receipt and native evidence travel with each affected plan.\n':null,draft:null};
   } catch(cause) {
     if(!allowReviewOnly){
       const error=new Error(describe(issues)||cause.message,{cause});

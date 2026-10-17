@@ -1,10 +1,10 @@
-import {SCRAP_DEFAULTS,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion,divideNarrowWaste} from './scrap_editor.mjs?v=4.59';
-import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.59';
-import {suggestSheet} from './scrap_suggestions.mjs?v=4.59';
-import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.59';
-import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.59';
-import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.59';
-import {snapCutEndpoint,snapCutIntersection,snapCutTranslation} from './scrap_drag.mjs?v=4.59';
+import {SCRAP_DEFAULTS,scrapSettingsFor,layoutStamp,editorPost,cutProblems,analyzeCuts,normalizeCuts,plannedRoutes,reviewScrapSheet,improveSuggestion,divideNarrowWaste} from './scrap_editor.mjs?v=4.63';
+import {checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.63';
+import {suggestSheet} from './scrap_suggestions.mjs?v=4.63';
+import {cutRoutes,routeLines} from './scrap_routes.mjs?v=4.63';
+import {distributeSelection,spacingPreview} from './nest_spacing.mjs?v=4.63';
+import {nearbyCutGaps} from './scrap_dimensions.mjs?v=4.63';
+import {snapCutEndpoint,snapCutIntersection,snapCutTranslation} from './scrap_drag.mjs?v=4.63';
 
 // The editor owns intent; native posting rechecks against the actual tool and
 // part contours. Capture-phase handlers keep scrap gestures out of part moves.
@@ -15,9 +15,9 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
   const sheetReviews=new WeakMap();
   const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function reviewAll(){
-    const n=getNest(),key=JSON.stringify([n.sheetL,n.sheetW,n.sheets.map(sh=>[layoutStamp(sh,n),sh.scrapCuts])]);
+    const n=getNest(),key=JSON.stringify([n.sheetL,n.sheetW,scrapSettingsFor(getSheet(),n).bitDiameterMM,n.sheets.map(sh=>[layoutStamp(sh,n),sh.scrapCuts])]);
     if(reviewCache?.key===key)return reviewCache.issues;
-    reviewFocus=null;const issues=n.sheets.flatMap((sh,i)=>{const sheetKey=JSON.stringify([i,layoutStamp(sh,n),sh.scrapCuts]);let saved=sheetReviews.get(sh);if(saved?.key!==sheetKey){saved={key:sheetKey,issues:reviewScrapSheet(sh,n,i).issues};sheetReviews.set(sh,saved);}return saved.issues;});
+    reviewFocus=null;const issues=n.sheets.flatMap((sh,i)=>{const sheetKey=JSON.stringify([i,layoutStamp(sh,n),sh.scrapCuts,scrapSettingsFor(sh,n)]);let saved=sheetReviews.get(sh);if(saved?.key!==sheetKey){saved={key:sheetKey,issues:reviewScrapSheet(sh,n,i).issues};sheetReviews.set(sh,saved);}return saved.issues;});
     reviewCache={key,issues};return issues;
   }
   function renderReview(){
@@ -58,12 +58,21 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
       message(`Added safe breakup cuts. ${afterReport.oversize.length} oversized regions remain; review the drawing and posted NC.`);
     });
   };
-  $('cutReviewRecheck').onclick=()=>action(()=>{const before=serial(),n=getNest();for(const sh of n.sheets)if(sh.scrapCuts){const cfg={...SCRAP_DEFAULTS,...sh.scrapCuts.settings};if(!cutProblems(sh.scrapCuts.lines,editorPost(sh,n,cfg),cfg,{allowClearanceWarnings:true}).length)sh.scrapCuts.layout=layoutStamp(sh,n);}
+  $('cutReviewRecheck').onclick=()=>action(()=>{const before=serial(),n=getNest();for(const sh of n.sheets)if(sh.scrapCuts){const cfg=scrapSettingsFor(sh,n);if(!cutProblems(sh.scrapCuts.lines,editorPost(sh,n,cfg),cfg,{allowClearanceWarnings:true}).length)sh.scrapCuts.layout=layoutStamp(sh,n);}
     record(before);
   });
   function routesFor(ed){const post=editorPost(getSheet(),getNest(),settings()),key=JSON.stringify([ed,post]);if(routeCache?.key===key)return routeCache.routes;const routes=plannedRoutes(ed,post);routeCache={key,routes};return routes;}
   const history=[];
-  const settings=()=>({...SCRAP_DEFAULTS,phase:'before-outlines',...getSheet()?.scrapCuts?.settings});
+  const settings=()=>scrapSettingsFor(getSheet(),getNest());
+  let displayedCutter=null;
+  function syncCutterUI(){
+    const d=settings().bitDiameterMM;if(d===displayedCutter)return;displayedCutter=d;
+    const under=+(2*d-.55).toFixed(3),label=Math.abs(d-12.7)<.001?'½″':Math.abs(d-9.525)<.001?'3/8″':d+' mm';
+    const note=$('spaceBitNote');if(note)note.textContent=`${label} (${d} mm) cutter · Shift+click or drag a box to select. Arrows: 1 mm; Shift+arrows: 10 mm.`;
+    const first=$('spaceTwoBit');if(first){first.value=String(under);first.textContent=`Under 2× bit · ${under} mm`;}
+    $('spaceMax').min=String(d+.5);$('spaceMax').max=String(+(2*d-.06).toFixed(3));
+    $('spaceMax').value=String(under);$('spacePreset').value=String(under);
+  }
   const message=(s,bad=false)=>{const el=$('cutMessage');el.textContent=s;el.style.color=bad?'var(--bad)':'var(--soft)';};
   function ensure(){const s=getSheet();return s.scrapCuts ||= {version:1,settings:settings(),layout:layoutStamp(s,getNest()),lines:[]};}
   const serial=()=>JSON.stringify(getNest().sheets);
@@ -105,7 +114,7 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
     };
     const input={sheet:target,nest:{sheetL:n.sheetL,sheetW:n.sheetW,gap:n.gap,edge:n.edge},settings:config,mode,crate:getCrateOptions()};
     if(typeof window.Worker!=='function'){apply(suggestSheet(input));return;}
-    const worker=new window.Worker(new URL('./scrap_worker.mjs?v=4.59',import.meta.url),{type:'module'});
+    const worker=new window.Worker(new URL('./scrap_worker.mjs?v=4.63',import.meta.url),{type:'module'});
     suggestion={worker};draw();message(`Calculating ${mode==='crates'?'crate placements':mode==='both'?'crate placements and scrap cuts':'scrap cuts'}. You can keep editing or cancel the suggestion.`);
     worker.onmessage=({data})=>{if(suggestion?.worker!==worker)return;worker.terminate();suggestion=null;if(data.error){draw();message(data.error,true);}else apply(data);};
     worker.onerror=()=>{if(suggestion?.worker!==worker)return;worker.terminate();suggestion=null;draw();message('Suggestion could not run. Existing cuts preserved; draw or edit cuts manually.',true);};
@@ -124,14 +133,14 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
   $('cutClear').onclick=()=>{const before=serial();delete getSheet().scrapCuts;selected=-1;record(before);};
   $('cutUndo').onclick=()=>action(()=>{const h=history.at(-1);if(!h)throw Error('Nothing to undo.');if(serial()!==h.after)throw Error('Parts changed since this action; undo is unavailable so those edits are preserved.');getNest().sheets=JSON.parse(h.before);history.pop();selectParts([]);selected=-1;cache=null;changed();draw();$('cutSuggestionMessage').textContent='Last edit undone. The restored sheet is shown.';});
   $('cutPhase').onchange=()=>action(()=>{finish(true);const before=serial(),ed=ensure();ed.settings.phase=$('cutPhase').value;checkScrapPhase(ed);delete ed.routes;record(before);});
-  $('cutPhaseAll').onclick=()=>action(()=>{finish(true);const before=serial(),phase=$('cutPhase').value;checkScrapPhase({settings:{phase}});for(const sh of getNest().sheets)if(sh.scrapCuts){sh.scrapCuts.settings={...SCRAP_DEFAULTS,...sh.scrapCuts.settings,phase};delete sh.scrapCuts.routes;}record(before);});
+  $('cutPhaseAll').onclick=()=>action(()=>{finish(true);const before=serial(),phase=$('cutPhase').value;checkScrapPhase({settings:{phase}});for(const sh of getNest().sheets)if(sh.scrapCuts){sh.scrapCuts.settings={...scrapSettingsFor(sh,getNest()),phase};delete sh.scrapCuts.routes;}record(before);});
   $('cutSkin').onchange=()=>action(()=>{const v=Number($('cutSkin').value);if(!Number.isFinite(v)||v<.2||v>2){$('cutSkin').value=settings().skinMM;$('cutPhase').value=settings().phase;throw Error('Remaining skin must be 0.2-2 mm.');}const before=serial();ensure().settings.skinMM=v;record(before);});
   $('spacePreset').onchange=()=>{$('spaceMax').value=$('spacePreset').value;draw();};
   for(const id of ['spaceMax','spaceSpan','cutShow','cutFlags','cutTravel','cutNumbers','cutMoveAxis'])$(id).onchange=()=>{
     if(id==='cutShow'&&!$(id).checked){finish(true);active=false;drawing=false;}draw();
   };
   for(const [id,axis] of [['spaceRow','x'],['spaceColumn','y']])$(id).onclick=()=>action(()=>{
-    const before=serial(),r=distributeSelection(getSheet(),getSelection(),getNest(),axis,Number($('spaceMax').value),9.525,'space-'+Date.now()+'-'+history.length,$('spaceSpan').value||'selection');
+    const before=serial(),r=distributeSelection(getSheet(),getSelection(),getNest(),axis,Number($('spaceMax').value),settings().bitDiameterMM,'space-'+Date.now()+'-'+history.length,$('spaceSpan').value||'selection');
     getSheet().placements=r.placements;selectParts(r.selected);record(before);
     $('spaceMessage').textContent=`Spaced ${axis==='x'?'row':'column'} with ${r.gap.toFixed(3)} mm gaps. Parts, layers and rotations preserved. Recheck existing scrap cuts.`;
   });
@@ -177,7 +186,7 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
   },true);
   return {
     partMode(){finish(true);active=false;drawing=false;selected=-1;},
-    overlay(){const s=getSheet(),n=getNest();if(s!==lastSheet){lastSheet=s;selected=-1;gesture=null;cache=null;routeIndex=0;lastOrderKey='';
+    overlay(){syncCutterUI();const s=getSheet(),n=getNest();if(s!==lastSheet){lastSheet=s;selected=-1;gesture=null;cache=null;routeIndex=0;lastOrderKey='';
       const issues=s?.scrapCuts?.suggestion?.layoutIssues||[];
       $('cutSuggestionMessage').textContent=issues.length?'Change spacing: '+issues.slice(0,4).map(p=>`${p.a} / ${p.b}: ${p.width.toFixed(1)} mm waste`).join('; ')+'.':'Suggestions preserve existing bed parts. Crate quantities apply across the whole job.';
     }
@@ -189,7 +198,7 @@ export function installScrapControls({document,window,getNest,getSheet,getSelect
       if(selection.length<2)$('spaceMessage').textContent='Select two or more parts for an equal-gap preview.';
       else {
         const previews=[];for(const [axis,label] of [['x','Row'],['y','Column']])try{
-          const p=spacingPreview(s,selection,n,axis,Number($('spaceMax').value),9.525,$('spaceSpan').value||'selection');
+          const p=spacingPreview(s,selection,n,axis,Number($('spaceMax').value),settings().bitDiameterMM,$('spaceSpan').value||'selection');
           previews.push(`${label}: ${p.gap.toFixed(3)} mm gaps${p.problem?' — '+p.problem:''}`);
         }catch(e){if(!e.message.includes('common band'))previews.push(`${label}: ${e.message}`);}
         $('spaceMessage').textContent=previews.join(' | ')||'These parts do not form a common row or column.';
