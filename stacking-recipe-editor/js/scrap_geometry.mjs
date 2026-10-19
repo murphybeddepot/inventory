@@ -1,5 +1,5 @@
 // Shared dicing geometry used by the editor and native-post tooling.
-import {pointInOutline,pointSegmentDistance} from './scrap_native_geometry.mjs?v=4.65';
+import {pointInOutline,pointSegmentDistance} from './scrap_native_geometry.mjs?v=4.66';
 const IN=25.4, EPS=0.003, CELL=2;
 const fail=(ok,message)=>{if(!ok)throw Error(message);};
 const near=(a,b)=>Math.abs(a-b)<=EPS;

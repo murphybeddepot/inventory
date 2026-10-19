@@ -1,5 +1,5 @@
-import {nativeSnapshotScope,nativeXmlFingerprint,sha256Text,rejectNativeXmlComments} from './native_source_scope.mjs?v=4.65';
-import {VERIFIED_LIBRARY_SOURCES} from './verified_library_sources.mjs?v=4.65';
+import {nativeSnapshotScope,nativeXmlFingerprint,sha256Text,rejectNativeXmlComments} from './native_source_scope.mjs?v=4.66';
+import {VERIFIED_LIBRARY_SOURCES} from './verified_library_sources.mjs?v=4.66';
 // A deliberately bounded production profile, verified against installed native
 // half-inch jobs. An absent profile preserves legacy generic export behavior.
 export const HALF12_STANDARD_PROFILE=Object.freeze({

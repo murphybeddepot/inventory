@@ -1,5 +1,6 @@
-// Reviewed exact Library source identities, not a general template4 approval.
-// Includes every native raw part/Manual/layer plus parameter shell and import map.
+// Reviewed exact bed source identities; historical exported symbol retained.
+// No general template4 approval. Full raw source, Manual IDs, frame policy,
+// parameter shells and material are scoped. No customer fixture is shipped.
 const freezeDeep=value=>{for(const child of Object.values(value))if(child&&typeof child==='object')freezeDeep(child);return Object.freeze(value);};
 export const VERIFIED_LIBRARY_SOURCES=freezeDeep({
   "33601-QLHW00": {
@@ -97,5 +98,97 @@ export const VERIFIED_LIBRARY_SOURCES=freezeDeep({
       "materialId": "340"
     },
     "sourceDescription": "Exact own current native template4 post/source/raw frames; source edits require independent re-verification. Nest translations may change and still require a fresh native post."
+  },
+  "J145-QFW4M": {
+    "parts": 18,
+    "bodyLayers": 5,
+    "manufacturingLayers": 5,
+    "scope": {
+      "nativeSourceIdsSha256": "86d07420adcbd5ea030fb635a055b30728876fe9c353d55d5ab06bd301380839",
+      "rawPartsSha256": "88cdaacff8113b72005abd92fb047b0f291376bfdb846c0dad1e1f7b08128ce5",
+      "importRecordsSha256": "b62601c32d29819845957710aa549b70ee135e1793bd69a8e7e97ebb27f8fbbd",
+      "manifestSha256": "97a068ceb8e5dff496347522cbef7b124305b506c7efc8ee8896ce1bdfd00e41",
+      "layerMembershipSha256": "c51d7c99f7634d3e628f6f8bdea79801d8e9d493fd642b9c344d6a6da742ee41",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "15a4526675799075925f11c954ed38afabb2642af802694bde9fc1091e94f99d",
+      "sourceShellSha256": "4903a0936096c0c0370f612ee912f0d86d4dc826e24f7dc9c5579e8f61b86720"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Exact own posted Queen flip-desk construction:18complete native parts/7product shells, five unchanged rev7 stack layers, verified standing1C source frame. No optional crate fills; source edits require re-verification."
+  },
+  "J146-QFW4M": {
+    "parts": 18,
+    "bodyLayers": 5,
+    "manufacturingLayers": 5,
+    "scope": {
+      "nativeSourceIdsSha256": "86d07420adcbd5ea030fb635a055b30728876fe9c353d55d5ab06bd301380839",
+      "rawPartsSha256": "88cdaacff8113b72005abd92fb047b0f291376bfdb846c0dad1e1f7b08128ce5",
+      "importRecordsSha256": "bcad21b97f214f54c2cfc52c1c96f6d4b4a7995cb60724e7600c68a761407fc4",
+      "manifestSha256": "97a068ceb8e5dff496347522cbef7b124305b506c7efc8ee8896ce1bdfd00e41",
+      "layerMembershipSha256": "c51d7c99f7634d3e628f6f8bdea79801d8e9d493fd642b9c344d6a6da742ee41",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "04c6539ce65975c73ab0670cd4ec980c5d886fafefc450b4a35c575a8c518cc5",
+      "sourceShellSha256": "71acdb3075c25b0cb6d4e381a3e719cf1f6368a116b95952a42a785369106f50"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Exact own posted Queen flip-desk construction:18complete native parts/7product shells, five unchanged rev7 stack layers, verified standing1C source frame. No optional crate fills; source edits require re-verification."
+  },
+  "J164-FLHW81": {
+    "parts": 70,
+    "bodyLayers": 14,
+    "manufacturingLayers": 14,
+    "scope": {
+      "nativeSourceIdsSha256": "addc32d6e8d406a149a8e76c5b6ca23a17ac0bdf3137d4979f6c844e0602a9cd",
+      "rawPartsSha256": "49c0784057e17df7b2d2959fc0f85ab207a62bf8c9ca398394a8374018fb986b",
+      "importRecordsSha256": "b424b734a4384019919658def86f1ce211a7e290905fea6853702baa492627e3",
+      "manifestSha256": "2963b92ba502f1e9315b92c3c624c975605f47e7042807bda828fe9a72eba4e1",
+      "layerMembershipSha256": "e99709d63b7835bdef6654ee2dd1a4101c0f4dbcf9e629aa564e8476c7fc048a",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "8b4b1a969d57394df79a20dd9ae4e2fe796ffce962242b8d5d37673cc996fc76",
+      "sourceShellSha256": "4885bdd3cc6769834303379126be35eac706367482c1bf3c0d2b82efe68e359d"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Exact own posted Full White R6 construction:70complete native parts/14product shells, unchanged FL14 body plus8purchased1002doors stacked above. Door parts are not router inputs. Complete frames verified; no optional crate fills or unverified source changes."
+  },
+  "J165-FLHW81": {
+    "parts": 70,
+    "bodyLayers": 14,
+    "manufacturingLayers": 14,
+    "scope": {
+      "nativeSourceIdsSha256": "addc32d6e8d406a149a8e76c5b6ca23a17ac0bdf3137d4979f6c844e0602a9cd",
+      "rawPartsSha256": "49c0784057e17df7b2d2959fc0f85ab207a62bf8c9ca398394a8374018fb986b",
+      "importRecordsSha256": "cb62f97a25d8667addc876baaad01a0ba689d75a410e47227028f606330c5657",
+      "manifestSha256": "2963b92ba502f1e9315b92c3c624c975605f47e7042807bda828fe9a72eba4e1",
+      "layerMembershipSha256": "e99709d63b7835bdef6654ee2dd1a4101c0f4dbcf9e629aa564e8476c7fc048a",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "5b726e245c989c9971dd146f7b0e681bb8b6ddb44626ecdace5cede709018a38",
+      "sourceShellSha256": "cbc370a55ed587f37c512c0119703db7c5d8459b81fcd7013603b3a2add9ee11"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Exact own posted Full White R6 construction:70complete native parts/14product shells, unchanged FL14 body plus8purchased1002doors stacked above. Door parts are not router inputs. Complete frames verified; no optional crate fills or unverified source changes."
   }
 });
