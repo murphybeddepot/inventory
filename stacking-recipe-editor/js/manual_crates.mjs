@@ -1,7 +1,7 @@
-import { drillFrameRotations } from './nest_geometry.mjs?v=4.64';
-import { fitSalvage } from './scrap.mjs?v=4.64';
-import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.64';
-import { violates } from './nest.mjs?v=4.64';
+import { drillFrameRotations } from './nest_geometry.mjs?v=4.65';
+import { fitSalvage } from './scrap.mjs?v=4.65';
+import { CRATE_BY_KEY } from './crate_parts.mjs?v=4.65';
+import { violates } from './nest.mjs?v=4.65';
 
 // Click-to-place fallback for openings the automatic free-rectangle search
 // misses. A failed click leaves the nest unchanged.

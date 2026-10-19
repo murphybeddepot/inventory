@@ -16,9 +16,9 @@
 // Pure strings in, pure strings out: no JSZip, no DOM, so it is testable
 // outside a browser.
 
-import { sensorRotations, explicitDrillFrameCW } from './nest_geometry.mjs?v=4.64';
-import { assertNestRotations, nestViolations } from './nest.mjs?v=4.64';
-import { verifiedNativeRouterProfile, assertNativeRouterSourceScope } from './native_router_profile.mjs?v=4.64';
+import { sensorRotations, explicitDrillFrameCW } from './nest_geometry.mjs?v=4.65';
+import { assertNestRotations, nestViolations } from './nest.mjs?v=4.65';
+import { verifiedNativeRouterProfile, assertNativeRouterSourceScope } from './native_router_profile.mjs?v=4.65';
 
 const NL = '\r\n';
 const attr = (s, k, d = '') => { const m = s.match(new RegExp(`\\b${k}="([^"]*)"`)); return m ? m[1] : d; };
@@ -161,13 +161,14 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
   const pool = [];
   for (const [cabIndex, { layer, text, salvage: fromSalvageLayer }] of layerTexts.entries()) {
     const blocks = text.match(/<CabProdPart\b[^>]*>[\s\S]*?<\/CabProdPart>/g) || [];
-    for (const b of blocks) {
+    for (const [sourceIndex,b] of blocks.entries()) {
       const head = b.slice(0, b.indexOf('>'));
       const shape = (b.match(/<PartShapeXml\b[\s\S]*?<\/PartShapeXml>/) || [''])[0]
         .replace(/^<PartShapeXml/, '<Shape').replace(/<\/PartShapeXml>$/, '</Shape>');
       const ops = extractOps(b);
       pool.push({
-        id: pool.length + 1, layer, cab: String(cabIndex + 1),
+        id: pool.length + 1, layer, cab: String(cabIndex + 1), raw: b,
+        sourceNativePartNumber:layerTexts[cabIndex].sourcePartIdentities?.[sourceIndex]?.nativePartNumber,
         name: attr(head, 'ReportName') || attr(head, 'Name') || ('P' + (pool.length + 1)),
         l: +attr(head, 'L', '0'), w: +attr(head, 'W', '0'),
         shape, ops, band: bandOf(shape),
@@ -177,6 +178,14 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
         ...(fromSalvageLayer ? { salvage: true } : {}),
       });
     }
+  }
+  // Reviewed bed packets already have QR/XML part numbers. Preserve them
+  // when their complete unique native identity map travels with the sources.
+  // Legacy/unprofiled exports and sources without that map keep pool ordinals.
+  if(['MBD-HALF12-VERIFIED-LIBRARY','MBD-HALF12-BED-DRILL-ONLY'].includes(routerProfile?.id)){
+    const ids=pool.map(p=>Number(p.sourceNativePartNumber));
+    if(ids.every(n=>Number.isInteger(n)&&n>0)&&new Set(ids).size===ids.length)
+      pool.forEach((p,i)=>{p.id=ids[i];});
   }
   assertNativeRouterSourceScope(routerProfile,nest,pool,jobName);
   if (!pool.length) return null;
@@ -231,7 +240,9 @@ export function buildOptFiles({ nest, layerTexts, material = {}, machine = 'NewC
     const locs = (s.placements || []).map((pl) => {
       const k = `${pl.name}|${Math.round(pl.l)}x${Math.round(pl.w)}`;
       const candidates = byKey.get(k) || [];
-      const exact = candidates.findIndex(p => Number(p.layer) === Number(pl.sourceLayer ?? pl.layer));
+      const identityHit=candidates.findIndex(p=>Number.isFinite(Number(pl.nativePartNumber))&&Number(p.sourceNativePartNumber)===Number(pl.nativePartNumber)&&Number(p.layer)===Number(pl.sourceLayer??pl.layer));
+      if(['MBD-HALF12-VERIFIED-LIBRARY','MBD-HALF12-BED-DRILL-ONLY'].includes(routerProfile?.id)&&pl.nativePartNumber!==undefined&&pl.nativePartNumber!==null&&identityHit<0)throw Error(pl.name+': explicit native source identity is missing or on another layer. Re-import its verified source.');
+      const exact=identityHit>=0?identityHit:candidates.findIndex(p=>Number(p.layer)===Number(pl.sourceLayer??pl.layer));
       let hit = exact >= 0 ? candidates.splice(exact, 1)[0] : candidates.shift();
       if (!hit) {                              // fall back to dims alone, then give up
         const i = loose.findIndex(q => Math.round(q.l) === Math.round(pl.l) && Math.round(q.w) === Math.round(pl.w));

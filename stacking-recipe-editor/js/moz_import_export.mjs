@@ -1,3 +1,4 @@
+import {assertNativeRouterSnapshotScope} from './native_router_profile.mjs?v=4.65';
 // moz_import_export.mjs — v1.0.0
 //
 // Glue between the SRE editor state and the moz_parse / moz_build
@@ -34,10 +35,10 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.64';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.64';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.64';
-import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.64';
+import { parseMoz } from './moz_parse.mjs?v=4.65';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.65';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.65';
+import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.65';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -311,21 +312,25 @@ export async function exportJobZip(snapshot, { jobName, nest = null, allowUnveri
   const protectedNests=nest?[nest]:Object.values(snapshot.nests||{});
   const protectedPost=protectedNests.find(n=>n?.nativeReexportPolicy?.genericFullJobExport===false);
   if(protectedPost)throw Error(protectedPost.nativeReexportPolicy.reason||'This job contains an already-cut sheet whose native post must be preserved. Use its verified native job and replace only uncut sheets; generic full-job export is disabled.');
+  for(const n of protectedNests)assertNativeRouterSnapshotScope(snapshot,n,jobName||snapshot.sku||n.sku);
+  const layers = _snapshotToLayers(snapshot);
   // Resolve the verified source/feed datum by exact occurrence and layer, just
   // as the source exporter does. Do not trust a stale placement's frame or
   // change its physical rotation to make validation pass.
   if(nest){
-    const geometry=geometryForStack(snapshot),pool=(snapshot.layers||[]).flatMap((row,i)=>row.map((p,j)=>({p,layer:i+1,geometry:geometry[i]?.[j]})));
+    const geometry=geometryForStack(snapshot),bought=new Set(snapshot.bought||[]),pool=(snapshot.layers||[]).flatMap((row,i)=>{let cursor=0;return row.map((p,j)=>{const source=bought.has(p.partNum)?null:layers['L'+(i+1)]?.[cursor++];return{p,layer:i+1,geometry:geometry[i]?.[j],nativePartNumber:source?._nativePartNumber??source?.partNumber};});});
     nest={...nest,sku:jobName||snapshot.sku||nest.sku,sheets:nest.sheets.map(sh=>({...sh,placements:(sh.placements||[]).map(p=>{
       if(p.salvage||p.remnant){const rec=p.src?CRATE_BY_KEY.get(p.src):null;return {...p,...(rec?{geometry:readPartGeometry(rec)}:{})};}
-      const i=pool.findIndex(q=>q.p.partNum===p.name&&Math.abs(q.p.L-p.l)<.01&&Math.abs(q.p.W-p.w)<.01&&q.layer===Number(p.sourceLayer??p.layer));
+      const matches=q=>q.p.partNum===p.name&&Math.abs(q.p.L-p.l)<.01&&Math.abs(q.p.W-p.w)<.01&&q.layer===Number(p.sourceLayer??p.layer);
+      const identity=pool.findIndex(q=>matches(q)&&Number.isFinite(Number(p.nativePartNumber))&&Number(q.nativePartNumber)===Number(p.nativePartNumber));
+      if(['MBD-HALF12-VERIFIED-LIBRARY','MBD-HALF12-BED-DRILL-ONLY'].includes(nest.nativeRouterProfile?.id)&&p.nativePartNumber!==undefined&&p.nativePartNumber!==null&&identity<0)throw Error(p.name+': explicit native source identity is missing or on another layer. Re-import its verified source.');
+      const i=identity>=0?identity:pool.findIndex(matches);
       if(i<0)return {...p};
       const q=pool.splice(i,1)[0],cw=explicitDrillFrameCW(q.geometry),existing=explicitDrillFrameCW(p);
       if(existing!==undefined&&existing!==cw)throw Error(`${p.name}: saved nest and verified source drill frames disagree. Re-import its verified source frame.`);
       return {...p,geometry:q.geometry,...(cw===undefined?{}:{drillFrameCW:cw})};
     })}))};
   }
-  const layers = _snapshotToLayers(snapshot);
   // Combined products can depend on different CabProdParms tables. Retain
   // the native wrapper for each layer and refuse legacy multi-source recipes
   // that only kept the last imported wrapper.
