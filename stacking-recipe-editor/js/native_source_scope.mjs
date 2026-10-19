@@ -46,6 +46,18 @@ export function canonicalNativeXml(text){
 }
 export const nativeXmlFingerprint=raw=>sha256Text(canonicalNativeXml(raw));
 const stable=v=>Array.isArray(v)?v.map(stable):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])):v;
+// Bought leaf sources travel with the packing view, never with router parts.
+// A job that declares this scope must retain the complete records, including
+// all physical operations and source frames. Missing metadata is not a match.
+export function nativePackingSourcesFingerprint(nest){
+  const sources=nest?.packingOnlyPurchasedSources;
+  if(sources===undefined)return null;
+  if(!Array.isArray(sources)||!sources.length)throw Error('Verified bought packing sources are missing.');
+  return sha256Text(JSON.stringify(stable(sources.map(p=>{
+    if(!p||p.purchased!==true||p.routerCut!==false||!p.report||!p.raw||!p.shell)throw Error('Incomplete bought packing source.');
+    return {...p,raw:nativeXmlFingerprint(p.raw),shell:nativeXmlFingerprint(p.shell)};
+  }))));
+}
 export function nativeSnapshotScope(snapshot){
   return{
     nativeSourceIdsSha256:sha256Text(JSON.stringify((snapshot.importedParts||[]).map(p=>[Number(p._nativePartNumber),nativeXmlFingerprint(p.raw)]).sort((a,b)=>a[0]-b[0]))),

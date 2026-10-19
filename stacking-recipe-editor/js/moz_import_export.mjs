@@ -1,4 +1,4 @@
-import {assertNativeRouterSnapshotScope} from './native_router_profile.mjs?v=4.66';
+import {assertNativeRouterSnapshotScope,VERIFIED_LIBRARY_PROFILE_ID} from './native_router_profile.mjs?v=4.67';
 // moz_import_export.mjs — v1.0.0
 //
 // Glue between the SRE editor state and the moz_parse / moz_build
@@ -35,10 +35,10 @@ import {assertNativeRouterSnapshotScope} from './native_router_profile.mjs?v=4.6
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.66';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.66';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.66';
-import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.66';
+import { parseMoz } from './moz_parse.mjs?v=4.67';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.67';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.67';
+import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.67';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 
@@ -386,6 +386,10 @@ export async function exportJobZip(snapshot, { jobName, nest = null, allowUnveri
       if(frames.length)files['SOURCE-DRILL-FRAMES.json']=JSON.stringify({version:1,physicalFaceFlip:false,parts:frames},null,2);
       if(snapshot.drillFramePolicy)files['DRILL-FRAME-POLICY.json']=JSON.stringify(snapshot.drillFramePolicy,null,2);
       if(nest?.nativeRouterProfile)files['NATIVE-ROUTER-PROFILE.json']=JSON.stringify(nest.nativeRouterProfile,null,2);
+      // Recovery metadata only. Bought leaves are never emitted as a router
+      // Product/part or blank; their independent drill companion stays separate.
+      if(nest?.nativeRouterProfile?.id===VERIFIED_LIBRARY_PROFILE_ID&&nest.packingOnlyPurchasedSources)
+        files['PACKING-ONLY-PURCHASED-SOURCES.json']=JSON.stringify({version:1,job:jobName||snapshot.sku,purchased:true,routerCut:false,independentDrillCompanionRequired:true,sources:nest.packingOnlyPurchasedSources},null,2);
       return Object.keys(files).length?files:null;
     })(),
   });

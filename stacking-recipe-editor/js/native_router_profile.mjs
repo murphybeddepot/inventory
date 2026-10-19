@@ -1,5 +1,5 @@
-import {nativeSnapshotScope,nativeXmlFingerprint,sha256Text,rejectNativeXmlComments} from './native_source_scope.mjs?v=4.66';
-import {VERIFIED_LIBRARY_SOURCES} from './verified_library_sources.mjs?v=4.66';
+import {nativeSnapshotScope,nativeXmlFingerprint,sha256Text,rejectNativeXmlComments,nativePackingSourcesFingerprint} from './native_source_scope.mjs?v=4.67';
+import {VERIFIED_LIBRARY_SOURCES} from './verified_library_sources.mjs?v=4.67';
 // A deliberately bounded production profile, verified against installed native
 // half-inch jobs. An absent profile preserves legacy generic export behavior.
 export const HALF12_STANDARD_PROFILE=Object.freeze({
@@ -28,6 +28,11 @@ export function verifiedLibraryRouterProfile(job){
   if(!Object.hasOwn(VERIFIED_LIBRARY_SOURCES,job))throw Error('No reviewed template4 Library source scope exists for this job.');
   return {...structuredClone(HALF12_BED_DRILL_ONLY_PROFILE),id:VERIFIED_LIBRARY_PROFILE_ID,scope:{job,bedOnly:true,sourceVersion:1}};
 }
+function assertPackingSourceScope(expected,nest){
+  if(expected.packingOnlyPurchasedSourcesSha256!==undefined||nest.packingOnlyPurchasedSources!==undefined)
+    if(nativePackingSourcesFingerprint(nest)!==expected.packingOnlyPurchasedSourcesSha256)
+      throw Error('Reviewed bought packing source scope changed or is missing. Preserve the separate purchased-door drilling source.');
+}
 export function assertNativeRouterSnapshotScope(snapshot,nest,jobName){
   const p=verifiedNativeRouterProfile(nest);
   if([VERIFIED_LIBRARY_PROFILE_ID,HALF12_BED_DRILL_ONLY_PROFILE.id].includes(p?.id))
@@ -38,6 +43,7 @@ export function assertNativeRouterSnapshotScope(snapshot,nest,jobName){
   const actual=nativeSnapshotScope(snapshot);
   for(const [field,value] of Object.entries(expected.scope))if(actual[field]!==value)
     throw Error('Reviewed Library source scope changed: '+field+'. Re-verify native sources/frames before using this profile.');
+  assertPackingSourceScope(expected,nest);
   const ids=(snapshot.importedParts||[]).map(p=>Number(p._nativePartNumber)),placed=(nest.sheets||[]).flatMap(sh=>sh.placements||[]).map(p=>Number(p.nativePartNumber));
   if(ids.some(n=>!Number.isInteger(n)||n<=0)||placed.some(n=>!Number.isInteger(n)||n<=0)||new Set(placed).size!==placed.length||JSON.stringify(ids.slice().sort((a,b)=>a-b))!==JSON.stringify(placed.slice().sort((a,b)=>a-b)))throw Error('Reviewed Library source identity inventory changed or is missing.');
   const material=nest.material||{};
@@ -64,6 +70,7 @@ export function assertNativeRouterSourceScope(profile,nest,parts,jobName){
     for(const p of parts)if(p.raw!==undefined)rejectNativeXmlComments(p.raw);
   if(profile?.id===VERIFIED_LIBRARY_PROFILE_ID){
     const expected=VERIFIED_LIBRARY_SOURCES[profile.scope.job],placements=(nest.sheets||[]).flatMap(s=>s.placements||[]);
+    assertPackingSourceScope(expected,nest);
     if(jobName!==profile.scope.job||nest.sku!==profile.scope.job)throw Error('Reviewed Library source scope cannot be cloned to another job.');
     if(parts.some(p=>p.salvage)||placements.some(p=>p.salvage||p.remnant||p.src))throw Error('Reviewed Library source profile excludes optional crate/remnant parts.');
     if(parts.length!==expected.parts||placements.length!==expected.parts||parts.some(p=>!p.raw))throw Error('Reviewed Library profile requires every exact native source part.');

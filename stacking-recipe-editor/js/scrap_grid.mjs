@@ -2,7 +2,7 @@
 // individual oversize box with its own offset crosscuts. Narrow native waste
 // is omitted from the search, but remains visible in the final actual-waste
 // check: a grid cannot cure a placement sliver.
-import {Raster,orderForTravel} from './scrap_geometry.mjs?v=4.66';
+import {Raster,orderForTravel} from './scrap_geometry.mjs?v=4.67';
 const round=n=>Math.round(n*1000)/1000;
 export function planAlignedWaste(post,settings,{unsafe=()=>false,valid=()=>true,safe=()=>true,seed=[],focusBox=null}={}){
   // Reserve the cutter diameter for possible skin/fracture fringe, plus two

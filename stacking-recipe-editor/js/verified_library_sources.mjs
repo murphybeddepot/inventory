@@ -190,5 +190,52 @@ export const VERIFIED_LIBRARY_SOURCES=freezeDeep({
       "materialId": "334"
     },
     "sourceDescription": "Exact own posted Full White R6 construction:70complete native parts/14product shells, unchanged FL14 body plus8purchased1002doors stacked above. Door parts are not router inputs. Complete frames verified; no optional crate fills or unverified source changes."
+  },
+  "33554-BOAZ-A20-H78": {
+    "parts": 86,
+    "bodyLayers": 12,
+    "manufacturingLayers": 12,
+    "scope": {
+      "nativeSourceIdsSha256": "d4bc921360f39f4be6504549b1e3f3942ffc754ab7dc865d0403dbbc6e6a9469",
+      "rawPartsSha256": "0601df8457f329beb508953fd168574421a2856e369cd635e938c617cb5bdd75",
+      "importRecordsSha256": "f8dfa6fff1bcdc44edca8fd71bc84ada55a7de96e4b92ccd07645665e0735e8c",
+      "manifestSha256": "9b23c903d3f8bee45cc9a2c945f980702619d5635804fee7554ddfd62d78edca",
+      "layerMembershipSha256": "b039ee90e617ff8db2113c126f36197f034ad5e57747638271e92c22d6cf81d1",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "699eadf422242d3ad1acc2372149d87e70ad53c083b859c448f1da4742f301a2",
+      "sourceShellSha256": "4bd36b2300c7b637c31c9c0f431167e37d5e4f828d7083ff6b5a8333d8bcf8f7"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Own complete86-part QueenBoaz plus two20x17x78A cabinets; exact actual template4/T2 native source."
+  },
+  "33593-B20-H78": {
+    "parts": 20,
+    "bodyLayers": 4,
+    "manufacturingLayers": 4,
+    "scope": {
+      "nativeSourceIdsSha256": "95104a78f3a30466c9a3f42f62b676d4cf58ae5c826ee94fba7ad40845d59b6f",
+      "rawPartsSha256": "136763561ba61bc2dcd945f422c0a679f08cdb7a7aa962b558b7df4c330a5905",
+      "importRecordsSha256": "70713eded0e3d23b41ccb35b2cbaae8842bcadbaef76c706189a05c1aa18fdf0",
+      "manifestSha256": "94ccc4d30cf92eeab0b08cc447bd6b643e529bddff951eec1c3ec9168fae0ce6",
+      "layerMembershipSha256": "ca78af9fb463220fc7657b6853804587dfcfbee81acaf2ab0e77a8da34f65c45",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "0ca240172c0364c4224632608274e0f42181af1320436c25ce83520f6282a50c",
+      "sourceShellSha256": "630e62407b9398ce090c13bfaf8670b813a17b4bc313e572c7965b1d8e9d84aa"
+    },
+    "material": {
+      "length": 2460,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13323",
+      "materialId": "340"
+    },
+    "packingOnlyPurchasedSourcesSha256": "e521eab7f1ec6f81194cd4959b7bb7b6dfbced8c007d4fb565a51567bc556ae9",
+    "sourceDescription": "Own20-part Black two20x17x78B cabinets; exact actual template4/T2 source. Two complete bought1002leaf sources stay packing-only and outside router cut inventory."
   }
 });
