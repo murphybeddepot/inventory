@@ -34,10 +34,10 @@
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.63';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.63';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.63';
-import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.63';
+import { parseMoz } from './moz_parse.mjs?v=4.64';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.64';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.64';
+import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.64';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 

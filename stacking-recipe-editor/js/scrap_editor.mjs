@@ -1,12 +1,12 @@
-import {nestCutterDiameterMM} from './native_router_profile.mjs?v=4.63';
-import { partBox } from './nest.mjs?v=4.63';
-import {modelNativePlacement,segmentOutlineDistance} from './scrap_native_geometry.mjs?v=4.63';
-import {retainedNarrowCorridors,hasWasteSquare,nativeTipConnected} from './scrap_waste_width.mjs?v=4.63';
-import { Raster, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.63';
+import {nestCutterDiameterMM} from './native_router_profile.mjs?v=4.64';
+import { partBox } from './nest.mjs?v=4.64';
+import {modelNativePlacement,segmentOutlineDistance} from './scrap_native_geometry.mjs?v=4.64';
+import {retainedNarrowCorridors,hasWasteSquare,nativeTipConnected} from './scrap_waste_width.mjs?v=4.64';
+import { Raster, orderForTravel, rapidTravel } from './scrap_geometry.mjs?v=4.64';
 
-import {planAlignedWaste} from './scrap_grid.mjs?v=4.63';
-import {cutRoutes,straightCutRoutes,routeLines} from './scrap_routes.mjs?v=4.63';
-import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.63';
+import {planAlignedWaste} from './scrap_grid.mjs?v=4.64';
+import {cutRoutes,straightCutRoutes,routeLines} from './scrap_routes.mjs?v=4.64';
+import {afterOutlineRoutes,validateGrooveRoutes,checkScrapPhase,estimateRouteTime} from './scrap_after.mjs?v=4.64';
 
 export const SCRAP_DEFAULTS={phase:'before-outlines',bitDiameterMM:9.525,skinMM:.3,clearanceMM:6,maxPieceMM:304.8,minPieceMM:50.8};
 export function scrapSettingsFor(sheet,nest){
