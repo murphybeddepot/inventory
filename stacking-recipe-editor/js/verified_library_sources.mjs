@@ -1,6 +1,4 @@
-// Reviewed exact bed source identities; historical exported symbol retained.
-// No general template4 approval. Full raw source, Manual IDs, frame policy,
-// parameter shells and material are scoped. No customer fixture is shipped.
+// Exact reviewed native source scopes. No general template4 approval.
 const freezeDeep=value=>{for(const child of Object.values(value))if(child&&typeof child==='object')freezeDeep(child);return Object.freeze(value);};
 export const VERIFIED_LIBRARY_SOURCES=freezeDeep({
   "33601-QLHW00": {
@@ -237,5 +235,74 @@ export const VERIFIED_LIBRARY_SOURCES=freezeDeep({
     },
     "packingOnlyPurchasedSourcesSha256": "e521eab7f1ec6f81194cd4959b7bb7b6dfbced8c007d4fb565a51567bc556ae9",
     "sourceDescription": "Own20-part Black two20x17x78B cabinets; exact actual template4/T2 source. Two complete bought1002leaf sources stay packing-only and outside router cut inventory."
+  },
+  "J079-QBZW00": {
+    "parts": 66,
+    "bodyLayers": 8,
+    "manufacturingLayers": 8,
+    "scope": {
+      "nativeSourceIdsSha256": "ab391a46027ad75c36363307e61cbe6ca8dd14f601a35ab9763c236e54f818fe",
+      "rawPartsSha256": "e8fdb4363cbbab460d57ca0f69c8f731c07744ed58c9c6564006ed3f9a3099df",
+      "importRecordsSha256": "fe13a610b02281590adce4630edae5bcd84eeda0180c38118da3f38c2d51a7d0",
+      "manifestSha256": "70b4c06cb5f6390c113700da7584f0b4cbddde5385120823f10f214f99039bb0",
+      "layerMembershipSha256": "c733e51470b36ebb11dfe8758061605af6032adb7388305af687695ecf778f18",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "6e4d7d567e779067993fa9e7b154640079df9f805eaed1980083197e122e39cd",
+      "sourceShellSha256": "871eb321132274d1caf8b7e82b0063a88de3b089b34233c631997c827a28ba29"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Own exact66-part White QueenBoaz S4-R3 native template4/T2 source, router-owned2A/2E notches and originalQB3body/pallet assignments."
+  },
+  "J080-QBZW00": {
+    "parts": 66,
+    "bodyLayers": 8,
+    "manufacturingLayers": 8,
+    "scope": {
+      "nativeSourceIdsSha256": "ab391a46027ad75c36363307e61cbe6ca8dd14f601a35ab9763c236e54f818fe",
+      "rawPartsSha256": "e8fdb4363cbbab460d57ca0f69c8f731c07744ed58c9c6564006ed3f9a3099df",
+      "importRecordsSha256": "5945a80d546dc752123c60d3fe05c4c55d40c135f1e50bbd0b321905b80e0708",
+      "manifestSha256": "70b4c06cb5f6390c113700da7584f0b4cbddde5385120823f10f214f99039bb0",
+      "layerMembershipSha256": "c733e51470b36ebb11dfe8758061605af6032adb7388305af687695ecf778f18",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "25fc7db192b9c0627e61974000f4d729a8b19ddf4f0e73b9da5fa6aec766b9ad",
+      "sourceShellSha256": "758b381e0cd78e4fa79d36f0ddbb2c579d4df2dd3d93c36c90ee27406a478b85"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Own exact66-part White QueenBoaz S4-R3 native template4/T2 source, router-owned2A/2E notches and originalQB3body/pallet assignments."
+  },
+  "J081-QBZW00": {
+    "parts": 66,
+    "bodyLayers": 8,
+    "manufacturingLayers": 8,
+    "scope": {
+      "nativeSourceIdsSha256": "ab391a46027ad75c36363307e61cbe6ca8dd14f601a35ab9763c236e54f818fe",
+      "rawPartsSha256": "e8fdb4363cbbab460d57ca0f69c8f731c07744ed58c9c6564006ed3f9a3099df",
+      "importRecordsSha256": "692a4aa8d4e3e381676e867fb42812c289572130b225f1959c80b38784f28a5b",
+      "manifestSha256": "70b4c06cb5f6390c113700da7584f0b4cbddde5385120823f10f214f99039bb0",
+      "layerMembershipSha256": "c733e51470b36ebb11dfe8758061605af6032adb7388305af687695ecf778f18",
+      "drillFramePolicySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "sourceShellsSha256": "91cd57c47c1e08d72d2bd9457918a1f2bf52c207631b10fff5077166d477ed71",
+      "sourceShellSha256": "a803daf73ca31c024b52fb036198eed2f61a6545bf64426e230b89260af8247a"
+    },
+    "material": {
+      "length": 2770,
+      "width": 1550,
+      "hasGrain": false,
+      "textureId": "13327",
+      "materialId": "334"
+    },
+    "sourceDescription": "Own exact66-part White QueenBoaz S4-R3 native template4/T2 source, router-owned2A/2E notches and originalQB3body/pallet assignments."
   }
 });

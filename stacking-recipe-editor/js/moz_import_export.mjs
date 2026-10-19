@@ -1,4 +1,4 @@
-import {assertNativeRouterSnapshotScope,VERIFIED_LIBRARY_PROFILE_ID} from './native_router_profile.mjs?v=4.67';
+import {assertNativeRouterSnapshotScope,VERIFIED_LIBRARY_PROFILE_ID} from './native_router_profile.mjs?v=4.68';
 // moz_import_export.mjs — v1.0.0
 //
 // Glue between the SRE editor state and the moz_parse / moz_build
@@ -35,10 +35,10 @@ import {assertNativeRouterSnapshotScope,VERIFIED_LIBRARY_PROFILE_ID} from './nat
 //     report, type, bands, ops, pos           // preserved from .moz
 //   }]
 
-import { parseMoz } from './moz_parse.mjs?v=4.67';
-import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.67';
-import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.67';
-import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.67';
+import { parseMoz } from './moz_parse.mjs?v=4.68';
+import { buildJobZip, APP_VERSION as MOZ_BUILD_VERSION } from './moz_build.mjs?v=4.68';
+import { CRATE_BY_KEY, CRATE_SHELL } from './crate_parts.mjs?v=4.68';
+import { geometryForStack, explicitDrillFrameCW, readPartGeometry } from './nest_geometry.mjs?v=4.68';
 
 export const IMPORT_EXPORT_VERSION = '1.0.0';
 

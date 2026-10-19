@@ -1,4 +1,4 @@
-import {pointInOutline,segmentOutlineDistance} from './scrap_native_geometry.mjs?v=4.67';
+import {pointInOutline,segmentOutlineDistance} from './scrap_native_geometry.mjs?v=4.68';
 const STEP=1;
 function rectangle(box){const[a,b,c,d]=box;return[[a,b],[c,b],[c,d],[a,d]]}
 export function wasteSpans(post,lines,axis,pos){
