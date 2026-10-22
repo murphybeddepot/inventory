@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Bedrock</title>
+<title>Bedrock v10.1529</title>
 <!-- Favicon (browser tab) — inline data URI so the single-file deploy works -->
 <link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAClklEQVR42sWXz2sTURDHP/PeZlP6yyIqWrWHQs+CKGIFoXdB1Iv/gidBEHrxb/Dg3YMH8eRJsOBFvHkRRYtaEJWKRYNV25raJPvGw9tkN0m7yaaxGVh47I/5ft/M983MCi02PH5Q+c9WXitJfW32GrwVx+w1eCueDAI8bWaQ4ABBxzcEVJJ1psVbEU3WvROoAxtJro4EFByoU3DaFZEdCagAVqjeOIWbnUSttISg3bNUHfLhN8G9Rcy7VbTm/BcZJGRbDQioEdyJA2zdv5A/sU4J559hFz4hNQcuQ4SZT8aLPUpbqM6fgdCgkp26YKf8I3He67e+rFO4/QJqEUQ+x3UwBAgMjIVUbp2FgkH3D6FTY8jSr95FiKQIbNYwL7/BVhSHNSGggYHQQtEi5Sq6z0dOiwEikikCkyu0NU1279T7TSldDw03wFGQ7+U+1IG2qMSRsT70agUCg06NU715OtnZ0iqyXukzASNsLVxBjWkWlhUYanZlH7z3RDvUDpOXgI6GMFqAkdQ11L4PN3ccitZ/I/0ikMOi88eoXD/pETIikS8FqhSvPgLVhj+tH9fAoIdHiC7PEM1OehKXZtC7b5DPa33SgIJ83UCcNqqbxP1CrSArfzBvV9E7c7jpCTBCdO4owfK6Pz27SkHcG7z6W0Kq9caj4BzmVSl5dGQks5MGma1VtUmAjIVQidDI14NGiTGAMb4aFgw6XGjqC/mPobYTcNMT/H14MX9bWPzh/WjeU6AKm9Huxq2ln9inyz10Q/WhM69LmOcrXU83DblsVLCPPxJeewKVyItW88wD6YnI5piI0ulzsU4ywDuKUOIGpKLdgfcwGwZdO/pfYzkDtsETSP8oDiwCgyJRXiuJ2e6Xea/AAf4BdeEAVMU6oaIAAAAASUVORK5CYII=">
 <!-- iOS home-screen icon — REQUIRES an apple-touch-icon.png file at the repo root.
@@ -1786,10 +1786,13 @@ input::placeholder, textarea::placeholder {
       <button onclick="_moreSectionToggle_('prod')" style="width:100%;display:flex;align-items:center;gap:10px;padding:13px 12px;margin:10px 0 4px;background:#f2f4f7;border:1px solid #dde1e7;border-radius:9px;cursor:pointer;text-align:left;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;text-transform:uppercase;letter-spacing:.6px;min-height:44px">
         <span style="font-size:17px">🏭</span>
         <span style="flex:1">Production</span>
-        <span style="font-size:11px;color:#667;-webkit-text-fill-color:#667;font-weight:700">7</span>
+        <span style="font-size:11px;color:#667;-webkit-text-fill-color:#667;font-weight:700">8</span>
         <span class="more-caret" style="font-size:15px;color:#667;-webkit-text-fill-color:#667">▾</span>
       </button>
       <div class="more-section-body" data-default-open="true">
+        <button onclick="closeMoreMenu();window.open('https://mbd-label-stamper.murphybeddepot.workers.dev/checklist/','_blank')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+          <span style="font-size:22px">☑</span><div style="flex:1"><div>Production Checklist</div><div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Day folder + router · router done / remakes · crated / doors</div></div><span style="color:#999;font-size:18px">›</span>
+        </button>
         <button onclick="closeMoreMenu();openManufacturingPanel()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
       <span style="font-size:22px">🏭</span>
       <div style="flex:1">
@@ -38689,7 +38692,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1528"></script>
+<script src="./pack.js?v=10.1529"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38700,7 +38703,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1528<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1529<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
