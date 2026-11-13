@@ -68,6 +68,7 @@
   header a.back:hover{color:var(--ink)}
   #releasedRecipePicker{max-width:22ch;background:var(--panel2);color:var(--ink);
     border:1px solid var(--line2);border-radius:8px;padding:8px;font:inherit}
+  #releasedDrawing{color:var(--accent);font-size:14px;padding:8px}
   #layerNotes{padding:0 24px 12px;text-align:center;color:var(--ink2);font-size:13px;
     overflow:auto;max-height:18vh}
   @media(max-width:850px){
@@ -148,6 +149,7 @@
     <span class="sku" id="skuLabel">—</span>
     <select id="releasedRecipePicker" aria-label="Production job" hidden></select>
     <span class="spacer"></span>
+    <a id="releasedDrawing" target="_blank" rel="noopener" hidden>Reference PDF</a>
     <span class="badge" id="layerBadge">Layer — / —</span>
     <span class="badge" id="progressBadge">0 / 0 in place</span>
   </header>
@@ -587,6 +589,9 @@ async function bootReleasedOrder(orderNumber){
       S.sku = recipe.job;
       $('skuLabel').textContent = 'Order #' + orderNumber;
       $('skuLabel').title = recipe.job;
+      const drawing = $('releasedDrawing');
+      drawing.href = new URL(recipe.pdf, url);
+      drawing.hidden = false;
       S.snapshot = {layers:recipe.guide.layers.map(layer => layer.parts)};
       S.activeLayerIdx = 0;
       S.inPlace.clear();
