@@ -712,7 +712,7 @@ window.addEventListener('resize', ()=>{if(S.snapshot)renderAll();});
   const qs=new URLSearchParams(location.search);
   const order=qs.get('order');
   const sku=qs.get('sku');
-  if(order && !sku){ bootReleasedOrder(order); return; }
+  if(order && !sku){ bootReleasedOrder(order.trim().replace(/^#/, '')); return; }
   if(order){ bootWithOrder(order, sku); return; }
   if(sku){ loadRecipe(sku); return; }
 })();

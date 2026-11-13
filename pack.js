@@ -19220,7 +19220,7 @@ function openGroundGuide() {
 
   // OVERVIEW
   const secTop = H('ggTop', '🏠 What the Ground tab IS')
-    + P('The <b>Ground tab</b> (🚚 in the main nav) is the packer\'s home for <b>parcel shipments</b> — FedEx / UPS / USPS labels bought and printed one order at a time. Cabinet + freight orders never appear here (ShipStation\'s "cabinet tag not imported" rule blocks them from V1). Ground = boxes, not skids.')
+    + P('<b>More → Ground</b> is the packer\'s home for <b>parcel shipments</b> — FedEx / UPS / USPS labels bought and printed one order at a time. Cabinet + freight orders never appear here (ShipStation\'s "cabinet tag not imported" rule blocks them from V1). Ground = boxes, not skids.')
     + H2('Who uses it')
     + '<div style="font-size:12.5px;color:#C7D2E0;margin-bottom:10px;line-height:1.6"><b style="color:#fff">Jonah / Peter / Shane:</b> Pack an order → scan every box → buy label → print → ship<br><b style="color:#fff">Seth:</b> Bulk-print for a run of orders · void bad labels · manage FedEx pickups<br><b style="color:#fff">Jessica:</b> Add a manual order for a replacement / damaged item that shipped in Ground<br><b style="color:#fff">Zac:</b> Toggle SS ↔ FedEx-direct booking mode · settings</div>'
     + P('Auto-syncs from ShipStation every hour 8am–4pm ET (via <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">runGroundSync</code> cron). Manual force-sync via the 🔄 SYNC SS button.');

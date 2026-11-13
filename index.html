@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Bedrock v10.1529</title>
+<title>Bedrock v10.1530</title>
 <!-- Favicon (browser tab) — inline data URI so the single-file deploy works -->
 <link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAClklEQVR42sWXz2sTURDHP/PeZlP6yyIqWrWHQs+CKGIFoXdB1Iv/gidBEHrxb/Dg3YMH8eRJsOBFvHkRRYtaEJWKRYNV25raJPvGw9tkN0m7yaaxGVh47I/5ft/M983MCi02PH5Q+c9WXitJfW32GrwVx+w1eCueDAI8bWaQ4ABBxzcEVJJ1psVbEU3WvROoAxtJro4EFByoU3DaFZEdCagAVqjeOIWbnUSttISg3bNUHfLhN8G9Rcy7VbTm/BcZJGRbDQioEdyJA2zdv5A/sU4J559hFz4hNQcuQ4SZT8aLPUpbqM6fgdCgkp26YKf8I3He67e+rFO4/QJqEUQ+x3UwBAgMjIVUbp2FgkH3D6FTY8jSr95FiKQIbNYwL7/BVhSHNSGggYHQQtEi5Sq6z0dOiwEikikCkyu0NU1279T7TSldDw03wFGQ7+U+1IG2qMSRsT70agUCg06NU715OtnZ0iqyXukzASNsLVxBjWkWlhUYanZlH7z3RDvUDpOXgI6GMFqAkdQ11L4PN3ccitZ/I/0ikMOi88eoXD/pETIikS8FqhSvPgLVhj+tH9fAoIdHiC7PEM1OehKXZtC7b5DPa33SgIJ83UCcNqqbxP1CrSArfzBvV9E7c7jpCTBCdO4owfK6Pz27SkHcG7z6W0Kq9caj4BzmVSl5dGQks5MGma1VtUmAjIVQidDI14NGiTGAMb4aFgw6XGjqC/mPobYTcNMT/H14MX9bWPzh/WjeU6AKm9Huxq2ln9inyz10Q/WhM69LmOcrXU83DblsVLCPPxJeewKVyItW88wD6YnI5piI0ulzsU4ywDuKUOIGpKLdgfcwGwZdO/pfYzkDtsETSP8oDiwCgyJRXiuJ2e6Xea/AAf4BdeEAVMU6oaIAAAAASUVORK5CYII=">
 <!-- iOS home-screen icon — REQUIRES an apple-touch-icon.png file at the repo root.
@@ -95,6 +95,11 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .tab-btn:hover{color:var(--green-bright)}
 .tab-btn.active{color:var(--green-bright);border-bottom-color:var(--green-bright);text-shadow:0 0 10px rgba(0,230,118,.45);background:linear-gradient(180deg,rgba(0,230,118,.08),transparent)}
 .panel{display:none;padding:14px}
+.stack-lookup{max-width:34rem;margin:24px auto;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.stack-lookup label{display:block;font-size:16px;font-weight:700;margin-bottom:8px}
+.stack-lookup-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.stack-lookup input{flex:1;min-width:9rem;min-height:48px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);font:inherit;font-size:18px}
+.stack-lookup button{min-height:48px}
 /* v10.159 Mira M4 — keyboard a11y focus rings.
    `outline:none` is set on most inputs/buttons for cosmetic
    purposes (touch-first iPad), but that kills keyboard navigation
@@ -1506,9 +1511,6 @@ input::placeholder, textarea::placeholder {
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span class="header-badge" id="changedBadge" onclick="_onSyncBadgeTap_()" title="Tap to see pending changes">✓ Synced</span><span id="syncTime" style="font-size:10px;opacity:.6"></span></div>
 </div>
 <div class="tabs">
-  <!-- Primary tabs: only Cabinets + Ground are in active production
-       use. Pre-Pack/Pack/Schedule are still being iterated on and
-       live in the ⋯ More menu until the workflows are battle-tested. -->
   <button class="tab-btn active" id="tab-cabinets-btn" onclick="switchTab('cabinets')"><span class="tab-icon">🗄</span><span>Cabinets</span></button>
   <!-- v10.327 — unified Orders tab (PACK_REDESIGN A2c). Replaces the
        Schedule + Pre-Pack + Pack tabs which previously lived in the
@@ -1516,7 +1518,7 @@ input::placeholder, textarea::placeholder {
        during the migration so any deep links / saved tab state still
        work; they're removed in step 7 once parity is validated. -->
   <button class="tab-btn" id="tab-orders-btn" onclick="switchTab('orders')"><span class="tab-icon">📦</span><span>Orders</span></button>
-  <button class="tab-btn" id="tab-ground-btn" onclick="switchTab('ground')"><span class="tab-icon">🚚</span><span>Ground</span></button>
+  <button class="tab-btn" id="tab-stack-btn" onclick="switchTab('stack')"><span class="tab-icon" aria-hidden="true">🎂</span><span>Stack</span></button>
   <!-- v10.1510 — Stock 2 promoted to a permanent primary tab on every
        device (Zac 2026-08-21: "make stock 2 a permanent tab in bedrock
        on all devices"). Was flag-gated per device via
@@ -1559,10 +1561,15 @@ input::placeholder, textarea::placeholder {
       <button onclick="_moreSectionToggle_('daily')" style="width:100%;display:flex;align-items:center;gap:10px;padding:13px 12px;margin:10px 0 4px;background:#f2f4f7;border:1px solid #dde1e7;border-radius:9px;cursor:pointer;text-align:left;font-family:'Barlow Condensed',Arial,sans-serif;font-size:15px;font-weight:900;color:#1a1a1a;-webkit-text-fill-color:#1a1a1a;text-transform:uppercase;letter-spacing:.6px;min-height:44px">
         <span style="font-size:17px">☀️</span>
         <span style="flex:1">Daily work</span>
-        <span style="font-size:11px;color:#667;-webkit-text-fill-color:#667;font-weight:700">5</span>
+        <span style="font-size:11px;color:#667;-webkit-text-fill-color:#667;font-weight:700">6</span>
         <span class="more-caret" style="font-size:15px;color:#667;-webkit-text-fill-color:#667">▾</span>
       </button>
       <div class="more-section-body" data-default-open="true">
+        <button id="tab-ground-btn" onclick="goToTabFromMore('ground')" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:#fff;border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;color:#1a1a1a;text-align:left;margin-bottom:8px">
+          <span style="font-size:22px" aria-hidden="true">🚚</span>
+          <div style="flex:1"><div>Ground</div><div style="font-size:11px;color:#666;font-weight:500;margin-top:2px">Pack parcel shipments</div></div>
+          <span style="color:#999;font-size:18px" aria-hidden="true">›</span>
+        </button>
         <button onclick="closeMoreMenu();openDailyPulse()" style="width:100%;display:flex;align-items:center;gap:14px;padding:16px 14px;background:linear-gradient(135deg,#1A5C1A,#00C853);border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:800;color:#fff;text-align:left;margin-bottom:14px">
       <span style="font-size:22px">☀</span>
       <div style="flex:1">
@@ -2860,6 +2867,16 @@ input::placeholder, textarea::placeholder {
 
 </div>
 
+<div id="tab-stack" class="panel" aria-labelledby="tab-stack-btn">
+  <form class="stack-lookup" action="./stacking-recipe-editor/guide.html" method="get">
+    <label for="stackOrderNumber">Order number</label>
+    <div class="stack-lookup-row">
+      <input id="stackOrderNumber" name="order" type="text" inputmode="numeric" enterkeyhint="go" autocomplete="off" pattern="#?[0-9]{4,8}" title="Enter a 4- to 8-digit order number" required>
+      <button class="amp-btn go" type="submit">Open stacking guide</button>
+    </div>
+  </form>
+</div>
+
 <!-- CYCLE COUNT TAB — scheduled inventory verification -->
 <!-- ============================================================ -->
 <!-- GROUND PACK TAB ─ added in v55                              -->
@@ -3992,7 +4009,7 @@ function switchTab(name) {
     setPackTabMode('prepack');
     return;
   }
-  ['scan','prepack','pack','schedule','lookup','cabinets','items','items-v2','ground','cycle','barcodes','log','export','orders','recount'].forEach(t => {
+  ['scan','prepack','pack','schedule','lookup','cabinets','items','items-v2','stack','ground','cycle','barcodes','log','export','orders','recount'].forEach(t => {
     const panel = document.getElementById('tab-'+t);
     if (panel) panel.classList.toggle('active', t===name);
     const btn = document.getElementById('tab-'+t+'-btn');
@@ -4049,16 +4066,14 @@ function switchTab(name) {
   // etc. Label map matches the tab-button text the user sees.
   const tabLabels = {
     scan: 'Inventory', prepack: 'Pre-Pack', pack: 'Pack', cabinets: 'Cabinets',
-    items: 'Stock', ground: 'Ground', cycle: 'Count', barcodes: 'Barcodes',
+    items: 'Stock', stack: 'Stack', ground: 'Ground', cycle: 'Count', barcodes: 'Barcodes',
     log: 'Log', export: 'Export', orders: 'Orders', recount: 'Recount',
   };
   const label = tabLabels[name];
   document.title = label ? (label + ' — Bedrock') : 'Bedrock';
-  // Reset the More button's active state when switching to a primary tab.
-  // Primary in production: cabinets + ground only. Everything else lives
-  // in the More menu and lights up the ⋯ button when active.
+  // Light the More button when a secondary tab is active.
   const moreBtn = document.getElementById('tab-more-btn');
-  const moreOwnedTabs = ['lookup','schedule','prepack','pack','items','cycle','barcodes','log','export','recount'];
+  const moreOwnedTabs = ['lookup','schedule','prepack','pack','items','ground','cycle','barcodes','log','export','recount'];
   if (moreBtn) moreBtn.classList.toggle('active', moreOwnedTabs.indexOf(name) >= 0);
   if (name==='export') renderExport();
   if (name==='log') renderLog();
@@ -26242,7 +26257,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // v10.776 — added items-v2 (Stock 2.0) + orders (current home tab) so
   // refresh keeps you where you were. Without this, Stock 2 → refresh
   // bounced back to Cabinets.
-  const validTabs = ['scan','prepack','pack','schedule','lookup','cabinets','items','items-v2','orders','ground','cycle','barcodes','log','export'];
+  const validTabs = ['scan','prepack','pack','schedule','lookup','cabinets','items','items-v2','orders','stack','ground','cycle','barcodes','log','export'];
   if (savedTab && validTabs.indexOf(savedTab) >= 0 && savedTab !== 'cabinets') {
     if (typeof switchTab === 'function') switchTab(savedTab);
   } else {
@@ -38692,7 +38707,7 @@ startAutoSync();
      esc, showToast, switchTab, etc.) are already defined. Cache-bust
      via the ?v= query so service-worker / GH Pages don't serve stale
      copies after a deploy. -->
-<script src="./pack.js?v=10.1529"></script>
+<script src="./pack.js?v=10.1530"></script>
 
 <!-- Version chip — fixed bottom-right. Sized + opaque enough to be
      instantly readable while refreshing during development, but still
@@ -38703,7 +38718,7 @@ startAutoSync();
      basic config. -->
 <!-- v10.345 — dev chrome hidden by default (warehouse staff don't need to
      see version/dev/stable info). Long-press the BED ROCK logo to toggle. -->
-<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1529<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
+<div id="versionPill" onclick="openSystemStatus()" style="display:none;position:fixed;right:8px;bottom:6px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(0,0,0,.55);padding:4px 10px;border-radius:6px;letter-spacing:.5px;cursor:pointer;z-index:9990;border:1px solid rgba(255,255,255,.15)" title="Tap for system status">v10.1530<span id="devModeChip" style="display:none;margin-left:6px;background:linear-gradient(135deg,#FF9100,#FF6B00);color:#1a1a1a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif">DEV</span><span id="stableAgeChip" style="display:none;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:900;letter-spacing:1px;font-family:Helvetica,Arial,sans-serif"></span><span id="versionPillBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ff5252;color:#fff;font-size:10px;font-weight:900;width:18px;height:18px;border-radius:50%;text-align:center;line-height:18px;border:2px solid #000;box-shadow:0 0 6px rgba(255,82,82,.6);font-family:Helvetica,Arial,sans-serif"></span></div>
 <script>
   // v9.95: light up the DEV chip on the version pill when we're on
   // the dev orchestrator URL. Lets Zac (and anyone else) see at a
