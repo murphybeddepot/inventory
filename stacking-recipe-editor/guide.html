@@ -555,9 +555,10 @@ $('btnReset').onclick=()=>{
 
 /* ---------- ORDER-CONTEXT BOOT (v3.13) ---------- */
 
-async function bootReleasedOrder(orderNumber){
-  S.orderNumber = orderNumber;
-  $('skuLabel').textContent = 'Order #' + orderNumber;
+async function bootReleasedOrder(number, stock = false){
+  S.orderNumber = stock ? 'stock:' + number : number;
+  const label = stock ? number : 'Order #' + number;
+  $('skuLabel').textContent = label;
   const back = $('guideBack');
   back.href = '../';
   back.title = 'Back to Bedrock';
@@ -565,14 +566,14 @@ async function bootReleasedOrder(orderNumber){
   state.textContent = 'Loading released stacking recipe…';
   try {
     const url = new URL('https://mbd-label-stamper.murphybeddepot.workers.dev/production/stacking-guide');
-    url.searchParams.set('order', orderNumber);
+    url.searchParams.set(stock ? 'stock' : 'order', number);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     const response = await fetch(url, {cache:'no-store', signal:controller.signal}).finally(() => clearTimeout(timeout));
     if(!response.ok) throw new Error('Recipe lookup failed');
     const {recipes, missing} = await response.json();
     if(!recipes.length){
-      state.textContent = 'No released stacking recipe for this order.';
+      state.textContent = 'No released stacking recipe for this ' + (stock ? 'stock job.' : 'order.');
       return;
     }
     const picker = $('releasedRecipePicker');
@@ -587,7 +588,7 @@ async function bootReleasedOrder(orderNumber){
     const show = recipe => {
       S.release = recipe;
       S.sku = recipe.job;
-      $('skuLabel').textContent = 'Order #' + orderNumber;
+      $('skuLabel').textContent = label;
       $('skuLabel').title = recipe.job;
       const drawing = $('releasedDrawing');
       drawing.href = new URL(recipe.pdf, url);
@@ -712,6 +713,8 @@ window.addEventListener('resize', ()=>{if(S.snapshot)renderAll();});
   const qs=new URLSearchParams(location.search);
   const order=qs.get('order');
   const sku=qs.get('sku');
+  const stock=qs.get('stock');
+  if(stock && !order && !sku){ bootReleasedOrder(stock.trim().toUpperCase(), true); return; }
   if(order && !sku){ bootReleasedOrder(order.trim().replace(/^#/, '')); return; }
   if(order){ bootWithOrder(order, sku); return; }
   if(sku){ loadRecipe(sku); return; }
