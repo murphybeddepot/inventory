@@ -66,6 +66,19 @@
   header .badge.on{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff}
   header a.back{color:var(--ink3);text-decoration:none;font-size:20px;padding:6px 10px}
   header a.back:hover{color:var(--ink)}
+  #releasedRecipePicker{max-width:22ch;background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line2);border-radius:8px;padding:8px;font:inherit}
+  #layerNotes{padding:0 24px 12px;text-align:center;color:var(--ink2);font-size:13px;
+    overflow:auto;max-height:18vh}
+  @media(max-width:850px){
+    header,footer{gap:8px;flex-wrap:wrap;padding:8px 12px}
+    header .brand{font-size:14px}
+    header .sku{font-size:18px}
+    header .badge{padding:6px 8px}
+    footer button{min-width:0;min-height:44px;padding:8px 10px;font-size:15px}
+    footer .stat .num{font-size:22px}
+    .stage{padding:8px}
+  }
 
   /* Progress bar under header */
   .progressbar{height:6px;background:var(--panel2);flex:0 0 auto;position:relative}
@@ -130,9 +143,10 @@
 <body>
 <div id="app">
   <header>
-    <a href="./" class="back" title="Back to Stacking Recipe Editor">‹</a>
+    <a href="./" class="back" id="guideBack" title="Back to Stacking Recipe Editor">‹</a>
     <span class="brand">Stacker Guide</span>
     <span class="sku" id="skuLabel">—</span>
+    <select id="releasedRecipePicker" aria-label="Production job" hidden></select>
     <span class="spacer"></span>
     <span class="badge" id="layerBadge">Layer — / —</span>
     <span class="badge" id="progressBadge">0 / 0 in place</span>
@@ -147,12 +161,13 @@
         <div class="hint">Or return to the <a href="./">Recipe Editor</a>.</div>
       </div>
     </div>
+    <div id="layerNotes" hidden></div>
   </main>
   <footer>
     <div class="stat"><span class="num" id="layerNum">—</span><span class="lbl">Layer</span></div>
     <div class="stat"><span class="num" id="layerParts">—</span><span class="lbl">Parts</span></div>
     <span class="spacer"></span>
-    <button id="btnReset" title="Clear all in-place marks for this recipe">Reset</button>
+    <button id="btnReset" title="Clear all in-place marks for this recipe" disabled>Reset</button>
     <button id="btnPrev" disabled>← Prev Layer</button>
     <button id="btnComplete" class="success" disabled>Layer Complete →</button>
     <button id="btnNext" class="primary" disabled>Next Layer →</button>
@@ -181,6 +196,7 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 const S={
   sku:null,
   orderNumber:null,       // v3.13: when opened via ?order=N, progress keys by order
+  release:null,
   snapshot:null,          // the loaded recipe snapshot
   activeLayerIdx:0,
   inPlace:new Set(),      // "layerIdx:partIdx" keys of parts marked in-place
@@ -191,7 +207,7 @@ const S={
    sharing a recipe don't collide. Falls back to SKU-scoped for the
    standalone `?sku=X` case. */
 const PROGRESS_KEY = () => S.orderNumber
-  ? ('mbd_stacking_guide_order:' + S.orderNumber)
+  ? ('mbd_stacking_guide_order:' + S.orderNumber + (S.release ? ':' + S.release.job + ':' + S.release.digest : ''))
   : ('mbd_stacking_guide:' + S.sku);
 function saveProgress(){
   if(!S.sku && !S.orderNumber) return;
@@ -367,6 +383,7 @@ function renderAll(){
   $('progressFill').style.width=(globalPlaced*100/globalTotal)+'%';
 
   $('btnPrev').disabled = li<=0;
+  $('btnReset').disabled = false;
   $('btnNext').disabled = li>=totalLayers-1;
   $('btnComplete').disabled = !(inPlaceThisLayer===total && total>0);
 
@@ -382,6 +399,10 @@ function renderStage(layer){
   const stage=$('stage');
   stage.innerHTML='';
   const snap=S.snapshot;
+  if(S.release){
+    renderReleasedLayer(stage, S.release.guide.layers[S.activeLayerIdx]);
+    return;
+  }
   const foot=snap.foot||{L:1994,W:991};
   const pal=snap.pal||{L:2032,W:1092};
 
@@ -463,6 +484,38 @@ function renderStage(layer){
   stage.appendChild(svg);
 }
 
+function renderReleasedLayer(stage, layer){
+  const [width, height] = layer.size;
+  const svg = svgel('svg', {width:'100%', height:'100%', viewBox:'-2 -2 '+(width+4)+' '+(height+4),
+    role:'group', 'aria-label':'Tap each part as it goes in place'});
+  svg.appendChild(svgel('rect', {x:0, y:0, width, height, class:'pallet-outline'}));
+  layer.parts.forEach((part, index) => {
+    const key = S.activeLayerIdx + ':' + index;
+    const placed = S.inPlace.has(key);
+    const shape = svgel('polygon', {points:part.outline.map(point => point.join(',')).join(' '),
+      class:'part-shape', tabindex:0, role:'button', 'aria-label':part.label, 'aria-pressed':placed});
+    shape.style.fill = placed ? '#1fb063' : part.fill;
+    shape.style.stroke = '#27313e';
+    shape.style.strokeWidth = 0.9;
+    shape.addEventListener('click', () => togglePart(key));
+    shape.addEventListener('keydown', event => {
+      if(event.key === 'Enter' || event.key === ' '){event.preventDefault();togglePart(key);}
+    });
+    svg.appendChild(shape);
+    const [x, y] = part.at;
+    const label = svgel('text', {x, y, class:'part-label', 'font-size':Math.max(8, Math.min(16, height * 0.045))});
+    label.style.fill = '#101317';
+    label.style.stroke = 'white';
+    label.style.strokeWidth = 2.4;
+    label.style.paintOrder = 'stroke';
+    label.textContent = (placed ? '✓ ' : '') + part.label;
+    svg.appendChild(label);
+  });
+  stage.appendChild(svg);
+  $('layerNotes').hidden = !layer.notes.length;
+  $('layerNotes').textContent = layer.notes.join('  ');
+}
+
 function togglePart(key){
   if(S.inPlace.has(key)) S.inPlace.delete(key); else S.inPlace.add(key);
   saveProgress();
@@ -480,8 +533,12 @@ $('btnNext').onclick=()=>{
 $('btnComplete').onclick=()=>{
   const layers=S.snapshot?.layers||[];
   const li=S.activeLayerIdx;
+  const recipe = S.snapshot;
   toast('Layer '+(li+1)+' complete!');
-  if(li<layers.length-1){setTimeout(()=>{S.activeLayerIdx++; saveProgress(); renderAll();}, 800);}
+  if(li<layers.length-1){setTimeout(()=>{
+    if(S.snapshot !== recipe || S.activeLayerIdx !== li) return;
+    S.activeLayerIdx++; saveProgress(); renderAll();
+  }, 800);}
   else{setTimeout(()=>toast('Stack complete!'), 900);}
 };
 $('btnReset').onclick=()=>{
@@ -495,6 +552,53 @@ $('btnReset').onclick=()=>{
 };
 
 /* ---------- ORDER-CONTEXT BOOT (v3.13) ---------- */
+
+async function bootReleasedOrder(orderNumber){
+  S.orderNumber = orderNumber;
+  $('skuLabel').textContent = 'Order #' + orderNumber;
+  const back = $('guideBack');
+  back.href = '../';
+  back.title = 'Back to Bedrock';
+  const state = $('emptyState');
+  state.textContent = 'Loading released stacking recipe…';
+  try {
+    const url = new URL('https://mbd-label-stamper.murphybeddepot.workers.dev/production/stacking-guide');
+    url.searchParams.set('order', orderNumber);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch(url, {cache:'no-store', signal:controller.signal}).finally(() => clearTimeout(timeout));
+    if(!response.ok) throw new Error('Recipe lookup failed');
+    const {recipes, missing} = await response.json();
+    if(!recipes.length){
+      state.textContent = 'No released stacking recipe for this order.';
+      return;
+    }
+    const picker = $('releasedRecipePicker');
+    picker.title = 'Production job';
+    for(const recipe of recipes) picker.add(new Option(recipe.job));
+    picker.hidden = recipes.length === 1 && !missing;
+    if(missing){
+      const unavailable = new Option(missing + ' assigned job' + (missing === 1 ? '' : 's') + ' without a released recipe');
+      unavailable.disabled = true;
+      picker.add(unavailable);
+    }
+    const show = recipe => {
+      S.release = recipe;
+      S.sku = recipe.job;
+      $('skuLabel').textContent = 'Order #' + orderNumber;
+      $('skuLabel').title = recipe.job;
+      S.snapshot = {layers:recipe.guide.layers.map(layer => layer.parts)};
+      S.activeLayerIdx = 0;
+      S.inPlace.clear();
+      restoreProgress();
+      renderAll();
+    };
+    picker.addEventListener('change', () => show(recipes[picker.selectedIndex]));
+    show(recipes[0]);
+  } catch(error) {
+    state.textContent = 'Could not load the stacking recipe. Reopen Stack to try again.';
+  }
+}
 
 // When opened with ?order=N, look up the assigned recipe SKU in
 // orders_spine, then load that recipe. Progress persists per-order.
@@ -603,6 +707,7 @@ window.addEventListener('resize', ()=>{if(S.snapshot)renderAll();});
   const qs=new URLSearchParams(location.search);
   const order=qs.get('order');
   const sku=qs.get('sku');
+  if(order && !sku){ bootReleasedOrder(order); return; }
   if(order){ bootWithOrder(order, sku); return; }
   if(sku){ loadRecipe(sku); return; }
 })();
