@@ -10,7 +10,7 @@ export function explicitDrillFrameCW(p) {
   const value=p?.drillFrameCW ?? p?.geometry?.drillFrameCW;
   if(value===undefined || value===null)return undefined;
   const n=Number(value);
-  if(n!==0 && n!==90)throw Error('Unsupported explicit drill frame; expected verified CW 0 or 90.');
+  if(![0,90,180,270].includes(n))throw Error('Unsupported explicit drill frame; expected a verified CW quarter turn.');
   return n;
 }
 function frameCW(p) {
@@ -18,6 +18,7 @@ function frameCW(p) {
   return explicit===undefined ? (Number(p?.w??p?.W)>Number(p?.l??p?.L)?270:0) : explicit;
 }
 function framePoints(l,w,cw) {
+  if(cw===180)return {L:l,W:w,toDrill:([x,y])=>[l-x,w-y],fromDrill:([x,y])=>[l-x,w-y]};
   if(cw===90)return {L:w,W:l,toDrill:([x,y])=>[y,l-x],fromDrill:([x,y])=>[l-y,x]};
   if(cw===270)return {L:w,W:l,toDrill:([x,y])=>[w-y,x],fromDrill:([x,y])=>[y,w-x]};
   return {L:l,W:w,toDrill:p=>p,fromDrill:p=>p};
