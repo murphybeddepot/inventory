@@ -96,6 +96,7 @@ body{font-family:'Barlow',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
 .tab-btn.active{color:var(--green-bright);border-bottom-color:var(--green-bright);text-shadow:0 0 10px rgba(0,230,118,.45);background:linear-gradient(180deg,rgba(0,230,118,.08),transparent)}
 .panel{display:none;padding:14px}
 .stack-lookup{max-width:52rem;margin:16px auto;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.stack-desk-link{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:20px;text-decoration:none}
 .stack-lookup label{display:block;font-size:16px;font-weight:700;margin-bottom:8px}
 .stack-lookup-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
 .stack-lookup input{flex:1;min-width:9rem;min-height:48px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);font:inherit;font-size:18px}
@@ -2877,6 +2878,7 @@ input::placeholder, textarea::placeholder {
 
 <div id="tab-stack" class="panel" aria-labelledby="tab-stack-btn">
   <div class="stack-lookup">
+    <a class="amp-btn stack-desk-link" href="https://mbd-label-stamper.murphybeddepot.workers.dev/production-desk/">Production Desk <span aria-hidden="true">&rarr;</span></a>
     <label for="stackSearch">Find an order or stock job</label>
     <div class="stack-lookup-row">
       <input id="stackSearch" type="search" oninput="renderStackList()" placeholder="Order #, J number or job code" autocomplete="off" autocapitalize="characters" spellcheck="false">
