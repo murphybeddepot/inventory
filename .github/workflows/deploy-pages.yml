@@ -9,7 +9,7 @@ name: deploy-pages
 # the checks were still running.
 #
 # AFTER: Pages build_type is "workflow", so this file is the only path to
-# production. `deploy` declares `needs: validate`, which makes the dependency
+# production. `prepare` requires validation and `deploy` requires its completed artifact, making the dependency
 # real — a parse error in an inline <script> now stops publication instead of
 # white-screening the app and telling us afterwards.
 #
@@ -46,13 +46,10 @@ jobs:
   validate:
     uses: ./.github/workflows/_validate.yml
 
-  deploy:
-    name: publish to Pages
+  prepare:
+    name: Prepare validated Pages artifact
     needs: validate
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,6 +64,14 @@ jobs:
           # stacking-recipe-editor/ subtree are all live URLs.
           path: .
 
+  deploy:
+    name: publish to Pages
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
