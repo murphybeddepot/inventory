@@ -282,6 +282,7 @@ select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6
   <button id="moveMore" title="Choose any sheet (M)">Move… M</button></div>
 <footer id="foot"></footer>
 <script type="module">
+import { cornerViolations } from './js/placement_rules.mjs';
 import { nestByLayer, partBox, smallPartBuffer, partGap, violates, nestViolations, crossGrainFor, NEST_DEFAULTS, packSingleSheet, shuffleForScrap, CROSS_GRAIN_CODES, grainRotations, nextNestRotation, assertNestRotations, packForVacuum } from './js/nest.mjs?v=4.69';
 import { loadMaterials, saveMaterials, normalize as normMat, nestOptsFor, describe as describeMat,
          fromMM, toMM } from './js/materials.mjs?v=4.69';
@@ -1643,7 +1644,12 @@ $('back').onclick = () => { stash(); location.href = './index.html'; };
 // avoid!") — the red outline was already there and a bad nest still reached the
 // machine. Its own function so the Save handler stays short.
 function blockedByTooClose() {
-  const bad = nestViolations(nest);
+  const sources=resolveNestGeometry(nest,recipe.parts,p=>p.src?CRATE_BY_KEY.get(p.src):null);
+  const checked={...nest,sheets:nest.sheets.map(sheet=>({...sheet,placements:sheet.placements.map(p=>({...p,geometry:sources.get(p)??p.geometry}))}))};
+  const bad = nestViolations(checked);
+  for(const [i,sheet] of checked.sheets.entries()){
+    bad.push(...cornerViolations(sheet.placements,nest).map(v=>({...v,sheet:i+1})));
+  }
   if (!bad.length) { $('hint').textContent = ''; $('apply').textContent = 'Save for this material \u2192'; return false; }
   // A REFUSAL MUST OUTLIVE THE DIALOG. Zac 2026-09-01 saved a Monaco nest three
   // times, exported, and got none of his moves: each save was refused for

@@ -1,5 +1,6 @@
 // All coordinates here use the nest/editor frame: x right, y UP.
 // Placement changes translate parts; they never mirror a shape or rotate drilling.
+import { anchorCandidates } from './placement_rules.mjs';
 export function makePolicy({partBox, smallPartBuffer, nestViolations, packSingleSheet, defaults}) {
   const config = o => ({...defaults,...o});
   const product = p => !p.salvage && !p.remnant;
@@ -63,10 +64,10 @@ export function makePolicy({partBox, smallPartBuffer, nestViolations, packSingle
     // turn a saved remnant into an unrecorded machining move.
     if(ps.some(p=>!product(p)))return ps;
     const large=ps.filter(p=>product(p)&&Math.min(p.l,p.w)>=177.8&&p.l*p.w>=140000);
-    const largest=Math.max(0,...large.map(p=>p.l*p.w));
+
     const anchor=c=>{
-      if(o.vacuumProfile!=='2026.09.18.1'||!largest)return 0;
-      return Math.min(...c.filter(p=>product(p)&&p.l*p.w===largest).map(p=>{
+      if(o.vacuumProfile!=='2026.09.18.1'||!large.length)return 0;
+      return Math.min(...anchorCandidates(c).map(p=>{
         const [,right,bottom]=partBox(p);
         return (o.sheetL-o.edge-right)**2+(bottom-o.edge)**2;
       }));
@@ -84,7 +85,7 @@ export function makePolicy({partBox, smallPartBuffer, nestViolations, packSingle
     // The whole-group arrangement may improve small-part positions while
     // leaving a large bottom panel short of the right edge. Close that margin
     // by translating the panel alone only if every actual clearance is legal.
-    for(const p of [...best].filter(p=>product(p)&&p.l*p.w===largest)){
+    for(const p of anchorCandidates(best)){
       const [left,right,bottom,top]=partBox(p);
       consider(best.map(q=>q===p?{...q,x:o.sheetL-o.edge-(right-left),y:o.edge}:q));
     }
